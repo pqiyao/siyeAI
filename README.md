@@ -6,6 +6,28 @@
 
 > 当前仓库为 H5 前端展示版，不包含完整商业后端、管理后台、数据库、模型服务和正式部署脚本。
 
+## Preview
+
+### H5 用户端
+
+| 角色广场 | 角色详情 | 聊天页面 |
+| --- | --- | --- |
+| ![H5 Preview 01](screenshots/h5/h5-01.png) | ![H5 Preview 02](screenshots/h5/h5-02.png) | ![H5 Preview 03](screenshots/h5/h5-03.png) |
+
+| 用户中心 | 角色创建 | 客服反馈 |
+| --- | --- | --- |
+| ![H5 Preview 04](screenshots/h5/h5-04.png) | ![H5 Preview 05](screenshots/h5/h5-05.png) | ![H5 Preview 06](screenshots/h5/h5-06.png) |
+
+### 管理后台展示
+
+完整商业系统可配套管理后台，用于角色管理、审核、运营配置、用户管理和系统维护。
+
+| 后台概览 | 角色管理 | 系统配置 |
+| --- | --- | --- |
+| ![Admin Preview 01](screenshots/admin/admin-01.png) | ![Admin Preview 02](screenshots/admin/admin-02.png) | ![Admin Preview 03](screenshots/admin/admin-03.png) |
+
+更多截图可查看 `screenshots/` 目录。
+
 ## 项目定位
 
 AI Character Chat H5 是一个面向移动端的 AI 角色聊天用户端界面项目。

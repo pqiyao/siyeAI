@@ -6,6 +6,11 @@
 
 > 当前仓库为 H5 前端展示版，不包含完整商业后端、管理后台、数据库、模型服务和正式部署脚本。
 
+## 项目地址
+
+- GitHub 仓库：https://github.com/pqiyao/siyeAI
+- 在线体验：https://siyeai.pengqiyao.cn/
+
 ## Preview
 
 ### H5 用户端

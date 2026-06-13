@@ -1,0 +1,129 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-silly_app}
+      MYSQL_USER: ${MYSQL_USER:-silly}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  sillytavern:
+    image: ghcr.io/sillytavern/sillytavern:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      FORCE_COLOR: 1
+      SILLYTAVERN_HEARTBEATINTERVAL: 30
+    volumes:
+      - st-config:/home/node/app/config
+      - st-data:/home/node/app/data
+      - st-plugins:/home/node/app/plugins
+      - st-extensions:/home/node/app/public/scripts/extensions/third-party
+      - ../integrations/st-memory-enhancement:/home/node/app/public/scripts/extensions/third-party/st-memory-enhancement:ro
+      - ./st/config.yaml:/home/node/app/config/config.yaml:ro
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "node", "src/healthcheck.js"]
+      interval: 20s
+      timeout: 10s
+      start_period: 90s
+      retries: 6
+
+  backend:
+    build:
+      context: ../backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sillytavern:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-silly_app}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-silly}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      APP_AUTH_SECRET: ${APP_AUTH_SECRET}
+      APP_RUOYI_ADMIN_USERNAME: ${APP_RUOYI_ADMIN_USERNAME:-admin}
+      APP_RUOYI_ADMIN_PASSWORD: ${APP_RUOYI_ADMIN_PASSWORD}
+      APP_RUOYI_JWT_SECRET: ${APP_RUOYI_JWT_SECRET}
+      APP_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS}
+      APP_CHAT_GLOBAL_CONCURRENT_LIMIT: ${APP_CHAT_GLOBAL_CONCURRENT_LIMIT:-8}
+      APP_CHAT_PER_USER_CONCURRENT_LIMIT: ${APP_CHAT_PER_USER_CONCURRENT_LIMIT:-1}
+      APP_CHAT_GENERATION_WORKER_THREADS: ${APP_CHAT_GENERATION_WORKER_THREADS:-8}
+      APP_CHAT_GENERATION_QUEUE_CAPACITY: ${APP_CHAT_GENERATION_QUEUE_CAPACITY:-64}
+      APP_CHAT_GENERATION_TIMEOUT_SECONDS: ${APP_CHAT_GENERATION_TIMEOUT_SECONDS:-120}
+      APP_UPLOAD_DIR: /app/data/uploads
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-28MB}
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:-30MB}
+      SILLYTAVERN_BASE_URL: http://sillytavern:8000
+      SILLYTAVERN_PUBLIC_BASE_URL: ${SILLYTAVERN_PUBLIC_BASE_URL}
+      SILLYTAVERN_LOCAL_DATA_DIR: /srv/st-data
+      SILLYTAVERN_ASSET_CACHE_DIR: /app/data/st-asset-cache
+      SILLYTAVERN_API_KEY: ${SILLYTAVERN_API_KEY}
+    volumes:
+      - uploads:/app/data/uploads
+      - st-asset-cache:/app/data/st-asset-cache
+      - st-data:/srv/st-data:ro
+    ports:
+      - "8080:8080"
+
+  admin-web:
+    build:
+      context: ../admin-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    volumes:
+      - uploads:/srv/uploads:ro
+    ports:
+      - "8081:80"
+
+  h5-web:
+    build:
+      context: ../h5-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    volumes:
+      - uploads:/srv/uploads:ro
+      - st-data:/srv/st-data:ro
+    ports:
+      - "8082:80"
+
+volumes:
+  mysql-data:
+  redis-data:
+  uploads:
+  st-asset-cache:
+  st-config:
+  st-data:
+  st-plugins:
+  st-extensions:

@@ -1,0 +1,220 @@
+app:
+  environment: ${APP_ENV:dev}
+  flyway:
+    legacy-baseline-version: ${APP_FLYWAY_LEGACY_BASELINE_VERSION:14}
+    history-table: ${APP_FLYWAY_HISTORY_TABLE:flyway_schema_history}
+  ruoyi-admin:
+    username: ${APP_RUOYI_ADMIN_USERNAME:admin}
+    nick-name: ${APP_RUOYI_ADMIN_NICK_NAME:酒馆运营后台}
+    encoded-password: ${APP_RUOYI_ADMIN_PASSWORD}
+    role: ${APP_RUOYI_ADMIN_ROLE:super-admin}
+    jwt-secret: ${APP_RUOYI_JWT_SECRET}
+    jwt-expire-hours: ${APP_RUOYI_JWT_EXPIRE_HOURS:720}
+    captcha-enabled: false
+  memory:
+    llm-enabled: ${APP_MEMORY_LLM_ENABLED:true}
+    max-messages: ${APP_MEMORY_MAX_MESSAGES:80}
+    max-transcript-chars: ${APP_MEMORY_MAX_TRANSCRIPT_CHARS:14000}
+    fallback-to-heuristic: ${APP_MEMORY_FALLBACK_HEURISTIC:true}
+  cors:
+    allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
+  auth:
+    secret: ${APP_AUTH_SECRET}
+    token-ttl-seconds: ${APP_TOKEN_TTL_SECONDS:2592000}
+  chat:
+    global-concurrent-limit: ${APP_CHAT_GLOBAL_CONCURRENT_LIMIT:8}
+    per-user-concurrent-limit: ${APP_CHAT_PER_USER_CONCURRENT_LIMIT:1}
+    counter-ttl-seconds: ${APP_CHAT_COUNTER_TTL_SECONDS:300}
+    generation-worker-threads: ${APP_CHAT_GENERATION_WORKER_THREADS:8}
+    generation-queue-capacity: ${APP_CHAT_GENERATION_QUEUE_CAPACITY:64}
+    max-queue-wait-seconds: ${APP_CHAT_MAX_QUEUE_WAIT_SECONDS:60}
+    sse-timeout-seconds: ${APP_CHAT_SSE_TIMEOUT_SECONDS:600}
+    generation-timeout-seconds: ${APP_CHAT_GENERATION_TIMEOUT_SECONDS:120}
+  image-generation:
+    engine: ${APP_IMAGE_GENERATION_ENGINE:user_openai_compatible}
+    global-concurrent-limit: ${APP_IMAGE_GENERATION_GLOBAL_CONCURRENT_LIMIT:2}
+    per-user-concurrent-limit: ${APP_IMAGE_GENERATION_PER_USER_CONCURRENT_LIMIT:1}
+    counter-ttl-seconds: ${APP_IMAGE_GENERATION_COUNTER_TTL_SECONDS:600}
+    managed-openai-compatible:
+      provider-source: ${APP_IMAGE_GENERATION_MANAGED_PROVIDER_SOURCE:siliconflow}
+      image-model-name: ${APP_IMAGE_GENERATION_MANAGED_IMAGE_MODEL:}
+      api-key: ${APP_IMAGE_GENERATION_MANAGED_API_KEY:}
+      custom-url: ${APP_IMAGE_GENERATION_MANAGED_CUSTOM_URL:}
+    st-comfy:
+      comfy-url: ${APP_IMAGE_GENERATION_COMFY_URL:http://127.0.0.1:8188}
+      workflow: ${APP_IMAGE_GENERATION_COMFY_WORKFLOW:Default_Comfy_Workflow.json}
+      reference-workflow: ${APP_IMAGE_GENERATION_COMFY_REFERENCE_WORKFLOW:Char_Avatar_Comfy_Workflow.json}
+      model: ${APP_IMAGE_GENERATION_COMFY_MODEL:}
+      sampler: ${APP_IMAGE_GENERATION_COMFY_SAMPLER:euler}
+      scheduler: ${APP_IMAGE_GENERATION_COMFY_SCHEDULER:normal}
+      negative-prompt: ${APP_IMAGE_GENERATION_NEGATIVE_PROMPT:low quality, blurry, bad anatomy, extra fingers, watermark, text}
+      steps: ${APP_IMAGE_GENERATION_STEPS:28}
+      scale: ${APP_IMAGE_GENERATION_SCALE:7.0}
+      seed: ${APP_IMAGE_GENERATION_SEED:-1}
+      denoise: ${APP_IMAGE_GENERATION_DENOISE:1.0}
+      request-timeout: ${APP_IMAGE_GENERATION_REQUEST_TIMEOUT:90s}
+  api-rate-limit:
+    enabled: ${APP_API_RATE_LIMIT_ENABLED:true}
+    window-seconds: ${APP_API_RATE_LIMIT_WINDOW_SECONDS:60}
+    max-requests-per-window: ${APP_API_RATE_LIMIT_MAX_REQUESTS:180}
+  social-upload-rate-limit:
+    enabled: ${APP_SOCIAL_UPLOAD_RATE_LIMIT_ENABLED:true}
+    upload:
+      window-seconds: ${APP_UPLOAD_RATE_LIMIT_WINDOW_SECONDS:60}
+      max-requests: ${APP_UPLOAD_RATE_LIMIT_MAX_REQUESTS:12}
+    upload-total:
+      window-seconds: ${APP_UPLOAD_TOTAL_RATE_LIMIT_WINDOW_SECONDS:300}
+      max-requests: ${APP_UPLOAD_TOTAL_RATE_LIMIT_MAX_REQUESTS:40}
+    social-write:
+      window-seconds: ${APP_SOCIAL_WRITE_RATE_LIMIT_WINDOW_SECONDS:60}
+      max-requests: ${APP_SOCIAL_WRITE_RATE_LIMIT_MAX_REQUESTS:30}
+    social-write-total:
+      window-seconds: ${APP_SOCIAL_WRITE_TOTAL_RATE_LIMIT_WINDOW_SECONDS:300}
+      max-requests: ${APP_SOCIAL_WRITE_TOTAL_RATE_LIMIT_MAX_REQUESTS:120}
+    gateway-upload:
+      window-seconds: ${APP_GATEWAY_UPLOAD_RATE_LIMIT_WINDOW_SECONDS:60}
+      max-requests: ${APP_GATEWAY_UPLOAD_RATE_LIMIT_MAX_REQUESTS:30}
+    gateway-upload-total:
+      window-seconds: ${APP_GATEWAY_UPLOAD_TOTAL_RATE_LIMIT_WINDOW_SECONDS:300}
+      max-requests: ${APP_GATEWAY_UPLOAD_TOTAL_RATE_LIMIT_MAX_REQUESTS:100}
+    gateway-social-write:
+      window-seconds: ${APP_GATEWAY_SOCIAL_WRITE_RATE_LIMIT_WINDOW_SECONDS:60}
+      max-requests: ${APP_GATEWAY_SOCIAL_WRITE_RATE_LIMIT_MAX_REQUESTS:120}
+    gateway-social-write-total:
+      window-seconds: ${APP_GATEWAY_SOCIAL_WRITE_TOTAL_RATE_LIMIT_WINDOW_SECONDS:300}
+      max-requests: ${APP_GATEWAY_SOCIAL_WRITE_TOTAL_RATE_LIMIT_MAX_REQUESTS:300}
+    websocket-handshake:
+      window-seconds: ${APP_WS_HANDSHAKE_RATE_LIMIT_WINDOW_SECONDS:60}
+      max-requests: ${APP_WS_HANDSHAKE_RATE_LIMIT_MAX_REQUESTS:20}
+  websocket:
+    allowed-origin-patterns: ${APP_WS_ALLOWED_ORIGIN_PATTERNS:}
+    allow-missing-origin: ${APP_WS_ALLOW_MISSING_ORIGIN:false}
+    require-handshake-token: ${APP_WS_REQUIRE_HANDSHAKE_TOKEN:true}
+  payment:
+    mock:
+      enabled: ${APP_PAYMENT_MOCK_ENABLED:true}
+      allow-in-prod: ${APP_PAYMENT_MOCK_ALLOW_IN_PROD:false}
+    wechat-h5:
+      enabled: ${APP_PAYMENT_WECHAT_H5_ENABLED:false}
+      app-id: ${APP_PAYMENT_WECHAT_H5_APP_ID:}
+      merchant-id: ${APP_PAYMENT_WECHAT_H5_MERCHANT_ID:}
+      api-v3-key: ${APP_PAYMENT_WECHAT_H5_API_V3_KEY:}
+      merchant-serial-number: ${APP_PAYMENT_WECHAT_H5_MERCHANT_SERIAL_NO:}
+      private-key-pem: ${APP_PAYMENT_WECHAT_H5_PRIVATE_KEY_PEM:}
+      private-key-path: ${APP_PAYMENT_WECHAT_H5_PRIVATE_KEY_PATH:}
+      notify-url: ${APP_PAYMENT_WECHAT_H5_NOTIFY_URL:}
+      api-base-url: ${APP_PAYMENT_WECHAT_H5_API_BASE_URL:https://api.mch.weixin.qq.com}
+      h5-type: ${APP_PAYMENT_WECHAT_H5_TYPE:Wap}
+    alipay-wap:
+      enabled: ${APP_PAYMENT_ALIPAY_WAP_ENABLED:false}
+      app-id: ${APP_PAYMENT_ALIPAY_WAP_APP_ID:}
+      private-key-pem: ${APP_PAYMENT_ALIPAY_WAP_PRIVATE_KEY_PEM:}
+      private-key-path: ${APP_PAYMENT_ALIPAY_WAP_PRIVATE_KEY_PATH:}
+      alipay-public-key: ${APP_PAYMENT_ALIPAY_WAP_PUBLIC_KEY:}
+      notify-url: ${APP_PAYMENT_ALIPAY_WAP_NOTIFY_URL:}
+      return-url: ${APP_PAYMENT_ALIPAY_WAP_RETURN_URL:}
+      gateway-url: ${APP_PAYMENT_ALIPAY_WAP_GATEWAY_URL:https://openapi.alipay.com/gateway.do}
+      charset: ${APP_PAYMENT_ALIPAY_WAP_CHARSET:UTF-8}
+      sign-type: ${APP_PAYMENT_ALIPAY_WAP_SIGN_TYPE:RSA2}
+    telegram-stars:
+      enabled: ${APP_PAYMENT_TELEGRAM_STARS_ENABLED:false}
+      bot-username: ${APP_PAYMENT_TELEGRAM_STARS_BOT_USERNAME:}
+      webhook-secret: ${APP_PAYMENT_TELEGRAM_STARS_WEBHOOK_SECRET:}
+      invoice-photo-url: ${APP_PAYMENT_TELEGRAM_STARS_INVOICE_PHOTO_URL:}
+
+telegram:
+  bot-token: ${TELEGRAM_BOT_TOKEN:}
+  auth-max-age-seconds: ${TELEGRAM_AUTH_MAX_AGE_SECONDS:86400}
+
+spring:
+  application:
+    name: SillySpringboot
+  mvc:
+    async:
+      request-timeout: ${SPRING_MVC_ASYNC_REQUEST_TIMEOUT:600s}
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:28MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:30MB}
+  security:
+    user:
+      name: ${SPRING_SECURITY_USER_NAME:phase1-local}
+      password: ${SPRING_SECURITY_USER_PASSWORD:{noop}phase1-local}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/silly_app_social_dev?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:2s}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+  mapper-locations: classpath*:mapper/**/*.xml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  health:
+    redis:
+      enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+logging:
+  pattern:
+    level: "%5p [%X{traceId:-}]"
+
+sillytavern:
+  base-url: ${SILLYTAVERN_BASE_URL:http://127.0.0.1:8000}
+  public-base-url: ${SILLYTAVERN_PUBLIC_BASE_URL:http://127.0.0.1:8000}
+  connect-timeout: 5s
+  read-timeout: 120s
+  asset-cache-dir: ${SILLYTAVERN_ASSET_CACHE_DIR:./data/st-asset-cache}
+  api-key: ${SILLYTAVERN_API_KEY:}
+  prefer-st-preset-params: ${SILLYTAVERN_PREFER_ST_PRESET_PARAMS:true}
+  chat-completion-source: ${SILLYTAVERN_CHAT_COMPLETION_SOURCE:openrouter}
+  default-model: ${SILLYTAVERN_DEFAULT_MODEL:deepseek/deepseek-chat}
+  reverse-proxy: ${SILLYTAVERN_REVERSE_PROXY:}
+  proxy-password: ${SILLYTAVERN_PROXY_PASSWORD:}
+  include-reasoning: ${SILLYTAVERN_INCLUDE_REASONING:true}
+  reasoning-effort: ${SILLYTAVERN_REASONING_EFFORT:}
+  default-avatar-url: ${SILLYTAVERN_DEFAULT_AVATAR_URL:default_Assistant.png}
+  debug:
+    enabled: ${SILLYTAVERN_DEBUG_ENABLED:false}
+    token: ${SILLYTAVERN_DEBUG_TOKEN:}
+    buffer-size: ${SILLYTAVERN_DEBUG_BUFFER_SIZE:10}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+  data:
+    redis:
+      host: ignored
+
+management:
+  health:
+    redis:
+      enabled: false

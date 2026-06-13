@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.mapper.AppVoiceStatEventMapper">
+
+    <insert id="insertEvent">
+        INSERT INTO app_voice_stat_event (
+            user_id,
+            scope,
+            provider_source,
+            model_name,
+            voice_name,
+            template_code,
+            status,
+            event_day,
+            request_fingerprint,
+            text_chars,
+            audio_bytes,
+            latency_ms,
+            cache_hit,
+            duplicate_request,
+            error_code
+        ) VALUES (
+            #{userId},
+            #{scope},
+            #{providerSource},
+            #{modelName},
+            #{voiceName},
+            #{templateCode},
+            #{status},
+            CURDATE(),
+            #{requestFingerprint},
+            #{textChars},
+            #{audioBytes},
+            #{latencyMs},
+            #{cacheHit},
+            #{duplicateRequest},
+            #{errorCode}
+        )
+    </insert>
+
+    <select id="countSuccessfulFingerprint" resultType="long">
+        SELECT COUNT(*)
+        FROM app_voice_stat_event
+        WHERE scope = #{scope}
+          AND status = 'SUCCESS'
+          AND request_fingerprint = #{requestFingerprint}
+    </select>
+</mapper>

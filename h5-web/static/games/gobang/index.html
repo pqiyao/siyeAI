@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<title>五子棋</title>
+	<style>
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+		}
+
+		html,
+		body {
+			width: 100%;
+			min-height: 100%;
+			background: #eef5f7;
+			color: #162033;
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+			overflow-x: hidden;
+		}
+
+		body {
+			min-height: 100vh;
+			min-height: 100svh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 18px 12px;
+		}
+
+		.game {
+			width: min(100%, 720px);
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 14px;
+		}
+
+		.game-bar {
+			width: min(100%, 642px);
+			padding: 12px;
+			border-radius: 18px;
+			background: rgba(255, 255, 255, 0.86);
+			border: 1px solid rgba(129, 161, 176, 0.26);
+			box-shadow: 0 14px 34px rgba(31, 61, 92, 0.13);
+		}
+
+		.game-head {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+		}
+
+		.game-title {
+			min-width: 0;
+		}
+
+		.game-title strong {
+			display: block;
+			font-size: 18px;
+			line-height: 1.2;
+			font-weight: 900;
+			color: #162033;
+		}
+
+		.status {
+			display: block;
+			margin-top: 4px;
+			font-size: 13px;
+			line-height: 1.35;
+			color: #5f7280;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+
+		.restart {
+			width: 82px;
+			height: 38px;
+			border: 0;
+			border-radius: 999px;
+			background: #4f93a3;
+			color: #fff;
+			font-size: 14px;
+			font-weight: 800;
+			cursor: pointer;
+			flex-shrink: 0;
+		}
+
+		.mode-switch {
+			margin-top: 12px;
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 8px;
+			padding: 4px;
+			border-radius: 14px;
+			background: #e9f0f3;
+		}
+
+		.mode-btn {
+			height: 38px;
+			border: 0;
+			border-radius: 11px;
+			background: transparent;
+			color: #647482;
+			font-size: 14px;
+			font-weight: 800;
+			cursor: pointer;
+		}
+
+		.mode-btn.active {
+			background: #ffffff;
+			color: #236f82;
+			box-shadow: 0 8px 18px rgba(42, 88, 100, 0.12);
+		}
+
+		.board-shell {
+			position: relative;
+			width: min(94vw, 642px);
+			aspect-ratio: 1;
+			border-radius: 16px;
+			background: #d8ae72 url("picture/bak.jpg") center / cover no-repeat;
+			border: 1px solid rgba(66, 45, 21, 0.24);
+			box-shadow:
+				0 18px 38px rgba(73, 47, 18, 0.16),
+				inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+			overflow: hidden;
+		}
+
+		#board {
+			display: block;
+			width: 100%;
+			height: 100%;
+			touch-action: none;
+			cursor: pointer;
+		}
+
+		.tip {
+			width: min(100%, 642px);
+			text-align: center;
+			font-size: 12px;
+			line-height: 1.5;
+			color: #6a7a86;
+		}
+
+		@media (max-width: 520px) {
+			body {
+				padding: 12px 10px;
+				align-items: flex-start;
+			}
+
+			.game {
+				gap: 10px;
+			}
+
+			.game-bar {
+				border-radius: 16px;
+			}
+
+			.game-title strong {
+				font-size: 17px;
+			}
+
+			.restart {
+				width: 76px;
+				height: 36px;
+			}
+		}
+	</style>
+</head>
+<body>
+	<main class="game">
+		<section class="game-bar">
+			<div class="game-head">
+				<div class="game-title">
+					<strong>五子棋</strong>
+					<span id="status" class="status">轮到你下黑子</span>
+				</div>
+				<button id="restart" class="restart" type="button">重开</button>
+			</div>
+
+			<div class="mode-switch" aria-label="对战模式">
+				<button id="mode-ai" class="mode-btn active" type="button">人机对战</button>
+				<button id="mode-duo" class="mode-btn" type="button">双人对战</button>
+			</div>
+		</section>
+
+		<section class="board-shell">
+			<canvas id="board" width="640" height="640" aria-label="五子棋棋盘"></canvas>
+		</section>
+
+		<p class="tip">黑子先手。人机模式下你执黑，AI 执白。</p>
+	</main>
+
+	<script>
+		(function () {
+			const BOARD_SIZE = 15;
+			const CELL = 40;
+			const PADDING = 40;
+			const BLACK = 1;
+			const WHITE = 2;
+			const DIRECTIONS = [
+				[1, 0],
+				[0, 1],
+				[1, 1],
+				[1, -1]
+			];
+
+			const canvas = document.getElementById('board');
+			const ctx = canvas.getContext('2d');
+			const statusEl = document.getElementById('status');
+			const restartBtn = document.getElementById('restart');
+			const aiBtn = document.getElementById('mode-ai');
+			const duoBtn = document.getElementById('mode-duo');
+
+			const images = {
+				[BLACK]: new Image(),
+				[WHITE]: new Image()
+			};
+			images[BLACK].src = 'picture/black.png';
+			images[WHITE].src = 'picture/white.png';
+			images[BLACK].onload = draw;
+			images[WHITE].onload = draw;
+
+			let mode = 'ai';
+			let board = createBoard();
+			let currentPlayer = BLACK;
+			let gameOver = false;
+			let aiThinking = false;
+			let lastMove = null;
+
+			function createBoard() {
+				return Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(0));
+			}
+
+			function resetGame() {
+				board = createBoard();
+				currentPlayer = BLACK;
+				gameOver = false;
+				aiThinking = false;
+				lastMove = null;
+				updateModeButtons();
+				updateStatus();
+				draw();
+			}
+
+			function updateModeButtons() {
+				aiBtn.classList.toggle('active', mode === 'ai');
+				duoBtn.classList.toggle('active', mode === 'duo');
+			}
+
+			function updateStatus(text) {
+				if (text) {
+					statusEl.textContent = text;
+					return;
+				}
+				if (gameOver) return;
+				if (mode === 'ai') {
+					statusEl.textContent = aiThinking ? 'AI 正在思考...' : '轮到你下黑子';
+					return;
+				}
+				statusEl.textContent = currentPlayer === BLACK ? '黑子回合' : '白子回合';
+			}
+
+			function draw() {
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				drawGrid();
+				drawPieces();
+				drawLastMove();
+			}
+
+			function drawGrid() {
+				ctx.save();
+				ctx.strokeStyle = 'rgba(49, 36, 21, 0.78)';
+				ctx.lineWidth = 1.2;
+				for (let i = 0; i < BOARD_SIZE; i++) {
+					const p = PADDING + i * CELL;
+					ctx.beginPath();
+					ctx.moveTo(PADDING, p);
+					ctx.lineTo(PADDING + CELL * (BOARD_SIZE - 1), p);
+					ctx.stroke();
+					ctx.beginPath();
+					ctx.moveTo(p, PADDING);
+					ctx.lineTo(p, PADDING + CELL * (BOARD_SIZE - 1));
+					ctx.stroke();
+				}
+
+				const stars = [3, 7, 11];
+				ctx.fillStyle = 'rgba(49, 36, 21, 0.84)';
+				stars.forEach((row) => {
+					stars.forEach((col) => {
+						ctx.beginPath();
+						ctx.arc(PADDING + col * CELL, PADDING + row * CELL, 4, 0, Math.PI * 2);
+						ctx.fill();
+					});
+				});
+				ctx.restore();
+			}
+
+			function drawPieces() {
+				for (let row = 0; row < BOARD_SIZE; row++) {
+					for (let col = 0; col < BOARD_SIZE; col++) {
+						const piece = board[row][col];
+						if (piece) drawPiece(row, col, piece);
+					}
+				}
+			}
+
+			function drawPiece(row, col, piece) {
+				const x = PADDING + col * CELL;
+				const y = PADDING + row * CELL;
+				const img = images[piece];
+				if (img && img.complete && img.naturalWidth) {
+					ctx.drawImage(img, x - 18, y - 18, 36, 36);
+					return;
+				}
+
+				const gradient = ctx.createRadialGradient(x - 7, y - 9, 2, x, y, 18);
+				if (piece === BLACK) {
+					gradient.addColorStop(0, '#5c6370');
+					gradient.addColorStop(1, '#05070a');
+				} else {
+					gradient.addColorStop(0, '#ffffff');
+					gradient.addColorStop(1, '#d7dde5');
+				}
+				ctx.fillStyle = gradient;
+				ctx.beginPath();
+				ctx.arc(x, y, 17, 0, Math.PI * 2);
+				ctx.fill();
+				ctx.strokeStyle = piece === BLACK ? 'rgba(0,0,0,.35)' : 'rgba(120,130,145,.5)';
+				ctx.stroke();
+			}
+
+			function drawLastMove() {
+				if (!lastMove) return;
+				const x = PADDING + lastMove.col * CELL;
+				const y = PADDING + lastMove.row * CELL;
+				ctx.save();
+				ctx.strokeStyle = lastMove.player === BLACK ? '#ffffff' : '#236f82';
+				ctx.lineWidth = 2.5;
+				ctx.beginPath();
+				ctx.arc(x, y, 7, 0, Math.PI * 2);
+				ctx.stroke();
+				ctx.restore();
+			}
+
+			function getBoardPoint(event) {
+				const rect = canvas.getBoundingClientRect();
+				const scaleX = canvas.width / rect.width;
+				const scaleY = canvas.height / rect.height;
+				const x = (event.clientX - rect.left) * scaleX;
+				const y = (event.clientY - rect.top) * scaleY;
+				const col = Math.round((x - PADDING) / CELL);
+				const row = Math.round((y - PADDING) / CELL);
+				if (!inside(row, col)) return null;
+
+				const pointX = PADDING + col * CELL;
+				const pointY = PADDING + row * CELL;
+				if (Math.hypot(x - pointX, y - pointY) > CELL * 0.46) return null;
+				return { row, col };
+			}
+
+			function inside(row, col) {
+				return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
+			}
+
+			function handleInput(event) {
+				event.preventDefault();
+				if (gameOver || aiThinking) return;
+				if (mode === 'ai' && currentPlayer !== BLACK) return;
+
+				const point = getBoardPoint(event);
+				if (!point || board[point.row][point.col] !== 0) return;
+				placeMove(point.row, point.col, currentPlayer);
+			}
+
+			function placeMove(row, col, player) {
+				board[row][col] = player;
+				lastMove = { row, col, player };
+				draw();
+
+				if (isWin(row, col, player)) {
+					gameOver = true;
+					updateStatus(getWinText(player));
+					return;
+				}
+				if (isFull()) {
+					gameOver = true;
+					updateStatus('棋盘已满，平局');
+					return;
+				}
+
+				if (mode === 'ai') {
+					currentPlayer = player === BLACK ? WHITE : BLACK;
+					if (currentPlayer === WHITE) {
+						aiThinking = true;
+						updateStatus();
+						window.setTimeout(aiMove, 260);
+					}
+					return;
+				}
+
+				currentPlayer = player === BLACK ? WHITE : BLACK;
+				updateStatus();
+			}
+
+			function getWinText(player) {
+				if (mode === 'ai') return player === BLACK ? '你赢了' : 'AI 赢了';
+				return player === BLACK ? '黑子胜利' : '白子胜利';
+			}
+
+			function isFull() {
+				return board.every((row) => row.every(Boolean));
+			}
+
+			function isWin(row, col, player) {
+				return DIRECTIONS.some(([dr, dc]) => {
+					return countDirection(row, col, dr, dc, player) + countDirection(row, col, -dr, -dc, player) + 1 >= 5;
+				});
+			}
+
+			function countDirection(row, col, dr, dc, player) {
+				let total = 0;
+				let r = row + dr;
+				let c = col + dc;
+				while (inside(r, c) && board[r][c] === player) {
+					total++;
+					r += dr;
+					c += dc;
+				}
+				return total;
+			}
+
+			function aiMove() {
+				if (gameOver || mode !== 'ai') return;
+				const move = findBestMove();
+				aiThinking = false;
+				if (!move) {
+					updateStatus();
+					return;
+				}
+				placeMove(move.row, move.col, WHITE);
+				if (!gameOver) {
+					currentPlayer = BLACK;
+					updateStatus();
+				}
+			}
+
+			function findBestMove() {
+				const moves = getEmptyMoves();
+				if (!moves.length) return null;
+				if (moves.length === BOARD_SIZE * BOARD_SIZE) {
+					return { row: 7, col: 7 };
+				}
+
+				for (const move of moves) {
+					if (wouldWin(move.row, move.col, WHITE)) return move;
+				}
+				for (const move of moves) {
+					if (wouldWin(move.row, move.col, BLACK)) return move;
+				}
+
+				let best = null;
+				let bestScore = -Infinity;
+				for (const move of moves) {
+					const attack = evaluateMove(move.row, move.col, WHITE);
+					const defend = evaluateMove(move.row, move.col, BLACK);
+					const centerBonus = 28 - Math.abs(move.row - 7) * 2 - Math.abs(move.col - 7) * 2;
+					const neighborBonus = countNeighbors(move.row, move.col) * 8;
+					const score = attack + defend * 0.92 + centerBonus + neighborBonus + Math.random() * 3;
+					if (score > bestScore) {
+						bestScore = score;
+						best = move;
+					}
+				}
+				return best;
+			}
+
+			function getEmptyMoves() {
+				const result = [];
+				for (let row = 0; row < BOARD_SIZE; row++) {
+					for (let col = 0; col < BOARD_SIZE; col++) {
+						if (board[row][col] === 0) result.push({ row, col });
+					}
+				}
+				return result;
+			}
+
+			function wouldWin(row, col, player) {
+				board[row][col] = player;
+				const win = isWin(row, col, player);
+				board[row][col] = 0;
+				return win;
+			}
+
+			function evaluateMove(row, col, player) {
+				board[row][col] = player;
+				let score = 0;
+				for (const [dr, dc] of DIRECTIONS) {
+					score += scoreDirection(row, col, dr, dc, player);
+				}
+				board[row][col] = 0;
+				return score;
+			}
+
+			function scoreDirection(row, col, dr, dc, player) {
+				const forward = scanSide(row, col, dr, dc, player);
+				const backward = scanSide(row, col, -dr, -dc, player);
+				const count = forward.count + backward.count + 1;
+				const openEnds = forward.open + backward.open;
+
+				if (count >= 5) return 10000000;
+				if (count === 4 && openEnds === 2) return 1000000;
+				if (count === 4 && openEnds === 1) return 220000;
+				if (count === 3 && openEnds === 2) return 65000;
+				if (count === 3 && openEnds === 1) return 12000;
+				if (count === 2 && openEnds === 2) return 5200;
+				if (count === 2 && openEnds === 1) return 900;
+				if (count === 1 && openEnds === 2) return 160;
+				return 12;
+			}
+
+			function scanSide(row, col, dr, dc, player) {
+				let count = 0;
+				let r = row + dr;
+				let c = col + dc;
+				while (inside(r, c) && board[r][c] === player) {
+					count++;
+					r += dr;
+					c += dc;
+				}
+				return {
+					count,
+					open: inside(r, c) && board[r][c] === 0 ? 1 : 0
+				};
+			}
+
+			function countNeighbors(row, col) {
+				let total = 0;
+				for (let dr = -2; dr <= 2; dr++) {
+					for (let dc = -2; dc <= 2; dc++) {
+						if (dr === 0 && dc === 0) continue;
+						const r = row + dr;
+						const c = col + dc;
+						if (inside(r, c) && board[r][c] !== 0) total++;
+					}
+				}
+				return total;
+			}
+
+			canvas.addEventListener('pointerdown', handleInput);
+			restartBtn.addEventListener('click', resetGame);
+			aiBtn.addEventListener('click', function () {
+				if (mode === 'ai') return;
+				mode = 'ai';
+				resetGame();
+			});
+			duoBtn.addEventListener('click', function () {
+				if (mode === 'duo') return;
+				mode = 'duo';
+				resetGame();
+			});
+
+			resetGame();
+		})();
+	</script>
+</body>
+</html>

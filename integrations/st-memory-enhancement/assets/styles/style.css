@@ -1,0 +1,623 @@
+/* 以下为原有样式，不修改 */
+.--SmartThemeBodyColor {}               /* 主题正文颜色 */
+.--SmartThemeEmColor {}                 /* 强调颜色 */
+.--SmartThemeUnderlineColor {}          /* 下划线颜色 */
+.--SmartThemeQuoteColor {}              /* 引用颜色 */
+.--SmartThemeShadowColor {}             /* 阴影颜色 */
+.--SmartThemeChatTintColor {}           /* 聊天背景颜色 */
+.--SmartThemeBlurTintColor {}           /* 模糊背景颜色 */
+.--SmartThemeBorderColor {}             /* 主题边框颜色 */
+.--SmartThemeUserMesBlurTintColor {}    /* 用户消息模糊背景颜色 */
+.--SmartThemeBotMesBlurTintColor {}     /* 机器人消息模糊背景颜色 */
+
+.unfinished {
+    color: #f44336;
+}
+.unfinished span {
+    color: #f44336;
+}
+.unfinished small {
+    color: #f44336;
+}
+.unfinished input {
+    color: #f44336;
+    background-color: #f44336;
+    border-color: #f44336;
+}
+.unfinished i {
+    color: #f44336;
+}
+
+/* .world_entry_thin_controls, */
+#persona_management_left_column,
+#character_popup .flex-container {
+    flex-direction: column;
+}
+
+/*#persona-management-block .paginationjs-nav {*/
+/*    width: max-content;*/
+/*}*/
+
+/*#persona-management-block .avatar_container_states .menu_button {*/
+/*    padding: 3px 5px;*/
+/*    pointer-events: initial;*/
+/*}*/
+
+.line-first {
+    margin: 0 10px;
+}
+
+.redWarningText {
+    /*color: var(--crimson70a) !important;*/
+}
+.redWarningText:hover {
+    color: var(--fullred) !important;
+}
+
+/* 以下用于定义自定义样式，不修改原有样式 */
+/* 新增的自定义样式 */
+.memory_enhancement_settings .menu_button {
+    width: fit-content;
+    display: flex;
+    gap: 10px;
+    flex-direction: row;
+}
+
+.table_setting_category_container {
+
+}
+
+.table_setting_category_header {
+
+}
+
+.list-group-item i {
+    flex-direction: row;
+    justify-content: center;
+    align-content: center;
+    align-items: center;
+    text-align: center;
+    width: 1.2rem;
+}
+
+.button-square-icon {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.tableDom {
+    border-collapse: collapse;
+    white-space: nowrap;
+}
+
+.tableDom td,
+.tableDom th {
+    border: 1px solid #4e4848;
+    padding: 3px 5px;
+}
+
+td.selected {
+    background-color: rgb(56, 66, 70);
+}
+
+.scrollable {
+    width: 100%;
+    overflow-x: auto;
+}
+
+#tableProjectTag {
+    background-color: rgba(255, 255, 255, 0.5);
+    padding: 0px 4px;
+    border-radius: 6px;
+    display: none;
+}
+
+#tableUpdateTag {
+    background-color: #225d47;
+    padding: 0px 4px;
+    border-radius: 6px;
+    display: none;
+}
+
+.tableToolbar {
+    display: none;
+    position: absolute;
+    background: var(__ui_background_color);
+    /*border: 1px solid #ccc;*/
+    border-radius: 5px;
+    width: 100px;
+    color: var(__main_text_color);
+    padding: 0 5px;
+    box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+
+    /* 添加背景模糊效果 */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px); /* 兼容旧版 Safari */
+}
+
+.tableToolbar button {
+    width: 100%;
+}
+
+#tableContainer {
+    position: relative;
+}
+
+.dataTable_tableEditor_item {
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 5px;
+    border: rgba(0, 0, 0, 0.548);
+    border-style: solid;
+    border-width: 1px;
+    border-radius: 10px;
+}
+
+.dataTable_tableEditor_item .checkbox {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+.dataTable_tableEditor_item .menu_button{
+    white-space: nowrap;
+}
+
+.dataTable_tablePrompt_list textarea{
+    margin-bottom: 10px;
+}
+
+.dataTable_tablePrompt_list{
+    display: flex;
+    flex-direction: column;
+    text-align: start;
+}
+.tableName_pole{
+    width: 100%;
+}
+
+
+
+
+/* popup */
+.popup-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.popup_content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+
+
+.history-title-bar {
+    /* 标题栏样式 */
+    padding-bottom: 10px;
+}
+
+.history-title {
+    margin-bottom: 0;
+}
+
+.history-scroll-content {
+    overflow-y: auto;
+    flex-grow: 1;
+}
+
+
+.history-group {
+    margin-bottom: 25px;
+    padding: 5px;
+    border-radius: 12px;
+    /*border: 3px solid #666;*/
+}
+
+.collapsible-history-group {
+    /* 可折叠的 history-group 特有样式 */
+}
+
+.history-item {
+    padding: 2px;
+    display: flex;
+    flex-direction: column; /* 修改为 column 布局 */
+    align-items: stretch;
+    /*border-radius: 8px;*/
+    position: relative; /* Add relative positioning context for left-rectangle */
+}
+
+.history-item:hover {
+    background-color: #3333;
+}
+
+.history-button-group {
+    display: flex;
+    flex-direction: row;
+    top: 10px;
+    right: 10px;
+    margin-left: 2px;
+    gap: 5px;
+}
+
+.original-message-button, .collapse-button {
+    padding: 12px;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: #aaa;
+    font-size: 0.8em;
+    cursor: pointer;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+}
+
+.original-message-button:hover, .collapse-button:hover {
+    color: #ccc;
+}
+
+.original-message-button i, .collapse-button i {
+    font-size: 1em;
+}
+
+.function-name {
+    font-weight: bold;
+    color: #aaa;
+    margin-left: 5px; /* 函数名和序号之间的间距 */
+}
+
+.function-name.error-function {
+    color: white;
+}
+
+.left-rectangle {
+    position: absolute;
+    left: -4px;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    border-radius: 8px;
+    /* background-color: #f44336;  不再需要默认背景色，因为 class 会覆盖 */
+}
+
+.item-index {
+    width: 20px;
+    text-align: left;
+    color: #888;
+    font-size: 0.9em;
+    margin: 0 8px; /* 序号和函数名之间的间距 */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.item-index.error-index {
+    color: white; /* 错误序号使用白色文字 */
+}
+
+.index-preview {
+    display: flex; /* Flexbox for horizontal layout */
+    flex-direction: row;
+    gap: 10px; /* Spacing between preview items */
+    margin: 5px;
+    font-size: 0.9em;
+    color: #ccc;
+}
+
+.index-preview-item {
+    /* Style for each preview item if needed */
+}
+
+
+.params-table {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+    border-collapse: collapse;
+    margin: 5px 0;
+}
+
+.params-table th,
+.params-table td {
+    padding: 0 8px 0 8px;
+    text-align: left;
+    font-size: 0.9em;
+}
+
+.params-table th {
+    font-weight: bold;
+}
+
+.params-table td {
+    width: 100%;
+    color: #eee;
+    text-align: left;
+}
+
+.item-separator {
+    border: none;
+    border-top: 2px dashed #ddd;
+}
+
+.insert-item {
+    background-color: #00ff0011;
+}
+
+.update-item {
+    background-color: #0000ff11;
+}
+
+.delete-item {
+    background-color: #ff000011;
+}
+
+.error-item {
+    border-left: 5px solid #f44336;
+    background-color: #f44336;
+}
+
+
+
+
+
+#custom_temperature {
+    flex: 1;
+    min-width: 150px; /* 防止过小时换行 */
+}
+.refresh-scroll-content {
+    overflow-y: auto;
+    max-height: 400px;
+}
+
+/*.debug-log-scroll-content {*/
+/*    overflow-y: auto;*/
+/*    max-height: 400px;*/
+/*}*/
+
+.operation-confirmation-container {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    padding: 10px;
+    margin-top: 10px;
+}
+
+.operation-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 5px; /* 操作项之间的间距 */
+    margin-top: 10px;
+}
+
+.operation-item {
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid #dee2e6; /* 分割线 */
+    padding: 8px 0;
+}
+
+.operation-item:last-child {
+    border-bottom: none; /* 最后一项不显示底部分割线 */
+}
+
+.operation-detail {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline; /* label 和 value 对齐 */
+    padding: 2px 0;
+}
+
+.operation-detail.data-detail {
+    flex-direction: column; /* 数据详情垂直排列 */
+}
+
+.detail-label {
+    font-weight: bold;
+    margin-right: 10px;
+    min-width: 80px;
+    color: #aaa;
+}
+
+.detail-value {
+    color: #ccc;
+    word-break: break-word;
+    white-space: pre-wrap;
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+.data-json {
+    display: flex;
+    flex-direction: column;
+    padding-left: 15px;
+}
+
+.json-item {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    line-height: 1.4;
+}
+
+.json-key {
+    font-family: monospace;
+    color: #8c8c8c;
+    margin-right: 5px;
+    white-space: nowrap;
+}
+
+.json-value {
+    font-family: monospace;
+    color: #ccc;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.json-fallback {
+    font-family: monospace;
+    color: #ccc;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+
+
+/* 用于debug-log的样式 */
+.debug-log-popup-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.debug-log-title-bar {
+    padding: 10px;
+}
+
+.debug-log-scroll-content {
+    overflow-y: auto;
+    height: 100%;
+    padding: 10px;
+}
+
+.debug-log-item {
+    margin-bottom: 8px;
+    padding: 10px;
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    word-break: break-word;
+    border-radius: 4px;
+    text-align: left;
+}
+
+.log-time {
+    color: #777;
+    margin-right: 8px;
+    font-weight: normal;
+    text-align: left;
+}
+
+.log-type {
+    font-weight: bold;
+    margin-right: 8px;
+    text-align: left;
+}
+
+.log-type-info {
+    color: #eee;
+}
+
+.log-type-success {
+    color: #4caf50;
+}
+
+.log-type-warning {
+    color: #ff9800;
+}
+
+.log-type-error {
+    color: #f44336;
+}
+
+.log-message {
+    color: var(SmartThemeBodyColor);
+    text-align: left;
+}
+
+.log-stack {
+    background-color: #8881;
+    padding: 10px;
+    margin-top: 5px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #888;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    font-family: monospace;
+    text-align: left;
+}
+
+/* 用于 popupMenu 的样式 */
+.dynamic-popup-menu {
+    display: flex;
+    z-index: 29999;
+    background-color: var(--SmartThemeBlurTintColor);
+    -webkit-backdrop-filter: blur(var(--SmartThemeBlurStrength));
+    backdrop-filter: blur(calc(var(--SmartThemeBlurStrength) * 2));
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    flex-flow: column;
+    border-radius: 10px;
+    padding: 2px;
+}
+
+.dynamic-popup-menu-item {
+    justify-content: flex-start;
+    align-items: center;
+}
+
+
+/* 用于debug-log的样式 */
+/*.drag-table {*/
+/*    border-collapse: collapse; !* Important for single-line borders *!*/
+/*    border: 1px solid #ccc;*/
+/*    margin-bottom: 20px;*/
+/*    width: 100%; !* Ensure table takes full width of container *!*/
+/*}*/
+
+/*.table-name {*/
+/*    font-weight: bold;*/
+/*    padding: 5px 0 10px 0;*/
+/*    text-align: left;*/
+/*}*/
+
+/*.drag-table thead th,*/
+/*.drag-table tbody th,*/
+/*.drag-table td { !* Apply borders to all header cells, row headers, and data cells *!*/
+/*    border: 1px solid #ccc; !* Add border to all cells *!*/
+/*    padding: 4px 8px;*/
+/*    text-align: center;*/
+/*    min-width: 50px;   !* Minimum width for cells *!*/
+/*    min-height: 10px;  !* Minimum height for cells *!*/
+/*    box-sizing: border-box; !* Include padding and border in cell dimensions *!*/
+/*}*/
+
+/*.drag-table thead th,*/
+/*.drag-table tbody th {*/
+/*    !*background-color: #f0f0f0;*!*/
+/*    font-weight: bold;*/
+/*}*/
+
+/*.drag-table th { !* Ensure headers also have border *!*/
+/*    border: 1px solid #ccc; !* Redundant, but ensures clarity *!*/
+/*}*/
+
+/*.drag-cell {*/
+/*    !* Add any specific styling for data cells if needed *!*/
+/*}*/
+
+/*.drag-table tbody tr {*/
+/*    min-height: 20px; !* Example minimum row height to accommodate cell height and padding, adjust if needed *!*/
+/*}*/
+
+
+
+

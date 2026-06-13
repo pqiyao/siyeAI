@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.billing.mapper.AppStoreProductMapper">
+
+    <resultMap id="AppStoreProductResultMap" type="com.example.sillyspringboot.billing.entity.AppStoreProduct">
+        <id column="id" property="id"/>
+        <result column="code" property="code"/>
+        <result column="name" property="name"/>
+        <result column="subtitle" property="subtitle"/>
+        <result column="product_type" property="productType"/>
+        <result column="price_cents" property="priceCents"/>
+        <result column="score_amount" property="scoreAmount"/>
+        <result column="gold_coin_amount" property="goldCoinAmount"/>
+        <result column="vip_type" property="vipType"/>
+        <result column="vip_days" property="vipDays"/>
+        <result column="tag_label" property="tagLabel"/>
+        <result column="badge_label" property="badgeLabel"/>
+        <result column="enabled" property="enabled"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, code, name, subtitle, product_type, price_cents, score_amount, gold_coin_amount,
+        vip_type, vip_days, tag_label, badge_label, enabled, sort_order, created_at, updated_at
+    </sql>
+
+    <select id="findById" resultMap="AppStoreProductResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_store_product
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findByCode" resultMap="AppStoreProductResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_store_product
+        WHERE code = #{code}
+        LIMIT 1
+    </select>
+
+    <select id="listEnabled" resultMap="AppStoreProductResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_store_product
+        WHERE enabled = 1
+        <if test="productType != null and productType != ''">
+            AND product_type = #{productType}
+        </if>
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(1)
+        FROM app_store_product
+        WHERE 1 = 1
+        <if test="keyword != null and keyword != ''">
+            AND (
+                code LIKE CONCAT('%', #{keyword}, '%')
+                OR name LIKE CONCAT('%', #{keyword}, '%')
+                OR subtitle LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="productType != null and productType != ''">
+            AND product_type = #{productType}
+        </if>
+    </select>
+
+    <select id="listAdminPage" resultMap="AppStoreProductResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_store_product
+        WHERE 1 = 1
+        <if test="keyword != null and keyword != ''">
+            AND (
+                code LIKE CONCAT('%', #{keyword}, '%')
+                OR name LIKE CONCAT('%', #{keyword}, '%')
+                OR subtitle LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="productType != null and productType != ''">
+            AND product_type = #{productType}
+        </if>
+        ORDER BY sort_order ASC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.billing.entity.AppStoreProduct" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_store_product (
+            code, name, subtitle, product_type, price_cents, score_amount, gold_coin_amount,
+            vip_type, vip_days, tag_label, badge_label, enabled, sort_order
+        ) VALUES (
+            #{code}, #{name}, #{subtitle}, #{productType}, #{priceCents}, #{scoreAmount}, #{goldCoinAmount},
+            #{vipType}, #{vipDays}, #{tagLabel}, #{badgeLabel}, #{enabled}, #{sortOrder}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.billing.entity.AppStoreProduct">
+        UPDATE app_store_product
+        SET code = #{code},
+            name = #{name},
+            subtitle = #{subtitle},
+            product_type = #{productType},
+            price_cents = #{priceCents},
+            score_amount = #{scoreAmount},
+            gold_coin_amount = #{goldCoinAmount},
+            vip_type = #{vipType},
+            vip_days = #{vipDays},
+            tag_label = #{tagLabel},
+            badge_label = #{badgeLabel},
+            enabled = #{enabled},
+            sort_order = #{sortOrder},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+</mapper>

@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.chat.mapper.AppMessageMapper">
+
+    <resultMap id="AppMessageResultMap" type="com.example.sillyspringboot.chat.entity.AppMessage">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="conversation_id" property="conversationId"/>
+        <result column="role" property="role"/>
+        <result column="message_kind" property="messageKind"/>
+        <result column="continue_from_message_id" property="continueFromMessageId"/>
+        <result column="client_message_id" property="clientMessageId"/>
+        <result column="content" property="content"/>
+        <result column="voice_url" property="voiceUrl"/>
+        <result column="voice_duration_ms" property="voiceDurationMs"/>
+        <result column="st_message_ref" property="stMessageRef"/>
+        <result column="swipe_index" property="swipeIndex"/>
+        <result column="status" property="status"/>
+        <result column="error_code" property="errorCode"/>
+        <result column="trace_id" property="traceId"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.chat.entity.AppMessage"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_message (
+            user_id, conversation_id, role, message_kind, continue_from_message_id, client_message_id,
+            content, voice_url, voice_duration_ms, st_message_ref, swipe_index,
+            status, error_code, trace_id
+        ) VALUES (
+            #{userId}, #{conversationId}, #{role}, COALESCE(#{messageKind}, 'NORMAL'), #{continueFromMessageId}, #{clientMessageId},
+            #{content}, #{voiceUrl}, #{voiceDurationMs}, #{stMessageRef}, #{swipeIndex},
+            #{status}, #{errorCode}, #{traceId}
+        )
+    </insert>
+
+    <update id="incrementTotalMessageCounter">
+        INSERT INTO app_stats_counter (counter_key, counter_value)
+        VALUES ('total_messages', 1)
+        ON DUPLICATE KEY UPDATE
+            counter_value = counter_value + 1,
+            updated_at = CURRENT_TIMESTAMP
+    </update>
+
+    <update id="updateStatusAndContent">
+        UPDATE app_message
+        SET status = #{status},
+            content = #{content},
+            error_code = #{errorCode},
+            trace_id = #{traceId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="listByConversation" resultMap="AppMessageResultMap">
+        SELECT *
+        FROM app_message
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listByConversationAsc" resultMap="AppMessageResultMap">
+        SELECT *
+        FROM app_message
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listRecentByConversationAsc" resultMap="AppMessageResultMap">
+        SELECT *
+        FROM (
+            SELECT *
+            FROM app_message
+            WHERE conversation_id = #{conversationId}
+              AND deleted_at IS NULL
+            ORDER BY id DESC
+            LIMIT #{limit}
+        ) recent_rows
+        ORDER BY id ASC
+    </select>
+
+    <select id="listBeforeConversationAsc" resultMap="AppMessageResultMap">
+        SELECT *
+        FROM (
+            SELECT *
+            FROM app_message
+            WHERE conversation_id = #{conversationId}
+              AND deleted_at IS NULL
+              AND id &lt; #{beforeId}
+            ORDER BY id DESC
+            LIMIT #{limit}
+        ) older_rows
+        ORDER BY id ASC
+    </select>
+
+    <select id="findById" resultMap="AppMessageResultMap">
+        SELECT *
+        FROM app_message
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <update id="updateVariantMeta">
+        UPDATE app_message
+        SET st_message_ref = #{stMessageRef},
+            swipe_index = #{swipeIndex},
+            trace_id = #{traceId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateContinuationMeta">
+        UPDATE app_message
+        SET message_kind = #{messageKind},
+            continue_from_message_id = #{continueFromMessageId},
+            trace_id = #{traceId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="findMaxSwipeIndex" resultType="java.lang.Integer">
+        SELECT MAX(swipe_index)
+        FROM app_message
+        WHERE st_message_ref = #{stMessageRef}
+    </select>
+
+    <select id="listByStMessageRef" resultMap="AppMessageResultMap">
+        SELECT *
+        FROM app_message
+        WHERE st_message_ref = #{stMessageRef}
+          AND deleted_at IS NULL
+        ORDER BY swipe_index ASC, id ASC
+    </select>
+
+    <delete id="deleteByConversationId">
+        DELETE FROM app_message
+        WHERE conversation_id = #{conversationId}
+    </delete>
+
+    <delete id="deleteById">
+        DELETE FROM app_message WHERE id = #{id}
+    </delete>
+
+    <update id="softDeleteByConversationId">
+        UPDATE app_message
+        SET status = 'DELETED',
+            content = '',
+            deleted_at = CURRENT_TIMESTAMP,
+            trace_id = COALESCE(#{traceId}, trace_id),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="softDeleteBranchFromId">
+        UPDATE app_message
+        SET status = 'DELETED',
+            content = '',
+            deleted_at = CURRENT_TIMESTAMP,
+            trace_id = #{traceId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+        <choose>
+            <when test="includeFromId">
+                AND id &gt;= #{fromId}
+            </when>
+            <otherwise>
+                AND id &gt; #{fromId}
+            </otherwise>
+        </choose>
+    </update>
+
+    <select id="findByStMessageRefAndSwipeIndex" resultMap="AppMessageResultMap">
+        SELECT *
+        FROM app_message
+        WHERE st_message_ref = #{stMessageRef}
+          AND swipe_index = #{swipeIndex}
+          AND deleted_at IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <select id="countActiveByConversationId" resultType="int">
+        SELECT COUNT(1)
+        FROM app_message
+        WHERE conversation_id = #{conversationId}
+          AND status IN ('QUEUED', 'GENERATING')
+          AND deleted_at IS NULL
+    </select>
+
+    <select id="countMemorySourceByConversationId" resultType="int">
+        SELECT COUNT(1)
+        FROM app_message
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+          AND (
+              (role = 'user' AND COALESCE(status, '') NOT IN ('FAILED', 'DELETED'))
+              OR
+              (role = 'assistant' AND status IN ('SUCCESS', 'STOPPED'))
+          )
+    </select>
+
+    <select id="findLatestMemorySourceMessageId" resultType="java.lang.Long">
+        SELECT MAX(id)
+        FROM app_message
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+          AND (
+              (role = 'user' AND COALESCE(status, '') NOT IN ('FAILED', 'DELETED'))
+              OR
+              (role = 'assistant' AND status IN ('SUCCESS', 'STOPPED'))
+          )
+    </select>
+
+</mapper>
+

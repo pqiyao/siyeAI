@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.chat.mapper.AppGenerationTaskMapper">
+
+    <resultMap id="AppGenerationTaskResultMap" type="com.example.sillyspringboot.chat.entity.AppGenerationTask">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="conversation_id" property="conversationId"/>
+        <result column="request_type" property="requestType"/>
+        <result column="channel" property="channel"/>
+        <result column="model" property="model"/>
+        <result column="client_message_id" property="clientMessageId"/>
+        <result column="status" property="status"/>
+        <result column="queued_at" property="queuedAt"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="finished_at" property="finishedAt"/>
+        <result column="duration_ms" property="durationMs"/>
+        <result column="http_status" property="httpStatus"/>
+        <result column="prompt_tokens" property="promptTokens"/>
+        <result column="completion_tokens" property="completionTokens"/>
+        <result column="error_code" property="errorCode"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="trace_id" property="traceId"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.chat.entity.AppGenerationTask"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_generation_task (
+            user_id, conversation_id, request_type, channel, model, client_message_id,
+            status, queued_at, started_at, finished_at, duration_ms,
+            http_status, prompt_tokens, completion_tokens, error_code, error_message, trace_id
+        ) VALUES (
+            #{userId}, #{conversationId}, #{requestType}, #{channel}, #{model}, #{clientMessageId},
+            #{status}, COALESCE(#{queuedAt}, CURRENT_TIMESTAMP), #{startedAt}, #{finishedAt}, #{durationMs},
+            #{httpStatus}, #{promptTokens}, #{completionTokens}, #{errorCode}, #{errorMessage}, #{traceId}
+        )
+    </insert>
+
+    <select id="findByConversationAndClientMessageId" resultMap="AppGenerationTaskResultMap">
+        SELECT *
+        FROM app_generation_task
+        WHERE conversation_id = #{conversationId}
+          AND client_message_id = #{clientMessageId}
+          AND deleted_at IS NULL
+    </select>
+
+    <update id="updateStatus">
+        UPDATE app_generation_task
+        SET status = #{status},
+            started_at = CASE
+                WHEN #{status} = 'GENERATING' AND started_at IS NULL THEN CURRENT_TIMESTAMP
+                ELSE started_at
+            END,
+            finished_at = CASE
+                WHEN #{status} IN ('SUCCESS', 'FAILED', 'STOPPED') THEN CURRENT_TIMESTAMP
+                ELSE finished_at
+            END,
+            duration_ms = CASE
+                WHEN #{status} IN ('SUCCESS', 'FAILED', 'STOPPED')
+                    THEN TIMESTAMPDIFF(MICROSECOND, COALESCE(started_at, queued_at), CURRENT_TIMESTAMP) DIV 1000
+                ELSE duration_ms
+            END,
+            http_status = CASE
+                WHEN #{httpStatus} IS NOT NULL THEN #{httpStatus}
+                WHEN #{status} = 'SUCCESS' THEN 200
+                WHEN #{status} = 'STOPPED' THEN 499
+                WHEN #{status} = 'FAILED' THEN 500
+                ELSE http_status
+            END,
+            error_code = #{errorCode},
+            error_message = CASE
+                WHEN #{errorMessage} IS NOT NULL AND #{errorMessage} != '' THEN #{errorMessage}
+                WHEN #{errorCode} IS NULL OR #{errorCode} = ''
+                    THEN CASE WHEN #{status} = 'STOPPED' THEN 'STOPPED' ELSE error_message END
+                ELSE #{errorCode}
+            END,
+            trace_id = COALESCE(#{traceId}, trace_id)
+        WHERE id = #{id}
+    </update>
+
+    <select id="countActiveByConversationId" resultType="int">
+        SELECT COUNT(1)
+        FROM app_generation_task
+        WHERE conversation_id = #{conversationId}
+          AND status IN ('QUEUED', 'GENERATING')
+          AND deleted_at IS NULL
+    </select>
+
+    <delete id="deleteByConversationId">
+        DELETE FROM app_generation_task
+        WHERE conversation_id = #{conversationId}
+    </delete>
+
+    <update id="softDeleteByConversationId">
+        UPDATE app_generation_task
+        SET deleted_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+    </update>
+
+</mapper>

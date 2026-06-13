@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>恋爱冒险地图</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&family=ZCOOL+QingKe+HuangYou&display=swap" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&family=ZCOOL+QingKe+HuangYou&display=swap');
+        :root {
+            --theme-bg-dark: #2c313a; --theme-bg-medium: #3e4451; --theme-bg-light: #505663;
+            --theme-text-light: #e6e6e6; --theme-text-medium: #b0b0b0; --theme-text-dark: #222222;
+            --theme-accent-orange: #e8a85e; --theme-accent-orange-light: #f5c58a;
+            --theme-button-color: #7cb342; --theme-button-hover-color: #8fd352;
+            --theme-border-light: #606673; --font-title: "ZCOOL QingKe HuangYou", "Microsoft YaHei", sans-serif;
+            --font-main: "ZCOOL XiaoWei", "Microsoft YaHei", sans-serif; --font-size-base: 13px;
+            --border-radius-base: 8px; --border-radius-small: 5px; --shadow-medium: 0 4px 10px rgba(0, 0, 0, 0.25);
+        }
+        body { background-color: transparent; margin: 0; padding: 10px; font-family: var(--font-main); color: var(--theme-text-light); }
+        .map-interface { max-width: 100%; width: 100%; margin: 0 auto; background: var(--theme-bg-dark); border: 2px solid var(--theme-border-light); border-radius: var(--border-radius-base); box-shadow: var(--shadow-medium); padding: 20px; box-sizing: border-box; position: relative; overflow: hidden; }
+        .map-header { display: flex; justify-content: space-between; align-items: center; text-align: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid var(--theme-border-light); }
+        .map-header h2 { font-size: 1.85rem; margin: 0; color: var(--theme-accent-orange-light); font-family: var(--font-title); }
+        .header-info { font-size: 0.9rem; color: var(--theme-text-medium); }
+        .top-right-buttons { display: flex; gap: 10px; }
+        .current-partners-section { margin-bottom: 25px; padding: 15px; background-color: rgba(232, 168, 94, 0.1); border: 1px solid var(--theme-accent-orange); border-radius: var(--border-radius-base); }
+        .current-partners-section.hidden { display: none; }
+        .current-partners-section .section-title { margin-bottom: 12px; color: var(--theme-accent-orange-light); font-weight: bold; }
+        .partner-button-list { display: flex; flex-wrap: wrap; gap: 10px; }
+        .partner-button { background-color: var(--theme-bg-light); border: 1px solid var(--theme-border-light); border-radius: var(--border-radius-small); padding: 7px 14px; font-size: 1rem; color: var(--theme-text-light); cursor: pointer; display: inline-flex; align-items: center; }
+        .partner-button i { margin-right: 6px; color: var(--theme-accent-orange); }
+        #visual-map-container { position: relative; width: 100%; max-width: 800px; margin: 0 auto 25px auto; border: 2px solid var(--theme-border-light); background-color: var(--theme-bg-medium); border-radius: var(--border-radius-base); overflow: hidden; aspect-ratio: 800 / 600; }
+        #visual-map { display: block; width: 100%; height: 100%; }
+        .map-location-group { cursor: pointer; }
+        .map-location-group.selected .map-location-rect { fill: var(--theme-accent-orange); stroke: var(--theme-accent-orange); stroke-width: 2.5px; }
+        .map-location-rect { fill: var(--theme-bg-light); stroke: #6a6f7c; stroke-width: 1.5px; }
+        .map-location-label { fill: var(--theme-text-light); text-anchor: middle; dominant-baseline: middle; pointer-events: none; user-select: none; }
+        .map-road { stroke: #777c88; stroke-linecap: round; stroke-linejoin: round; }
+        .sub-location-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 25px; padding: 18px; background-color: var(--theme-bg-medium); border-radius: var(--border-radius-base); }
+        .sub-location-grid.hidden { display: none; }
+        .sub-location-button { background-color: var(--theme-bg-light); border: 1px solid var(--theme-border-light); border-radius: var(--border-radius-small); padding: 10px 15px; color: var(--theme-text-light); font-size: 1rem; cursor: pointer; }
+        .sub-location-button.selected { background: linear-gradient(to bottom, var(--theme-accent-orange-light), var(--theme-accent-orange)); border-color: var(--theme-accent-orange); color: var(--theme-text-dark); font-weight: bold; }
+        .location-details { margin-top: 25px; padding: 25px; background-color: var(--theme-bg-medium); border-radius: var(--border-radius-base); }
+        .location-details.hidden { display: none; }
+        .character-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 25px; }
+        .character-item { background-color: var(--theme-bg-light); border: 1px solid var(--theme-border-light); border-radius: var(--border-radius-small); padding: 9px 12px; font-size: 1rem; color: var(--theme-text-light); cursor: pointer; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(44, 49, 58, 0.85); backdrop-filter: blur(4px); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+        .modal-overlay.hidden { display: none; }
+        .shop-modal-dialog, .inventory-modal-dialog, .character-modal-dialog { background-color: var(--theme-bg-dark); border: 1px solid var(--theme-border-light); border-radius: var(--border-radius-base); padding: 25px 30px; width: 90%; max-width: 450px; position: relative; }
+        .close-modal-button { position: absolute; top: 10px; right: 12px; background: none; border: none; font-size: 26px; color: var(--theme-text-medium); cursor: pointer; }
+        .modal-description-content { margin-bottom: 25px; max-height: 280px; overflow-y: auto; }
+        .interaction-options-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+        .interaction-button { background-color: var(--theme-bg-light); color: var(--theme-text-light); border: 1px solid var(--theme-border-light); border-radius: var(--border-radius-small); padding: 10px 15px; font-size: 14px; cursor: pointer; text-align: center; }
+        .shop-items-container, .inventory-items-container { flex-grow: 1; overflow-y: auto; margin-top:15px; }
+        .shop-item, .inventory-item { background-color: var(--theme-bg-light); border: 1px solid var(--theme-border-light); border-radius: var(--border-radius-small); padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 10px;}
+    </style>
+</head>
+<body>
+    <div class="map-interface">
+        <div class="map-header">
+            <h2 id="map-title"></h2>
+            <div class="header-info"><span id="map-time"></span></div>
+             <div class="top-right-buttons">
+                <button class="partner-button" id="shop-button"><i class="fas fa-store"></i> 商店</button>
+                <button class="partner-button" id="inventory-button"><i class="fas fa-briefcase"></i> 背包</button>
+            </div>
+        </div>
+        <div id="current-important-characters" class="current-partners-section hidden">
+             <div class="section-title"><i class="fas fa-star"></i> 当前地图重要人物</div>
+             <div id="important-character-buttons" class="partner-button-list"></div>
+        </div>
+        <div id="visual-map-container"><svg id="visual-map" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg"></svg></div>
+        <div id="sub-locations" class="sub-location-grid hidden"></div>
+        <div id="location-details" class="location-details hidden">
+            <div class="detail-header"><i class="fas fa-map-marker-alt"></i> <span id="selected-location"></span></div>
+            <div class="detail-content">
+                <div class="character-section">
+                    <div class="section-title"><i class="fas fa-users"></i> 可能遇见的人</div>
+                    <div id="location-characters" class="character-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="character-modal" class="modal-overlay hidden">
+        <div class="character-modal-dialog">
+            <button id="close-modal-btn" class="close-modal-button">&times;</button>
+            <h4 id="modal-character-name"></h4>
+            <div id="modal-character-description" class="modal-description-content"></div>
+            <div id="modal-interaction-options" class="interaction-options-grid"></div>
+        </div>
+    </div>
+    <div id="shop-modal" class="modal-overlay hidden">
+        <div class="shop-modal-dialog">
+            <button id="close-shop-btn" class="close-modal-button">&times;</button>
+            <h4><i class="fas fa-store"></i> 商店</h4>
+            <div id="shop-items-container"></div>
+        </div>
+    </div>
+    <div id="inventory-modal" class="modal-overlay hidden">
+        <div class="inventory-modal-dialog">
+            <button id="close-inventory-btn" class="close-modal-button">&times;</button>
+            <h4><i class="fas fa-briefcase"></i> 背包</h4>
+            <div id="inventory-items-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const tableData = __TABLE_DATA__;
+        let mapData = null, selectedMain = null, selectedSub = null;
+        function processJsonData(json) {
+            const data = { title: '', time: '', locations: [], importantCharacters: [], roads: [], currentUserPosition: {}, shop: [], inventory: [] };
+            const globalSheetUid = Object.keys(json).find(key => json[key].name === '全局数据表');
+            const global = json[globalSheetUid].content[1];
+            data.title = global[1];
+            data.time = global[2];
+            data.currentUserPosition = { x: parseInt(global[5]), y: parseInt(global[6]) };
+
+            const protagonistSheetUid = Object.keys(json).find(key => json[key].name === '主角信息');
+            const protagonist = json[protagonistSheetUid].content[1];
+            data.importantCharacters.push({ name: protagonist[1], description: protagonist[2], interactions: [protagonist[4], protagonist[5], protagonist[6], protagonist[7]] });
+            
+            const importantCharacterSheetUid = Object.keys(json).find(key => json[key].name === '重要人物表');
+            json[importantCharacterSheetUid].content.slice(1).forEach(row => {
+                data.importantCharacters.push({ name: row[1], description: row[2], interactions: [row[5], row[6], row[7], row[8]] });
+            });
+            const shopSheetUid = Object.keys(json).find(key => json[key].name === '商店物品表');
+            json[shopSheetUid].content.slice(1).forEach(row => data.shop.push({ name: row[1], price: parseInt(row[2]), description: row[3] }));
+            
+            const inventorySheetUid = Object.keys(json).find(key => json[key].name === '背包物品表');
+            json[inventorySheetUid].content.slice(1).forEach(row => data.inventory.push({ name: row[1], description: row[2] }));
+
+            const subLocationsMap = new Map();
+            const subLocationSheetUid = Object.keys(json).find(key => json[key].name === '次级地点表');
+            json[subLocationSheetUid].content.slice(1).forEach(row => {
+                const subName = row[1], mainName = row[2];
+                if (!subLocationsMap.has(mainName)) subLocationsMap.set(mainName, []);
+                subLocationsMap.get(mainName).push({ name: subName, characters: [] });
+            });
+            
+            const mapElementSheetUid = Object.keys(json).find(key => json[key].name === '地图元素表');
+            json[mapElementSheetUid].content.slice(1).forEach(row => {
+                const char = { name: row[1], description: row[2], interactions: [row[4], row[5], row[6], row[7]] };
+                for (let subs of subLocationsMap.values()) {
+                    const sub = subs.find(s => s.name === row[3]);
+                    if (sub) { sub.characters.push(char); break; }
+                }
+            });
+
+            const mainLocationSheetUid = Object.keys(json).find(key => json[key].name === '主要地点表');
+            json[mainLocationSheetUid].content.slice(1).forEach(row => {
+                const name = row[1];
+                data.locations.push({ name, x: parseInt(row[2]), y: parseInt(row[3]), width: parseInt(row[4]), height: parseInt(row[5]), subLocations: subLocationsMap.get(name) || [] });
+            });
+            
+            const roadSheetUid = Object.keys(json).find(key => json[key].name === '道路表');
+            json[roadSheetUid].content.slice(1).forEach(row => {
+                data.roads.push({ points: row[1].replace(/\//g, ',').replace(/;/g, ' '), width: parseInt(row[2]), color: row[3] });
+            });
+            return data;
+        }
+
+        function renderMapInterface(data) {
+            document.getElementById('map-title').textContent = data.title;
+            document.getElementById('map-time').textContent = data.time;
+            const svg = document.getElementById('visual-map'), ns = "http://www.w3.org/2000/svg";
+            svg.innerHTML = '';
+            data.roads.forEach(r => {
+                const p = document.createElementNS(ns, 'polyline');
+                p.setAttribute('points', r.points); p.setAttribute('stroke', r.color); p.setAttribute('stroke-width', r.width); p.setAttribute('fill', 'none');
+                svg.appendChild(p);
+            });
+            data.locations.forEach(l => {
+                const g = document.createElementNS(ns, 'g');
+                g.setAttribute('transform', `translate(${l.x}, ${l.y})`); g.classList.add('map-location-group'); g.dataset.location = l.name;
+                g.addEventListener('click', () => selectMainLocation(l));
+                const r = document.createElementNS(ns, 'rect');
+                r.setAttribute('width', l.width); r.setAttribute('height', l.height); r.classList.add('map-location-rect');
+                const t = document.createElementNS(ns, 'text');
+                t.setAttribute('x', l.width / 2); t.setAttribute('y', l.height / 2); t.classList.add('map-location-label'); t.textContent = l.name;
+                g.append(r, t); svg.appendChild(g);
+            });
+             if (data.currentUserPosition.x) {
+                const dot = document.createElementNS(ns, 'circle');
+                dot.setAttribute('cx', data.currentUserPosition.x); dot.setAttribute('cy', data.currentUserPosition.y);
+                dot.setAttribute('r', 5); dot.setAttribute('fill', 'red');
+                svg.appendChild(dot);
+            }
+        }
+        function updateImportantCharactersDisplay(chars) {
+            const container = document.getElementById('important-character-buttons');
+            const section = document.getElementById('current-important-characters');
+            container.innerHTML = '';
+            if (!chars || chars.length === 0) { section.classList.add('hidden'); return; }
+            chars.forEach(char => {
+                const btn = document.createElement('button');
+                btn.className = 'partner-button';
+                btn.innerHTML = `<i class="fas fa-star"></i> ${char.name}`;
+                btn.addEventListener('click', () => selectCharacter(char));
+                container.appendChild(btn);
+            });
+            section.classList.remove('hidden');
+        }
+        function displayShopItems(items){
+            const container = document.getElementById('shop-items-container');
+            container.innerHTML = '';
+            if(!items || items.length === 0) { container.innerHTML = "<p>商店里什么都没有.</p>"; return; }
+            items.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'shop-item';
+                el.innerHTML = `<div>${item.name} - ${item.description}</div><div>${item.price}G</div>`;
+                el.addEventListener('click', ()=> alert(`购买 ${item.name}`));
+                container.appendChild(el);
+            });
+        }
+         function displayInventoryItems(items){
+            const container = document.getElementById('inventory-items-container');
+            container.innerHTML = '';
+            if(!items || items.length === 0) { container.innerHTML = "<p>你的背包是空的.</p>"; return; }
+            items.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'inventory-item';
+                el.innerHTML = `<div>${item.name} - ${item.description}</div>`;
+                el.addEventListener('click', ()=> alert(`使用 ${item.name}`));
+                container.appendChild(el);
+            });
+        }
+
+        function selectMainLocation(loc) {
+            selectedMain = loc; selectedSub = null;
+            document.querySelectorAll('#visual-map .map-location-group').forEach(g => g.classList.toggle('selected', g.dataset.location === loc.name));
+            const subContainer = document.getElementById('sub-locations');
+            subContainer.innerHTML = '';
+            if (loc.subLocations?.length) {
+                loc.subLocations.forEach(sub => {
+                    const btn = document.createElement('button');
+                    btn.className = 'sub-location-button';
+                    btn.textContent = sub.name;
+                    btn.addEventListener('click', () => selectSubLocation(sub));
+                    subContainer.appendChild(btn);
+                });
+                subContainer.classList.remove('hidden');
+            } else { subContainer.classList.add('hidden'); }
+            document.getElementById('location-details').classList.add('hidden');
+        }
+
+        function selectSubLocation(sub) {
+            selectedSub = sub;
+            document.querySelectorAll('#sub-locations .sub-location-button').forEach(btn => btn.classList.toggle('selected', btn.textContent === sub.name));
+            document.getElementById('selected-location').textContent = `${selectedMain.name} - ${sub.name}`;
+            const charContainer = document.getElementById('location-characters');
+            charContainer.innerHTML = '';
+            if (sub.characters?.length) {
+                sub.characters.forEach(char => {
+                    const btn = document.createElement('button');
+                    btn.className = 'character-item';
+                    btn.textContent = char.name;
+                    btn.addEventListener('click', () => selectCharacter(char));
+                    charContainer.appendChild(btn);
+                });
+            } else { charContainer.innerHTML = '<p>这里没有人</p>'; }
+            document.getElementById('location-details').classList.remove('hidden');
+        }
+
+        function selectCharacter(char) {
+            const modal = document.getElementById('character-modal');
+            document.getElementById('modal-character-name').textContent = char.name;
+            document.getElementById('modal-character-description').textContent = char.description;
+            const optionsContainer = document.getElementById('modal-interaction-options');
+            optionsContainer.innerHTML = '';
+            char.interactions.forEach(opt => {
+                if(!opt) return;
+                const btn = document.createElement('button');
+                btn.className = 'interaction-button';
+                btn.textContent = opt;
+                btn.addEventListener('click', () => { alert(`选择了: ${opt}`); modal.classList.add('hidden'); });
+                optionsContainer.appendChild(btn);
+            });
+            modal.classList.remove('hidden');
+        }
+
+        function init() {
+            mapData = processJsonData(tableData);
+            renderMapInterface(mapData);
+            updateImportantCharactersDisplay(mapData.importantCharacters);
+            displayShopItems(mapData.shop);
+            displayInventoryItems(mapData.inventory);
+
+            document.getElementById('close-modal-btn').addEventListener('click', () => document.getElementById('character-modal').classList.add('hidden'));
+            document.getElementById('shop-button').addEventListener('click', () => document.getElementById('shop-modal').classList.remove('hidden'));
+            document.getElementById('close-shop-btn').addEventListener('click', () => document.getElementById('shop-modal').classList.add('hidden'));
+            document.getElementById('inventory-button').addEventListener('click', () => document.getElementById('inventory-modal').classList.remove('hidden'));
+            document.getElementById('close-inventory-btn').addEventListener('click', () => document.getElementById('inventory-modal').classList.add('hidden'));
+        }
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

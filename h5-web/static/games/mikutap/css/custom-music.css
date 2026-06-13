@@ -1,0 +1,216 @@
+#music_settings_btn {
+  position: absolute;
+  z-index: 1200;
+  top: 10px;
+  right: 74px;
+  min-width: 56px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, .82);
+  border-radius: 18px;
+  color: #fff;
+  background: rgba(0, 0, 0, .18);
+  font: inherit;
+  font-size: .86rem;
+  line-height: 34px;
+  cursor: pointer;
+}
+
+#music_settings_btn:hover,
+.music-settings-close:hover,
+.music-option:hover,
+.music-toggle:hover,
+.music-file-button:hover,
+.music-file-clear:hover {
+  -webkit-animation: animover .2s linear;
+  animation: animover .2s linear;
+}
+
+#music_settings_panel {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, .36);
+}
+
+#music_settings_panel.is-open {
+  display: flex;
+}
+
+.music-settings-card {
+  position: relative;
+  width: min(360px, 100%);
+  padding: 28px 24px 22px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, .64);
+  border-radius: 18px;
+  background: rgba(94, 176, 188, .96);
+  color: #fff;
+  text-align: left;
+  letter-spacing: .08rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .24);
+}
+
+.music-settings-card h2 {
+  margin: 0 0 18px;
+  font-size: 1.1rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.music-settings-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  font: inherit;
+  font-size: 1.6rem;
+  line-height: 34px;
+  cursor: pointer;
+}
+
+.music-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.music-option,
+.music-toggle,
+.music-volume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  font-size: .9rem;
+  line-height: 1.35;
+}
+
+.music-option input,
+.music-toggle input {
+  flex: 0 0 auto;
+}
+
+.music-toggle {
+  margin-top: 18px;
+}
+
+.music-local {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, .28);
+}
+
+.music-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.music-file-button,
+.music-file-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  margin: 0 8px 8px 0;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, .76);
+  border-radius: 16px;
+  color: #fff;
+  background: rgba(0, 0, 0, .12);
+  font: inherit;
+  font-size: .78rem;
+  letter-spacing: .04rem;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.music-file-clear:disabled {
+  opacity: .42;
+  cursor: default;
+}
+
+.music-local-name {
+  margin: 4px 0 0;
+  font-size: .72rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, .78);
+  word-break: break-all;
+}
+
+.music-toggle.is-disabled,
+.music-volume.is-disabled {
+  opacity: .48;
+}
+
+.music-volume {
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.music-volume span {
+  min-width: 78px;
+}
+
+.music-volume input {
+  flex: 1 1 140px;
+  min-width: 140px;
+}
+
+.music-status {
+  min-height: 1.3em;
+  margin: 16px 0 0;
+  font-size: .75rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, .82);
+  text-align: center;
+}
+
+body.mikutap-custom-music #bt_backtrack {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  #music_settings_btn {
+    top: 8px;
+    right: 58px;
+    min-width: 48px;
+    height: 32px;
+    padding: 0 9px;
+    border-radius: 16px;
+    font-size: .74rem;
+    line-height: 30px;
+  }
+
+  #music_settings_panel {
+    padding: 16px;
+  }
+
+  .music-settings-card {
+    padding: 26px 18px 18px;
+    border-radius: 16px;
+  }
+
+  .music-settings-card h2 {
+    font-size: 1rem;
+  }
+
+  .music-option,
+  .music-toggle,
+  .music-volume {
+    font-size: .82rem;
+  }
+}

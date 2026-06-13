@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntryMapper">
+
+    <resultMap id="EntryMap" type="com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntry">
+        <id column="id" property="id"/>
+        <result column="conversation_id" property="conversationId"/>
+        <result column="entry_key" property="entryKey"/>
+        <result column="memory_type" property="memoryType"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="keywords_json" property="keywordsJson"/>
+        <result column="secondary_keywords_json" property="secondaryKeywordsJson"/>
+        <result column="priority" property="priority"/>
+        <result column="position" property="position"/>
+        <result column="constant_injection" property="constantInjection"/>
+        <result column="selective" property="selective"/>
+        <result column="enabled" property="enabled"/>
+        <result column="confidence" property="confidence"/>
+        <result column="source_message_from_id" property="sourceMessageFromId"/>
+        <result column="source_message_to_id" property="sourceMessageToId"/>
+        <result column="last_activated_at" property="lastActivatedAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <select id="listEnabledByConversationId" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND enabled = 1
+          AND deleted_at IS NULL
+        ORDER BY priority DESC, id ASC
+    </select>
+
+    <select id="listAllByConversationId" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+        ORDER BY enabled DESC, priority DESC, id ASC
+    </select>
+
+    <insert id="upsert" parameterType="com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntry"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_conversation_memory_entry (
+            conversation_id, entry_key, memory_type, title, content,
+            keywords_json, secondary_keywords_json, priority, position,
+            constant_injection, selective, enabled, confidence,
+            source_message_from_id, source_message_to_id, deleted_at
+        ) VALUES (
+            #{conversationId}, #{entryKey}, #{memoryType}, #{title}, #{content},
+            #{keywordsJson}, #{secondaryKeywordsJson}, #{priority}, #{position},
+            #{constantInjection}, #{selective}, #{enabled}, #{confidence},
+            #{sourceMessageFromId}, #{sourceMessageToId}, NULL
+        )
+        ON DUPLICATE KEY UPDATE
+            memory_type = VALUES(memory_type),
+            title = VALUES(title),
+            content = VALUES(content),
+            keywords_json = VALUES(keywords_json),
+            secondary_keywords_json = VALUES(secondary_keywords_json),
+            priority = VALUES(priority),
+            position = VALUES(position),
+            constant_injection = VALUES(constant_injection),
+            selective = VALUES(selective),
+            enabled = VALUES(enabled),
+            confidence = VALUES(confidence),
+            source_message_from_id = VALUES(source_message_from_id),
+            source_message_to_id = VALUES(source_message_to_id),
+            deleted_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="disableByKey">
+        UPDATE app_conversation_memory_entry
+        SET enabled = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND entry_key = #{entryKey}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="disableById">
+        UPDATE app_conversation_memory_entry
+        SET enabled = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="softDeleteByConversationId">
+        UPDATE app_conversation_memory_entry
+        SET enabled = 0,
+            deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+    </update>
+
+    <select id="countAllByConversationId" resultType="int">
+        SELECT COUNT(1)
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+    </select>
+
+    <select id="countEnabledByConversationId" resultType="int">
+        SELECT COUNT(1)
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND enabled = 1
+          AND deleted_at IS NULL
+    </select>
+</mapper>

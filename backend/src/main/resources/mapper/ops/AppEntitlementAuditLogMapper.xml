@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.mapper.AppEntitlementAuditLogMapper">
+
+    <resultMap id="BaseResultMap" type="com.example.sillyspringboot.ops.entity.AppEntitlementAuditLog">
+        <id column="id" property="id"/>
+        <result column="scope_type" property="scopeType"/>
+        <result column="action_type" property="actionType"/>
+        <result column="operator_type" property="operatorType"/>
+        <result column="operator_name" property="operatorName"/>
+        <result column="target_user_id" property="targetUserId"/>
+        <result column="client_uid" property="clientUid"/>
+        <result column="order_no" property="orderNo"/>
+        <result column="summary" property="summary"/>
+        <result column="detail_json" property="detailJson"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <sql id="BaseWhere">
+        <where>
+            <if test="scopeType != null and scopeType != ''">
+                scope_type = #{scopeType}
+            </if>
+            <if test="actionType != null and actionType != ''">
+                AND action_type = #{actionType}
+            </if>
+            <if test="targetUserId != null">
+                AND target_user_id = #{targetUserId}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    CAST(target_user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(client_uid, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(order_no, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(summary, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(operator_name, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(detail_json, '') LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.ops.entity.AppEntitlementAuditLog" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_entitlement_audit_log (
+            scope_type, action_type, operator_type, operator_name, target_user_id,
+            client_uid, order_no, summary, detail_json
+        ) VALUES (
+            #{scopeType}, #{actionType}, #{operatorType}, #{operatorName}, #{targetUserId},
+            #{clientUid}, #{orderNo}, #{summary}, #{detailJson}
+        )
+    </insert>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_entitlement_audit_log
+        <include refid="BaseWhere"/>
+    </select>
+
+    <select id="listPage" resultType="map">
+        SELECT
+            id AS id,
+            scope_type AS scopeType,
+            action_type AS actionType,
+            operator_type AS operatorType,
+            operator_name AS operatorName,
+            target_user_id AS targetUserId,
+            COALESCE(client_uid, '') AS clientUid,
+            COALESCE(order_no, '') AS orderNo,
+            COALESCE(summary, '') AS summary,
+            COALESCE(detail_json, '') AS detailJson,
+            DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
+        FROM app_entitlement_audit_log
+        <include refid="BaseWhere"/>
+        ORDER BY id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <delete id="deleteByIds">
+        DELETE FROM app_entitlement_audit_log
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

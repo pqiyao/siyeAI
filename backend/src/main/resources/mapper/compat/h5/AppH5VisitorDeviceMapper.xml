@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppH5VisitorDeviceMapper">
+
+    <resultMap id="AppH5VisitorDeviceResultMap" type="com.example.sillyspringboot.compat.h5.entity.AppH5VisitorDevice">
+        <id column="id" property="id"/>
+        <result column="device_token" property="deviceToken"/>
+        <result column="first_client_uid" property="firstClientUid"/>
+        <result column="latest_client_uid" property="latestClientUid"/>
+        <result column="first_user_id" property="firstUserId"/>
+        <result column="latest_user_id" property="latestUserId"/>
+        <result column="first_ip" property="firstIp"/>
+        <result column="latest_ip" property="latestIp"/>
+        <result column="ua_hash" property="uaHash"/>
+        <result column="user_agent" property="userAgent"/>
+        <result column="anonymous_chat_attempt_count" property="anonymousChatAttemptCount"/>
+        <result column="anonymous_conversation_create_count" property="anonymousConversationCreateCount"/>
+        <result column="anonymous_character_create_count" property="anonymousCharacterCreateCount"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="last_seen_at" property="lastSeenAt"/>
+    </resultMap>
+
+    <select id="findByDeviceToken" resultMap="AppH5VisitorDeviceResultMap">
+        SELECT *
+        FROM app_h5_visitor_device
+        WHERE device_token = #{deviceToken}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.compat.h5.entity.AppH5VisitorDevice"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_h5_visitor_device (
+            device_token,
+            first_client_uid,
+            latest_client_uid,
+            first_user_id,
+            latest_user_id,
+            first_ip,
+            latest_ip,
+            ua_hash,
+            user_agent,
+            anonymous_chat_attempt_count,
+            anonymous_conversation_create_count,
+            anonymous_character_create_count
+        ) VALUES (
+            #{deviceToken},
+            #{firstClientUid},
+            #{latestClientUid},
+            #{firstUserId},
+            #{latestUserId},
+            #{firstIp},
+            #{latestIp},
+            #{uaHash},
+            #{userAgent},
+            #{anonymousChatAttemptCount},
+            #{anonymousConversationCreateCount},
+            #{anonymousCharacterCreateCount}
+        )
+    </insert>
+
+    <update id="touch">
+        UPDATE app_h5_visitor_device
+        SET last_seen_at = CURRENT_TIMESTAMP,
+            first_client_uid = CASE
+                WHEN (first_client_uid IS NULL OR first_client_uid = '')
+                     AND #{latestClientUid} IS NOT NULL AND #{latestClientUid} != '' THEN #{latestClientUid}
+                ELSE first_client_uid
+            END,
+            latest_client_uid = CASE
+                WHEN #{latestClientUid} IS NULL OR #{latestClientUid} = '' THEN latest_client_uid
+                ELSE #{latestClientUid}
+            END,
+            first_user_id = CASE
+                WHEN first_user_id IS NULL AND #{latestUserId} IS NOT NULL THEN #{latestUserId}
+                ELSE first_user_id
+            END,
+            latest_user_id = CASE
+                WHEN #{latestUserId} IS NULL THEN latest_user_id
+                ELSE #{latestUserId}
+            END,
+            first_ip = CASE
+                WHEN (first_ip IS NULL OR first_ip = '')
+                     AND #{latestIp} IS NOT NULL AND #{latestIp} != '' THEN #{latestIp}
+                ELSE first_ip
+            END,
+            latest_ip = CASE
+                WHEN #{latestIp} IS NULL OR #{latestIp} = '' THEN latest_ip
+                ELSE #{latestIp}
+            END,
+            ua_hash = CASE
+                WHEN #{uaHash} IS NULL OR #{uaHash} = '' THEN ua_hash
+                ELSE #{uaHash}
+            END,
+            user_agent = CASE
+                WHEN #{userAgent} IS NULL OR #{userAgent} = '' THEN user_agent
+                ELSE #{userAgent}
+            END
+        WHERE id = #{id}
+    </update>
+
+    <update id="incrementAnonymousChatAttemptCount">
+        UPDATE app_h5_visitor_device
+        SET anonymous_chat_attempt_count = anonymous_chat_attempt_count + 1,
+            last_seen_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="incrementAnonymousConversationCreateCount">
+        UPDATE app_h5_visitor_device
+        SET anonymous_conversation_create_count = anonymous_conversation_create_count + 1,
+            last_seen_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="incrementAnonymousCharacterCreateCount">
+        UPDATE app_h5_visitor_device
+        SET anonymous_character_create_count = anonymous_character_create_count + 1,
+            last_seen_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+</mapper>

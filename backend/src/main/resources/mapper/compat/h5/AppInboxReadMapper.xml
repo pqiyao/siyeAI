@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppInboxReadMapper">
+
+    <insert id="ensureInboxReadState">
+        INSERT IGNORE INTO app_user_inbox_read_state (user_id)
+        VALUES (#{userId})
+    </insert>
+
+    <update id="claimNoticeBaselineInitialization">
+        UPDATE app_user_inbox_read_state
+        SET notice_baseline_initialized = 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+          AND notice_baseline_initialized = 0
+    </update>
+
+    <update id="claimMessageBaselineInitialization">
+        UPDATE app_user_inbox_read_state
+        SET message_baseline_initialized = 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+          AND message_baseline_initialized = 0
+    </update>
+
+    <select id="countUnreadNotices" resultType="long">
+        SELECT COUNT(*)
+        FROM app_notice n
+        WHERE n.enabled = 1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM app_user_notice_read r
+              WHERE r.user_id = #{userId}
+                AND r.notice_id = n.id
+          )
+    </select>
+
+    <select id="countUnreadUserMessages" resultType="long">
+        SELECT COUNT(*)
+        FROM app_user_message
+        WHERE user_id = #{userId}
+          AND COALESCE(read_flag, 0) = 0
+    </select>
+
+    <insert id="markNoticesRead">
+        INSERT IGNORE INTO app_user_notice_read (user_id, notice_id)
+        SELECT #{userId}, id
+        FROM app_notice
+        WHERE enabled = 1
+    </insert>
+
+    <insert id="markNoticeRead">
+        INSERT IGNORE INTO app_user_notice_read (user_id, notice_id)
+        SELECT #{userId}, id
+        FROM app_notice
+        WHERE id = #{noticeId}
+          AND enabled = 1
+    </insert>
+
+    <update id="markUserMessagesRead">
+        UPDATE app_user_message
+        SET read_flag = 1,
+            read_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+          AND COALESCE(read_flag, 0) = 0
+    </update>
+</mapper>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.upload.mapper.AppUploadedAssetMapper">
+
+    <insert id="upsert" parameterType="com.example.sillyspringboot.upload.entity.AppUploadedAsset" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_uploaded_asset (
+            owner_user_id,
+            media_key,
+            storage_provider,
+            media_type,
+            source_module
+        ) VALUES (
+            #{ownerUserId},
+            #{mediaKey},
+            #{storageProvider},
+            #{mediaType},
+            #{sourceModule}
+        )
+        ON DUPLICATE KEY UPDATE
+            owner_user_id = VALUES(owner_user_id),
+            storage_provider = VALUES(storage_provider),
+            media_type = VALUES(media_type),
+            source_module = VALUES(source_module),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <select id="findByMediaKey" resultType="com.example.sillyspringboot.upload.entity.AppUploadedAsset">
+        SELECT *
+        FROM app_uploaded_asset
+        WHERE media_key = #{mediaKey}
+        LIMIT 1
+    </select>
+
+    <select id="countOwnedAsset" resultType="int">
+        SELECT COUNT(1)
+        FROM app_uploaded_asset
+        WHERE owner_user_id = #{ownerUserId}
+          AND media_key = #{mediaKey}
+          AND media_type = #{mediaType}
+    </select>
+
+</mapper>

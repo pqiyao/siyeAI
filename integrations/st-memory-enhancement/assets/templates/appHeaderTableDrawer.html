@@ -1,0 +1,33 @@
+<div id="table_database_settings_drawer" class="drawer">
+    <div class="drawer-toggle">
+        <div id="table_drawer_icon" class="drawer-icon fa-solid fa-bars-progress fa-fw closedIcon interactable" title="事件表" data-i18n="[title]Event table" tabindex="0"></div>
+    </div>
+    <div id="table_drawer_content" class="drawer-content closedDrawer">
+        <!-- 切换界面按钮 -->
+        <div id="table_button_container" class="wide100p flex-container" style="display: flex; flex-grow: 1; justify-content: space-between">
+            <div style="display: flex; flex-grow: 1; gap: 5px;">
+                <button id="database_button" class="menu_button_icon menu_button interactable"><i class="fa-solid fa-database"></i><b data-i18n="Data">数据</b></button>
+                <button id="editor_button" class="menu_button_icon menu_button interactable"><i class="fa-solid fa-pen-ruler"></i><b data-i18n="Template">模板</b></button>
+                <!--                <button id="nodes_button" class="menu_button_icon menu_button interactable"><i class="fa-brands fa-hubspot"></i><b>流程</b></button>-->
+            </div>
+            <button id="setting_button" class="menu_button_icon menu_button interactable" style="position: relative;">
+                <i class="fa-solid fa-gears"></i>
+                <b data-i18n="Settings">设置</b>
+                <span id="setting_button_new_tag" class="new-version-tag" style="display: none; position: absolute; top: -5px; right: -5px; background: #ff4444; color: white; font-size: 10px; padding: 2px 4px; border-radius: 8px; font-weight: bold;">New</span>
+            </button>
+        </div>
+        <!-- 加载对话表功能面板 -->
+        <div id="app_header_table_container" style="max-height: 100%; overflow-y: auto; flex-grow: 1;">
+
+        </div>
+    </div>
+</div>
+
+<style>
+
+    /* 确保按钮栏在滚动时不会被遮挡 */
+    #app_header_table_container {
+        overflow-y: auto;
+        flex-grow: 1;
+    }
+</style>

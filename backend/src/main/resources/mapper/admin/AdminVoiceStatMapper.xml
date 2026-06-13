@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AdminVoiceStatMapper">
+
+    <sql id="RecentWhere">
+        <where>
+            t.created_at >= #{cutoffAt}
+            <if test="scope != null and scope != ''">
+                AND t.scope = #{scope}
+            </if>
+            <if test="status != null and status != ''">
+                AND t.status = #{status}
+            </if>
+            <if test="providerSource != null and providerSource != ''">
+                AND t.provider_source = #{providerSource}
+            </if>
+            <if test="modelName != null and modelName != ''">
+                AND t.model_name LIKE CONCAT('%', #{modelName}, '%')
+            </if>
+            <if test="errorCode != null and errorCode != ''">
+                AND t.error_code = #{errorCode}
+            </if>
+        </where>
+    </sql>
+
+    <sql id="SummaryColumns">
+        COUNT(*) AS totalCalls,
+        SUM(CASE WHEN t.status = 'SUCCESS' THEN 1 ELSE 0 END) AS successCount,
+        SUM(CASE WHEN t.status = 'FAILED' THEN 1 ELSE 0 END) AS failedCount,
+        ROUND(100 * SUM(CASE WHEN t.status = 'FAILED' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) AS failureRate,
+        ROUND(AVG(t.latency_ms), 2) AS avgLatencyMs,
+        SUM(t.audio_bytes) AS totalAudioBytes,
+        SUM(t.text_chars) AS totalTextChars,
+        SUM(CASE WHEN t.cache_hit = 1 THEN 1 ELSE 0 END) AS cacheHitCount,
+        ROUND(100 * SUM(CASE WHEN t.cache_hit = 1 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) AS cacheHitRate,
+        SUM(CASE WHEN t.duplicate_request = 1 THEN 1 ELSE 0 END) AS duplicateRequestCount,
+        ROUND(100 * SUM(CASE WHEN t.duplicate_request = 1 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) AS duplicateRequestRate
+    </sql>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_voice_stat_event t
+        <include refid="RecentWhere"/>
+    </select>
+
+    <select id="listPage" resultType="map">
+        SELECT
+            t.id AS id,
+            DATE_FORMAT(t.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(t.event_day, '%Y-%m-%d') AS eventDay,
+            t.user_id AS userId,
+            t.scope AS scope,
+            t.provider_source AS providerSource,
+            t.model_name AS modelName,
+            t.voice_name AS voiceName,
+            t.template_code AS templateCode,
+            t.status AS status,
+            t.text_chars AS textChars,
+            t.audio_bytes AS audioBytes,
+            t.latency_ms AS latencyMs,
+            CASE WHEN t.cache_hit = 1 THEN 1 ELSE 0 END AS cacheHit,
+            CASE WHEN t.duplicate_request = 1 THEN 1 ELSE 0 END AS duplicateRequest,
+            t.error_code AS errorCode,
+            t.request_fingerprint AS requestFingerprint
+        FROM app_voice_stat_event t
+        <include refid="RecentWhere"/>
+        ORDER BY t.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="summaryTotals" resultType="map">
+        SELECT
+            <include refid="SummaryColumns"/>
+        FROM app_voice_stat_event t
+        WHERE t.created_at >= #{cutoffAt}
+    </select>
+
+    <select id="summaryByScope" resultType="map">
+        SELECT
+            t.scope AS scope,
+            <include refid="SummaryColumns"/>
+        FROM app_voice_stat_event t
+        WHERE t.created_at >= #{cutoffAt}
+        GROUP BY t.scope
+        ORDER BY t.scope ASC
+    </select>
+
+    <select id="topProviders" resultType="map">
+        SELECT
+            t.provider_source AS providerSource,
+            COUNT(*) AS totalCalls,
+            SUM(CASE WHEN t.status = 'SUCCESS' THEN 1 ELSE 0 END) AS successCount,
+            SUM(CASE WHEN t.status = 'FAILED' THEN 1 ELSE 0 END) AS failedCount,
+            ROUND(100 * SUM(CASE WHEN t.status = 'FAILED' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 2) AS failureRate,
+            ROUND(AVG(t.latency_ms), 2) AS avgLatencyMs
+        FROM app_voice_stat_event t
+        WHERE t.created_at >= #{cutoffAt}
+          AND t.provider_source != ''
+        GROUP BY t.provider_source
+        ORDER BY totalCalls DESC, t.provider_source ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="topErrors" resultType="map">
+        SELECT
+            t.error_code AS errorCode,
+            COUNT(*) AS totalCount,
+            MAX(t.scope) AS sampleScope,
+            MAX(t.provider_source) AS sampleProviderSource,
+            MAX(t.model_name) AS sampleModelName
+        FROM app_voice_stat_event t
+        WHERE t.created_at >= #{cutoffAt}
+          AND t.status = 'FAILED'
+          AND t.error_code != ''
+        GROUP BY t.error_code
+        ORDER BY totalCount DESC, t.error_code ASC
+        LIMIT #{limit}
+    </select>
+</mapper>

@@ -1,0 +1,806 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.community.mapper.CommunityMapper">
+
+    <insert id="insertPost" parameterType="com.example.sillyspringboot.community.entity.CommunityPost" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_community_post (
+            user_id, content, source_type, status, open_comments
+        ) VALUES (
+            #{userId}, #{content}, #{sourceType}, #{status}, COALESCE(#{openComments}, 1)
+        )
+    </insert>
+
+    <insert id="insertPostMedia" parameterType="com.example.sillyspringboot.community.entity.CommunityPostMedia" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_community_post_media (
+            post_id, user_id, media_key, storage_provider, media_url_snapshot, media_type, sort_order
+        ) VALUES (
+            #{postId}, #{userId}, #{mediaKey}, #{storageProvider}, #{mediaUrlSnapshot}, #{mediaType}, #{sortOrder}
+        )
+    </insert>
+
+    <sql id="UserCardColumns">
+        u.id AS userId,
+        COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('用户', u.id)) AS nickname,
+        COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS avatar,
+        COALESCE(ext.bio, '') AS bio,
+        COALESCE(NULLIF(ext.status, ''), 'normal') AS userStatus
+    </sql>
+
+    <select id="findUserCard" resultType="map">
+        SELECT
+        <include refid="UserCardColumns"/>
+        FROM app_user u
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = u.id
+        WHERE u.id = #{userId}
+        LIMIT 1
+    </select>
+
+    <sql id="PostCardColumns">
+        p.id AS postId,
+        p.user_id AS userId,
+        COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('用户', p.user_id)) AS nickname,
+        COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS avatar,
+        COALESCE(ext.bio, '') AS bio,
+        p.content AS content,
+        p.source_type AS sourceType,
+        p.status AS status,
+        p.open_comments AS openComments,
+        p.like_count AS likeCount,
+        p.comment_count AS commentCount,
+        p.view_count AS viewCount,
+        p.created_at AS createdAt,
+        p.updated_at AS updatedAt,
+        CASE WHEN l.id IS NULL THEN 0 ELSE 1 END AS liked,
+        CASE WHEN f.id IS NULL THEN 0 ELSE 1 END AS followed,
+        CASE WHEN sf.id IS NULL THEN 0 ELSE 1 END AS friend,
+        CASE WHEN fr.id IS NULL THEN 0 ELSE 1 END AS friendRequestPending,
+        fr.id AS outgoingFriendRequestId,
+        CASE WHEN inbound_fr.id IS NULL THEN 0 ELSE 1 END AS incomingFriendRequestPending,
+        inbound_fr.id AS incomingFriendRequestId
+    </sql>
+
+    <sql id="PostVisibleWhere">
+        p.deleted_at IS NULL
+        AND p.status = 'normal'
+    </sql>
+
+    <select id="findPostCard" resultType="map">
+        SELECT
+        <include refid="PostCardColumns"/>
+        FROM app_community_post p
+        LEFT JOIN app_user u ON u.id = p.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = p.user_id
+        LEFT JOIN app_community_like l ON l.post_id = p.id AND l.user_id = #{viewerId}
+        LEFT JOIN app_community_follow f ON f.from_user_id = #{viewerId} AND f.to_user_id = p.user_id
+        LEFT JOIN app_social_friend sf
+               ON sf.user_id = #{viewerId}
+              AND sf.friend_user_id = p.user_id
+              AND sf.status = 'normal'
+              AND sf.deleted_at IS NULL
+        LEFT JOIN app_social_friend_request fr
+               ON fr.requester_user_id = #{viewerId}
+              AND fr.target_user_id = p.user_id
+              AND fr.status = 'pending'
+        LEFT JOIN app_social_friend_request inbound_fr
+               ON inbound_fr.requester_user_id = p.user_id
+              AND inbound_fr.target_user_id = #{viewerId}
+              AND inbound_fr.status = 'pending'
+        WHERE <include refid="PostVisibleWhere"/>
+          AND p.id = #{postId}
+        LIMIT 1
+    </select>
+
+    <select id="findPostOwner" resultType="map">
+        SELECT id AS postId, user_id AS userId, status AS status, deleted_at AS deletedAt
+        FROM app_community_post
+        WHERE id = #{postId}
+        LIMIT 1
+    </select>
+
+    <select id="countFeed" resultType="long">
+        SELECT COUNT(1)
+        FROM app_community_post p
+        <where>
+            <include refid="PostVisibleWhere"/>
+            <if test="feed == 'following'">
+                AND EXISTS (
+                    SELECT 1
+                    FROM app_community_follow ff
+                    WHERE ff.from_user_id = #{viewerId}
+                      AND ff.to_user_id = p.user_id
+                )
+            </if>
+            <if test="userId != null">
+                AND p.user_id = #{userId}
+            </if>
+        </where>
+    </select>
+
+    <select id="listFeed" resultType="map">
+        SELECT
+        <include refid="PostCardColumns"/>
+        FROM app_community_post p
+        LEFT JOIN app_user u ON u.id = p.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = p.user_id
+        LEFT JOIN app_community_like l ON l.post_id = p.id AND l.user_id = #{viewerId}
+        LEFT JOIN app_community_follow f ON f.from_user_id = #{viewerId} AND f.to_user_id = p.user_id
+        LEFT JOIN app_social_friend sf
+               ON sf.user_id = #{viewerId}
+              AND sf.friend_user_id = p.user_id
+              AND sf.status = 'normal'
+              AND sf.deleted_at IS NULL
+        LEFT JOIN app_social_friend_request fr
+               ON fr.requester_user_id = #{viewerId}
+              AND fr.target_user_id = p.user_id
+              AND fr.status = 'pending'
+        LEFT JOIN app_social_friend_request inbound_fr
+               ON inbound_fr.requester_user_id = p.user_id
+              AND inbound_fr.target_user_id = #{viewerId}
+              AND inbound_fr.status = 'pending'
+        <where>
+            <include refid="PostVisibleWhere"/>
+            <if test="feed == 'following'">
+                AND EXISTS (
+                    SELECT 1
+                    FROM app_community_follow ff
+                    WHERE ff.from_user_id = #{viewerId}
+                      AND ff.to_user_id = p.user_id
+                )
+            </if>
+            <if test="userId != null">
+                AND p.user_id = #{userId}
+            </if>
+        </where>
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="listMediaByPostIds" resultType="map">
+        SELECT
+            post_id AS postId,
+            id AS id,
+            media_key AS mediaKey,
+            media_url_snapshot AS mediaUrl,
+            storage_provider AS storageProvider,
+            media_type AS mediaType,
+            sort_order AS sortOrder
+        FROM app_community_post_media
+        WHERE post_id IN
+        <foreach collection="postIds" item="postId" open="(" separator="," close=")">
+            #{postId}
+        </foreach>
+        ORDER BY post_id ASC, sort_order ASC, id ASC
+    </select>
+
+    <update id="incrementPostView">
+        UPDATE app_community_post
+        SET view_count = view_count + 1
+        WHERE id = #{postId}
+          AND deleted_at IS NULL
+    </update>
+
+    <select id="countLike" resultType="int">
+        SELECT COUNT(1)
+        FROM app_community_like
+        WHERE post_id = #{postId}
+          AND user_id = #{userId}
+    </select>
+
+    <insert id="insertLike">
+        INSERT INTO app_community_like (post_id, user_id, to_user_id)
+        VALUES (#{postId}, #{userId}, #{toUserId})
+    </insert>
+
+    <delete id="deleteLike">
+        DELETE FROM app_community_like
+        WHERE post_id = #{postId}
+          AND user_id = #{userId}
+    </delete>
+
+    <update id="incrementLikeCount">
+        UPDATE app_community_post
+        SET like_count = like_count + 1
+        WHERE id = #{postId}
+    </update>
+
+    <update id="decrementLikeCount">
+        UPDATE app_community_post
+        SET like_count = GREATEST(0, like_count - 1)
+        WHERE id = #{postId}
+    </update>
+
+    <insert id="insertComment" parameterType="com.example.sillyspringboot.community.entity.CommunityComment" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_community_comment (
+            post_id, user_id, content, status
+        ) VALUES (
+            #{postId}, #{userId}, #{content}, #{status}
+        )
+    </insert>
+
+    <select id="findComment" resultType="map">
+        SELECT
+            c.id AS commentId,
+            c.post_id AS postId,
+            c.user_id AS userId,
+            c.content AS content,
+            c.status AS status,
+            c.deleted_at AS deletedAt
+        FROM app_community_comment c
+        WHERE c.id = #{commentId}
+        LIMIT 1
+    </select>
+
+    <select id="listComments" resultType="map">
+        SELECT
+            c.id AS commentId,
+            c.post_id AS postId,
+            c.user_id AS userId,
+            COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('用户', c.user_id)) AS nickname,
+            COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS avatar,
+            c.content AS content,
+            c.reply_count AS replyCount,
+            c.status AS status,
+            c.created_at AS createdAt
+        FROM app_community_comment c
+        LEFT JOIN app_user u ON u.id = c.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = c.user_id
+        WHERE c.post_id = #{postId}
+          AND c.deleted_at IS NULL
+          AND c.status = 'normal'
+        ORDER BY c.created_at ASC, c.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <insert id="insertReply" parameterType="com.example.sillyspringboot.community.entity.CommunityCommentReply" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_community_comment_reply (
+            comment_id, post_id, from_user_id, to_user_id, content, status
+        ) VALUES (
+            #{commentId}, #{postId}, #{fromUserId}, #{toUserId}, #{content}, #{status}
+        )
+    </insert>
+
+    <select id="listReplies" resultType="map">
+        SELECT
+            r.id AS replyId,
+            r.comment_id AS commentId,
+            r.post_id AS postId,
+            r.from_user_id AS fromUserId,
+            COALESCE(NULLIF(from_ext.nickname, ''), NULLIF(from_user.username, ''), CONCAT('用户', r.from_user_id)) AS fromNickname,
+            COALESCE(NULLIF(from_ext.avatar, ''), NULLIF(from_user.photo_url, '')) AS fromAvatar,
+            r.to_user_id AS toUserId,
+            COALESCE(NULLIF(to_ext.nickname, ''), NULLIF(to_user.username, ''), '') AS toNickname,
+            r.content AS content,
+            r.status AS status,
+            r.created_at AS createdAt
+        FROM app_community_comment_reply r
+        LEFT JOIN app_user from_user ON from_user.id = r.from_user_id
+        LEFT JOIN app_h5_user_profile_ext from_ext ON from_ext.user_id = r.from_user_id
+        LEFT JOIN app_user to_user ON to_user.id = r.to_user_id
+        LEFT JOIN app_h5_user_profile_ext to_ext ON to_ext.user_id = r.to_user_id
+        WHERE r.comment_id = #{commentId}
+          AND r.deleted_at IS NULL
+          AND r.status = 'normal'
+        ORDER BY r.created_at ASC, r.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <update id="incrementPostCommentCount">
+        UPDATE app_community_post
+        SET comment_count = comment_count + 1
+        WHERE id = #{postId}
+    </update>
+
+    <update id="incrementCommentReplyCount">
+        UPDATE app_community_comment
+        SET reply_count = reply_count + 1
+        WHERE id = #{commentId}
+    </update>
+
+    <select id="countFollow" resultType="int">
+        SELECT COUNT(1)
+        FROM app_community_follow
+        WHERE from_user_id = #{fromUserId}
+          AND to_user_id = #{toUserId}
+    </select>
+
+    <insert id="insertFollow">
+        INSERT INTO app_community_follow (from_user_id, to_user_id)
+        VALUES (#{fromUserId}, #{toUserId})
+    </insert>
+
+    <delete id="deleteFollow">
+        DELETE FROM app_community_follow
+        WHERE from_user_id = #{fromUserId}
+          AND to_user_id = #{toUserId}
+    </delete>
+
+    <select id="findFriendRequest" resultType="map">
+        SELECT
+            id AS requestId,
+            requester_user_id AS requesterUserId,
+            target_user_id AS targetUserId,
+            request_message AS requestMessage,
+            status AS status,
+            handled_by_user_id AS handledByUserId,
+            handled_at AS handledAt,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM app_social_friend_request
+        WHERE requester_user_id = #{requesterUserId}
+          AND target_user_id = #{targetUserId}
+        LIMIT 1
+    </select>
+
+    <select id="findPendingFriendRequest" resultType="map">
+        SELECT
+            id AS requestId,
+            requester_user_id AS requesterUserId,
+            target_user_id AS targetUserId,
+            request_message AS requestMessage,
+            status AS status,
+            handled_by_user_id AS handledByUserId,
+            handled_at AS handledAt,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM app_social_friend_request
+        WHERE requester_user_id = #{requesterUserId}
+          AND target_user_id = #{targetUserId}
+          AND status = 'pending'
+        LIMIT 1
+    </select>
+
+    <select id="findFriendRequestById" resultType="map">
+        SELECT
+            id AS requestId,
+            requester_user_id AS requesterUserId,
+            target_user_id AS targetUserId,
+            request_message AS requestMessage,
+            status AS status,
+            handled_by_user_id AS handledByUserId,
+            handled_at AS handledAt,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM app_social_friend_request
+        WHERE id = #{requestId}
+        LIMIT 1
+    </select>
+
+    <insert id="upsertFriendRequest">
+        INSERT INTO app_social_friend_request (
+            requester_user_id, target_user_id, request_message, status, handled_by_user_id, handled_at
+        ) VALUES (
+            #{requesterUserId}, #{targetUserId}, #{requestMessage}, 'pending', NULL, NULL
+        )
+        ON DUPLICATE KEY UPDATE
+            request_message = VALUES(request_message),
+            status = 'pending',
+            handled_by_user_id = NULL,
+            handled_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="updateFriendRequestStatus">
+        UPDATE app_social_friend_request
+        SET status = #{status},
+            handled_by_user_id = #{handledByUserId},
+            handled_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{requestId}
+    </update>
+
+    <update id="updatePendingFriendRequestStatusByPair">
+        UPDATE app_social_friend_request
+        SET status = #{status},
+            handled_by_user_id = #{handledByUserId},
+            handled_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE requester_user_id = #{requesterUserId}
+          AND target_user_id = #{targetUserId}
+          AND status = 'pending'
+    </update>
+
+    <insert id="upsertFriend">
+        INSERT INTO app_social_friend (
+            user_id, friend_user_id, source_request_id, status, deleted_at
+        ) VALUES (
+            #{userId}, #{friendUserId}, #{requestId}, 'normal', NULL
+        )
+        ON DUPLICATE KEY UPDATE
+            source_request_id = COALESCE(VALUES(source_request_id), source_request_id),
+            status = 'normal',
+            deleted_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="removeFriend">
+        UPDATE app_social_friend
+        SET status = 'deleted',
+            deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+          AND friend_user_id = #{friendUserId}
+          AND deleted_at IS NULL
+    </update>
+
+    <select id="countFriendPair" resultType="int">
+        SELECT COUNT(1)
+        FROM app_social_friend
+        WHERE user_id = #{userId}
+          AND friend_user_id = #{friendUserId}
+          AND status = 'normal'
+          AND deleted_at IS NULL
+    </select>
+
+    <insert id="upsertBlock">
+        INSERT INTO app_social_block (user_id, blocked_user_id, reason, status)
+        VALUES (#{userId}, #{blockedUserId}, #{reason}, 'active')
+        ON DUPLICATE KEY UPDATE
+            reason = VALUES(reason),
+            status = 'active',
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="removeBlock">
+        UPDATE app_social_block
+        SET status = 'removed',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+          AND blocked_user_id = #{blockedUserId}
+          AND status = 'active'
+    </update>
+
+    <select id="countActiveBlockBetween" resultType="int">
+        SELECT COUNT(1)
+        FROM app_social_block
+        WHERE status = 'active'
+          AND (
+            (user_id = #{userId} AND blocked_user_id = #{peerUserId})
+            OR (user_id = #{peerUserId} AND blocked_user_id = #{userId})
+          )
+    </select>
+
+    <sql id="FriendRequestWhere">
+        <where>
+            <choose>
+                <when test="box == 'sent'">
+                    r.requester_user_id = #{userId}
+                </when>
+                <otherwise>
+                    r.target_user_id = #{userId}
+                </otherwise>
+            </choose>
+            <if test="status != null and status != '' and status != 'all'">
+                AND r.status = #{status}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countFriendRequests" resultType="long">
+        SELECT COUNT(1)
+        FROM app_social_friend_request r
+        <include refid="FriendRequestWhere"/>
+    </select>
+
+    <select id="listFriendRequests" resultType="map">
+        SELECT
+            r.id AS requestId,
+            r.requester_user_id AS requesterUserId,
+            r.target_user_id AS targetUserId,
+            r.request_message AS requestMessage,
+            r.status AS status,
+            r.handled_by_user_id AS handledByUserId,
+            r.handled_at AS handledAt,
+            r.created_at AS createdAt,
+            r.updated_at AS updatedAt,
+            COALESCE(NULLIF(requester_ext.nickname, ''), NULLIF(requester.username, ''), CONCAT('用户', requester.id)) AS requesterNickname,
+            COALESCE(NULLIF(requester_ext.avatar, ''), NULLIF(requester.photo_url, '')) AS requesterAvatar,
+            COALESCE(requester_ext.bio, '') AS requesterBio,
+            COALESCE(NULLIF(requester_ext.status, ''), 'normal') AS requesterUserStatus,
+            COALESCE(NULLIF(target_ext.nickname, ''), NULLIF(target.username, ''), CONCAT('用户', target.id)) AS targetNickname,
+            COALESCE(NULLIF(target_ext.avatar, ''), NULLIF(target.photo_url, '')) AS targetAvatar,
+            COALESCE(target_ext.bio, '') AS targetBio,
+            COALESCE(NULLIF(target_ext.status, ''), 'normal') AS targetUserStatus
+        FROM app_social_friend_request r
+        JOIN app_user requester ON requester.id = r.requester_user_id
+        LEFT JOIN app_h5_user_profile_ext requester_ext ON requester_ext.user_id = r.requester_user_id
+        JOIN app_user target ON target.id = r.target_user_id
+        LEFT JOIN app_h5_user_profile_ext target_ext ON target_ext.user_id = r.target_user_id
+        <include refid="FriendRequestWhere"/>
+        ORDER BY
+            CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END ASC,
+            r.updated_at DESC,
+            r.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countFriends" resultType="long">
+        SELECT COUNT(1)
+        FROM app_social_friend f
+        LEFT JOIN app_community_follow follow
+               ON follow.from_user_id = #{userId}
+              AND follow.to_user_id = f.friend_user_id
+        LEFT JOIN app_community_follow back
+               ON back.from_user_id = f.friend_user_id
+              AND back.to_user_id = #{userId}
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = f.friend_user_id
+        WHERE f.user_id = #{userId}
+          AND f.status = 'normal'
+          AND f.deleted_at IS NULL
+          AND COALESCE(NULLIF(ext.status, ''), 'normal') != 'disabled'
+        <choose>
+            <when test="relation == 'mutual'">
+                AND follow.id IS NOT NULL
+                AND back.id IS NOT NULL
+            </when>
+            <when test="relation == 'blocked'">
+                AND EXISTS (
+                    SELECT 1
+                    FROM app_social_block b
+                    WHERE b.user_id = #{userId}
+                      AND b.blocked_user_id = f.friend_user_id
+                      AND b.status = 'active'
+                )
+            </when>
+        </choose>
+    </select>
+
+    <select id="listFriends" resultType="map">
+        SELECT
+            f.friend_user_id AS userId,
+            COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('用户', f.friend_user_id)) AS nickname,
+            COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS avatar,
+            COALESCE(ext.bio, '') AS bio,
+            COALESCE(NULLIF(ext.status, ''), 'normal') AS userStatus,
+            f.source_request_id AS sourceRequestId,
+            f.created_at AS friendedAt,
+            CASE WHEN follow.id IS NULL THEN 0 ELSE 1 END AS followed,
+            CASE WHEN back.id IS NULL THEN 0 ELSE 1 END AS followedByPeer,
+            CASE WHEN follow.id IS NOT NULL AND back.id IS NOT NULL THEN 1 ELSE 0 END AS mutual,
+            CASE WHEN block.id IS NULL THEN 0 ELSE 1 END AS blocked,
+            c.id AS conversationId,
+            c.conversation_key AS conversationKey,
+            c.last_message_preview AS lastMessagePreview,
+            c.last_message_at AS lastMessageAt,
+            c.unread_count AS unreadCount
+        FROM app_social_friend f
+        JOIN app_user u ON u.id = f.friend_user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = f.friend_user_id
+        LEFT JOIN app_community_follow follow
+               ON follow.from_user_id = #{userId}
+              AND follow.to_user_id = f.friend_user_id
+        LEFT JOIN app_community_follow back
+               ON back.from_user_id = f.friend_user_id
+              AND back.to_user_id = #{userId}
+        LEFT JOIN app_social_block block
+               ON block.user_id = #{userId}
+              AND block.blocked_user_id = f.friend_user_id
+              AND block.status = 'active'
+        LEFT JOIN app_human_chat_conversation c
+               ON c.user_id = #{userId}
+              AND c.peer_user_id = f.friend_user_id
+              AND c.status = 'normal'
+        WHERE f.user_id = #{userId}
+          AND f.status = 'normal'
+          AND f.deleted_at IS NULL
+          AND COALESCE(NULLIF(ext.status, ''), 'normal') != 'disabled'
+        <choose>
+            <when test="relation == 'mutual'">
+                AND follow.id IS NOT NULL
+                AND back.id IS NOT NULL
+            </when>
+            <when test="relation == 'blocked'">
+                AND block.id IS NOT NULL
+            </when>
+        </choose>
+        ORDER BY
+            CASE WHEN c.last_message_at IS NULL THEN 1 ELSE 0 END ASC,
+            c.last_message_at DESC,
+            f.created_at DESC,
+            f.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <sql id="AdminPostWhere">
+        <where>
+            p.deleted_at IS NULL
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    p.content LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(ext.nickname, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(u.username, '') LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="status != null and status != ''">
+                AND p.status = #{status}
+            </if>
+            <if test="userId != null">
+                AND p.user_id = #{userId}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminPosts" resultType="long">
+        SELECT COUNT(1)
+        FROM app_community_post p
+        LEFT JOIN app_user u ON u.id = p.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = p.user_id
+        <include refid="AdminPostWhere"/>
+    </select>
+
+    <select id="listAdminPosts" resultType="map">
+        SELECT
+            p.id AS postId,
+            p.user_id AS userId,
+            COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('用户', p.user_id)) AS nickname,
+            COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS avatar,
+            p.content AS content,
+            p.source_type AS sourceType,
+            p.status AS status,
+            p.like_count AS likeCount,
+            p.comment_count AS commentCount,
+            p.view_count AS viewCount,
+            p.created_at AS createdAt,
+            p.updated_at AS updatedAt
+        FROM app_community_post p
+        LEFT JOIN app_user u ON u.id = p.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = p.user_id
+        <include refid="AdminPostWhere"/>
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <update id="updatePostStatus">
+        UPDATE app_community_post
+        SET status = #{status},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{postId}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="softDeletePost">
+        UPDATE app_community_post
+        SET deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{postId}
+          AND deleted_at IS NULL
+    </update>
+    <select id="findAdminPost" resultType="map">
+        SELECT
+            p.id AS postId,
+            p.user_id AS userId,
+            COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('鐢ㄦ埛', p.user_id)) AS nickname,
+            COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS avatar,
+            p.content AS content,
+            p.source_type AS sourceType,
+            p.status AS status,
+            p.open_comments AS openComments,
+            p.like_count AS likeCount,
+            p.comment_count AS commentCount,
+            p.view_count AS viewCount,
+            p.created_at AS createdAt,
+            p.updated_at AS updatedAt,
+            p.deleted_at AS deletedAt
+        FROM app_community_post p
+        LEFT JOIN app_user u ON u.id = p.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = p.user_id
+        WHERE p.id = #{postId}
+        LIMIT 1
+    </select>
+
+    <sql id="AdminCommentWhere">
+        <where>
+            c.deleted_at IS NULL
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    c.content LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(ext.nickname, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(u.username, '') LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="postId != null">
+                AND c.post_id = #{postId}
+            </if>
+            <if test="userId != null">
+                AND c.user_id = #{userId}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminComments" resultType="long">
+        SELECT COUNT(1)
+        FROM app_community_comment c
+        LEFT JOIN app_user u ON u.id = c.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = c.user_id
+        <include refid="AdminCommentWhere"/>
+    </select>
+
+    <select id="listAdminComments" resultType="map">
+        SELECT
+            c.id AS commentId,
+            c.post_id AS postId,
+            c.user_id AS userId,
+            COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('鐢ㄦ埛', c.user_id)) AS nickname,
+            COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS avatar,
+            c.content AS content,
+            c.reply_count AS replyCount,
+            c.status AS status,
+            c.created_at AS createdAt,
+            c.updated_at AS updatedAt
+        FROM app_community_comment c
+        LEFT JOIN app_user u ON u.id = c.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = c.user_id
+        <include refid="AdminCommentWhere"/>
+        ORDER BY c.created_at DESC, c.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findAdminComment" resultType="map">
+        SELECT
+            c.id AS commentId,
+            c.post_id AS postId,
+            c.user_id AS userId,
+            COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('鐢ㄦ埛', c.user_id)) AS nickname,
+            COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS avatar,
+            c.content AS content,
+            c.reply_count AS replyCount,
+            c.status AS status,
+            c.created_at AS createdAt,
+            c.updated_at AS updatedAt,
+            c.deleted_at AS deletedAt
+        FROM app_community_comment c
+        LEFT JOIN app_user u ON u.id = c.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = c.user_id
+        WHERE c.id = #{commentId}
+        LIMIT 1
+    </select>
+
+    <select id="listAdminReplies" resultType="map">
+        SELECT
+            r.id AS replyId,
+            r.comment_id AS commentId,
+            r.post_id AS postId,
+            r.from_user_id AS fromUserId,
+            COALESCE(NULLIF(from_ext.nickname, ''), NULLIF(from_user.username, ''), CONCAT('鐢ㄦ埛', r.from_user_id)) AS fromNickname,
+            COALESCE(NULLIF(from_ext.avatar, ''), NULLIF(from_user.photo_url, '')) AS fromAvatar,
+            r.to_user_id AS toUserId,
+            COALESCE(NULLIF(to_ext.nickname, ''), NULLIF(to_user.username, ''), '') AS toNickname,
+            r.content AS content,
+            r.status AS status,
+            r.created_at AS createdAt,
+            r.updated_at AS updatedAt,
+            r.deleted_at AS deletedAt
+        FROM app_community_comment_reply r
+        LEFT JOIN app_user from_user ON from_user.id = r.from_user_id
+        LEFT JOIN app_h5_user_profile_ext from_ext ON from_ext.user_id = r.from_user_id
+        LEFT JOIN app_user to_user ON to_user.id = r.to_user_id
+        LEFT JOIN app_h5_user_profile_ext to_ext ON to_ext.user_id = r.to_user_id
+        WHERE r.comment_id = #{commentId}
+          AND r.deleted_at IS NULL
+        ORDER BY r.created_at ASC, r.id ASC
+    </select>
+
+    <update id="softDeleteComment">
+        UPDATE app_community_comment
+        SET deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{commentId}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="softDeleteRepliesByComment">
+        UPDATE app_community_comment_reply
+        SET deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE comment_id = #{commentId}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="decrementPostCommentCountBy">
+        UPDATE app_community_post
+        SET comment_count = GREATEST(0, comment_count - #{delta}),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{postId}
+    </update>
+</mapper>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.auth.mapper.AppUserSessionMapper">
+
+    <resultMap id="AppUserSessionResultMap" type="com.example.sillyspringboot.auth.entity.AppUserSession">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="expires_at" property="expiresAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="revoked_at" property="revokedAt"/>
+    </resultMap>
+
+    <insert id="insertSession" parameterType="com.example.sillyspringboot.auth.entity.AppUserSession" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_user_session (user_id, session_id, expires_at)
+        VALUES (#{userId}, #{sessionId}, #{expiresAt})
+    </insert>
+
+    <select id="findActiveBySessionId" resultMap="AppUserSessionResultMap">
+        SELECT id, user_id, session_id, expires_at, created_at, revoked_at
+        FROM app_user_session
+        WHERE session_id = #{sessionId}
+          AND revoked_at IS NULL
+          AND expires_at &gt; CURRENT_TIMESTAMP
+    </select>
+
+    <update id="revokeActiveByUserId">
+        UPDATE app_user_session
+        SET revoked_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+          AND revoked_at IS NULL
+          AND expires_at &gt; CURRENT_TIMESTAMP
+    </update>
+
+</mapper>

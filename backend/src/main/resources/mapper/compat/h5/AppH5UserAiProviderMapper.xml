@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppH5UserAiProviderMapper">
+
+    <resultMap id="UserAiProviderResultMap" type="com.example.sillyspringboot.compat.h5.entity.AppH5UserAiProvider">
+        <id column="user_id" property="userId"/>
+        <result column="provider_mode" property="providerMode"/>
+        <result column="provider_source" property="providerSource"/>
+        <result column="model_name" property="modelName"/>
+        <result column="vision_model_name" property="visionModelName"/>
+        <result column="audio_model_name" property="audioModelName"/>
+        <result column="stt_model_name" property="sttModelName"/>
+        <result column="stt_provider_source" property="sttProviderSource"/>
+        <result column="stt_api_key_cipher" property="sttApiKeyCipher"/>
+        <result column="stt_custom_url" property="sttCustomUrl"/>
+        <result column="tts_model_name" property="ttsModelName"/>
+        <result column="tts_voice_name" property="ttsVoiceName"/>
+        <result column="tts_voice_template_code" property="ttsVoiceTemplateCode"/>
+        <result column="tts_provider_source" property="ttsProviderSource"/>
+        <result column="tts_api_key_cipher" property="ttsApiKeyCipher"/>
+        <result column="tts_custom_url" property="ttsCustomUrl"/>
+        <result column="image_model_name" property="imageModelName"/>
+        <result column="image_provider_source" property="imageProviderSource"/>
+        <result column="image_api_key_cipher" property="imageApiKeyCipher"/>
+        <result column="image_custom_url" property="imageCustomUrl"/>
+        <result column="image_character_consistency_mode" property="imageCharacterConsistencyMode"/>
+        <result column="image_reference_source_mode" property="imageReferenceSourceMode"/>
+        <result column="api_key_cipher" property="apiKeyCipher"/>
+        <result column="custom_url" property="customUrl"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findByUserId" resultMap="UserAiProviderResultMap">
+        SELECT *
+        FROM app_h5_user_ai_provider
+        WHERE user_id = #{userId}
+        LIMIT 1
+    </select>
+
+    <insert id="upsert" parameterType="com.example.sillyspringboot.compat.h5.entity.AppH5UserAiProvider">
+        INSERT INTO app_h5_user_ai_provider (
+            user_id, provider_mode, provider_source, model_name, vision_model_name, audio_model_name, stt_model_name, stt_provider_source, stt_api_key_cipher, stt_custom_url, tts_model_name, tts_voice_name, tts_voice_template_code,
+            tts_provider_source, tts_api_key_cipher, tts_custom_url, image_model_name, image_provider_source, image_api_key_cipher, image_custom_url,
+            image_character_consistency_mode, image_reference_source_mode,
+            api_key_cipher, custom_url, created_at, updated_at
+        ) VALUES (
+            #{userId}, #{providerMode}, #{providerSource}, #{modelName}, #{visionModelName}, #{audioModelName}, #{sttModelName}, #{sttProviderSource}, #{sttApiKeyCipher}, #{sttCustomUrl}, #{ttsModelName}, #{ttsVoiceName}, #{ttsVoiceTemplateCode},
+            #{ttsProviderSource}, #{ttsApiKeyCipher}, #{ttsCustomUrl}, #{imageModelName}, #{imageProviderSource}, #{imageApiKeyCipher}, #{imageCustomUrl},
+            #{imageCharacterConsistencyMode}, #{imageReferenceSourceMode},
+            #{apiKeyCipher}, #{customUrl}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON DUPLICATE KEY UPDATE
+            provider_mode = VALUES(provider_mode),
+            provider_source = VALUES(provider_source),
+            model_name = VALUES(model_name),
+            vision_model_name = VALUES(vision_model_name),
+            audio_model_name = VALUES(audio_model_name),
+            stt_model_name = VALUES(stt_model_name),
+            stt_provider_source = VALUES(stt_provider_source),
+            stt_api_key_cipher = VALUES(stt_api_key_cipher),
+            stt_custom_url = VALUES(stt_custom_url),
+            tts_model_name = VALUES(tts_model_name),
+            tts_voice_name = VALUES(tts_voice_name),
+            tts_voice_template_code = VALUES(tts_voice_template_code),
+            tts_provider_source = VALUES(tts_provider_source),
+            tts_api_key_cipher = VALUES(tts_api_key_cipher),
+            tts_custom_url = VALUES(tts_custom_url),
+            image_model_name = VALUES(image_model_name),
+            image_provider_source = VALUES(image_provider_source),
+            image_api_key_cipher = VALUES(image_api_key_cipher),
+            image_custom_url = VALUES(image_custom_url),
+            image_character_consistency_mode = VALUES(image_character_consistency_mode),
+            image_reference_source_mode = VALUES(image_reference_source_mode),
+            api_key_cipher = VALUES(api_key_cipher),
+            custom_url = VALUES(custom_url),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+</mapper>

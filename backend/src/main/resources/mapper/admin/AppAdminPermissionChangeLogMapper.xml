@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AppAdminPermissionChangeLogMapper">
+
+    <resultMap id="AppAdminPermissionChangeLogResultMap" type="com.example.sillyspringboot.admin.entity.AppAdminPermissionChangeLog">
+        <id column="id" property="id"/>
+        <result column="target_type" property="targetType"/>
+        <result column="target_id" property="targetId"/>
+        <result column="target_key" property="targetKey"/>
+        <result column="target_name" property="targetName"/>
+        <result column="action" property="action"/>
+        <result column="operator" property="operator"/>
+        <result column="change_summary" property="changeSummary"/>
+        <result column="before_json" property="beforeJson"/>
+        <result column="after_json" property="afterJson"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, target_type, target_id, target_key, target_name, action, operator,
+        change_summary, before_json, after_json, created_at
+    </sql>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.admin.entity.AppAdminPermissionChangeLog" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_admin_permission_change_log (
+            target_type, target_id, target_key, target_name, action, operator,
+            change_summary, before_json, after_json
+        ) VALUES (
+            #{targetType}, #{targetId}, #{targetKey}, #{targetName}, #{action}, #{operator},
+            #{changeSummary}, #{beforeJson}, #{afterJson}
+        )
+    </insert>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_admin_permission_change_log
+        <where>
+            <if test="targetType != null and targetType != ''">
+                AND target_type = #{targetType}
+            </if>
+            <if test="action != null and action != ''">
+                AND action = #{action}
+            </if>
+            <if test="operator != null and operator != ''">
+                AND operator LIKE CONCAT('%', #{operator}, '%')
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (target_key LIKE CONCAT('%', #{keyword}, '%')
+                OR target_name LIKE CONCAT('%', #{keyword}, '%')
+                OR change_summary LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+    </select>
+
+    <select id="listPage" resultType="map">
+        SELECT
+            id,
+            target_type AS targetType,
+            target_id AS targetId,
+            target_key AS targetKey,
+            target_name AS targetName,
+            action,
+            operator,
+            change_summary AS changeSummary,
+            before_json AS beforeJson,
+            after_json AS afterJson,
+            created_at AS createdAt
+        FROM app_admin_permission_change_log
+        <where>
+            <if test="targetType != null and targetType != ''">
+                AND target_type = #{targetType}
+            </if>
+            <if test="action != null and action != ''">
+                AND action = #{action}
+            </if>
+            <if test="operator != null and operator != ''">
+                AND operator LIKE CONCAT('%', #{operator}, '%')
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (target_key LIKE CONCAT('%', #{keyword}, '%')
+                OR target_name LIKE CONCAT('%', #{keyword}, '%')
+                OR change_summary LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+</mapper>

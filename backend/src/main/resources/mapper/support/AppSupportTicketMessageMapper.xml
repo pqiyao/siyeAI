@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.support.mapper.AppSupportTicketMessageMapper">
+
+    <resultMap id="SupportTicketMessageResultMap" type="com.example.sillyspringboot.support.entity.AppSupportTicketMessage">
+        <id column="id" property="id"/>
+        <result column="ticket_id" property="ticketId"/>
+        <result column="sender_type" property="senderType"/>
+        <result column="sender_name" property="senderName"/>
+        <result column="content" property="content"/>
+        <result column="attachments_json" property="attachmentsJson"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.support.entity.AppSupportTicketMessage"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_support_ticket_message (
+            ticket_id,
+            sender_type,
+            sender_name,
+            content,
+            attachments_json
+        ) VALUES (
+            #{ticketId},
+            #{senderType},
+            #{senderName},
+            #{content},
+            #{attachmentsJson}
+        )
+    </insert>
+
+    <select id="listByTicketId" resultMap="SupportTicketMessageResultMap">
+        SELECT id, ticket_id, sender_type, sender_name, content, attachments_json, created_at
+        FROM app_support_ticket_message
+        WHERE ticket_id = #{ticketId}
+        ORDER BY created_at ASC, id ASC
+    </select>
+</mapper>

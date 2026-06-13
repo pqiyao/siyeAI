@@ -1,0 +1,138 @@
+<!-- customSheetStyle.html -->
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>HTML Renderer</title>
+    <style>
+        body { font-family: sans-serif; }
+        textarea { width: 100%; height: 200px; box-sizing: border-box; margin-bottom: 10px; }
+        #tableRendererDisplay { border: 1px solid #ccc; padding: 10px; margin-top: 10px; min-height: 100px; }
+    </style>
+</head>
+<body>
+<h2 class="marginBot5"><span data-i18n="customTableStyleTitle">自定义表格样式</span></h2>
+<hr>
+
+<div>
+    <div class="flex-container wide100p flexGap10">
+        <div class="flexGap10">
+            <div class="checkbox_label range-block justifyLeft">
+                <input type="checkbox" id="table_to_chat_button">
+                <label for="table_to_chat_button" data-i18n="pushToChatLabel">推送至对话</label>
+                <small data-i18n="pushToChatDesc">(该表将按以下定义的样式推送至对话)</small>
+            </div>
+
+            <!-- 自定义表格样式 -->
+            <div class="checkbox_label range-block justifyLeft">
+                <input type="checkbox" id="table_style_button">
+                <label for="table_style_button" data-i18n="enableCustomStyleLabel">启用该表的自定义样式</label>
+            </div>
+            <div class="checkbox_label range-block justifyLeft">
+                <input type="checkbox" id="table_style_preview_button">
+                <label for="table_style_preview_button" data-i18n="enableCustomStylePreview">预览渲染结果</label>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex1" id="table_style_enabled_container">
+        <div class="checkbox flex-container" style="align-content: flex-start; margin-top: 10px;">
+            <span data-i18n="presetLabel">预设：</span>
+            <select class="flex1" id="preset_style" style="min-width: 100px">
+                <option value="default" selected data-i18n="presetDefault">默认</option>
+            </select>
+            <div class="menu_button button-square-icon fa-solid fa-add" style="padding: 0; margin: 0" id="table-push-to-chat-style-add" title="添加样式预设" data-i18n="table push to chat style add button"></div>
+            <div class="menu_button button-square-icon fa-solid fa-pen" style="padding: 0; margin: 0" id="table-push-to-chat-style-edit" title="修改样式名称" data-i18n="table push to chat style edit button"></div>
+            <div class="menu_button button-square-icon fa-solid fa-file-import" style="padding: 0; margin: 0" id="table-push-to-chat-style-import" title="导入样式预设" data-i18n="table push to chat style import button"></div>
+            <div class="menu_button button-square-icon fa-solid fa-file-export" style="padding: 0; margin: 0" id="table-push-to-chat-style-export" title="导出样式预设" data-i18n="table push to chat style export button"></div>
+            <div class="menu_button button-square-icon fa-solid fa-trash redWarningBG" style="padding: 0; margin: 0" id="table-push-to-chat-style-delete" title="删除样式预设" data-i18n="table push to chat style delete button"></div>
+        </div>
+        <div class="checkbox_label range-block justifyLeft">
+            <input type="checkbox" id="table_skipTop_button">
+            <label for="table_skipTop_button" data-i18n="enableSkipTop">是否跳过表头</label>
+        </div>
+        <div class="checkbox_label range-block justifyLeft">
+            <input type="checkbox" id="table_triggerSendToChat_button">
+            <label for="table_triggerSendToChat_button" data-i18n="enableTriggerSendToChat">启用该表的触发词推送到聊天</label>
+        </div>
+        <div class="checkbox_label range-block justifyLeft">
+            <input type="checkbox" id="table_alternateTable_button">
+            <label for="table_alternateTable_button" data-i18n="enableAlternateTable">是否参与穿模模式</label>
+        </div>
+        <div class="checkbox_label range-block justifyLeft">
+            <input type="checkbox" id="table_insertTable_button">
+            <label for="table_insertTable_button" data-i18n="enableInsertTable">是否开启插入模式</label>
+        </div>
+        <div id="push_to_chat_alternate_options">
+            <div style="display: flex; flex-direction: row; align-items: center; gap: 8px; text-align: left">
+                <label style="white-space: nowrap;">穿插层级：</label>
+                <small style="white-space: nowrap;" data-i18n="pushToChatDesc">(层级为0时不穿插，否则相同层级的会穿插推送)</small>
+                <input type="text" class="text_pole" id="table_to_alternate" placeholder=".*">
+            </div>
+        </div>
+        <div class="checkbox flex-container" style="align-content: flex-start; margin-top: 10px;">
+            <span data-i18n="pushSheetToChatStyleMode">匹配方法：</span>
+            <select class="flex1" id="match_method" style="min-width: 100px">
+                <option value="regex" data-i18n="pushSheetToChatStyleRegex">正则</option>
+                <option value="simple" data-i18n="pushSheetToChatStyleSimple">静态位置</option>
+            </select>
+        </div>
+        <hr>
+
+        <div class="flex-container" id="push_to_chat_style_edit_guide" style="margin-bottom: 10px">
+            <small id="push_to_chat_style_edit_guide_content" style="justify-content: left; text-align: left">
+                当样式内容为空时默认显示原始表格。支持HTML、CSS定义结构样式，并使用<code>\$\w\s+</code>的方式定位单元格。
+                <br>例如<code>$A0</code>代表第1列第1行(表头)，<code>$A1</code>代表第1列第2行(表内容第一行)。
+            </small>
+        </div>
+
+        <div id="match_method_regex_container">
+            <div class="checkbox flex-container" style="align-content: flex-start">
+                <span data-i18n="pushSheetToChatStyleBasedOn">初始化表格为</span>
+                <select class="flex1" id="push_to_chat_based_on" style="min-width: 100px">
+                    <option value="html" selected data-i18n="pushSheetToChatStyleBasedOnHTML">HTML</option>
+                    <option value="csv" data-i18n="pushSheetToChatStyleBasedOnCSV">CSV</option>
+                    <option value="markdown" data-i18n="pushSheetToChatStyleBasedOnMarkdown">Markdown</option>
+                    <option value="json" data-i18n="pushSheetToChatStyleBasedOnJSON">JSON</option>
+                    <option value="array" data-i18n="pushSheetToChatStyleBasedOnArray">Array</option>
+                </select>
+                <div class="menu_button button-square-icon fa-solid fa-eye" style="padding: 0; margin: 0" id="table-push-to-chat-style-preview" title="预览样式" data-i18n="table push to chat style preview button"></div>
+                <a href="https://regexr.com/" class="menu_button_icon menu_button interactable" title="前往RegExr网站测试" style="margin-top: 0">
+                    <i class="fa-solid fa-vial"></i>
+                    <span style="font-size: 0.7rem">RegExr</span>
+                </a>
+            </div>
+
+            <div id="push_to_chat_regex_options">
+                <div style=" display: flex; flex-direction: column; text-align: left">
+                    <label>正则：</label>
+                    <input type="text" class="text_pole" id="table_to_chat_regex" placeholder=".*">
+                </div>
+            </div>
+        </div>
+
+        <div id="push_to_chat_options">
+            <div style=" display: flex; flex-direction: column; text-align: left">
+                <label data-i18n="replacementStyleLabel">替换为：</label>
+                <textarea id="table_to_chat_replace" rows="5" ></textarea>
+            </div>
+        </div>
+    </div>
+
+    <div id="table_renderer_display_container">
+        <h3 class="marginBot5"><span data-i18n="stylePreviewLabel">样式预览:</span></h3>
+        <div id="tableRendererDisplay" style="outline: rgb(65, 182, 129) solid 1px; border-radius: 3px"></div>
+    </div>
+</div>
+
+<script>
+    const htmlEditor = document.getElementById('table_to_chat_replace');
+    const tableRendererDisplay = document.getElementById('tableRendererDisplay');
+    const renderHTML = () => {
+        const htmlCode = htmlEditor.value;
+        tableRendererDisplay.innerHTML = htmlCode; // 使用 innerHTML 来渲染 HTML
+    };
+    htmlEditor.addEventListener('input', renderHTML);
+</script>
+</body>
+</html>

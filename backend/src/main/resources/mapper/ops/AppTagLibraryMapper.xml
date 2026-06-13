@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.mapper.AppTagLibraryMapper">
+
+    <resultMap id="TagLibraryResultMap" type="com.example.sillyspringboot.ops.entity.AppTagLibrary">
+        <id column="id" property="id"/>
+        <result column="code" property="code"/>
+        <result column="name" property="name"/>
+        <result column="category" property="category"/>
+        <result column="color" property="color"/>
+        <result column="vip_only" property="vipOnly"/>
+        <result column="adult_only" property="adultOnly"/>
+        <result column="enabled" property="enabled"/>
+        <result column="discover_visible" property="discoverVisible"/>
+        <result column="discover_recommended" property="discoverRecommended"/>
+        <result column="detail_visible" property="detailVisible"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, code, name, category, color, vip_only, adult_only, enabled,
+        discover_visible, discover_recommended, detail_visible,
+        sort_order, created_at, updated_at
+    </sql>
+
+    <sql id="AdminWhere">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (
+                    code LIKE CONCAT('%', #{keyword}, '%')
+                    OR name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="category != null and category != ''">
+                AND category = #{category}
+            </if>
+            <if test="enabled != null">
+                AND enabled = #{enabled}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_tag_library
+        <include refid="AdminWhere"/>
+    </select>
+
+    <select id="listAdminPage" resultMap="TagLibraryResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_tag_library
+        <include refid="AdminWhere"/>
+        ORDER BY sort_order ASC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findById" resultMap="TagLibraryResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_tag_library
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findByCode" resultMap="TagLibraryResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_tag_library
+        WHERE code = #{code}
+        LIMIT 1
+    </select>
+
+    <select id="listEnabled" resultMap="TagLibraryResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_tag_library
+        WHERE enabled = 1
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.ops.entity.AppTagLibrary" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_tag_library (
+            code, name, category, color, vip_only, adult_only, enabled,
+            discover_visible, discover_recommended, detail_visible,
+            sort_order
+        ) VALUES (
+            #{code}, #{name}, #{category}, #{color}, #{vipOnly}, #{adultOnly}, #{enabled},
+            #{discoverVisible}, #{discoverRecommended}, #{detailVisible},
+            #{sortOrder}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.ops.entity.AppTagLibrary">
+        UPDATE app_tag_library
+        SET code = #{code},
+            name = #{name},
+            category = #{category},
+            color = #{color},
+            vip_only = #{vipOnly},
+            adult_only = #{adultOnly},
+            enabled = #{enabled},
+            discover_visible = #{discoverVisible},
+            discover_recommended = #{discoverRecommended},
+            detail_visible = #{detailVisible},
+            sort_order = #{sortOrder},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM app_tag_library
+        WHERE id = #{id}
+    </delete>
+
+    <delete id="deleteByIds">
+        DELETE FROM app_tag_library
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

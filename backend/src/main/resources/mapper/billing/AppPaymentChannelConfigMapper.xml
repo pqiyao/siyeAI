@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.billing.mapper.AppPaymentChannelConfigMapper">
+
+    <resultMap id="AppPaymentChannelConfigResultMap" type="com.example.sillyspringboot.billing.entity.AppPaymentChannelConfig">
+        <id column="id" property="id"/>
+        <result column="channel_code" property="channelCode"/>
+        <result column="display_name" property="displayName"/>
+        <result column="description" property="description"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="enabled" property="enabled"/>
+        <result column="client_visible" property="clientVisible"/>
+        <result column="note" property="note"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, channel_code, display_name, description, sort_order,
+        enabled, client_visible, note, created_at, updated_at
+    </sql>
+
+    <select id="listAll" resultMap="AppPaymentChannelConfigResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_payment_channel_config
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <select id="findByChannelCode" resultMap="AppPaymentChannelConfigResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_payment_channel_config
+        WHERE channel_code = #{channelCode}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.billing.entity.AppPaymentChannelConfig" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_payment_channel_config (
+            channel_code, display_name, description, sort_order, enabled, client_visible, note
+        ) VALUES (
+            #{channelCode}, #{displayName}, #{description}, #{sortOrder}, #{enabled}, #{clientVisible}, #{note}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.billing.entity.AppPaymentChannelConfig">
+        UPDATE app_payment_channel_config
+        SET display_name = #{displayName},
+            description = #{description},
+            sort_order = #{sortOrder},
+            enabled = #{enabled},
+            client_visible = #{clientVisible},
+            note = #{note},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+</mapper>

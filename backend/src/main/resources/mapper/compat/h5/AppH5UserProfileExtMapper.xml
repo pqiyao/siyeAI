@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppH5UserProfileExtMapper">
+
+    <resultMap id="ProfileExtResultMap" type="com.example.sillyspringboot.compat.h5.entity.AppH5UserProfileExt">
+        <id column="user_id" property="userId"/>
+        <result column="nickname" property="nickname"/>
+        <result column="avatar" property="avatar"/>
+        <result column="bio" property="bio"/>
+        <result column="vip_type" property="vipType"/>
+        <result column="vip_expires_at" property="vipExpiresAt"/>
+        <result column="score" property="score"/>
+        <result column="gold_coin" property="goldCoin"/>
+        <result column="daily_chat_quota" property="dailyChatQuota"/>
+        <result column="chat_quota_override" property="chatQuotaOverride"/>
+        <result column="daily_chat_used" property="dailyChatUsed"/>
+        <result column="daily_byok_chat_used" property="dailyByokChatUsed"/>
+        <result column="daily_image_quota" property="dailyImageQuota"/>
+        <result column="image_quota_override" property="imageQuotaOverride"/>
+        <result column="daily_image_used" property="dailyImageUsed"/>
+        <result column="usage_reset_date" property="usageResetDate"/>
+        <result column="character_create_allowed" property="characterCreateAllowed"/>
+        <result column="need_edit" property="needEdit"/>
+        <result column="status" property="status"/>
+        <result column="gender" property="gender"/>
+        <result column="birthday" property="birthday"/>
+        <result column="height" property="height"/>
+        <result column="weight" property="weight"/>
+        <result column="country" property="country"/>
+        <result column="characters" property="characters"/>
+        <result column="relation" property="relation"/>
+        <result column="occupation" property="occupation"/>
+        <result column="label" property="label"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findByUserId" resultMap="ProfileExtResultMap">
+        SELECT *
+        FROM app_h5_user_profile_ext
+        WHERE user_id = #{userId}
+        LIMIT 1
+    </select>
+
+    <insert id="upsert" parameterType="com.example.sillyspringboot.compat.h5.entity.AppH5UserProfileExt">
+        INSERT INTO app_h5_user_profile_ext (
+            user_id, nickname, avatar, bio, vip_type, vip_expires_at, score, gold_coin,
+            daily_chat_quota, chat_quota_override, daily_chat_used, daily_byok_chat_used,
+            daily_image_quota, image_quota_override, daily_image_used, usage_reset_date,
+            character_create_allowed, need_edit, status,
+            gender, birthday, height, weight, country, characters, relation, occupation, label, updated_at
+        ) VALUES (
+            #{userId}, #{nickname}, #{avatar}, #{bio}, #{vipType}, #{vipExpiresAt}, #{score}, #{goldCoin},
+            #{dailyChatQuota}, #{chatQuotaOverride}, #{dailyChatUsed}, #{dailyByokChatUsed},
+            #{dailyImageQuota}, #{imageQuotaOverride}, #{dailyImageUsed}, #{usageResetDate},
+            COALESCE(#{characterCreateAllowed}, 0), #{needEdit}, #{status},
+            #{gender}, #{birthday}, #{height}, #{weight}, #{country}, #{characters}, #{relation}, #{occupation}, #{label}, CURRENT_TIMESTAMP
+        )
+        ON DUPLICATE KEY UPDATE
+            nickname = VALUES(nickname),
+            avatar = VALUES(avatar),
+            bio = VALUES(bio),
+            vip_type = VALUES(vip_type),
+            vip_expires_at = VALUES(vip_expires_at),
+            score = VALUES(score),
+            gold_coin = VALUES(gold_coin),
+            daily_chat_quota = VALUES(daily_chat_quota),
+            chat_quota_override = VALUES(chat_quota_override),
+            daily_chat_used = VALUES(daily_chat_used),
+            daily_byok_chat_used = VALUES(daily_byok_chat_used),
+            daily_image_quota = VALUES(daily_image_quota),
+            image_quota_override = VALUES(image_quota_override),
+            daily_image_used = VALUES(daily_image_used),
+            usage_reset_date = VALUES(usage_reset_date),
+            character_create_allowed = VALUES(character_create_allowed),
+            need_edit = VALUES(need_edit),
+            status = VALUES(status),
+            gender = VALUES(gender),
+            birthday = VALUES(birthday),
+            height = VALUES(height),
+            weight = VALUES(weight),
+            country = VALUES(country),
+            characters = VALUES(characters),
+            relation = VALUES(relation),
+            occupation = VALUES(occupation),
+            label = VALUES(label),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <insert id="upsertCharacterCreateAllowedForUsers">
+        INSERT INTO app_h5_user_profile_ext (
+            user_id, character_create_allowed, updated_at
+        )
+        SELECT
+            u.id, #{allowed}, CURRENT_TIMESTAMP
+        FROM app_user u
+        WHERE u.id IN
+        <foreach collection="userIds" item="userId" open="(" separator="," close=")">
+            #{userId}
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            character_create_allowed = VALUES(character_create_allowed),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+</mapper>

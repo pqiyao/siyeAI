@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AdminH5UserCleanupMapper">
+
+    <select id="listConversationStRefs" resultType="map">
+        SELECT
+            COALESCE(st_avatar_url, '') AS stAvatarUrl,
+            COALESCE(st_chat_file_name, '') AS stChatFileName
+        FROM app_conversation_st_binding
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="listOwnedCharacterCleanupRows" resultType="map">
+        SELECT
+            id AS id,
+            COALESCE(st_avatar_url, '') AS stAvatarUrl,
+            COALESCE(avatar_url, '') AS avatarUrl,
+            COALESCE(cover_url, '') AS coverUrl,
+            COALESCE(chat_background_url, '') AS chatBackgroundUrl
+        FROM app_character
+        WHERE owner_user_id = #{userId}
+    </select>
+
+    <select id="listUserAssetUrls" resultType="java.lang.String">
+        SELECT asset_url
+        FROM (
+            SELECT photo_url AS asset_url
+            FROM app_user
+            WHERE id = #{userId}
+            UNION ALL
+            SELECT avatar AS asset_url
+            FROM app_h5_user_profile_ext
+            WHERE user_id = #{userId}
+        ) assets
+        WHERE asset_url IS NOT NULL
+          AND TRIM(asset_url) != ''
+    </select>
+
+    <delete id="deleteSupportTicketMessagesByUser">
+        DELETE FROM app_support_ticket_message
+        WHERE ticket_id IN (
+            SELECT id FROM (
+                SELECT id
+                FROM app_support_ticket
+                WHERE user_id = #{userId}
+                   OR character_id IN (
+                        SELECT id FROM (
+                            SELECT id
+                            FROM app_character
+                            WHERE owner_user_id = #{userId}
+                        ) c
+                   )
+            ) t
+        )
+    </delete>
+
+    <delete id="deleteSupportTicketsByUser">
+        DELETE FROM app_support_ticket
+        WHERE user_id = #{userId}
+           OR character_id IN (
+                SELECT id FROM (
+                    SELECT id
+                    FROM app_character
+                    WHERE owner_user_id = #{userId}
+                ) c
+           )
+    </delete>
+
+    <delete id="deleteUserMessages">
+        DELETE FROM app_user_message
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteUserNoticeReads">
+        DELETE FROM app_user_notice_read
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteUserNoticeReadState">
+        DELETE FROM app_user_inbox_read_state
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteCharacterFavorites">
+        DELETE FROM app_character_favorite
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteCharacterFavoritesForOwnedCharacters">
+        DELETE FROM app_character_favorite
+        WHERE character_id IN (
+            SELECT id FROM (
+                SELECT id
+                FROM app_character
+                WHERE owner_user_id = #{userId}
+            ) c
+        )
+    </delete>
+
+    <delete id="deleteCharacterVotes">
+        DELETE FROM app_character_vote
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteCharacterVotesForOwnedCharacters">
+        DELETE FROM app_character_vote
+        WHERE character_id IN (
+            SELECT id FROM (
+                SELECT id
+                FROM app_character
+                WHERE owner_user_id = #{userId}
+            ) c
+        )
+    </delete>
+
+    <delete id="deleteWalletLedger">
+        DELETE FROM app_wallet_ledger
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deletePaymentOrders">
+        DELETE FROM app_payment_order
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteConversationBindingsByUser">
+        DELETE FROM app_conversation_st_binding
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteConversationArchivesByUser">
+        DELETE FROM app_conversation_archive
+        WHERE user_id = #{userId}
+           OR conversation_id IN (
+                SELECT id FROM (
+                    SELECT id
+                    FROM app_conversation
+                    WHERE user_id = #{userId}
+                ) c
+           )
+    </delete>
+
+    <delete id="deleteConversationMemoriesByUser">
+        DELETE FROM app_conversation_memory
+        WHERE conversation_id IN (
+            SELECT id FROM (
+                SELECT id
+                FROM app_conversation
+                WHERE user_id = #{userId}
+            ) c
+        )
+    </delete>
+
+    <delete id="deleteConversationIdempotencyByUser">
+        DELETE FROM app_conversation_idempotency
+        WHERE user_id = #{userId}
+           OR conversation_id IN (
+                SELECT id FROM (
+                    SELECT id
+                    FROM app_conversation
+                    WHERE user_id = #{userId}
+                ) c
+           )
+    </delete>
+
+    <delete id="deleteMessagesByUser">
+        DELETE FROM app_message
+        WHERE user_id = #{userId}
+           OR conversation_id IN (
+                SELECT id FROM (
+                    SELECT id
+                    FROM app_conversation
+                    WHERE user_id = #{userId}
+                ) c
+           )
+    </delete>
+
+    <delete id="deleteGenerationTasksByUser">
+        DELETE FROM app_generation_task
+        WHERE user_id = #{userId}
+           OR conversation_id IN (
+                SELECT id FROM (
+                    SELECT id
+                    FROM app_conversation
+                    WHERE user_id = #{userId}
+                ) c
+           )
+    </delete>
+
+    <delete id="deleteConversationsByUser">
+        DELETE FROM app_conversation
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteUserSessions">
+        DELETE FROM app_user_session
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteVisitorDevicesByUser">
+        DELETE FROM app_h5_visitor_device
+        WHERE first_user_id = #{userId}
+           OR latest_user_id = #{userId}
+           OR first_client_uid IN (
+                SELECT client_uid FROM (
+                    SELECT client_uid
+                    FROM app_h5_client_uid
+                    WHERE user_id = #{userId}
+                ) cu
+           )
+           OR latest_client_uid IN (
+                SELECT client_uid FROM (
+                    SELECT client_uid
+                    FROM app_h5_client_uid
+                    WHERE user_id = #{userId}
+                ) cu
+           )
+    </delete>
+
+    <delete id="deleteClientUidBindings">
+        DELETE FROM app_h5_client_uid
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteUserIdentities">
+        DELETE FROM app_user_identity
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteH5UserAiProvider">
+        DELETE FROM app_h5_user_ai_provider
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteEntitlementAuditLogsByUser">
+        DELETE FROM app_entitlement_audit_log
+        WHERE target_user_id = #{userId}
+           OR client_uid IN (
+                SELECT client_uid FROM (
+                    SELECT client_uid
+                    FROM app_h5_client_uid
+                    WHERE user_id = #{userId}
+                ) cu
+           )
+    </delete>
+
+    <delete id="deleteH5Profile">
+        DELETE FROM app_h5_profile
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteH5ProfileExt">
+        DELETE FROM app_h5_user_profile_ext
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteCharacterReviewLogsByOwner">
+        DELETE FROM app_character_review_log
+        WHERE owner_user_id = #{userId}
+           OR character_id IN (
+                SELECT id FROM (
+                    SELECT id
+                    FROM app_character
+                    WHERE owner_user_id = #{userId}
+                ) c
+           )
+    </delete>
+
+    <delete id="deleteLorebookEntriesForOwnedCharacters">
+        DELETE FROM app_lorebook_entry
+        WHERE character_id IN (
+            SELECT id FROM (
+                SELECT id
+                FROM app_character
+                WHERE owner_user_id = #{userId}
+            ) c
+        )
+    </delete>
+
+    <delete id="deleteOwnedCharacters">
+        DELETE FROM app_character
+        WHERE owner_user_id = #{userId}
+    </delete>
+
+    <delete id="deleteAppUser">
+        DELETE FROM app_user
+        WHERE id = #{userId}
+    </delete>
+</mapper>

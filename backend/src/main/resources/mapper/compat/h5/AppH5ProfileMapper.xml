@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppH5ProfileMapper">
+
+    <resultMap id="ProfileResultMap" type="com.example.sillyspringboot.compat.h5.entity.AppH5Profile">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="display_name" property="displayName"/>
+        <result column="st_display_name" property="stDisplayName"/>
+        <result column="persona" property="persona"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findByUserId" resultMap="ProfileResultMap">
+        SELECT *
+        FROM app_h5_profile
+        WHERE user_id = #{userId}
+        LIMIT 1
+    </select>
+
+    <insert id="upsert">
+        INSERT INTO app_h5_profile (user_id, display_name, st_display_name, persona, updated_at)
+        VALUES (#{userId}, #{displayName}, #{stDisplayName}, #{persona}, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE
+            display_name = VALUES(display_name),
+            st_display_name = VALUES(st_display_name),
+            persona = VALUES(persona),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+</mapper>
+

@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Java / Maven
+target/
+*.class
+
+# Frontend builds
+dist/
+unpackage/
+.hbuilderx/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime data and logs
+data/
+logs/
+log/
+*.log
+*.err.log
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!*.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+# Archives and prebuilt images
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Databases and VCS leftovers
+*.db
+*.sqlite
+.svn/

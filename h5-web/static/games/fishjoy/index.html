@@ -1,0 +1,80 @@
+<!doctype html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<link rel="apple-touch-icon" href="images/startbg.jpg"/>
+<link rel="apple-touch-startup-image" href="images/startbg.jpg" />
+<style type="text/css">
+body, div, canvas
+{
+    image-rendering: optimizeSpeed;
+    -webkit-image-rendering: optimizeSpeed;
+    -webkit-interpolation-mode: nearest-neighbor;
+}
+body{padding:0; margin:0;font-size:12px;background-color:#000;overflow:hidden;touch-action:none;}
+body, html{width:100%;height:100%;}
+#outer{position:fixed;inset:0;height:100%;overflow:hidden;width:100%;background:#000;}
+#middle{position:absolute;inset:0;overflow:hidden;}
+#container{position:absolute;overflow:hidden;background:#000;transform-origin:center center;}
+#rotateHint{display:none;}
+</style>
+<title>报刊先生</title>
+<script type="text/javascript" src="js/quark.base-1.0.0.alpha.min.js"></script>
+<!--<script type="text/javascript" src="fishjoy.game.js"></script>-->
+<script type="text/javascript" src="src/R.js"></script>
+<script type="text/javascript" src="src/Utils.js"></script>
+<script type="text/javascript" src="src/fishjoy.js"></script>
+<script type="text/javascript" src="src/FishManager.js"></script>
+<script type="text/javascript" src="src/FishGroup.js"></script>
+<script type="text/javascript" src="src/views/Fish.js"></script>
+<script type="text/javascript" src="src/views/Cannon.js"></script>
+<script type="text/javascript" src="src/views/Bullet.js"></script>
+<script type="text/javascript" src="src/views/Num.js"></script>
+<script type="text/javascript" src="src/views/Player.js"></script>
+<script>
+function fitFishjoy() {
+	var container = document.getElementById('container');
+	if (!container) return;
+	var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 980;
+	var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 545;
+	var rotated = viewportHeight > viewportWidth;
+	var gameWidth = 980;
+	var gameHeight = 545;
+	var scaleX = rotated ? viewportHeight / gameWidth : viewportWidth / gameWidth;
+	var scaleY = rotated ? viewportWidth / gameHeight : viewportHeight / gameHeight;
+	container.style.width = gameWidth + 'px';
+	container.style.height = gameHeight + 'px';
+	container.style.left = ((viewportWidth - gameWidth) / 2) + 'px';
+	container.style.top = ((viewportHeight - gameHeight) / 2) + 'px';
+	container.style.transform = rotated
+		? 'rotate(90deg) scale(' + scaleX + ',' + scaleY + ')'
+		: 'scale(' + scaleX + ',' + scaleY + ')';
+	window.FISHJOY_VIEW = {
+		width: gameWidth,
+		height: gameHeight,
+		rotated: rotated,
+		scaleX: scaleX,
+		scaleY: scaleY,
+		viewportWidth: viewportWidth,
+		viewportHeight: viewportHeight
+	};
+	return window.FISHJOY_VIEW;
+}
+window.FishjoyFitLayout = fitFishjoy;
+window.addEventListener('load', fitFishjoy);
+window.addEventListener('resize', fitFishjoy);
+window.addEventListener('orientationchange', fitFishjoy);
+</script>
+</head>
+<body>
+<div id="outer">
+	<div id="middle">
+		<div id="container"></div>
+		<div id="msg"></div>
+	</div>
+</div>
+<div id="rotateHint"></div>
+<div id="fps" style="position:absolute;top:0;left:0;color:#fff;"></div>
+</body>
+</html>

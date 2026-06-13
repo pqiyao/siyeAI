@@ -1,0 +1,499 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.humanchat.mapper.HumanChatMapper">
+
+    <sql id="UserCardColumns">
+        u.id AS userId,
+        COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('用户', u.id)) AS nickname,
+        COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS avatar,
+        COALESCE(ext.bio, '') AS bio,
+        COALESCE(NULLIF(ext.status, ''), 'normal') AS userStatus
+    </sql>
+
+    <select id="findUserCard" resultType="map">
+        SELECT
+        <include refid="UserCardColumns"/>
+        FROM app_user u
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = u.id
+        WHERE u.id = #{userId}
+        LIMIT 1
+    </select>
+
+    <select id="countConversationBetween" resultType="int">
+        SELECT COUNT(1)
+        FROM app_human_chat_conversation
+        WHERE user_id = #{userId}
+          AND peer_user_id = #{peerUserId}
+          AND status = 'normal'
+    </select>
+
+    <select id="countMutualFollow" resultType="int">
+        SELECT COUNT(1)
+        FROM app_community_follow
+        WHERE (from_user_id = #{userId} AND to_user_id = #{peerUserId})
+           OR (from_user_id = #{peerUserId} AND to_user_id = #{userId})
+    </select>
+
+    <select id="countFriendPair" resultType="int">
+        SELECT COUNT(1)
+        FROM app_social_friend
+        WHERE user_id = #{userId}
+          AND friend_user_id = #{peerUserId}
+          AND status = 'normal'
+          AND deleted_at IS NULL
+    </select>
+
+    <select id="countActiveBlockBetween" resultType="int">
+        SELECT COUNT(1)
+        FROM app_social_block
+        WHERE status = 'active'
+          AND (
+            (user_id = #{userId} AND blocked_user_id = #{peerUserId})
+            OR (user_id = #{peerUserId} AND blocked_user_id = #{userId})
+          )
+    </select>
+
+    <select id="findMessageByClientMsgId" resultType="com.example.sillyspringboot.humanchat.entity.HumanChatMessage">
+        SELECT *
+        FROM app_human_chat_message
+        WHERE from_user_id = #{fromUserId}
+          AND client_msg_id = #{clientMsgId}
+        LIMIT 1
+    </select>
+
+    <insert id="insertMessage" parameterType="com.example.sillyspringboot.humanchat.entity.HumanChatMessage" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_human_chat_message (
+            conversation_key,
+            from_user_id,
+            to_user_id,
+            message_type,
+            payload_json,
+            content_preview,
+            status,
+            is_read,
+            client_msg_id,
+            provider
+        ) VALUES (
+            #{conversationKey},
+            #{fromUserId},
+            #{toUserId},
+            #{messageType},
+            CAST(#{payloadJson} AS JSON),
+            #{contentPreview},
+            #{status},
+            COALESCE(#{isRead}, 0),
+            #{clientMsgId},
+            #{provider}
+        )
+    </insert>
+
+    <select id="findMessageById" resultType="com.example.sillyspringboot.humanchat.entity.HumanChatMessage">
+        SELECT *
+        FROM app_human_chat_message
+        WHERE id = #{messageId}
+        LIMIT 1
+    </select>
+
+    <sql id="MessageDtoColumns">
+        m.id AS messageId,
+        m.client_msg_id AS clientMsgId,
+        m.conversation_key AS conversationKey,
+        m.from_user_id AS fromUserId,
+        m.to_user_id AS toUserId,
+        m.message_type AS messageType,
+        m.payload_json AS payload,
+        m.content_preview AS contentPreview,
+        m.status AS status,
+        m.is_read AS isRead,
+        m.read_at AS readAt,
+        m.recalled_at AS recalledAt,
+        m.provider AS provider,
+        m.created_at AS createdAt,
+        from_user.id AS fromCardUserId,
+        COALESCE(NULLIF(from_ext.nickname, ''), NULLIF(from_user.username, ''), CONCAT('用户', from_user.id)) AS fromNickname,
+        COALESCE(NULLIF(from_ext.avatar, ''), NULLIF(from_user.photo_url, '')) AS fromAvatar,
+        to_user.id AS toCardUserId,
+        COALESCE(NULLIF(to_ext.nickname, ''), NULLIF(to_user.username, ''), CONCAT('用户', to_user.id)) AS toNickname,
+        COALESCE(NULLIF(to_ext.avatar, ''), NULLIF(to_user.photo_url, '')) AS toAvatar,
+        CASE WHEN m.from_user_id = #{viewerId} THEN 1 ELSE 0 END AS mine
+    </sql>
+
+    <sql id="AdminMessageDtoColumns">
+        m.id AS messageId,
+        m.client_msg_id AS clientMsgId,
+        m.conversation_key AS conversationKey,
+        m.from_user_id AS fromUserId,
+        m.to_user_id AS toUserId,
+        m.message_type AS messageType,
+        m.payload_json AS payload,
+        m.content_preview AS contentPreview,
+        m.status AS status,
+        m.is_read AS isRead,
+        m.read_at AS readAt,
+        m.recalled_at AS recalledAt,
+        m.provider AS provider,
+        m.created_at AS createdAt,
+        from_user.id AS fromCardUserId,
+        COALESCE(NULLIF(from_ext.nickname, ''), NULLIF(from_user.username, ''), CONCAT('用户', from_user.id)) AS fromNickname,
+        COALESCE(NULLIF(from_ext.avatar, ''), NULLIF(from_user.photo_url, '')) AS fromAvatar,
+        to_user.id AS toCardUserId,
+        COALESCE(NULLIF(to_ext.nickname, ''), NULLIF(to_user.username, ''), CONCAT('用户', to_user.id)) AS toNickname,
+        COALESCE(NULLIF(to_ext.avatar, ''), NULLIF(to_user.photo_url, '')) AS toAvatar,
+        0 AS mine
+    </sql>
+
+    <select id="findMessageDto" resultType="map">
+        SELECT
+        <include refid="MessageDtoColumns"/>
+        FROM app_human_chat_message m
+        LEFT JOIN app_user from_user ON from_user.id = m.from_user_id
+        LEFT JOIN app_h5_user_profile_ext from_ext ON from_ext.user_id = m.from_user_id
+        LEFT JOIN app_user to_user ON to_user.id = m.to_user_id
+        LEFT JOIN app_h5_user_profile_ext to_ext ON to_ext.user_id = m.to_user_id
+        WHERE m.id = #{messageId}
+          AND (m.from_user_id = #{viewerId} OR m.to_user_id = #{viewerId})
+        LIMIT 1
+    </select>
+
+    <select id="listMessages" resultType="map">
+        SELECT
+        <include refid="MessageDtoColumns"/>
+        FROM app_human_chat_message m
+        LEFT JOIN app_user from_user ON from_user.id = m.from_user_id
+        LEFT JOIN app_h5_user_profile_ext from_ext ON from_ext.user_id = m.from_user_id
+        LEFT JOIN app_user to_user ON to_user.id = m.to_user_id
+        LEFT JOIN app_h5_user_profile_ext to_ext ON to_ext.user_id = m.to_user_id
+        WHERE m.conversation_key = #{conversationKey}
+          AND (m.from_user_id = #{viewerId} OR m.to_user_id = #{viewerId})
+        <if test="beforeMessageId != null">
+          AND m.id &lt; #{beforeMessageId}
+        </if>
+        ORDER BY m.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countConversations" resultType="long">
+        SELECT COUNT(1)
+        FROM app_human_chat_conversation
+        WHERE user_id = #{userId}
+          AND status = 'normal'
+    </select>
+
+    <select id="listConversations" resultType="map">
+        SELECT
+            c.id AS conversationId,
+            c.conversation_key AS conversationKey,
+            c.user_id AS userId,
+            c.peer_user_id AS peerUserId,
+            COALESCE(NULLIF(ext.nickname, ''), NULLIF(u.username, ''), CONCAT('用户', c.peer_user_id)) AS peerNickname,
+            COALESCE(NULLIF(ext.avatar, ''), NULLIF(u.photo_url, '')) AS peerAvatar,
+            COALESCE(ext.bio, '') AS peerBio,
+            c.last_message_id AS lastMessageId,
+            c.last_message_type AS lastMessageType,
+            c.last_message_payload AS lastMessagePayload,
+            c.last_message_preview AS lastMessagePreview,
+            c.last_message_at AS lastMessageAt,
+            c.unread_count AS unreadCount,
+            c.status AS status,
+            c.updated_at AS updatedAt
+        FROM app_human_chat_conversation c
+        LEFT JOIN app_user u ON u.id = c.peer_user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = c.peer_user_id
+        WHERE c.user_id = #{userId}
+          AND c.status = 'normal'
+        ORDER BY c.last_message_at DESC, c.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <insert id="upsertConversationForSender">
+        INSERT INTO app_human_chat_conversation (
+            conversation_key,
+            user_id,
+            peer_user_id,
+            last_message_id,
+            last_message_type,
+            last_message_payload,
+            last_message_preview,
+            last_message_at,
+            unread_count,
+            status
+        ) VALUES (
+            #{conversationKey},
+            #{userId},
+            #{peerUserId},
+            #{lastMessageId},
+            #{messageType},
+            CAST(#{payloadJson} AS JSON),
+            #{preview},
+            CURRENT_TIMESTAMP,
+            0,
+            'normal'
+        )
+        ON DUPLICATE KEY UPDATE
+            last_message_id = VALUES(last_message_id),
+            last_message_type = VALUES(last_message_type),
+            last_message_payload = VALUES(last_message_payload),
+            last_message_preview = VALUES(last_message_preview),
+            last_message_at = VALUES(last_message_at),
+            status = 'normal',
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <insert id="upsertConversationForReceiver">
+        INSERT INTO app_human_chat_conversation (
+            conversation_key,
+            user_id,
+            peer_user_id,
+            last_message_id,
+            last_message_type,
+            last_message_payload,
+            last_message_preview,
+            last_message_at,
+            unread_count,
+            status
+        ) VALUES (
+            #{conversationKey},
+            #{userId},
+            #{peerUserId},
+            #{lastMessageId},
+            #{messageType},
+            CAST(#{payloadJson} AS JSON),
+            #{preview},
+            CURRENT_TIMESTAMP,
+            1,
+            'normal'
+        )
+        ON DUPLICATE KEY UPDATE
+            last_message_id = VALUES(last_message_id),
+            last_message_type = VALUES(last_message_type),
+            last_message_payload = VALUES(last_message_payload),
+            last_message_preview = VALUES(last_message_preview),
+            last_message_at = VALUES(last_message_at),
+            unread_count = unread_count + 1,
+            status = 'normal',
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="markRead">
+        UPDATE app_human_chat_message
+        SET is_read = 1,
+            read_at = COALESCE(read_at, CURRENT_TIMESTAMP),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_key = #{conversationKey}
+          AND to_user_id = #{readerUserId}
+          AND from_user_id = #{peerUserId}
+          AND is_read = 0
+          AND status = 'normal'
+    </update>
+
+    <update id="resetUnread">
+        UPDATE app_human_chat_conversation
+        SET unread_count = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+          AND peer_user_id = #{peerUserId}
+    </update>
+
+    <update id="recallMessage">
+        UPDATE app_human_chat_message
+        SET status = 'recalled',
+            recalled_at = COALESCE(recalled_at, CURRENT_TIMESTAMP),
+            content_preview = '消息已撤回',
+            payload_json = JSON_OBJECT('type', message_type, 'recalled', true),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{messageId}
+          AND from_user_id = #{userId}
+          AND status = 'normal'
+    </update>
+
+    <select id="findLatestVisibleMessage" resultType="com.example.sillyspringboot.humanchat.entity.HumanChatMessage">
+        SELECT *
+        FROM app_human_chat_message
+        WHERE conversation_key = #{conversationKey}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <update id="updateConversationLastMessage">
+        UPDATE app_human_chat_conversation
+        SET last_message_id = #{lastMessageId},
+            last_message_type = #{messageType},
+            last_message_payload =
+                <choose>
+                    <when test="payloadJson != null">
+                        CAST(#{payloadJson} AS JSON)
+                    </when>
+                    <otherwise>
+                        NULL
+                    </otherwise>
+                </choose>,
+            last_message_preview = #{preview},
+            last_message_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_key = #{conversationKey}
+    </update>
+    <sql id="AdminConversationWhere">
+        <where>
+            c.status = 'normal'
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    COALESCE(user_ext.nickname, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(user_u.username, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(peer_ext.nickname, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(peer_u.username, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR c.conversation_key LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="userId != null">
+                AND c.user_id = #{userId}
+            </if>
+            <if test="peerUserId != null">
+                AND c.peer_user_id = #{peerUserId}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminConversations" resultType="long">
+        SELECT COUNT(1)
+        FROM app_human_chat_conversation c
+        LEFT JOIN app_user user_u ON user_u.id = c.user_id
+        LEFT JOIN app_h5_user_profile_ext user_ext ON user_ext.user_id = c.user_id
+        LEFT JOIN app_user peer_u ON peer_u.id = c.peer_user_id
+        LEFT JOIN app_h5_user_profile_ext peer_ext ON peer_ext.user_id = c.peer_user_id
+        <include refid="AdminConversationWhere"/>
+    </select>
+
+    <select id="listAdminConversations" resultType="map">
+        SELECT
+            c.id AS conversationId,
+            c.conversation_key AS conversationKey,
+            c.user_id AS userId,
+            COALESCE(NULLIF(user_ext.nickname, ''), NULLIF(user_u.username, ''), CONCAT('鐢ㄦ埛', c.user_id)) AS userNickname,
+            COALESCE(NULLIF(user_ext.avatar, ''), NULLIF(user_u.photo_url, '')) AS userAvatar,
+            c.peer_user_id AS peerUserId,
+            COALESCE(NULLIF(peer_ext.nickname, ''), NULLIF(peer_u.username, ''), CONCAT('鐢ㄦ埛', c.peer_user_id)) AS peerNickname,
+            COALESCE(NULLIF(peer_ext.avatar, ''), NULLIF(peer_u.photo_url, '')) AS peerAvatar,
+            c.last_message_id AS lastMessageId,
+            c.last_message_type AS lastMessageType,
+            c.last_message_payload AS lastMessagePayload,
+            c.last_message_preview AS lastMessagePreview,
+            c.last_message_at AS lastMessageAt,
+            c.unread_count AS unreadCount,
+            c.status AS status,
+            c.updated_at AS updatedAt
+        FROM app_human_chat_conversation c
+        LEFT JOIN app_user user_u ON user_u.id = c.user_id
+        LEFT JOIN app_h5_user_profile_ext user_ext ON user_ext.user_id = c.user_id
+        LEFT JOIN app_user peer_u ON peer_u.id = c.peer_user_id
+        LEFT JOIN app_h5_user_profile_ext peer_ext ON peer_ext.user_id = c.peer_user_id
+        <include refid="AdminConversationWhere"/>
+        ORDER BY c.last_message_at DESC, c.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findAdminConversation" resultType="map">
+        SELECT
+            c.id AS conversationId,
+            c.conversation_key AS conversationKey,
+            c.user_id AS userId,
+            COALESCE(NULLIF(user_ext.nickname, ''), NULLIF(user_u.username, ''), CONCAT('鐢ㄦ埛', c.user_id)) AS userNickname,
+            COALESCE(NULLIF(user_ext.avatar, ''), NULLIF(user_u.photo_url, '')) AS userAvatar,
+            c.peer_user_id AS peerUserId,
+            COALESCE(NULLIF(peer_ext.nickname, ''), NULLIF(peer_u.username, ''), CONCAT('鐢ㄦ埛', c.peer_user_id)) AS peerNickname,
+            COALESCE(NULLIF(peer_ext.avatar, ''), NULLIF(peer_u.photo_url, '')) AS peerAvatar,
+            c.last_message_id AS lastMessageId,
+            c.last_message_type AS lastMessageType,
+            c.last_message_payload AS lastMessagePayload,
+            c.last_message_preview AS lastMessagePreview,
+            c.last_message_at AS lastMessageAt,
+            c.unread_count AS unreadCount,
+            c.status AS status,
+            c.created_at AS createdAt,
+            c.updated_at AS updatedAt
+        FROM app_human_chat_conversation c
+        LEFT JOIN app_user user_u ON user_u.id = c.user_id
+        LEFT JOIN app_h5_user_profile_ext user_ext ON user_ext.user_id = c.user_id
+        LEFT JOIN app_user peer_u ON peer_u.id = c.peer_user_id
+        LEFT JOIN app_h5_user_profile_ext peer_ext ON peer_ext.user_id = c.peer_user_id
+        WHERE c.id = #{conversationId}
+        LIMIT 1
+    </select>
+
+    <sql id="AdminMessageWhere">
+        <where>
+            1 = 1
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    m.content_preview LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(from_ext.nickname, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(from_user.username, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(to_ext.nickname, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(to_user.username, '') LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="conversationKey != null and conversationKey != ''">
+                AND m.conversation_key = #{conversationKey}
+            </if>
+            <if test="fromUserId != null">
+                AND m.from_user_id = #{fromUserId}
+            </if>
+            <if test="toUserId != null">
+                AND m.to_user_id = #{toUserId}
+            </if>
+            <if test="messageType != null and messageType != ''">
+                AND m.message_type = #{messageType}
+            </if>
+            <if test="status != null and status != ''">
+                AND m.status = #{status}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminMessages" resultType="long">
+        SELECT COUNT(1)
+        FROM app_human_chat_message m
+        LEFT JOIN app_user from_user ON from_user.id = m.from_user_id
+        LEFT JOIN app_h5_user_profile_ext from_ext ON from_ext.user_id = m.from_user_id
+        LEFT JOIN app_user to_user ON to_user.id = m.to_user_id
+        LEFT JOIN app_h5_user_profile_ext to_ext ON to_ext.user_id = m.to_user_id
+        <include refid="AdminMessageWhere"/>
+    </select>
+
+    <select id="listAdminMessages" resultType="map">
+        SELECT
+        <include refid="AdminMessageDtoColumns"/>
+        FROM app_human_chat_message m
+        LEFT JOIN app_user from_user ON from_user.id = m.from_user_id
+        LEFT JOIN app_h5_user_profile_ext from_ext ON from_ext.user_id = m.from_user_id
+        LEFT JOIN app_user to_user ON to_user.id = m.to_user_id
+        LEFT JOIN app_h5_user_profile_ext to_ext ON to_ext.user_id = m.to_user_id
+        <include refid="AdminMessageWhere"/>
+        ORDER BY m.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findAdminMessage" resultType="map">
+        SELECT
+        <include refid="AdminMessageDtoColumns"/>
+        FROM app_human_chat_message m
+        LEFT JOIN app_user from_user ON from_user.id = m.from_user_id
+        LEFT JOIN app_h5_user_profile_ext from_ext ON from_ext.user_id = m.from_user_id
+        LEFT JOIN app_user to_user ON to_user.id = m.to_user_id
+        LEFT JOIN app_h5_user_profile_ext to_ext ON to_ext.user_id = m.to_user_id
+        WHERE m.id = #{messageId}
+        LIMIT 1
+    </select>
+
+    <update id="adminRecallMessage">
+        UPDATE app_human_chat_message
+        SET status = 'recalled',
+            recalled_at = COALESCE(recalled_at, CURRENT_TIMESTAMP),
+            content_preview = '消息已撤回',
+            payload_json = JSON_OBJECT('type', message_type, 'recalled', true, 'adminRecall', true),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{messageId}
+          AND status = 'normal'
+    </update>
+</mapper>

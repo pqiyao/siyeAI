@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppUserMessageMapper">
+
+    <resultMap id="UserMessageResultMap" type="com.example.sillyspringboot.compat.h5.entity.AppUserMessage">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="message_type" property="messageType"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="related_type" property="relatedType"/>
+        <result column="related_id" property="relatedId"/>
+        <result column="read_flag" property="readFlag"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="read_at" property="readAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.compat.h5.entity.AppUserMessage"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_user_message (
+            user_id, message_type, title, content, related_type, related_id, read_flag
+        ) VALUES (
+            #{userId},
+            COALESCE(#{messageType}, 'SYSTEM'),
+            #{title},
+            #{content},
+            #{relatedType},
+            #{relatedId},
+            COALESCE(#{readFlag}, 0)
+        )
+    </insert>
+
+    <select id="listByUserId" resultMap="UserMessageResultMap">
+        SELECT id, user_id, message_type, title, content, related_type, related_id, read_flag, created_at, read_at
+        FROM app_user_message
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+</mapper>

@@ -1,0 +1,112 @@
+<template>
+	<!--本文件由FirstUI授权予广东即见即得数字科技有限公司（会员ID：25 4  4，营业执照号：  91 4 4  06 05  MAC0Y   3    J70 Y）专用，请尊重知识产权，勿私下传播，违者追究法律责任。-->
+	<view class="fui-divider__wrap" :style="{ height: height + 'rpx' }">
+		<view class="fui-divider__line" :style="{ width: width, background: dividerColor,top:getTop}">
+		</view>
+		<view class="fui-divider__text-box" :style="{backgroundColor: backgroundColor}">
+			<slot></slot>
+			<text class="fui-divider__text"
+				:style="{fontWeight: fontWeight,color: color, fontSize: size + 'rpx',lineHeight: size + 'rpx'}"
+				v-if="text">{{text}}</text>
+		</view>
+	</view>
+</template>
+
+<script>
+	export default {
+		name: 'fui-divider',
+		props: {
+			text: {
+				type: String,
+				default: ''
+			},
+			//divider占据高度，单位rpx
+			height: {
+				type: [Number, String],
+				default: 100
+			},
+			//divider宽度
+			width: {
+				type: String,
+				default: '400rpx'
+			},
+			//divider颜色
+			dividerColor: {
+				type: String,
+				default: '#CCCCCC'
+			},
+			//文字颜色
+			color: {
+				type: String,
+				default: '#B2B2B2'
+			},
+			//文字大小 rpx
+			size: {
+				type: [Number, String],
+				default: 24
+			},
+			fontWeight: {
+				type: [Number, String],
+				default: 400
+			},
+			//背景颜色，和当前页面背景色保持一致
+			backgroundColor: {
+				type: String,
+				default: '#F1F4FA'
+			}
+		},
+		computed: {
+			getTop() {
+				return Number(this.height) / 2 + 'rpx'
+			}
+		}
+	};
+</script>
+
+<style scoped>
+	.fui-divider__wrap {
+		/* #ifndef APP-NVUE */
+		width: 100%;
+		display: flex;
+		box-sizing: border-box;
+		/* #endif */
+		position: relative;
+		text-align: center;
+		flex-direction: row;
+		justify-content: center;
+		align-items: center;
+		overflow: hidden;
+	}
+
+	.fui-divider__line {
+		position: absolute;
+		/* #ifdef APP-NVUE */
+		height: 0.5px;
+		/* #endif */
+
+		/* #ifndef APP-NVUE */
+		height: 1px;
+		top: 50%;
+		left: 50%;
+		-webkit-transform: scaleY(0.5) translate3d(-50%, -50%, 0);
+		transform: scaleY(0.5) translate3d(-50%, -50%, 0);
+		/* #endif */
+	}
+
+	.fui-divider__text-box {
+		position: relative;
+		text-align: center;
+		padding: 0 6rpx;
+		z-index: 1;
+		/* #ifndef APP-NVUE */
+		display: flex;
+		/* #endif */
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.fui-divider__text {
+		padding: 0 12rpx;
+	}
+</style>

@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.support.mapper.AppSupportTicketMapper">
+
+    <resultMap id="SupportTicketResultMap" type="com.example.sillyspringboot.support.entity.AppSupportTicket">
+        <id column="id" property="id"/>
+        <result column="ticket_no" property="ticketNo"/>
+        <result column="user_id" property="userId"/>
+        <result column="client_uid_snapshot" property="clientUidSnapshot"/>
+        <result column="ticket_type" property="ticketType"/>
+        <result column="subject" property="subject"/>
+        <result column="content" property="content"/>
+        <result column="order_no" property="orderNo"/>
+        <result column="character_id" property="characterId"/>
+        <result column="character_name" property="characterName"/>
+        <result column="status" property="status"/>
+        <result column="priority" property="priority"/>
+        <result column="source" property="source"/>
+        <result column="latest_message_preview" property="latestMessagePreview"/>
+        <result column="message_count" property="messageCount"/>
+        <result column="last_user_reply_at" property="lastUserReplyAt"/>
+        <result column="last_admin_reply_at" property="lastAdminReplyAt"/>
+        <result column="last_message_at" property="lastMessageAt"/>
+        <result column="closed_at" property="closedAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        ticket_no,
+        user_id,
+        client_uid_snapshot,
+        ticket_type,
+        subject,
+        content,
+        order_no,
+        character_id,
+        character_name,
+        status,
+        priority,
+        source,
+        latest_message_preview,
+        message_count,
+        last_user_reply_at,
+        last_admin_reply_at,
+        last_message_at,
+        closed_at,
+        created_at,
+        updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.support.entity.AppSupportTicket"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_support_ticket (
+            ticket_no,
+            user_id,
+            client_uid_snapshot,
+            ticket_type,
+            subject,
+            content,
+            order_no,
+            character_id,
+            character_name,
+            status,
+            priority,
+            source,
+            latest_message_preview,
+            message_count,
+            last_user_reply_at,
+            last_admin_reply_at,
+            last_message_at,
+            closed_at
+        ) VALUES (
+            #{ticketNo},
+            #{userId},
+            #{clientUidSnapshot},
+            #{ticketType},
+            #{subject},
+            #{content},
+            #{orderNo},
+            #{characterId},
+            #{characterName},
+            #{status},
+            #{priority},
+            #{source},
+            #{latestMessagePreview},
+            #{messageCount},
+            #{lastUserReplyAt},
+            #{lastAdminReplyAt},
+            #{lastMessageAt},
+            #{closedAt}
+        )
+    </insert>
+
+    <select id="findByTicketNo" resultMap="SupportTicketResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_support_ticket
+        WHERE ticket_no = #{ticketNo}
+        LIMIT 1
+    </select>
+
+    <select id="findByTicketNoAndUserId" resultMap="SupportTicketResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_support_ticket
+        WHERE ticket_no = #{ticketNo}
+          AND user_id = #{userId}
+        LIMIT 1
+    </select>
+
+    <select id="listByUserId" resultMap="SupportTicketResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_support_ticket
+        WHERE user_id = #{userId}
+        <if test="status != null and status != ''">
+            AND status = #{status}
+        </if>
+        ORDER BY last_message_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="updateThreadState" parameterType="com.example.sillyspringboot.support.entity.AppSupportTicket">
+        UPDATE app_support_ticket
+        SET status = #{status},
+            priority = #{priority},
+            latest_message_preview = #{latestMessagePreview},
+            message_count = #{messageCount},
+            last_user_reply_at = #{lastUserReplyAt},
+            last_admin_reply_at = #{lastAdminReplyAt},
+            last_message_at = #{lastMessageAt},
+            closed_at = #{closedAt}
+        WHERE id = #{id}
+    </update>
+
+    <sql id="AdminWhere">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    ticket_no LIKE CONCAT('%', #{keyword}, '%')
+                    OR subject LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(order_no, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(character_name, '') LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="ticketType != null and ticketType != ''">
+                AND ticket_type = #{ticketType}
+            </if>
+            <if test="priority != null and priority != ''">
+                AND priority = #{priority}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(1)
+        FROM app_support_ticket
+        <include refid="AdminWhere"/>
+    </select>
+
+    <select id="listAdminPage" resultMap="SupportTicketResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_support_ticket
+        <include refid="AdminWhere"/>
+        ORDER BY last_message_at DESC, id DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+</mapper>

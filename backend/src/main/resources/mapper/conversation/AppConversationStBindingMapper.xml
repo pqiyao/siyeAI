@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.conversation.mapper.AppConversationStBindingMapper">
+
+    <resultMap id="AppConversationStBindingResultMap" type="com.example.sillyspringboot.conversation.entity.AppConversationStBinding">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="character_id" property="characterId"/>
+        <result column="conversation_id" property="conversationId"/>
+        <result column="st_runtime_profile" property="stRuntimeProfile"/>
+        <result column="st_character_ref" property="stCharacterRef"/>
+        <result column="st_chat_ref" property="stChatRef"/>
+        <result column="st_avatar_url" property="stAvatarUrl"/>
+        <result column="st_chat_file_name" property="stChatFileName"/>
+        <result column="st_world_names_json" property="stWorldNamesJson"/>
+        <result column="st_display_name_override" property="stDisplayNameOverride"/>
+        <result column="status" property="status"/>
+        <result column="last_synced_at" property="lastSyncedAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findByConversationId" resultMap="AppConversationStBindingResultMap">
+        SELECT *
+        FROM app_conversation_st_binding
+        WHERE conversation_id = #{conversationId}
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.conversation.entity.AppConversationStBinding"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_conversation_st_binding (
+            user_id, character_id, conversation_id,
+            st_runtime_profile, st_character_ref, st_chat_ref,
+            st_avatar_url, st_chat_file_name,
+            st_world_names_json, st_display_name_override,
+            status, last_synced_at
+        ) VALUES (
+            #{userId}, #{characterId}, #{conversationId},
+            #{stRuntimeProfile}, #{stCharacterRef}, #{stChatRef},
+            #{stAvatarUrl}, #{stChatFileName},
+            #{stWorldNamesJson}, #{stDisplayNameOverride},
+            #{status}, #{lastSyncedAt}
+        )
+    </insert>
+
+    <update id="updateWorldNamesJson">
+        UPDATE app_conversation_st_binding
+        SET st_world_names_json = #{worldNamesJson},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+    </update>
+
+    <update id="updateStDisplayNameOverride">
+        UPDATE app_conversation_st_binding
+        SET st_display_name_override = #{stDisplayNameOverride},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+    </update>
+
+    <delete id="deleteByConversationId">
+        DELETE FROM app_conversation_st_binding
+        WHERE conversation_id = #{conversationId}
+    </delete>
+
+</mapper>

@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AdminH5UserMapper">
+
+    <sql id="IdentityTypeExpr">
+        CASE
+            WHEN u.telegram_user_id IS NOT NULL THEN 'telegram'
+            WHEN h5id.identity_key IS NOT NULL AND h5id.identity_key != '' THEN 'platform'
+            WHEN bind.client_uid IS NOT NULL THEN 'anonymous'
+            ELSE 'platform'
+        END
+    </sql>
+
+    <sql id="AccountExpr">
+        COALESCE(
+            CASE
+                WHEN u.telegram_user_id IS NOT NULL THEN CONCAT('tg_', u.telegram_user_id)
+                WHEN h5id.identity_key IS NOT NULL AND h5id.identity_key != '' THEN h5id.identity_key
+                ELSE NULL
+            END,
+            bind.client_uid,
+            CONCAT('user_', u.id)
+        )
+    </sql>
+
+    <sql id="StatusExpr">
+        CASE
+            WHEN ext.status IS NULL OR ext.status = '' OR ext.status IN ('anonymous', 'telegram', 'platform') THEN 'normal'
+            ELSE ext.status
+        END
+    </sql>
+
+    <sql id="NeedEditExpr">
+        COALESCE(ext.need_edit, CASE WHEN p.display_name IS NULL OR p.display_name = '' THEN 1 ELSE 0 END)
+    </sql>
+
+    <sql id="VipActiveExpr">
+        CASE
+            WHEN COALESCE(ext.vip_type, 0) &gt; 0
+                AND ext.vip_expires_at IS NOT NULL
+                AND ext.vip_expires_at &gt; NOW() THEN 1
+            ELSE 0
+        END
+    </sql>
+
+    <sql id="BaseFrom">
+        FROM app_user u
+        LEFT JOIN (
+            SELECT user_id, MIN(client_uid) AS client_uid
+            FROM app_h5_client_uid
+            GROUP BY user_id
+        ) bind ON bind.user_id = u.id
+        LEFT JOIN app_user_identity h5id
+            ON h5id.user_id = u.id
+           AND h5id.identity_type = 'h5_account'
+        LEFT JOIN app_h5_profile p ON p.user_id = u.id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = u.id
+        LEFT JOIN app_h5_user_ai_provider aip ON aip.user_id = u.id
+        LEFT JOIN (
+            SELECT user_id, COUNT(*) AS conversation_count, MAX(updated_at) AS last_conversation_at
+            FROM app_conversation
+            GROUP BY user_id
+        ) conv ON conv.user_id = u.id
+    </sql>
+
+    <sql id="QueryWhere">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (
+                    bind.client_uid LIKE CONCAT('%', #{keyword}, '%')
+                    OR h5id.identity_key LIKE CONCAT('%', #{keyword}, '%')
+                    OR u.username LIKE CONCAT('%', #{keyword}, '%')
+                    OR u.first_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR u.last_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR p.display_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR ext.nickname LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="vipType != null">
+                AND COALESCE(ext.vip_type, 0) = #{vipType}
+            </if>
+            <if test="status != null and status != ''">
+                <choose>
+                    <when test="status == 'anonymous'">
+                        AND <include refid="IdentityTypeExpr"/> = 'anonymous'
+                    </when>
+                    <when test="status == 'telegram'">
+                        AND <include refid="IdentityTypeExpr"/> = 'telegram'
+                    </when>
+                    <when test="status == 'platform'">
+                        AND <include refid="IdentityTypeExpr"/> = 'platform'
+                    </when>
+                    <otherwise>
+                        AND <include refid="StatusExpr"/> = #{status}
+                    </otherwise>
+                </choose>
+            </if>
+            <if test="needEdit != null">
+                AND <include refid="NeedEditExpr"/> = #{needEdit}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="BaseFrom"/>
+        <include refid="QueryWhere"/>
+    </select>
+
+    <select id="listPage" resultType="map">
+        SELECT
+            u.id AS id,
+            <include refid="AccountExpr"/> AS account,
+            CASE WHEN h5id.identity_key IS NOT NULL AND h5id.identity_key != '' THEN 1 ELSE 0 END AS passwordLogin,
+            COALESCE(
+                NULLIF(ext.nickname, ''),
+                NULLIF(p.display_name, ''),
+                NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''),
+                NULLIF(u.username, ''),
+                CONCAT('user#', u.id)
+            ) AS nickname,
+            <include refid="IdentityTypeExpr"/> AS identityType,
+            <include refid="StatusExpr"/> AS status,
+            COALESCE(ext.vip_type, 0) AS vipType,
+            CASE
+                WHEN COALESCE(ext.vip_type, 0) &gt;= 2 THEN 'SVIP'
+                WHEN COALESCE(ext.vip_type, 0) = 1 THEN 'VIP'
+                ELSE '免费'
+            END AS vipLabel,
+            <include refid="VipActiveExpr"/> AS vipActive,
+            DATE_FORMAT(ext.vip_expires_at, '%Y-%m-%d %H:%i:%s') AS vipExpiresAt,
+            COALESCE(ext.score, 0) AS score,
+            COALESCE(ext.gold_coin, 0) AS goldCoin,
+            COALESCE(p.st_display_name, '') AS stDisplayName,
+            COALESCE(ext.daily_chat_quota, 0) AS dailyChatQuota,
+            ext.chat_quota_override AS chatQuotaOverride,
+            COALESCE(ext.daily_chat_used, 0) AS dailyChatUsed,
+            COALESCE(ext.daily_byok_chat_used, 0) AS dailyByokChatUsed,
+            COALESCE(aip.provider_mode, 'system') AS aiProviderMode,
+            COALESCE(aip.provider_source, '') AS aiProviderSource,
+            COALESCE(aip.model_name, '') AS aiModelName,
+            COALESCE(aip.custom_url, '') AS aiCustomUrl,
+            CASE WHEN aip.api_key_cipher IS NOT NULL AND aip.api_key_cipher != '' THEN 1 ELSE 0 END AS aiApiKeySaved,
+            DATE_FORMAT(aip.updated_at, '%Y-%m-%d %H:%i:%s') AS aiProviderUpdatedAt,
+            COALESCE(ext.daily_image_quota, 0) AS dailyImageQuota,
+            ext.image_quota_override AS imageQuotaOverride,
+            COALESCE(ext.daily_image_used, 0) AS dailyImageUsed,
+            COALESCE(ext.character_create_allowed, 0) AS characterCreateAllowed,
+            <include refid="NeedEditExpr"/> AS needEdit,
+            COALESCE(conv.conversation_count, 0) AS conversationCount,
+            DATE_FORMAT(conv.last_conversation_at, '%Y-%m-%d %H:%i:%s') AS lastConversationAt,
+            DATE_FORMAT(u.created_at, '%Y-%m-%d %H:%i:%s') AS createTime
+        <include refid="BaseFrom"/>
+        <include refid="QueryWhere"/>
+        ORDER BY u.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findDetail" resultType="map">
+        SELECT
+            u.id AS id,
+            <include refid="AccountExpr"/> AS account,
+            CASE WHEN h5id.identity_key IS NOT NULL AND h5id.identity_key != '' THEN 1 ELSE 0 END AS passwordLogin,
+            COALESCE(
+                NULLIF(ext.nickname, ''),
+                NULLIF(p.display_name, ''),
+                NULLIF(TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, ''))), ''),
+                NULLIF(u.username, ''),
+                CONCAT('user#', u.id)
+            ) AS nickname,
+            COALESCE(ext.avatar, u.photo_url, '') AS avatar,
+            COALESCE(ext.bio, '') AS bio,
+            <include refid="IdentityTypeExpr"/> AS identityType,
+            <include refid="StatusExpr"/> AS status,
+            COALESCE(ext.vip_type, 0) AS vipType,
+            CASE
+                WHEN COALESCE(ext.vip_type, 0) &gt;= 2 THEN 'SVIP'
+                WHEN COALESCE(ext.vip_type, 0) = 1 THEN 'VIP'
+                ELSE '免费'
+            END AS vipLabel,
+            <include refid="VipActiveExpr"/> AS vipActive,
+            DATE_FORMAT(ext.vip_expires_at, '%Y-%m-%d %H:%i:%s') AS vipExpiresAt,
+            COALESCE(ext.score, 0) AS score,
+            COALESCE(ext.gold_coin, 0) AS goldCoin,
+            COALESCE(ext.daily_chat_quota, 0) AS dailyChatQuota,
+            ext.chat_quota_override AS chatQuotaOverride,
+            COALESCE(ext.daily_chat_used, 0) AS dailyChatUsed,
+            COALESCE(ext.daily_byok_chat_used, 0) AS dailyByokChatUsed,
+            COALESCE(aip.provider_mode, 'system') AS aiProviderMode,
+            COALESCE(aip.provider_source, '') AS aiProviderSource,
+            COALESCE(aip.model_name, '') AS aiModelName,
+            COALESCE(aip.custom_url, '') AS aiCustomUrl,
+            CASE WHEN aip.api_key_cipher IS NOT NULL AND aip.api_key_cipher != '' THEN 1 ELSE 0 END AS aiApiKeySaved,
+            DATE_FORMAT(aip.updated_at, '%Y-%m-%d %H:%i:%s') AS aiProviderUpdatedAt,
+            COALESCE(ext.daily_image_quota, 0) AS dailyImageQuota,
+            ext.image_quota_override AS imageQuotaOverride,
+            COALESCE(ext.daily_image_used, 0) AS dailyImageUsed,
+            COALESCE(ext.character_create_allowed, 0) AS characterCreateAllowed,
+            <include refid="NeedEditExpr"/> AS needEdit,
+            COALESCE(ext.gender, 0) AS gender,
+            COALESCE(ext.birthday, '') AS birthday,
+            COALESCE(ext.height, '') AS height,
+            COALESCE(ext.weight, '') AS weight,
+            COALESCE(ext.country, '') AS country,
+            COALESCE(ext.characters, '') AS characters,
+            COALESCE(ext.relation, '') AS relation,
+            COALESCE(ext.occupation, '') AS occupation,
+            COALESCE(ext.label, '') AS label,
+            COALESCE(p.st_display_name, '') AS stDisplayName,
+            COALESCE(p.persona, '') AS persona,
+            COALESCE(conv.conversation_count, 0) AS conversationCount,
+            DATE_FORMAT(conv.last_conversation_at, '%Y-%m-%d %H:%i:%s') AS lastConversationAt,
+            DATE_FORMAT(u.created_at, '%Y-%m-%d %H:%i:%s') AS createTime
+        <include refid="BaseFrom"/>
+        WHERE u.id = #{userId}
+        LIMIT 1
+    </select>
+
+    <select id="listRecentConversationsByUser" resultType="map">
+        SELECT
+            c.id AS conversationId,
+            c.character_id AS characterId,
+            COALESCE(NULLIF(c.title, ''), NULLIF(ch.name, ''), CONCAT('conversation#', c.id)) AS title,
+            COALESCE(ch.name, '') AS characterName,
+            DATE_FORMAT(c.updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt,
+            COALESCE(bind.status, '') AS bindingStatus,
+            COALESCE(bind.st_runtime_profile, '') AS stRuntimeProfile,
+            COALESCE(bind.st_chat_ref, '') AS stChatRef,
+            COALESCE(bind.st_avatar_url, '') AS stAvatarUrl,
+            COALESCE(bind.st_chat_file_name, '') AS stChatFileName,
+            COALESCE(bind.st_display_name_override, '') AS stDisplayNameOverride,
+            COALESCE(p.st_display_name, '') AS defaultStDisplayName,
+            COALESCE(bind.st_world_names_json, '[]') AS stWorldNamesJson,
+            COALESCE(
+                NULLIF(bind.st_display_name_override, ''),
+                NULLIF(p.st_display_name, ''),
+                NULLIF(p.display_name, ''),
+                NULLIF(ext.nickname, ''),
+                NULLIF(u.username, ''),
+                CONCAT('user#', u.id)
+            ) AS effectiveStDisplayName
+        FROM app_conversation c
+        JOIN app_user u ON u.id = c.user_id
+        LEFT JOIN app_character ch ON ch.id = c.character_id
+        LEFT JOIN app_conversation_st_binding bind ON bind.conversation_id = c.id
+        LEFT JOIN app_h5_profile p ON p.user_id = c.user_id
+        LEFT JOIN app_h5_user_profile_ext ext ON ext.user_id = c.user_id
+        WHERE c.user_id = #{userId}
+        ORDER BY c.updated_at DESC, c.id DESC
+        LIMIT #{limit}
+    </select>
+</mapper>

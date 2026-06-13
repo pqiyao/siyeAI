@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.billing.mapper.AppWalletLedgerMapper">
+
+    <insert id="insert">
+        INSERT INTO app_wallet_ledger (
+            user_id, biz_type, order_no, delta_score, delta_gold_coin, note
+        ) VALUES (
+            #{userId}, #{bizType}, #{orderNo}, #{deltaScore}, #{deltaGoldCoin}, #{note}
+        )
+    </insert>
+</mapper>

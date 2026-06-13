@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.humanchat.mapper.HumanChatDeliveryLogMapper">
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.humanchat.entity.HumanChatDeliveryLog" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_human_chat_delivery_log (
+            message_id,
+            conversation_key,
+            target_user_id,
+            channel,
+            event_type,
+            status,
+            request_payload_json,
+            response_payload_json
+        ) VALUES (
+            #{messageId},
+            #{conversationKey},
+            #{targetUserId},
+            #{channel},
+            #{eventType},
+            #{status},
+            <choose>
+                <when test="requestPayloadJson != null">
+                    CAST(#{requestPayloadJson} AS JSON)
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            <choose>
+                <when test="responsePayloadJson != null">
+                    CAST(#{responsePayloadJson} AS JSON)
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>
+        )
+    </insert>
+
+    <sql id="AdminDeliveryWhere">
+        <where>
+            1 = 1
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    d.conversation_key LIKE CONCAT('%', #{keyword}, '%')
+                    OR d.channel LIKE CONCAT('%', #{keyword}, '%')
+                    OR d.event_type LIKE CONCAT('%', #{keyword}, '%')
+                    OR d.status LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="eventType != null and eventType != ''">
+                AND d.event_type = #{eventType}
+            </if>
+            <if test="status != null and status != ''">
+                AND d.status = #{status}
+            </if>
+            <if test="targetUserId != null">
+                AND d.target_user_id = #{targetUserId}
+            </if>
+            <if test="messageId != null">
+                AND d.message_id = #{messageId}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminDeliveryLogs" resultType="long">
+        SELECT COUNT(1)
+        FROM app_human_chat_delivery_log d
+        <include refid="AdminDeliveryWhere"/>
+    </select>
+
+    <select id="listAdminDeliveryLogs" resultType="map">
+        SELECT
+            d.id AS id,
+            d.message_id AS messageId,
+            d.conversation_key AS conversationKey,
+            d.target_user_id AS targetUserId,
+            d.channel AS channel,
+            d.event_type AS eventType,
+            d.status AS status,
+            d.request_payload_json AS requestPayload,
+            d.response_payload_json AS responsePayload,
+            d.created_at AS createdAt
+        FROM app_human_chat_delivery_log d
+        <include refid="AdminDeliveryWhere"/>
+        ORDER BY d.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findAdminDeliveryLog" resultType="map">
+        SELECT
+            d.id AS id,
+            d.message_id AS messageId,
+            d.conversation_key AS conversationKey,
+            d.target_user_id AS targetUserId,
+            d.channel AS channel,
+            d.event_type AS eventType,
+            d.status AS status,
+            d.request_payload_json AS requestPayload,
+            d.response_payload_json AS responsePayload,
+            d.created_at AS createdAt
+        FROM app_human_chat_delivery_log d
+        WHERE d.id = #{id}
+        LIMIT 1
+    </select>
+</mapper>

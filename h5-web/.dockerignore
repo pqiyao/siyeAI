@@ -1,0 +1,7 @@
+node_modules
+dist
+unpackage
+.git
+.gitignore
+npm-debug.log*
+yarn-error.log*

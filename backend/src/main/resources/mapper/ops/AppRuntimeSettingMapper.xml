@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.mapper.AppRuntimeSettingMapper">
+
+    <resultMap id="RuntimeSettingResultMap" type="com.example.sillyspringboot.ops.entity.AppRuntimeSetting">
+        <id column="setting_key" property="settingKey"/>
+        <result column="setting_value" property="settingValue"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findByKey" resultMap="RuntimeSettingResultMap">
+        SELECT setting_key, setting_value, updated_at
+        FROM app_runtime_setting
+        WHERE setting_key = #{settingKey}
+        LIMIT 1
+    </select>
+
+    <insert id="upsert">
+        INSERT INTO app_runtime_setting (setting_key, setting_value)
+        VALUES (#{settingKey}, #{settingValue})
+        ON DUPLICATE KEY UPDATE
+            setting_value = VALUES(setting_value),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+</mapper>

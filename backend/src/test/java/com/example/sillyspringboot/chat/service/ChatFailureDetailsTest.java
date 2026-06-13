@@ -13,7 +13,7 @@ class ChatFailureDetailsTest {
         BusinessException exception = new BusinessException(
                 ErrorCode.UPSTREAM_ERROR,
                 "服务暂时不可用，请稍后重试",
-                new IllegalStateException("st runtime generate http 503: {\"error\":\"model not found\",\"authorization\":\"Bearer secret-token\"}")
+                new IllegalStateException("st runtime generate http 503: {\"error\":\"model not found\",\"authorization\":\"Bearer <redacted>\"}")
         );
 
         ChatFailureDetails.TaskFailure failure = ChatFailureDetails.fromBusinessException(exception, "trace-upstream-1");

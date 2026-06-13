@@ -473,7 +473,7 @@ export default {
 			this.util.urlTo('/pages/user/set');
 		},
 		openIllustrationSite() {
-			const target = 'https://siyeai.pengqiyao.cn/illustration/';
+			const target = '/illustration/';
 			// #ifdef H5
 			window.location.href = '/illustration/';
 			return;

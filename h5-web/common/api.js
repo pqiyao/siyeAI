@@ -5,7 +5,7 @@ var app = getApp();
  * Production H5 defaults to same-origin reverse proxy mode.
  */
 var LOCAL_API_ORIGIN = 'http://127.0.0.1:8080';
-var APP_API_ORIGIN = 'https://siyeai.pengqiyao.cn';
+var APP_API_ORIGIN = '';
 var REMOTE_API_ORIGIN = '';
 var REMOTE_IMG_ORIGIN = '';
 var REMOTE_UPLOAD_ORIGIN = '';

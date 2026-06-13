@@ -1605,7 +1605,7 @@
 				uni.navigateTo({ url: '/pages/social/postCreate' });
 			},
 			openIllustrationSite() {
-				const target = 'https://siyeai.pengqiyao.cn/illustration/';
+				const target = '/illustration/';
 				// #ifdef H5
 				window.location.href = '/illustration/';
 				return;

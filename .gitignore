@@ -43,6 +43,11 @@ log/
 *.rar
 *.7z
 
+# Public artwork placeholders
+backend/src/main/resources/static/art/works/*
+!backend/src/main/resources/static/art/works/README.md
+!backend/src/main/resources/static/art/works/placeholder.svg
+
 # Databases and VCS leftovers
 *.db
 *.sqlite

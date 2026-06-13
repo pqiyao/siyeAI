@@ -4,6 +4,8 @@ This directory contains a public Docker Compose deployment template for JiuGuanS
 
 The template intentionally avoids real domains, server IP addresses, private `.env` files, SSH commands, production archives, and internal incident notes.
 
+Image names are configurable through `.env`. The example uses `public.ecr.aws/docker/library/mysql:8.0` for MySQL because some Docker Hub mirrors return invalid metadata in restricted or proxied networks. If Docker Hub works normally in your environment, you can change `MYSQL_IMAGE` back to `mysql:8.0`.
+
 ## Files
 
 | File | Purpose |
@@ -18,9 +20,9 @@ The template intentionally avoids real domains, server IP addresses, private `.e
 
 | Service | Source | Default Port | Description |
 | --- | --- | --- | --- |
-| `mysql` | `mysql:8.0` | internal only | Business database with `utf8mb4` defaults. |
-| `redis` | `redis:7-alpine` | internal only | Cache, rate limit, concurrency, and runtime state support. |
-| `sillytavern` | `ghcr.io/sillytavern/sillytavern:latest` | `8000` | SillyTavern service used by backend integration. |
+| `mysql` | `${MYSQL_IMAGE}` | internal only | Business database with `utf8mb4` defaults. |
+| `redis` | `${REDIS_IMAGE}` | internal only | Cache, rate limit, concurrency, and runtime state support. |
+| `sillytavern` | `${SILLYTAVERN_IMAGE}` | `8000` | SillyTavern service used by backend integration. |
 | `backend` | Builds from `../backend` | `8080` | Spring Boot API service. |
 | `admin-web` | Builds from `../admin-web` | `8081` | Vue admin console served by nginx. |
 | `h5-web` | Builds from `../h5-web` | `8082` | Builds uni-app H5 and serves it with nginx. |
@@ -48,6 +50,7 @@ Edit `.env` and replace all placeholders. At minimum, review:
 ```text
 MYSQL_ROOT_PASSWORD
 MYSQL_PASSWORD
+MYSQL_IMAGE
 APP_AUTH_SECRET
 APP_RUOYI_ADMIN_PASSWORD
 APP_RUOYI_JWT_SECRET
@@ -55,6 +58,8 @@ APP_CORS_ALLOWED_ORIGIN_PATTERNS
 SILLYTAVERN_PUBLIC_BASE_URL
 SILLYTAVERN_API_KEY
 ```
+
+The example admin account is `admin / admin123`. It is only for local evaluation. Replace `APP_RUOYI_ADMIN_PASSWORD` with your own bcrypt hash before any public deployment.
 
 Start services:
 

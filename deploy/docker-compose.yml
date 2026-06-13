@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mysql:8.0
+    image: ${MYSQL_IMAGE:-mysql:8.0}
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -19,7 +19,7 @@ services:
       retries: 20
 
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
@@ -31,7 +31,7 @@ services:
       retries: 20
 
   sillytavern:
-    image: ghcr.io/sillytavern/sillytavern:latest
+    image: ${SILLYTAVERN_IMAGE:-ghcr.io/sillytavern/sillytavern:latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production

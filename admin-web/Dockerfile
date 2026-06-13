@@ -6,6 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+RUN cp .env.production.example .env.production
 RUN npm run build:prod
 
 FROM nginx:1.27-alpine

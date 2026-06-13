@@ -55,7 +55,7 @@ class ChatAuditServiceFailureLoggingTest {
         BusinessException exception = new BusinessException(
                 ErrorCode.UPSTREAM_ERROR,
                 "服务暂时不可用，请稍后重试",
-                new IllegalStateException("st runtime generate http 503: {\"error\":\"model not found\",\"authorization\":\"Bearer secret-token\"}")
+                new IllegalStateException("st runtime generate http 503: {\"error\":\"model not found\",\"authorization\":\"Bearer <redacted>\"}")
         );
 
         auditService.onFailed(audit.assistantMessageId(), audit.taskId(), exception, "trace-ai-1");

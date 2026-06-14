@@ -343,6 +343,18 @@ public class ApiV1TavernChatController {
         };
     }
 
+    private static boolean shouldFailEmptyGeneratedContent(StreamKind kind, boolean cancelled, String content) {
+        return !cancelled
+                && (kind == StreamKind.CONTINUE || kind == StreamKind.REGENERATE)
+                && (content == null || content.isBlank());
+    }
+
+    private static String emptyGeneratedContentMessage(StreamKind kind) {
+        return kind == StreamKind.CONTINUE
+                ? "模型返回空内容，续写失败。请检查当前模型/厂商是否支持续写格式。"
+                : "模型返回空内容，重新生成失败。请检查当前模型/厂商配置。";
+    }
+
     private Map<String, Object> runBlockingGenerate(
             Object request,
             String token,
@@ -409,6 +421,9 @@ public class ApiV1TavernChatController {
             }
 
             String content = assistant.toString().trim();
+            if (shouldFailEmptyGeneratedContent(kind, false, content)) {
+                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, emptyGeneratedContentMessage(kind));
+            }
             applyBlockingPostStream(kind, conversationId, anchorOrTargetMessageId, audit, content, token, traceId);
             if (kind == StreamKind.GENERATE) {
                 saveSnapshotQuietly(conversationId);
@@ -738,6 +753,9 @@ public class ApiV1TavernChatController {
                                 sendEvent(emitter, "error", Map.of("message", "生成超时，请稍后重试"), control);
                                 emitter.complete();
                                 return;
+                            }
+                            if (shouldFailEmptyGeneratedContent(kind, cancelled, content)) {
+                                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, emptyGeneratedContentMessage(kind));
                             }
                             applyStreamPostGenerate(
                                     kind,

@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppNoticeMapper">
+
+    <resultMap id="NoticeResultMap" type="com.example.sillyspringboot.compat.h5.entity.AppNotice">
+        <id column="id" property="id"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="level" property="level"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="enabled" property="enabled"/>
+        <result column="guest_visible" property="guestVisible"/>
+        <result column="display_type" property="displayType"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <select id="listLatest" resultMap="NoticeResultMap">
+        SELECT id, title, content, level, sort_order, enabled, guest_visible, display_type, created_at
+        FROM app_notice
+        WHERE enabled = 1
+        ORDER BY sort_order DESC, created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_notice
+        <where>
+            <if test="title != null and title != ''">
+                title LIKE CONCAT('%', #{title}, '%')
+            </if>
+        </where>
+    </select>
+
+    <select id="listAdminPage" resultMap="NoticeResultMap">
+        SELECT id, title, content, level, sort_order, enabled, guest_visible, display_type, created_at
+        FROM app_notice
+        <where>
+            <if test="title != null and title != ''">
+                title LIKE CONCAT('%', #{title}, '%')
+            </if>
+        </where>
+        ORDER BY sort_order DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findById" resultMap="NoticeResultMap">
+        SELECT id, title, content, level, sort_order, enabled, guest_visible, display_type, created_at
+        FROM app_notice
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.compat.h5.entity.AppNotice"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_notice (title, content, level, sort_order, enabled, guest_visible, display_type)
+        VALUES (
+            #{title},
+            #{content},
+            COALESCE(#{level}, 'info'),
+            COALESCE(#{sortOrder}, 0),
+            COALESCE(#{enabled}, 1),
+            COALESCE(#{guestVisible}, 1),
+            COALESCE(#{displayType}, 'inbox')
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.compat.h5.entity.AppNotice">
+        UPDATE app_notice
+        SET title = #{title},
+            content = #{content},
+            level = COALESCE(#{level}, 'info'),
+            sort_order = COALESCE(#{sortOrder}, 0),
+            enabled = COALESCE(#{enabled}, 1),
+            guest_visible = COALESCE(#{guestVisible}, 1),
+            display_type = COALESCE(#{displayType}, 'inbox')
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM app_notice
+        WHERE id = #{id}
+    </delete>
+
+    <select id="listTopForAdmin" resultMap="NoticeResultMap">
+        SELECT id, title, content, level, sort_order, enabled, guest_visible, display_type, created_at
+        FROM app_notice
+        WHERE enabled = 1
+        ORDER BY sort_order DESC, created_at DESC
+        LIMIT #{limit}
+    </select>
+</mapper>

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.integration.sillytavern.mapper.StModelRouteMapper">
+
+    <resultMap id="RouteResultMap" type="com.example.sillyspringboot.integration.sillytavern.entity.StModelRoute">
+        <id column="id" property="id"/>
+        <result column="scene_key" property="sceneKey"/>
+        <result column="display_name" property="displayName"/>
+        <result column="primary_provider_key" property="primaryProviderKey"/>
+        <result column="fallback_provider_keys" property="fallbackProviderKeys"/>
+        <result column="enabled" property="enabled"/>
+        <result column="note" property="note"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="RouteColumns">
+        id, scene_key, display_name, primary_provider_key, fallback_provider_keys, enabled, note, created_at, updated_at
+    </sql>
+
+    <select id="listAll" resultMap="RouteResultMap">
+        SELECT <include refid="RouteColumns"/>
+        FROM app_st_model_route
+        ORDER BY enabled DESC, scene_key ASC, id ASC
+    </select>
+
+    <select id="findById" resultMap="RouteResultMap">
+        SELECT <include refid="RouteColumns"/>
+        FROM app_st_model_route
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findBySceneKey" resultMap="RouteResultMap">
+        SELECT <include refid="RouteColumns"/>
+        FROM app_st_model_route
+        WHERE scene_key = #{sceneKey}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.integration.sillytavern.entity.StModelRoute" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_st_model_route (
+            scene_key, display_name, primary_provider_key, fallback_provider_keys, enabled, note
+        ) VALUES (
+            #{sceneKey}, #{displayName}, #{primaryProviderKey}, #{fallbackProviderKeys}, #{enabled}, #{note}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.integration.sillytavern.entity.StModelRoute">
+        UPDATE app_st_model_route
+        SET scene_key = #{sceneKey},
+            display_name = #{displayName},
+            primary_provider_key = #{primaryProviderKey},
+            fallback_provider_keys = #{fallbackProviderKeys},
+            enabled = #{enabled},
+            note = #{note},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM app_st_model_route
+        WHERE id = #{id}
+    </delete>
+
+    <select id="countReferencingProvider" resultType="int">
+        SELECT COUNT(*)
+        FROM app_st_model_route
+        WHERE primary_provider_key = #{providerKey}
+           OR FIND_IN_SET(#{providerKey}, REPLACE(fallback_provider_keys, '|', ','))
+    </select>
+</mapper>

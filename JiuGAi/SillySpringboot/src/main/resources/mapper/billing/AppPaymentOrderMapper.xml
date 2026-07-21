@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.billing.mapper.AppPaymentOrderMapper">
+
+    <resultMap id="AppPaymentOrderResultMap" type="com.example.sillyspringboot.billing.entity.AppPaymentOrder">
+        <id column="id" property="id"/>
+        <result column="order_no" property="orderNo"/>
+        <result column="user_id" property="userId"/>
+        <result column="product_id" property="productId"/>
+        <result column="product_code" property="productCode"/>
+        <result column="product_name" property="productName"/>
+        <result column="product_type" property="productType"/>
+        <result column="amount_cents" property="amountCents"/>
+        <result column="score_amount" property="scoreAmount"/>
+        <result column="gold_coin_amount" property="goldCoinAmount"/>
+        <result column="vip_type" property="vipType"/>
+        <result column="vip_days" property="vipDays"/>
+        <result column="payment_channel" property="paymentChannel"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="paid_at" property="paidAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, order_no, user_id, product_id, product_code, product_name, product_type,
+        amount_cents, score_amount, gold_coin_amount, vip_type, vip_days,
+        payment_channel, status, created_at, paid_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.billing.entity.AppPaymentOrder" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_payment_order (
+            order_no, user_id, product_id, product_code, product_name, product_type,
+            amount_cents, score_amount, gold_coin_amount, vip_type, vip_days,
+            payment_channel, status
+        ) VALUES (
+            #{orderNo}, #{userId}, #{productId}, #{productCode}, #{productName}, #{productType},
+            #{amountCents}, #{scoreAmount}, #{goldCoinAmount}, #{vipType}, #{vipDays},
+            #{paymentChannel}, #{status}
+        )
+    </insert>
+
+    <select id="findByOrderNo" resultMap="AppPaymentOrderResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_payment_order
+        WHERE order_no = #{orderNo}
+        LIMIT 1
+    </select>
+
+    <select id="findByOrderNoAndUserId" resultMap="AppPaymentOrderResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_payment_order
+        WHERE order_no = #{orderNo}
+          AND user_id = #{userId}
+        LIMIT 1
+    </select>
+
+    <select id="listByUserId" resultMap="AppPaymentOrderResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_payment_order
+        WHERE user_id = #{userId}
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="markPaid">
+        UPDATE app_payment_order
+        SET status = 'PAID',
+            paid_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND status != 'PAID'
+    </update>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(1)
+        FROM app_payment_order
+        WHERE 1 = 1
+        <if test="keyword != null and keyword != ''">
+            AND (
+                order_no LIKE CONCAT('%', #{keyword}, '%')
+                OR product_code LIKE CONCAT('%', #{keyword}, '%')
+                OR product_name LIKE CONCAT('%', #{keyword}, '%')
+                OR CAST(user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="status != null and status != ''">
+            AND status = #{status}
+        </if>
+    </select>
+
+    <select id="listAdminPage" resultMap="AppPaymentOrderResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_payment_order
+        WHERE 1 = 1
+        <if test="keyword != null and keyword != ''">
+            AND (
+                order_no LIKE CONCAT('%', #{keyword}, '%')
+                OR product_code LIKE CONCAT('%', #{keyword}, '%')
+                OR product_name LIKE CONCAT('%', #{keyword}, '%')
+                OR CAST(user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="status != null and status != ''">
+            AND status = #{status}
+        </if>
+        ORDER BY id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+</mapper>

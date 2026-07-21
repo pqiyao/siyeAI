@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.integration.sillytavern.mapper.StModelProviderMapper">
+
+    <resultMap id="ProviderResultMap" type="com.example.sillyspringboot.integration.sillytavern.entity.StModelProvider">
+        <id column="id" property="id"/>
+        <result column="provider_key" property="providerKey"/>
+        <result column="display_name" property="displayName"/>
+        <result column="st_source" property="stSource"/>
+        <result column="model_name" property="modelName"/>
+        <result column="reverse_proxy" property="reverseProxy"/>
+        <result column="proxy_password" property="proxyPassword"/>
+        <result column="custom_url" property="customUrl"/>
+        <result column="priority" property="priority"/>
+        <result column="enabled" property="enabled"/>
+        <result column="failure_threshold" property="failureThreshold"/>
+        <result column="cooldown_seconds" property="cooldownSeconds"/>
+        <result column="consecutive_failures" property="consecutiveFailures"/>
+        <result column="circuit_open_until" property="circuitOpenUntil"/>
+        <result column="last_error" property="lastError"/>
+        <result column="last_used_at" property="lastUsedAt"/>
+        <result column="last_health_status" property="lastHealthStatus"/>
+        <result column="note" property="note"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="ProviderColumns">
+        id, provider_key, display_name, st_source, model_name, reverse_proxy, proxy_password, custom_url,
+        priority, enabled, failure_threshold, cooldown_seconds, consecutive_failures, circuit_open_until,
+        last_error, last_used_at, last_health_status, note, created_at, updated_at
+    </sql>
+
+    <select id="listAll" resultMap="ProviderResultMap">
+        SELECT <include refid="ProviderColumns"/>
+        FROM app_st_model_provider
+        ORDER BY enabled DESC, priority ASC, id ASC
+    </select>
+
+    <select id="listEnabled" resultMap="ProviderResultMap">
+        SELECT <include refid="ProviderColumns"/>
+        FROM app_st_model_provider
+        WHERE enabled = 1
+        ORDER BY priority ASC, id ASC
+    </select>
+
+    <select id="findById" resultMap="ProviderResultMap">
+        SELECT <include refid="ProviderColumns"/>
+        FROM app_st_model_provider
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findByProviderKey" resultMap="ProviderResultMap">
+        SELECT <include refid="ProviderColumns"/>
+        FROM app_st_model_provider
+        WHERE provider_key = #{providerKey}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.integration.sillytavern.entity.StModelProvider" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_st_model_provider (
+            provider_key, display_name, st_source, model_name, reverse_proxy, proxy_password, custom_url,
+            priority, enabled, failure_threshold, cooldown_seconds, consecutive_failures, circuit_open_until,
+            last_error, last_used_at, last_health_status, note
+        ) VALUES (
+            #{providerKey}, #{displayName}, #{stSource}, #{modelName}, #{reverseProxy}, #{proxyPassword}, #{customUrl},
+            #{priority}, #{enabled}, #{failureThreshold}, #{cooldownSeconds}, #{consecutiveFailures}, #{circuitOpenUntil},
+            #{lastError}, #{lastUsedAt}, #{lastHealthStatus}, #{note}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.integration.sillytavern.entity.StModelProvider">
+        UPDATE app_st_model_provider
+        SET provider_key = #{providerKey},
+            display_name = #{displayName},
+            st_source = #{stSource},
+            model_name = #{modelName},
+            reverse_proxy = #{reverseProxy},
+            proxy_password = #{proxyPassword},
+            custom_url = #{customUrl},
+            priority = #{priority},
+            enabled = #{enabled},
+            failure_threshold = #{failureThreshold},
+            cooldown_seconds = #{cooldownSeconds},
+            note = #{note},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM app_st_model_provider
+        WHERE id = #{id}
+    </delete>
+
+    <update id="markSuccess">
+        UPDATE app_st_model_provider
+        SET consecutive_failures = 0,
+            circuit_open_until = NULL,
+            last_error = '',
+            last_health_status = 'healthy',
+            last_used_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE provider_key = #{providerKey}
+    </update>
+
+    <update id="markFailure">
+        UPDATE app_st_model_provider
+        SET consecutive_failures = consecutive_failures + 1,
+            last_error = #{lastError},
+            last_health_status = 'failing',
+            last_used_at = CURRENT_TIMESTAMP,
+            circuit_open_until = CASE
+                WHEN consecutive_failures + 1 >= #{failureThreshold}
+                    THEN DATE_ADD(CURRENT_TIMESTAMP, INTERVAL #{cooldownSeconds} SECOND)
+                ELSE circuit_open_until
+            END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE provider_key = #{providerKey}
+    </update>
+</mapper>

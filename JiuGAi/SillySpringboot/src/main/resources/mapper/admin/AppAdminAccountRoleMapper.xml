@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AppAdminAccountRoleMapper">
+
+    <resultMap id="AppAdminRoleResultMap" type="com.example.sillyspringboot.admin.entity.AppAdminRole">
+        <id column="id" property="id"/>
+        <result column="role_key" property="roleKey"/>
+        <result column="role_name" property="roleName"/>
+        <result column="permissions_json" property="permissionsJson"/>
+        <result column="enabled" property="enabled"/>
+        <result column="built_in" property="builtIn"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="remark" property="remark"/>
+        <result column="created_by" property="createdBy"/>
+        <result column="updated_by" property="updatedBy"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="listRoleIdsByAccountId" resultType="long">
+        SELECT role_id
+        FROM app_admin_account_role
+        WHERE account_id = #{accountId}
+        ORDER BY role_id ASC
+    </select>
+
+    <select id="listRolesByAccountId" resultMap="AppAdminRoleResultMap">
+        SELECT r.id, r.role_key, r.role_name, r.permissions_json, r.enabled, r.built_in,
+               r.sort_order, r.remark, r.created_by, r.updated_by, r.created_at, r.updated_at
+        FROM app_admin_account_role ar
+        JOIN app_admin_role r ON r.id = ar.role_id
+        WHERE ar.account_id = #{accountId}
+        ORDER BY r.sort_order ASC, r.id ASC
+    </select>
+
+    <select id="listAccountRoleRows" resultType="map">
+        SELECT
+            r.id,
+            r.role_key AS roleKey,
+            r.role_name AS roleName,
+            r.enabled,
+            r.built_in AS builtIn
+        FROM app_admin_account_role ar
+        JOIN app_admin_role r ON r.id = ar.role_id
+        WHERE ar.account_id = #{accountId}
+        ORDER BY r.sort_order ASC, r.id ASC
+    </select>
+
+    <insert id="insert">
+        INSERT INTO app_admin_account_role (account_id, role_id)
+        VALUES (#{accountId}, #{roleId})
+    </insert>
+
+    <delete id="deleteByAccountId">
+        DELETE FROM app_admin_account_role
+        WHERE account_id = #{accountId}
+    </delete>
+
+    <select id="countAccountsByRoleId" resultType="long">
+        SELECT COUNT(*)
+        FROM app_admin_account_role
+        WHERE role_id = #{roleId}
+    </select>
+
+    <select id="countActiveAccountsByRoleKey" resultType="long">
+        SELECT COUNT(*)
+        FROM app_admin_account_role ar
+        JOIN app_admin_role r ON r.id = ar.role_id
+        JOIN app_admin_account a ON a.id = ar.account_id
+        WHERE r.role_key = #{roleKey}
+          AND a.status = 'ACTIVE'
+          AND r.enabled = TRUE
+    </select>
+
+</mapper>

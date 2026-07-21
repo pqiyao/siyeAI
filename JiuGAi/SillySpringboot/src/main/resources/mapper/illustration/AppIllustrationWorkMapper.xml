@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.illustration.mapper.AppIllustrationWorkMapper">
+
+    <resultMap id="IllustrationWorkResultMap" type="com.example.sillyspringboot.illustration.entity.AppIllustrationWork">
+        <id column="id" property="id"/>
+        <result column="title" property="title"/>
+        <result column="slug" property="slug"/>
+        <result column="category" property="category"/>
+        <result column="tags_json" property="tagsJson"/>
+        <result column="description" property="description"/>
+        <result column="cover_url" property="coverUrl"/>
+        <result column="image_url" property="imageUrl"/>
+        <result column="content_level" property="contentLevel"/>
+        <result column="status" property="status"/>
+        <result column="source" property="source"/>
+        <result column="submitter_user_id" property="submitterUserId"/>
+        <result column="submitter_name" property="submitterName"/>
+        <result column="audit_note" property="auditNote"/>
+        <result column="recommended" property="recommended"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="view_count" property="viewCount"/>
+        <result column="like_count" property="likeCount"/>
+        <result column="reviewed_at" property="reviewedAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted" property="deleted"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, title, slug, category, tags_json, description, cover_url, image_url,
+        content_level, status, source, submitter_user_id, submitter_name, audit_note,
+        recommended, sort_order, view_count, like_count, reviewed_at,
+        created_at, updated_at, deleted
+    </sql>
+
+    <sql id="AdminWhere">
+        <where>
+            deleted = 0
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    title LIKE CONCAT('%', #{keyword}, '%')
+                    OR slug LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(submitter_name, '') LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="category != null and category != ''">
+                AND category = #{category}
+            </if>
+            <if test="contentLevel != null and contentLevel != ''">
+                AND content_level = #{contentLevel}
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="source != null and source != ''">
+                AND source = #{source}
+            </if>
+        </where>
+    </sql>
+
+    <sql id="PublicWhere">
+        <where>
+            deleted = 0
+            AND status = 'PUBLISHED'
+            <if test="!allowR18">
+                AND content_level != 'R18'
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    title LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(description, '') LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="category != null and category != ''">
+                AND category = #{category}
+            </if>
+            <if test="tag != null and tag != ''">
+                AND COALESCE(tags_json, '') LIKE CONCAT('%', #{tag}, '%')
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(1)
+        FROM app_illustration_work
+        <include refid="AdminWhere"/>
+    </select>
+
+    <select id="listAdminPage" resultMap="IllustrationWorkResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_illustration_work
+        <include refid="AdminWhere"/>
+        ORDER BY recommended DESC, sort_order ASC, created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countPublicList" resultType="long">
+        SELECT COUNT(1)
+        FROM app_illustration_work
+        <include refid="PublicWhere"/>
+    </select>
+
+    <select id="listPublicPage" resultMap="IllustrationWorkResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_illustration_work
+        <include refid="PublicWhere"/>
+        ORDER BY recommended DESC, sort_order ASC, created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findById" resultMap="IllustrationWorkResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_illustration_work
+        WHERE id = #{id}
+          AND deleted = 0
+        LIMIT 1
+    </select>
+
+    <select id="findBySlug" resultMap="IllustrationWorkResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_illustration_work
+        WHERE slug = #{slug}
+          AND deleted = 0
+        LIMIT 1
+    </select>
+
+    <select id="findActiveBySlug" resultMap="IllustrationWorkResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_illustration_work
+        WHERE slug = #{slug}
+          AND deleted = 0
+          AND status = 'PUBLISHED'
+        <if test="!allowR18">
+          AND content_level != 'R18'
+        </if>
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.illustration.entity.AppIllustrationWork" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_illustration_work (
+            title, slug, category, tags_json, description, cover_url, image_url,
+            content_level, status, source, submitter_user_id, submitter_name, audit_note,
+            recommended, sort_order, view_count, like_count, reviewed_at
+        ) VALUES (
+            #{title}, #{slug}, #{category}, #{tagsJson}, #{description}, #{coverUrl}, #{imageUrl},
+            #{contentLevel}, #{status}, #{source}, #{submitterUserId}, #{submitterName}, #{auditNote},
+            #{recommended}, #{sortOrder}, #{viewCount}, #{likeCount}, #{reviewedAt}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.illustration.entity.AppIllustrationWork">
+        UPDATE app_illustration_work
+        SET title = #{title},
+            slug = #{slug},
+            category = #{category},
+            tags_json = #{tagsJson},
+            description = #{description},
+            cover_url = #{coverUrl},
+            image_url = #{imageUrl},
+            content_level = #{contentLevel},
+            status = #{status},
+            source = #{source},
+            submitter_user_id = #{submitterUserId},
+            submitter_name = #{submitterName},
+            audit_note = #{auditNote},
+            recommended = #{recommended},
+            sort_order = #{sortOrder},
+            view_count = #{viewCount},
+            like_count = #{likeCount},
+            reviewed_at = #{reviewedAt},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND deleted = 0
+    </update>
+
+    <delete id="hardDeleteById">
+        DELETE FROM app_illustration_work
+        WHERE id = #{id}
+    </delete>
+
+    <update id="updateStatus">
+        UPDATE app_illustration_work
+        SET status = #{status},
+            audit_note = #{auditNote},
+            reviewed_at = CASE WHEN #{reviewed} THEN CURRENT_TIMESTAMP ELSE reviewed_at END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND deleted = 0
+    </update>
+</mapper>

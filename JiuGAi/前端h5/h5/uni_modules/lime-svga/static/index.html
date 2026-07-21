@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta http-equiv="X-UA-Compatible" content="ie=edge">
+	<title></title>
+	<style type="text/css">
+		html,
+		body,
+		.canvas {
+			padding: 0;
+			margin: 0;
+			width: 100%;
+			height: 100%;
+			overflow-y: hidden;
+			background-color: transparent;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="lime-svga" class="canvas"></div>
+	<script type="text/javascript" src="./uni.webview.1.5.3.js"></script>
+	<script type="text/javascript" src="./svgaplayer.web.js"></script>
+	<script> 
+		var cache = [];
+		var pixelRatio = 1;
+		var player = null;
+		var parser = null;
+		var videoItem = {};
+		var map = {};
+		var rLoops = null;
+		var setText = null;
+		var clearsAfterStop = true;
+		console.log = function (...args) {
+			postMessage(args);
+		};
+		function stringify(key, value) {
+			if (typeof value === 'object' && value !== null) {
+				if (cache.indexOf(value) !== -1) {
+					return;
+				}
+				cache.push(value);
+			}
+			return value;
+		};
+
+		function emit(event, data) {
+			let dataStr = typeof data !== 'object' && data !== null ? data : JSON.stringify(data, stringify);
+			postMessage({
+				event,
+				data: dataStr
+			});
+			cache = [];
+		};
+
+		function postMessage(data) {
+			uni.postMessage({
+				data
+			});
+		};
+		
+		function init() {
+			if(!player) {
+				player = new SVGA.Player(`#lime-svga`);
+				player.onFinished(() => {
+					emit({onFinished: true})
+				})
+			};
+			if(!parser) {
+				parser = new SVGA.Parser(`#lime-svga`);
+			};
+			emit({'inited': true});
+		}
+		function parserLoad(newValue) {
+			const [uid, url] = newValue.split('@');
+			if(!uid || !url) {
+				emit({load: `${uid}@null@svga src不存在`})
+			}
+			if(parser && url) {
+				if(map[url]) {
+					// emit({'load': map[newValue]})
+					emit({'load': `${uid}@${this.map[url]}`})
+				} else {
+					parser.load(url, (video) => {
+						const key = `video${+new Date()}`;
+						if(!videoItem[key]) {
+							videoItem[key] = video
+						}
+						map[url] = key
+						// emit({'load': key})
+						emit({load: `${uid}@${key}`})
+					}, (err)=>{
+						emit({load: `${uid}@null@${JSON.stringify(err)}`})
+					})
+				}
+				
+			}
+		}
+		function setVideoItem(newValue) {
+			const [video, uid] = newValue.split('|');
+			if(video && videoItem[video] && player) {
+				player.setVideoItem(videoItem[video])
+				emit({'setVideoItem': `${uid}|true`})
+			}
+		}
+		function setLoops(newValue) {
+			if(newValue >= 0 && player) {
+				player.loops = newValue
+			}
+		}
+		function startAnimation(newValue) {
+			if(newValue && player) {
+				player.startAnimation(newValue.reverse||false)
+			}
+		}
+		function stopAnimation(newValue) {
+			if(newValue && player) {
+				player.stopAnimation()
+			}
+		}
+		function clear(newValue) {
+			if(newValue && player) {
+				player.clear()
+			}
+		}
+		function pauseAnimation(newValue) {
+			if(newValue && player) {
+				player.pauseAnimation()
+			}
+		}
+		function startAnimationWithRange(newValue) {
+			if(newValue && player) {
+				player.startAnimationWithRange(newValue.range, newValue.reverse)
+			}
+		}
+		function setContentMode(newValue) {
+			if(newValue && player) {
+				player.setContentMode(newValue)
+			}
+		}
+		function onPlayer(newValue) {
+			if(newValue.rLoops && rLoops != newValue.rLoops) {
+				rLoops = newValue.rLoops
+				setLoops(newValue.rLoops)
+			}
+			if(newValue.rStartAnimation) {
+				startAnimation(newValue.rStartAnimation)
+			}
+			if(newValue.rStopAnimation) {
+				stopAnimation(newValue.rStopAnimation)
+			}
+			if(newValue.rClear) {
+				clear(newValue.rClear)
+			}
+			if(newValue.rPauseAnimation) {
+				pauseAnimation(newValue.rPauseAnimation)
+			}
+			if(newValue.rStartAnimationWithRange) {
+				startAnimationWithRange(newValue.rStartAnimationWithRange)
+			}
+			if(newValue.rSetContentMode) {
+				setContentMode(newValue.rSetContentMode)
+			}
+			if(newValue.rClearsAfterStop != clearsAfterStop && player) {
+				clearsAfterStop = newValue.rClearsAfterStop
+				player.clearsAfterStop = newValue.rClearsAfterStop
+			}
+			if(newValue.rSetText && setText != newValue.rSetText) {
+				setText = newValue.rSetText
+				for (let key in setText) {
+					player && player.setText(setText[key], key)
+				}
+				// const [text, key] = newValue.rSetText
+				// player && player.setText(text, key)
+			}
+			if(newValue.rSetImage && setImage != newValue.rSetImage) {
+				setImage = newValue.rSetImage
+				for (let key in setImage) {
+					player && player.setImage(setImage[key], key)
+				}
+				// const [text, key] = newValue.rSetImage
+				// player && player.setText(text, key)
+			}
+		}
+	</script>
+</body>
+</html>

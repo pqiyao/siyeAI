@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.character.mapper.AppCharacterMapper">
+
+    <resultMap id="AppCharacterResultMap" type="com.example.sillyspringboot.character.entity.AppCharacter">
+        <id column="id" property="id"/>
+        <result column="st_avatar_url" property="stAvatarUrl"/>
+        <result column="avatar_url" property="avatarUrl"/>
+        <result column="cover_url" property="coverUrl"/>
+        <result column="chat_background_url" property="chatBackgroundUrl"/>
+        <result column="st_world_names_json" property="stWorldNamesJson"/>
+        <result column="owner_user_id" property="ownerUserId"/>
+        <result column="name" property="name"/>
+        <result column="description" property="description"/>
+        <result column="tagline" property="tagline"/>
+        <result column="bio" property="bio"/>
+        <result column="persona" property="persona"/>
+        <result column="scenario" property="scenario"/>
+        <result column="first_message" property="firstMessage"/>
+        <result column="alternate_greetings_json" property="alternateGreetingsJson"/>
+        <result column="mes_example" property="mesExample"/>
+        <result column="system_prompt" property="systemPrompt"/>
+        <result column="post_history_instructions" property="postHistoryInstructions"/>
+        <result column="private_card" property="privateCard"/>
+        <result column="review_status" property="reviewStatus"/>
+        <result column="review_reason" property="reviewReason"/>
+        <result column="reviewed_at" property="reviewedAt"/>
+        <result column="reviewed_by" property="reviewedBy"/>
+        <result column="deleted_at" property="deletedAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="occupation_label" property="occupationLabel"/>
+        <result column="tags_json" property="tagsJson"/>
+        <result column="vip_only" property="vipOnly"/>
+        <result column="unlocked_default" property="unlockedDefault"/>
+        <result column="client_visible" property="clientVisible"/>
+        <result column="preview_blur_vip_level" property="previewBlurVipLevel"/>
+        <result column="like_count" property="likeCount"/>
+        <result column="dislike_count" property="dislikeCount"/>
+        <result column="creator_name" property="creatorName"/>
+        <result column="creator_handle" property="creatorHandle"/>
+        <result column="token_display" property="tokenDisplay"/>
+        <result column="gameplay_type" property="gameplayType"/>
+        <result column="chat_modes_json" property="chatModesJson"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="creator_notes" property="creatorNotes"/>
+        <result column="st_extra_json" property="stExtraJson"/>
+    </resultMap>
+
+    <sql id="AllColumns">
+        id, st_avatar_url, avatar_url, cover_url, chat_background_url, st_world_names_json, owner_user_id, name, description,
+        tagline, bio, persona, scenario, first_message, alternate_greetings_json,
+        mes_example, system_prompt, post_history_instructions,
+        private_card, review_status, review_reason, reviewed_at, reviewed_by, deleted_at, created_at, updated_at,
+        occupation_label, tags_json, vip_only, unlocked_default, client_visible, preview_blur_vip_level,
+        like_count, dislike_count,
+        creator_name, creator_handle, token_display, gameplay_type, chat_modes_json,
+        sort_order, creator_notes, st_extra_json
+    </sql>
+
+    <select id="findById" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findByStAvatarUrl" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE st_avatar_url = #{stAvatarUrl}
+        LIMIT 1
+    </select>
+
+    <select id="findSystemByStAvatarUrlAny" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE st_avatar_url = #{stAvatarUrl}
+          AND private_card = 0
+          AND owner_user_id IS NULL
+        ORDER BY deleted_at IS NULL DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findActivePrivateByStAvatarUrl" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE st_avatar_url = #{stAvatarUrl}
+          AND private_card = 1
+          AND owner_user_id IS NOT NULL
+          AND deleted_at IS NULL
+        ORDER BY updated_at DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findDeletedPrivateByStAvatarUrl" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE st_avatar_url = #{stAvatarUrl}
+          AND private_card = 1
+          AND owner_user_id IS NOT NULL
+          AND deleted_at IS NOT NULL
+        ORDER BY deleted_at DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findPrivateByStAvatarUrlAny" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE st_avatar_url = #{stAvatarUrl}
+          AND private_card = 1
+          AND owner_user_id IS NOT NULL
+        ORDER BY deleted_at IS NULL DESC, updated_at DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findSyncShadowPublicByStAvatarUrl" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE st_avatar_url = #{stAvatarUrl}
+          AND private_card = 0
+          AND owner_user_id IS NULL
+          AND deleted_at IS NULL
+          AND (avatar_url IS NULL OR avatar_url = '')
+          AND (cover_url IS NULL OR cover_url = '')
+          AND (creator_name IS NULL OR creator_name = '')
+          AND (creator_handle IS NULL OR creator_handle = '')
+          AND (tags_json IS NULL OR tags_json = '' OR tags_json = '[]')
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.character.entity.AppCharacter"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_character (st_avatar_url, name, description)
+        VALUES (#{stAvatarUrl}, #{name}, #{description})
+    </insert>
+
+    <insert id="insertFull" parameterType="com.example.sillyspringboot.character.entity.AppCharacter"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_character (
+            st_avatar_url, name, description, owner_user_id,
+            tagline, bio, persona, scenario, first_message, alternate_greetings_json,
+            mes_example, system_prompt, post_history_instructions,
+            avatar_url, cover_url, chat_background_url, st_world_names_json, private_card,
+            review_status, review_reason, reviewed_at, reviewed_by,
+            occupation_label, tags_json, vip_only, unlocked_default, client_visible, preview_blur_vip_level,
+            like_count, dislike_count, creator_name, creator_handle, token_display,
+            gameplay_type, chat_modes_json, sort_order, creator_notes, st_extra_json
+        ) VALUES (
+            #{stAvatarUrl}, #{name}, #{description}, #{ownerUserId},
+            #{tagline}, #{bio}, #{persona}, #{scenario}, #{firstMessage}, #{alternateGreetingsJson},
+            #{mesExample}, #{systemPrompt}, #{postHistoryInstructions},
+            #{avatarUrl}, #{coverUrl}, #{chatBackgroundUrl}, #{stWorldNamesJson}, #{privateCard},
+            #{reviewStatus}, #{reviewReason}, #{reviewedAt}, #{reviewedBy},
+            #{occupationLabel}, #{tagsJson}, #{vipOnly}, #{unlockedDefault}, #{clientVisible}, #{previewBlurVipLevel},
+            #{likeCount}, #{dislikeCount}, #{creatorName}, #{creatorHandle}, #{tokenDisplay},
+            #{gameplayType}, #{chatModesJson}, #{sortOrder}, #{creatorNotes}, #{stExtraJson}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.character.entity.AppCharacter">
+        UPDATE app_character
+        SET st_avatar_url = #{stAvatarUrl},
+            avatar_url = #{avatarUrl},
+            cover_url = #{coverUrl},
+            chat_background_url = #{chatBackgroundUrl},
+            st_world_names_json = #{stWorldNamesJson},
+            owner_user_id = #{ownerUserId},
+            name = #{name},
+            description = #{description},
+            tagline = #{tagline},
+            bio = #{bio},
+            persona = #{persona},
+            scenario = #{scenario},
+            first_message = #{firstMessage},
+            alternate_greetings_json = #{alternateGreetingsJson},
+            mes_example = #{mesExample},
+            system_prompt = #{systemPrompt},
+            post_history_instructions = #{postHistoryInstructions},
+            private_card = #{privateCard},
+            review_status = #{reviewStatus},
+            review_reason = #{reviewReason},
+            reviewed_at = #{reviewedAt},
+            reviewed_by = #{reviewedBy},
+            deleted_at = #{deletedAt},
+            occupation_label = #{occupationLabel},
+            tags_json = #{tagsJson},
+            vip_only = #{vipOnly},
+            unlocked_default = #{unlockedDefault},
+            client_visible = #{clientVisible},
+            preview_blur_vip_level = #{previewBlurVipLevel},
+            like_count = #{likeCount},
+            dislike_count = #{dislikeCount},
+            creator_name = #{creatorName},
+            creator_handle = #{creatorHandle},
+            token_display = #{tokenDisplay},
+            gameplay_type = #{gameplayType},
+            chat_modes_json = #{chatModesJson},
+            sort_order = #{sortOrder},
+            creator_notes = #{creatorNotes},
+            st_extra_json = #{stExtraJson},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <select id="listLatest" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listPublicDiscover" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE deleted_at IS NULL
+          AND private_card = 0
+          AND owner_user_id IS NULL
+          AND review_status = 'APPROVED'
+          AND client_visible = 1
+        ORDER BY sort_order ASC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listAllActiveTagsJson" resultType="string">
+        SELECT tags_json
+        FROM app_character
+        WHERE deleted_at IS NULL
+          AND private_card = 0
+          AND owner_user_id IS NULL
+          AND review_status = 'APPROVED'
+          AND client_visible = 1
+          AND tags_json IS NOT NULL
+          AND tags_json != ''
+    </select>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character
+        WHERE deleted_at IS NULL
+        <if test="name != null and name != ''">
+            AND name LIKE CONCAT('%', #{name}, '%')
+        </if>
+        <if test="ownerUserId != null">
+            AND owner_user_id = #{ownerUserId}
+        </if>
+        <if test="systemOnly == true">
+            AND private_card = 0
+            AND owner_user_id IS NULL
+        </if>
+        <if test="userOnly == true">
+            AND private_card = 1
+            AND owner_user_id IS NOT NULL
+        </if>
+        <if test="reviewStatus != null and reviewStatus != ''">
+            AND review_status = #{reviewStatus}
+        </if>
+    </select>
+
+    <select id="listAdminPage" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE deleted_at IS NULL
+        <if test="name != null and name != ''">
+            AND name LIKE CONCAT('%', #{name}, '%')
+        </if>
+        <if test="ownerUserId != null">
+            AND owner_user_id = #{ownerUserId}
+        </if>
+        <if test="systemOnly == true">
+            AND private_card = 0
+            AND owner_user_id IS NULL
+        </if>
+        <if test="userOnly == true">
+            AND private_card = 1
+            AND owner_user_id IS NOT NULL
+        </if>
+        <if test="reviewStatus != null and reviewStatus != ''">
+            AND review_status = #{reviewStatus}
+        </if>
+        ORDER BY sort_order ASC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <update id="softDeleteById">
+        UPDATE app_character
+        SET deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+    </update>
+
+    <select id="countPrivateByOwnerGrouped"
+            resultType="com.example.sillyspringboot.admin.dto.OwnerPrivateCardCount">
+        SELECT owner_user_id AS ownerUserId, COUNT(*) AS cnt
+        FROM app_character
+        WHERE deleted_at IS NULL
+          AND private_card = 1
+          AND owner_user_id IS NOT NULL
+        GROUP BY owner_user_id
+    </select>
+
+    <update id="updateReviewById">
+        UPDATE app_character
+        SET review_status = #{reviewStatus},
+            review_reason = #{reviewReason},
+            reviewed_at = CURRENT_TIMESTAMP,
+            reviewed_by = #{reviewedBy},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+    </update>
+
+</mapper>

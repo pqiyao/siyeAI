@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppH5ClientUidMapper">
+
+    <resultMap id="AppH5ClientUidResultMap" type="com.example.sillyspringboot.compat.h5.entity.AppH5ClientUid">
+        <id column="id" property="id"/>
+        <result column="client_uid" property="clientUid"/>
+        <result column="user_id" property="userId"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <select id="findByClientUid" resultMap="AppH5ClientUidResultMap">
+        SELECT *
+        FROM app_h5_client_uid
+        WHERE client_uid = #{clientUid}
+        LIMIT 1
+    </select>
+
+    <select id="findAnyClientUidByUserId" resultType="string">
+        SELECT client_uid
+        FROM app_h5_client_uid
+        WHERE user_id = #{userId}
+        ORDER BY id ASC
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.compat.h5.entity.AppH5ClientUid"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_h5_client_uid (client_uid, user_id)
+        VALUES (#{clientUid}, #{userId})
+    </insert>
+
+    <update id="updateUserIdByClientUid">
+        UPDATE app_h5_client_uid
+        SET user_id = #{userId}
+        WHERE client_uid = #{clientUid}
+    </update>
+</mapper>
+

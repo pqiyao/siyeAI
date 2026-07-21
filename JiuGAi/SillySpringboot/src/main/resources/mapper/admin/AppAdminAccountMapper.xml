@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AppAdminAccountMapper">
+
+    <resultMap id="AppAdminAccountResultMap" type="com.example.sillyspringboot.admin.entity.AppAdminAccount">
+        <id column="id" property="id"/>
+        <result column="username" property="username"/>
+        <result column="nick_name" property="nickName"/>
+        <result column="encoded_password" property="encodedPassword"/>
+        <result column="status" property="status"/>
+        <result column="built_in" property="builtIn"/>
+        <result column="must_reset_password" property="mustResetPassword"/>
+        <result column="last_login_at" property="lastLoginAt"/>
+        <result column="last_login_ip" property="lastLoginIp"/>
+        <result column="remark" property="remark"/>
+        <result column="created_by" property="createdBy"/>
+        <result column="updated_by" property="updatedBy"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, username, nick_name, encoded_password, status, built_in, must_reset_password,
+        last_login_at, last_login_ip, remark, created_by, updated_by, created_at, updated_at
+    </sql>
+
+    <select id="findById" resultMap="AppAdminAccountResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_admin_account
+        WHERE id = #{id}
+    </select>
+
+    <select id="findByUsername" resultMap="AppAdminAccountResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_admin_account
+        WHERE username = #{username}
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_admin_account
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (username LIKE CONCAT('%', #{keyword}, '%')
+                OR nick_name LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+        </where>
+    </select>
+
+    <select id="listPage" resultType="map">
+        SELECT
+            a.id,
+            a.username,
+            a.nick_name AS nickName,
+            a.status,
+            a.built_in AS builtIn,
+            a.must_reset_password AS mustResetPassword,
+            a.last_login_at AS lastLoginAt,
+            a.last_login_ip AS lastLoginIp,
+            a.remark,
+            a.created_at AS createdAt,
+            a.updated_at AS updatedAt,
+            GROUP_CONCAT(r.role_name ORDER BY r.sort_order ASC SEPARATOR ', ') AS roleNames,
+            GROUP_CONCAT(r.role_key ORDER BY r.sort_order ASC SEPARATOR ',') AS roleKeys
+        FROM app_admin_account a
+        LEFT JOIN app_admin_account_role ar ON ar.account_id = a.id
+        LEFT JOIN app_admin_role r ON r.id = ar.role_id
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (a.username LIKE CONCAT('%', #{keyword}, '%')
+                OR a.nick_name LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="status != null and status != ''">
+                AND a.status = #{status}
+            </if>
+        </where>
+        GROUP BY a.id
+        ORDER BY a.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.admin.entity.AppAdminAccount" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_admin_account (
+            username, nick_name, encoded_password, status, built_in, must_reset_password,
+            last_login_at, last_login_ip, remark, created_by, updated_by
+        ) VALUES (
+            #{username}, #{nickName}, #{encodedPassword}, #{status}, #{builtIn}, #{mustResetPassword},
+            #{lastLoginAt}, #{lastLoginIp}, #{remark}, #{createdBy}, #{updatedBy}
+        )
+    </insert>
+
+    <update id="updateProfile" parameterType="com.example.sillyspringboot.admin.entity.AppAdminAccount">
+        UPDATE app_admin_account
+        SET nick_name = #{nickName},
+            status = #{status},
+            must_reset_password = #{mustResetPassword},
+            remark = #{remark},
+            updated_by = #{updatedBy},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE app_admin_account
+        SET status = #{status},
+            updated_by = #{updatedBy},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updatePassword">
+        UPDATE app_admin_account
+        SET encoded_password = #{encodedPassword},
+            must_reset_password = #{mustResetPassword},
+            updated_by = #{updatedBy},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateLastLogin">
+        UPDATE app_admin_account
+        SET last_login_at = CURRENT_TIMESTAMP,
+            last_login_ip = #{lastLoginIp},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM app_admin_account
+        WHERE id = #{id}
+    </delete>
+
+    <select id="countByStatus" resultType="long">
+        SELECT COUNT(*)
+        FROM app_admin_account
+        WHERE status = #{status}
+    </select>
+
+</mapper>

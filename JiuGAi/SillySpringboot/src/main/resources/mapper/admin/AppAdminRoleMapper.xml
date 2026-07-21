@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AppAdminRoleMapper">
+
+    <resultMap id="AppAdminRoleResultMap" type="com.example.sillyspringboot.admin.entity.AppAdminRole">
+        <id column="id" property="id"/>
+        <result column="role_key" property="roleKey"/>
+        <result column="role_name" property="roleName"/>
+        <result column="permissions_json" property="permissionsJson"/>
+        <result column="enabled" property="enabled"/>
+        <result column="built_in" property="builtIn"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="remark" property="remark"/>
+        <result column="created_by" property="createdBy"/>
+        <result column="updated_by" property="updatedBy"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, role_key, role_name, permissions_json, enabled, built_in, sort_order,
+        remark, created_by, updated_by, created_at, updated_at
+    </sql>
+
+    <select id="findById" resultMap="AppAdminRoleResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_admin_role
+        WHERE id = #{id}
+    </select>
+
+    <select id="findByRoleKey" resultMap="AppAdminRoleResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_admin_role
+        WHERE role_key = #{roleKey}
+    </select>
+
+    <select id="listAll" resultMap="AppAdminRoleResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_admin_role
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <select id="listEnabled" resultMap="AppAdminRoleResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_admin_role
+        WHERE enabled = 1
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_admin_role
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (role_key LIKE CONCAT('%', #{keyword}, '%')
+                OR role_name LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="enabled != null">
+                AND enabled = #{enabled}
+            </if>
+        </where>
+    </select>
+
+    <select id="listPage" resultMap="AppAdminRoleResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_admin_role
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (role_key LIKE CONCAT('%', #{keyword}, '%')
+                OR role_name LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="enabled != null">
+                AND enabled = #{enabled}
+            </if>
+        </where>
+        ORDER BY sort_order ASC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.admin.entity.AppAdminRole" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_admin_role (
+            role_key, role_name, permissions_json, enabled, built_in, sort_order,
+            remark, created_by, updated_by
+        ) VALUES (
+            #{roleKey}, #{roleName}, #{permissionsJson}, #{enabled}, #{builtIn}, #{sortOrder},
+            #{remark}, #{createdBy}, #{updatedBy}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.example.sillyspringboot.admin.entity.AppAdminRole">
+        UPDATE app_admin_role
+        SET role_name = #{roleName},
+            permissions_json = #{permissionsJson},
+            enabled = #{enabled},
+            sort_order = #{sortOrder},
+            remark = #{remark},
+            updated_by = #{updatedBy},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE app_admin_role
+        SET enabled = #{enabled},
+            updated_by = #{updatedBy},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM app_admin_role
+        WHERE id = #{id}
+    </delete>
+
+</mapper>

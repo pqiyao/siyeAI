@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="3D cube game cover">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#151923"/>
+      <stop offset="0.58" stop-color="#273b45"/>
+      <stop offset="1" stop-color="#4c3941"/>
+    </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff2b3"/>
+      <stop offset="1" stop-color="#ffba3b"/>
+    </linearGradient>
+    <linearGradient id="left" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#66e4c5"/>
+      <stop offset="1" stop-color="#1a9a84"/>
+    </linearGradient>
+    <linearGradient id="right" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7da8ff"/>
+      <stop offset="1" stop-color="#3152d6"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="360" fill="url(#bg)"/>
+  <circle cx="462" cy="82" r="82" fill="#ffffff" opacity="0.08"/>
+  <circle cx="108" cy="278" r="96" fill="#ffffff" opacity="0.06"/>
+  <g transform="translate(320 166)">
+    <polygon points="0,-106 118,-42 0,22 -118,-42" fill="url(#top)"/>
+    <polygon points="-118,-42 0,22 0,150 -118,82" fill="url(#left)"/>
+    <polygon points="118,-42 0,22 0,150 118,82" fill="url(#right)"/>
+    <g fill="none" stroke="#111827" stroke-opacity="0.42" stroke-width="6">
+      <path d="M-39 -85 79 -21"/>
+      <path d="M-78 -64 40 0"/>
+      <path d="M39 -85 -79 -21"/>
+      <path d="M78 -64 -40 0"/>
+      <path d="M-78 -20 0 24"/>
+      <path d="M-39 1 0 24"/>
+      <path d="M-78 24 0 68"/>
+      <path d="M-78 68 0 112"/>
+      <path d="M78 -20 0 24"/>
+      <path d="M39 1 0 24"/>
+      <path d="M78 24 0 68"/>
+      <path d="M78 68 0 112"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AdminAiLogMapper">
+
+    <sql id="FilterWhere">
+        <where>
+            <if test="channel != null and channel != ''">
+                COALESCE(t.channel, UPPER(t.request_type)) = #{channel}
+            </if>
+            <if test="success != null and success">
+                AND t.status = 'SUCCESS'
+            </if>
+            <if test="success != null and !success">
+                AND t.status &lt;&gt; 'SUCCESS'
+            </if>
+            <if test="traceId != null and traceId != ''">
+                AND t.trace_id LIKE CONCAT('%', #{traceId}, '%')
+            </if>
+        </where>
+    </sql>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_generation_task t
+        <include refid="FilterWhere"/>
+    </select>
+
+    <select id="listPage" resultType="map">
+        SELECT
+            t.id AS id,
+            DATE_FORMAT(t.queued_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            t.user_id AS userId,
+            t.client_message_id AS clientMessageId,
+            COALESCE(t.trace_id, '') AS traceId,
+            COALESCE(t.channel, UPPER(t.request_type)) AS channel,
+            COALESCE(t.model, '') AS model,
+            t.status AS status,
+            c.character_id AS characterId,
+            t.conversation_id AS conversationId,
+            COALESCE(t.duration_ms, 0) AS durationMs,
+            CASE WHEN t.status = 'SUCCESS' THEN 1 ELSE 0 END AS success,
+            COALESCE(
+                t.http_status,
+                CASE
+                    WHEN t.status = 'SUCCESS' THEN 200
+                    WHEN t.status = 'STOPPED' THEN 499
+                    ELSE 500
+                END
+            ) AS httpStatus,
+            COALESCE(t.prompt_tokens, 0) AS promptTokens,
+            COALESCE(t.completion_tokens, 0) AS completionTokens,
+            COALESCE(t.error_code, '') AS errorCode,
+            COALESCE(t.error_message, t.error_code, '') AS errorMessage
+        FROM app_generation_task t
+        LEFT JOIN app_conversation c ON c.id = t.conversation_id
+        <include refid="FilterWhere"/>
+        ORDER BY t.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <insert id="snapshotBeforeDays">
+        INSERT INTO app_generation_stat_event (
+            task_id,
+            source_type,
+            source_id,
+            event_day,
+            status,
+            channel,
+            model,
+            created_at,
+            updated_at
+        )
+        SELECT
+            t.id,
+            'TASK',
+            t.id,
+            DATE(COALESCE(t.queued_at, t.started_at, t.finished_at, CURRENT_TIMESTAMP)),
+            COALESCE(NULLIF(t.status, ''), 'QUEUED'),
+            t.channel,
+            t.model,
+            COALESCE(t.queued_at, CURRENT_TIMESTAMP),
+            CURRENT_TIMESTAMP
+        FROM app_generation_task t
+        WHERE t.queued_at &lt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL #{beforeDays} DAY)
+        ON DUPLICATE KEY UPDATE
+            event_day = VALUES(event_day),
+            status = VALUES(status),
+            channel = COALESCE(VALUES(channel), app_generation_stat_event.channel),
+            model = COALESCE(VALUES(model), app_generation_stat_event.model),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <delete id="deleteBeforeDays">
+        DELETE FROM app_generation_task
+        WHERE queued_at &lt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL #{beforeDays} DAY)
+    </delete>
+</mapper>

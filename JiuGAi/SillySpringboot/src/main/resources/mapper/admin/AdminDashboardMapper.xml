@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AdminDashboardMapper">
+
+    <select id="totalCharacters" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character
+        WHERE deleted_at IS NULL
+    </select>
+
+    <select id="systemCharacters" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character
+        WHERE deleted_at IS NULL
+          AND private_card = 0
+          AND owner_user_id IS NULL
+    </select>
+
+    <select id="userCharacters" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character
+        WHERE deleted_at IS NULL
+          AND private_card = 1
+          AND owner_user_id IS NOT NULL
+    </select>
+
+    <select id="totalUsers" resultType="long">
+        SELECT COUNT(*)
+        FROM app_user
+    </select>
+
+    <select id="totalConversations" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT c.user_id, c.character_id
+            FROM app_conversation c
+            LEFT JOIN app_conversation_archive a
+                ON a.user_id = c.user_id AND a.conversation_id = c.id
+            WHERE a.id IS NULL
+            GROUP BY c.user_id, c.character_id
+        ) t
+    </select>
+
+    <select id="activeConversationsRecent" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT c.user_id, c.character_id
+            FROM app_conversation c
+            LEFT JOIN app_conversation_archive a
+                ON a.user_id = c.user_id AND a.conversation_id = c.id
+            WHERE a.id IS NULL
+              AND c.updated_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL #{days} DAY)
+            GROUP BY c.user_id, c.character_id
+        ) t
+    </select>
+
+    <select id="totalMessages" resultType="long">
+        SELECT COALESCE(
+            (
+                SELECT counter_value
+                FROM app_stats_counter
+                WHERE counter_key = 'total_messages'
+            ),
+            (
+                SELECT COUNT(*)
+                FROM app_message
+            )
+        )
+    </select>
+
+    <select id="totalTasks" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT e.id AS row_id
+            FROM app_generation_stat_event e
+            UNION ALL
+            SELECT t.id AS row_id
+            FROM app_generation_task t
+            LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
+            WHERE e.id IS NULL
+        ) s
+    </select>
+
+    <select id="successTasks" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT e.status
+            FROM app_generation_stat_event e
+            UNION ALL
+            SELECT COALESCE(NULLIF(t.status, ''), 'QUEUED') AS status
+            FROM app_generation_task t
+            LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
+            WHERE e.id IS NULL
+        ) s
+        WHERE s.status = 'SUCCESS'
+    </select>
+
+    <select id="totalPaidOrders" resultType="long">
+        SELECT COUNT(*)
+        FROM app_payment_order
+        WHERE status = 'PAID'
+    </select>
+
+    <select id="totalRevenueCents" resultType="long">
+        SELECT COALESCE(SUM(amount_cents), 0)
+        FROM app_payment_order
+        WHERE status = 'PAID'
+    </select>
+
+    <select id="generationTrend" resultType="map">
+        SELECT
+            DATE_FORMAT(day_key, '%Y-%m-%d') AS dayKey,
+            DATE_FORMAT(day_key, '%m-%d') AS date,
+            COUNT(*) AS generations,
+            SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END) AS successCount,
+            SUM(CASE WHEN status IN ('FAILED', 'STOPPED') THEN 1 ELSE 0 END) AS failureCount
+        FROM (
+            SELECT
+                e.event_day AS day_key,
+                e.status
+            FROM app_generation_stat_event e
+            <where>
+                <if test="days != null">
+                    e.event_day >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+                </if>
+            </where>
+            UNION ALL
+            SELECT
+                DATE(COALESCE(t.queued_at, t.started_at, t.finished_at, CURRENT_TIMESTAMP)) AS day_key,
+                COALESCE(NULLIF(t.status, ''), 'QUEUED') AS status
+            FROM app_generation_task t
+            LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
+            <where>
+                e.id IS NULL
+                <if test="days != null">
+                    AND DATE(COALESCE(t.queued_at, t.started_at, t.finished_at, CURRENT_TIMESTAMP)) >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+                </if>
+            </where>
+        ) s
+        GROUP BY day_key
+        ORDER BY day_key ASC
+    </select>
+
+    <select id="topActiveUsers" resultType="map">
+        SELECT
+            u.id AS userId,
+            conv.conversation_count AS conversationCount
+        FROM app_user u
+        JOIN (
+            SELECT
+                c.user_id,
+                COUNT(DISTINCT c.character_id) AS conversation_count
+            FROM app_conversation c
+            LEFT JOIN app_conversation_archive a
+                ON a.user_id = c.user_id AND a.conversation_id = c.id
+            WHERE a.id IS NULL
+            GROUP BY c.user_id
+        ) conv ON conv.user_id = u.id
+        ORDER BY conv.conversation_count DESC, u.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="hotCharacters" resultType="map">
+        SELECT
+            c.id,
+            c.name,
+            COALESCE(v.like_count, 0) AS likeCount,
+            COALESCE(v.dislike_count, 0) AS dislikeCount,
+            COALESCE(f.favorite_count, 0) AS favoriteCount,
+            c.private_card AS privateCard
+        FROM app_character c
+        LEFT JOIN (
+            SELECT
+                character_id,
+                SUM(CASE WHEN vote = 'like' THEN 1 ELSE 0 END) AS like_count,
+                SUM(CASE WHEN vote = 'dislike' THEN 1 ELSE 0 END) AS dislike_count
+            FROM app_character_vote
+            GROUP BY character_id
+        ) v ON v.character_id = c.id
+        LEFT JOIN (
+            SELECT
+                character_id,
+                COUNT(*) AS favorite_count
+            FROM app_character_favorite
+            GROUP BY character_id
+        ) f ON f.character_id = c.id
+        WHERE c.deleted_at IS NULL
+        ORDER BY COALESCE(v.like_count, 0) DESC,
+                 COALESCE(f.favorite_count, 0) DESC,
+                 c.sort_order ASC,
+                 c.id DESC
+        LIMIT #{limit}
+    </select>
+</mapper>

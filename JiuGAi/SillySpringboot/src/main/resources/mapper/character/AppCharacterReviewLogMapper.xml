@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.character.mapper.AppCharacterReviewLogMapper">
+
+    <resultMap id="BaseResultMap" type="com.example.sillyspringboot.character.entity.AppCharacterReviewLog">
+        <id column="id" property="id"/>
+        <result column="character_id" property="characterId"/>
+        <result column="character_name" property="characterName"/>
+        <result column="owner_user_id" property="ownerUserId"/>
+        <result column="owner_client_uid" property="ownerClientUid"/>
+        <result column="review_status" property="reviewStatus"/>
+        <result column="review_reason" property="reviewReason"/>
+        <result column="operator_name" property="operatorName"/>
+        <result column="batch_no" property="batchNo"/>
+        <result column="event_type" property="eventType"/>
+        <result column="screening_level" property="screeningLevel"/>
+        <result column="screening_flags" property="screeningFlags"/>
+        <result column="screening_hits" property="screeningHits"/>
+        <result column="summary" property="summary"/>
+        <result column="detail_json" property="detailJson"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <sql id="BaseWhere">
+        <where>
+            <if test="reviewStatus != null and reviewStatus != ''">
+                review_status = #{reviewStatus}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    CAST(character_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(character_name, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR CAST(owner_user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(owner_client_uid, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(summary, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(operator_name, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(batch_no, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(screening_flags, '') LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <insert id="insert"
+            parameterType="com.example.sillyspringboot.character.entity.AppCharacterReviewLog"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        INSERT INTO app_character_review_log (
+            character_id,
+            character_name,
+            owner_user_id,
+            owner_client_uid,
+            review_status,
+            review_reason,
+            operator_name,
+            batch_no,
+            event_type,
+            screening_level,
+            screening_flags,
+            screening_hits,
+            summary,
+            detail_json
+        ) VALUES (
+            #{characterId},
+            #{characterName},
+            #{ownerUserId},
+            #{ownerClientUid},
+            #{reviewStatus},
+            #{reviewReason},
+            #{operatorName},
+            #{batchNo},
+            #{eventType},
+            #{screeningLevel},
+            #{screeningFlags},
+            #{screeningHits},
+            #{summary},
+            #{detailJson}
+        )
+    </insert>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character_review_log
+        <include refid="BaseWhere"/>
+    </select>
+
+    <select id="listPage" resultType="map">
+        SELECT
+            id AS id,
+            character_id AS characterId,
+            COALESCE(character_name, '') AS characterName,
+            owner_user_id AS ownerUserId,
+            COALESCE(owner_client_uid, '') AS ownerClientUid,
+            review_status AS reviewStatus,
+            COALESCE(review_reason, '') AS reviewReason,
+            COALESCE(operator_name, '') AS operatorName,
+            COALESCE(batch_no, '') AS batchNo,
+            COALESCE(event_type, 'MANUAL_REVIEW') AS eventType,
+            COALESCE(screening_level, 'NONE') AS screeningLevel,
+            COALESCE(screening_flags, '') AS screeningFlags,
+            COALESCE(screening_hits, 0) AS screeningHits,
+            COALESCE(summary, '') AS summary,
+            COALESCE(detail_json, '') AS detailJson,
+            DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
+        FROM app_character_review_log
+        <include refid="BaseWhere"/>
+        ORDER BY id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character_review_log
+    </select>
+
+    <select id="countByReviewStatus" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character_review_log
+        WHERE review_status = #{reviewStatus}
+    </select>
+
+    <select id="countByEventType" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character_review_log
+        WHERE event_type = #{eventType}
+    </select>
+
+    <select id="countByScreeningLevel" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character_review_log
+        WHERE screening_level = #{screeningLevel}
+    </select>
+
+    <select id="listRecentScreeningFlags" resultType="map">
+        SELECT
+            COALESCE(screening_flags, '') AS screeningFlags,
+            COALESCE(screening_level, 'NONE') AS screeningLevel
+        FROM app_character_review_log
+        WHERE screening_hits &gt; 0
+          AND screening_flags IS NOT NULL
+          AND screening_flags != ''
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+
+    <delete id="deleteByIds">
+        DELETE FROM app_character_review_log
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

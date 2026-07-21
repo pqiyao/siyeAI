@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.auth.mapper.AppUserIdentityMapper">
+
+    <resultMap id="AppUserIdentityResultMap" type="com.example.sillyspringboot.auth.entity.AppUserIdentity">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="identity_type" property="identityType"/>
+        <result column="identity_key" property="identityKey"/>
+        <result column="credential_hash" property="credentialHash"/>
+        <result column="verified" property="verified"/>
+        <result column="meta_json" property="metaJson"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findByTypeAndKey" resultMap="AppUserIdentityResultMap">
+        SELECT id, user_id, identity_type, identity_key, credential_hash, verified, meta_json, created_at, updated_at
+        FROM app_user_identity
+        WHERE identity_type = #{identityType}
+          AND identity_key = #{identityKey}
+        LIMIT 1
+    </select>
+
+    <select id="findByUserIdAndType" resultMap="AppUserIdentityResultMap">
+        SELECT id, user_id, identity_type, identity_key, credential_hash, verified, meta_json, created_at, updated_at
+        FROM app_user_identity
+        WHERE user_id = #{userId}
+          AND identity_type = #{identityType}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.auth.entity.AppUserIdentity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_user_identity (user_id, identity_type, identity_key, credential_hash, verified, meta_json)
+        VALUES (#{userId}, #{identityType}, #{identityKey}, #{credentialHash}, #{verified}, #{metaJson})
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.auth.entity.AppUserIdentity">
+        UPDATE app_user_identity
+        SET credential_hash = #{credentialHash},
+            verified = #{verified},
+            meta_json = #{metaJson},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+</mapper>

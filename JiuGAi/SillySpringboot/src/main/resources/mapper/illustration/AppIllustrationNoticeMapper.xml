@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.illustration.mapper.AppIllustrationNoticeMapper">
+
+    <resultMap id="IllustrationNoticeResultMap" type="com.example.sillyspringboot.illustration.entity.AppIllustrationNotice">
+        <id column="id" property="id"/>
+        <result column="category" property="category"/>
+        <result column="type_label" property="typeLabel"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="points_json" property="pointsJson"/>
+        <result column="important" property="important"/>
+        <result column="enabled" property="enabled"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted" property="deleted"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, category, type_label, title, content, points_json, important,
+        enabled, sort_order, created_at, updated_at, deleted
+    </sql>
+
+    <sql id="AdminWhere">
+        <where>
+            deleted = 0
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    title LIKE CONCAT('%', #{keyword}, '%')
+                    OR content LIKE CONCAT('%', #{keyword}, '%')
+                    OR type_label LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="category != null and category != ''">
+                AND category = #{category}
+            </if>
+            <if test="enabled != null">
+                AND enabled = #{enabled}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(1)
+        FROM app_illustration_notice
+        <include refid="AdminWhere"/>
+    </select>
+
+    <select id="listAdminPage" resultMap="IllustrationNoticeResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_illustration_notice
+        <include refid="AdminWhere"/>
+        ORDER BY important DESC, sort_order ASC, created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="listPublic" resultMap="IllustrationNoticeResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_illustration_notice
+        WHERE deleted = 0
+          AND enabled = 1
+        ORDER BY important DESC, sort_order ASC, created_at DESC, id DESC
+    </select>
+
+    <select id="findById" resultMap="IllustrationNoticeResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_illustration_notice
+        WHERE id = #{id}
+          AND deleted = 0
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.illustration.entity.AppIllustrationNotice" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_illustration_notice (
+            category, type_label, title, content, points_json,
+            important, enabled, sort_order
+        ) VALUES (
+            #{category}, #{typeLabel}, #{title}, #{content}, #{pointsJson},
+            #{important}, #{enabled}, #{sortOrder}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.illustration.entity.AppIllustrationNotice">
+        UPDATE app_illustration_notice
+        SET category = #{category},
+            type_label = #{typeLabel},
+            title = #{title},
+            content = #{content},
+            points_json = #{pointsJson},
+            important = #{important},
+            enabled = #{enabled},
+            sort_order = #{sortOrder},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND deleted = 0
+    </update>
+
+    <delete id="hardDeleteById">
+        DELETE FROM app_illustration_notice
+        WHERE id = #{id}
+    </delete>
+</mapper>

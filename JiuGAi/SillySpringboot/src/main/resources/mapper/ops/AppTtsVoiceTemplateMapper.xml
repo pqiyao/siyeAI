@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.mapper.AppTtsVoiceTemplateMapper">
+
+    <resultMap id="TtsVoiceTemplateResultMap" type="com.example.sillyspringboot.ops.entity.AppTtsVoiceTemplate">
+        <id column="id" property="id"/>
+        <result column="template_code" property="templateCode"/>
+        <result column="display_name" property="displayName"/>
+        <result column="provider_source" property="providerSource"/>
+        <result column="tts_model_name" property="ttsModelName"/>
+        <result column="description" property="description"/>
+        <result column="reference_audio_url" property="referenceAudioUrl"/>
+        <result column="cover_image_url" property="coverImageUrl"/>
+        <result column="sample_script" property="sampleScript"/>
+        <result column="enabled" property="enabled"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id, template_code, display_name, provider_source, tts_model_name,
+        description, reference_audio_url, cover_image_url, sample_script,
+        enabled, sort_order, created_at, updated_at
+    </sql>
+
+    <sql id="AdminWhere">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (
+                    template_code LIKE CONCAT('%', #{keyword}, '%')
+                    OR display_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR tts_model_name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="enabled != null">
+                AND enabled = #{enabled}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_tts_voice_template
+        <include refid="AdminWhere"/>
+    </select>
+
+    <select id="listAdminPage" resultMap="TtsVoiceTemplateResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_tts_voice_template
+        <include refid="AdminWhere"/>
+        ORDER BY enabled DESC, sort_order ASC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="listEnabled" resultMap="TtsVoiceTemplateResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_tts_voice_template
+        WHERE enabled = 1
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <select id="findById" resultMap="TtsVoiceTemplateResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_tts_voice_template
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findByCode" resultMap="TtsVoiceTemplateResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_tts_voice_template
+        WHERE template_code = #{templateCode}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.ops.entity.AppTtsVoiceTemplate" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_tts_voice_template (
+            template_code, display_name, provider_source, tts_model_name,
+            description, reference_audio_url, cover_image_url, sample_script,
+            enabled, sort_order
+        ) VALUES (
+            #{templateCode}, #{displayName}, #{providerSource}, #{ttsModelName},
+            #{description}, #{referenceAudioUrl}, #{coverImageUrl}, #{sampleScript},
+            #{enabled}, #{sortOrder}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.ops.entity.AppTtsVoiceTemplate">
+        UPDATE app_tts_voice_template
+        SET template_code = #{templateCode},
+            display_name = #{displayName},
+            provider_source = #{providerSource},
+            tts_model_name = #{ttsModelName},
+            description = #{description},
+            reference_audio_url = #{referenceAudioUrl},
+            cover_image_url = #{coverImageUrl},
+            sample_script = #{sampleScript},
+            enabled = #{enabled},
+            sort_order = #{sortOrder},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM app_tts_voice_template
+        WHERE id = #{id}
+    </delete>
+</mapper>

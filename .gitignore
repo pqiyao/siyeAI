@@ -2,53 +2,46 @@
 node_modules/
 .pnpm-store/
 
-# Java / Maven
+# Build outputs
 target/
-*.class
-
-# Frontend builds
 dist/
+build/
 unpackage/
 .hbuilderx/
 
-# IDE and OS files
-.idea/
-.vscode/
-.DS_Store
-Thumbs.db
-
-# Runtime data and logs
+# Runtime data
 data/
+backups/
 logs/
 log/
 *.log
 *.err.log
 
-# Local environment and secrets
+# Local env and secrets
 .env
-.env.*
-!.env.example
-!*.example
+.env.local
+.env.development
+.env.production
+.env.staging
 *.pem
 *.key
 *.p12
 *.jks
 *.keystore
 
-# Archives and prebuilt images
+# Local databases and archives
+*.db
+*.sqlite
+*.sqlite3
 *.zip
+*.rar
+*.7z
 *.tar
 *.tar.gz
 *.tgz
-*.rar
-*.7z
 
-# Public artwork placeholders
-backend/src/main/resources/static/art/works/*
-!backend/src/main/resources/static/art/works/README.md
-!backend/src/main/resources/static/art/works/placeholder.svg
-
-# Databases and VCS leftovers
-*.db
-*.sqlite
-.svn/
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

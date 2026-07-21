@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      var coverSupport =
+        'CSS' in window &&
+        typeof CSS.supports === 'function' &&
+        (CSS.supports('top: env(a)') || CSS.supports('top: constant(a)'));
+      document.write(
+        '<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0' +
+          (coverSupport ? ', viewport-fit=cover' : '') +
+          '" />'
+      );
+    </script>
+    <meta name="theme-color" content="#dceefa" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>鍥涘彾閰掗</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        min-height: 100%;
+        background:
+          radial-gradient(circle at 12% 0%, rgba(200, 229, 250, 0.98) 0%, rgba(200, 229, 250, 0) 38%),
+          radial-gradient(circle at 92% 3%, rgba(248, 226, 244, 0.9) 0%, rgba(248, 226, 244, 0) 34%),
+          linear-gradient(155deg, #dceefa 0%, #ecf8fb 48%, #fff4f8 100%);
+      }
+
+      body.booting {
+        overflow: hidden;
+      }
+
+      #app {
+        min-height: 100vh;
+        opacity: 1;
+        transition: opacity 0.2s ease;
+      }
+
+      body.booting #app {
+        opacity: 0;
+      }
+
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        box-sizing: border-box;
+        background:
+          radial-gradient(circle at 12% 0%, rgba(200, 229, 250, 0.98) 0%, rgba(200, 229, 250, 0) 38%),
+          radial-gradient(circle at 92% 3%, rgba(248, 226, 244, 0.9) 0%, rgba(248, 226, 244, 0) 34%),
+          linear-gradient(155deg, #dceefa 0%, #ecf8fb 48%, #fff4f8 100%);
+        transition: opacity 0.28s ease, visibility 0.28s ease;
+      }
+
+      #boot-splash.boot-splash--hide {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .boot-card {
+        width: min(92vw, 420px);
+        padding: 30px 24px 24px;
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.62);
+        border: 1px solid rgba(255, 255, 255, 0.72);
+        box-shadow: 0 20px 56px rgba(67, 112, 142, 0.16);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        text-align: center;
+      }
+
+      .boot-logo {
+        width: 72px;
+        height: 72px;
+        margin: 0 auto 18px;
+        border-radius: 20px;
+        object-fit: cover;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.3);
+      }
+
+      .boot-title {
+        margin: 0;
+        color: #244b66;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+
+      .boot-subtitle {
+        margin: 10px 0 22px;
+        color: rgba(77, 102, 120, 0.9);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .boot-bars {
+        display: grid;
+        gap: 10px;
+      }
+
+      .boot-bar {
+        height: 12px;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(88, 189, 210, 0.16), rgba(255, 255, 255, 0.52), rgba(244, 166, 196, 0.18));
+        overflow: hidden;
+        position: relative;
+      }
+
+      .boot-bar::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.66) 50%, transparent 100%);
+        transform: translateX(-100%);
+        animation: boot-shimmer 1.2s infinite;
+      }
+
+      .boot-bar:nth-child(2) {
+        width: 78%;
+      }
+
+      .boot-bar:nth-child(3) {
+        width: 56%;
+      }
+
+      @keyframes boot-shimmer {
+        100% {
+          transform: translateX(100%);
+        }
+      }
+    </style>
+    <link rel="preload" as="image" href="/static/logo.png" fetchpriority="high" />
+    <link rel="preload" as="image" href="/static/login.png" fetchpriority="high" />
+    <!--preload-links-->
+    <!--app-context-->
+  </head>
+  <body class="booting">
+    <div id="boot-splash" aria-hidden="true">
+      <div class="boot-card">
+        <img class="boot-logo" src="/static/logo.png" alt="" decoding="async" fetchpriority="high" />
+        <p class="boot-title">四叶酒馆</p>
+        <p class="boot-subtitle">正在准备角色、会话和你的个性化体验…</p>
+        <div class="boot-bars">
+          <div class="boot-bar"></div>
+          <div class="boot-bar"></div>
+          <div class="boot-bar"></div>
+        </div>
+      </div>
+    </div>
+    <div id="app"><!--app-html--></div>
+    <script>
+      (function () {
+        var shownAt = Date.now();
+        var minVisibleMs = 420;
+        var dismissed = false;
+        var dismissTimer = null;
+
+        function revealAppShell() {
+          if (!document.body) return;
+          document.body.classList.remove('booting');
+          document.body.classList.add('boot-ready');
+        }
+
+        function removeSplash() {
+          if (dismissed) return;
+          dismissed = true;
+          revealAppShell();
+          var splash = document.getElementById('boot-splash');
+          if (!splash) return;
+          splash.classList.add('boot-splash--hide');
+          setTimeout(function () {
+            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+          }, 320);
+        }
+
+        function requestHide() {
+          if (dismissed) return;
+          var delay = Math.max(0, minVisibleMs - (Date.now() - shownAt));
+          if (dismissTimer) {
+            clearTimeout(dismissTimer);
+          }
+          dismissTimer = setTimeout(removeSplash, delay);
+        }
+
+        window.__requestBootSplashHide = function () {
+          var raf =
+            window.requestAnimationFrame ||
+            function (callback) {
+              return setTimeout(callback, 16);
+            };
+          raf(function () {
+            raf(requestHide);
+          });
+        };
+
+        window.__hideBootSplash = window.__requestBootSplashHide;
+
+        setTimeout(function () {
+          requestHide();
+        }, 8000);
+
+        // Warm critical visual assets during browser idle time to reduce first-screen flashes.
+        var warmup = function () {
+          var assets = ['/static/logo.png', '/static/login.png'];
+          for (var i = 0; i < assets.length; i++) {
+            var img = new Image();
+            img.decoding = 'async';
+            img.src = assets[i];
+          }
+        };
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(warmup, { timeout: 1200 });
+        } else {
+          setTimeout(warmup, 400);
+        }
+      })();
+    </script>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

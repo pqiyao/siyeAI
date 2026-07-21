@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.auth.mapper.AppUserMapper">
+
+    <resultMap id="AppUserResultMap" type="com.example.sillyspringboot.auth.entity.AppUser">
+        <id column="id" property="id"/>
+        <result column="telegram_user_id" property="telegramUserId"/>
+        <result column="username" property="username"/>
+        <result column="first_name" property="firstName"/>
+        <result column="last_name" property="lastName"/>
+        <result column="language_code" property="languageCode"/>
+        <result column="photo_url" property="photoUrl"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findByTelegramUserId" resultMap="AppUserResultMap">
+        SELECT id, telegram_user_id, username, first_name, last_name, language_code, photo_url, created_at, updated_at
+        FROM app_user
+        WHERE telegram_user_id = #{telegramUserId}
+    </select>
+
+    <select id="findById" resultMap="AppUserResultMap">
+        SELECT id, telegram_user_id, username, first_name, last_name, language_code, photo_url, created_at, updated_at
+        FROM app_user
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.auth.entity.AppUser" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_user (telegram_user_id, username, first_name, last_name, language_code, photo_url)
+        VALUES (#{telegramUserId}, #{username}, #{firstName}, #{lastName}, #{languageCode}, #{photoUrl})
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.auth.entity.AppUser">
+        UPDATE app_user
+        SET telegram_user_id = #{telegramUserId},
+            username = #{username},
+            first_name = #{firstName},
+            last_name = #{lastName},
+            language_code = #{languageCode},
+            photo_url = #{photoUrl},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateLanguageById">
+        UPDATE app_user
+        SET language_code = #{languageCode},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateByTelegramUserId" parameterType="com.example.sillyspringboot.auth.entity.AppUser">
+        UPDATE app_user
+        SET username = #{username},
+            first_name = #{firstName},
+            last_name = #{lastName},
+            language_code = #{languageCode},
+            photo_url = #{photoUrl},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE telegram_user_id = #{telegramUserId}
+    </update>
+</mapper>

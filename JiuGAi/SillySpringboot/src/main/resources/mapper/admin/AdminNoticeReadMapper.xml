@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AdminNoticeReadMapper">
+
+    <select id="listReadNoticeIds" resultType="long">
+        SELECT notice_id
+        FROM app_admin_notice_read
+        WHERE admin_username = #{adminUsername}
+          AND notice_id IN
+        <foreach collection="noticeIds" item="noticeId" open="(" separator="," close=")">
+            #{noticeId}
+        </foreach>
+    </select>
+
+    <insert id="markRead">
+        INSERT INTO app_admin_notice_read (admin_username, notice_id)
+        VALUES (#{adminUsername}, #{noticeId})
+        ON DUPLICATE KEY UPDATE
+            read_at = CURRENT_TIMESTAMP
+    </insert>
+</mapper>

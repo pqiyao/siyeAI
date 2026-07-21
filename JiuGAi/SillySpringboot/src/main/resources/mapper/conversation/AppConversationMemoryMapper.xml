@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper">
+
+    <resultMap id="MemMap" type="com.example.sillyspringboot.conversation.entity.AppConversationMemory">
+        <id column="conversation_id" property="conversationId"/>
+        <result column="summary_preview" property="summaryPreview"/>
+        <result column="facts_count" property="factsCount"/>
+        <result column="memory_world_name" property="memoryWorldName"/>
+        <result column="entry_count" property="entryCount"/>
+        <result column="enabled_entry_count" property="enabledEntryCount"/>
+        <result column="last_source_message_id" property="lastSourceMessageId"/>
+        <result column="last_refreshed_message_count" property="lastRefreshedMessageCount"/>
+        <result column="last_synced_at" property="lastSyncedAt"/>
+        <result column="sync_status" property="syncStatus"/>
+        <result column="sync_error" property="syncError"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findByConversationId" resultMap="MemMap">
+        SELECT conversation_id, summary_preview, facts_count, memory_world_name,
+               entry_count, enabled_entry_count, last_source_message_id,
+               last_refreshed_message_count, last_synced_at, sync_status,
+               sync_error, updated_at
+        FROM app_conversation_memory
+        WHERE conversation_id = #{conversationId}
+        LIMIT 1
+    </select>
+
+    <insert id="upsertTouch">
+        INSERT INTO app_conversation_memory (conversation_id, summary_preview, facts_count, updated_at)
+        VALUES (#{conversationId}, NULL, 0, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <insert id="upsertRollup">
+        INSERT INTO app_conversation_memory (conversation_id, summary_preview, facts_count, updated_at)
+        VALUES (#{conversationId}, #{summaryPreview}, #{factsCount}, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE
+            summary_preview = VALUES(summary_preview),
+            facts_count = VALUES(facts_count),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <insert id="upsertRefreshState">
+        INSERT INTO app_conversation_memory (
+            conversation_id, summary_preview, facts_count, memory_world_name,
+            entry_count, enabled_entry_count, last_source_message_id,
+            last_refreshed_message_count, sync_status, sync_error, updated_at
+        ) VALUES (
+            #{conversationId}, #{summaryPreview}, #{factsCount}, #{memoryWorldName},
+            #{entryCount}, #{enabledEntryCount}, #{lastSourceMessageId},
+            #{lastRefreshedMessageCount}, #{syncStatus}, #{syncError}, CURRENT_TIMESTAMP
+        )
+        ON DUPLICATE KEY UPDATE
+            summary_preview = VALUES(summary_preview),
+            facts_count = VALUES(facts_count),
+            memory_world_name = VALUES(memory_world_name),
+            entry_count = VALUES(entry_count),
+            enabled_entry_count = VALUES(enabled_entry_count),
+            last_source_message_id = VALUES(last_source_message_id),
+            last_refreshed_message_count = VALUES(last_refreshed_message_count),
+            sync_status = VALUES(sync_status),
+            sync_error = VALUES(sync_error),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="updateSyncStatus">
+        UPDATE app_conversation_memory
+        SET memory_world_name = #{memoryWorldName},
+            entry_count = #{entryCount},
+            enabled_entry_count = #{enabledEntryCount},
+            sync_status = #{syncStatus},
+            sync_error = #{syncError},
+            last_synced_at = CASE WHEN #{syncStatus} = 'SUCCESS' THEN CURRENT_TIMESTAMP ELSE last_synced_at END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+    </update>
+
+    <delete id="deleteByConversationId">
+        DELETE FROM app_conversation_memory
+        WHERE conversation_id = #{conversationId}
+    </delete>
+</mapper>

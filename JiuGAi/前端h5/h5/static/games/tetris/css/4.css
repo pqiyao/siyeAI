@@ -1,0 +1,420 @@
+*{
+	box-sizing: border-box;
+	-moz-box-sizing:border-box; /* Firefox */
+	-webkit-box-sizing:border-box; /* Safari */
+	/*元素指定的任何内边距和边框都将在已设定的宽度和高度内进行绘制。*/
+}
+html,body,div{
+	margin:0;
+	padding:0;
+}
+html,
+body {
+	width: 100%;
+	height: 100%;
+	background: #07101a;
+	overflow: hidden;
+	touch-action: none;
+}
+/*游戏区块*/
+.game-container, .start-container{
+	width:590px;
+	height: 600px;
+	/*border:1px solid green;*/
+	margin:0 auto;
+	position: relative;
+	box-sizing: content-box;
+}
+.game-container{
+	display: none;
+}
+/*开始界面*/
+.start-container{
+	background: url(../images/1.jpg);
+	background-size: cover;
+	width: 390px;
+	position: relative;
+    
+}
+.start-container p{
+	position: absolute;
+	bottom: 100px;
+	left:100px;
+}
+.start-container p button{
+	width: 200px;
+	height: 50px;
+	display: block;
+	margin: 0 auto;
+	margin-bottom: 40px;
+	border-radius: 60%;
+	font-family: "微软雅黑";
+	font-weight: bold;
+	font-size:18px;
+}
+.start-container .btn{
+	outline: none; 
+    border: 0px solid transparent;
+}
+/*去掉bootstrap按钮边框*/
+.btn:focus,    
+.btn:active:focus,
+.btn.active:focus,
+.btn.focus,
+.btn:active.focus,.btn.active.focus {
+    outline: none;          
+}
+/*设置区块*/
+.modal-dialog{
+	display: none;
+	/*z-index: 2;*/
+	color:#02490C;
+	font-weight: 400;
+}
+.modal-dialog .modal-body{
+	/*display:none;*/
+	position: fixed;
+    height: 300px;
+    width: 390px;
+    /*top: 50%;*/
+    margin-top: -500px;
+    left: 50%;
+    margin-left: -195px;
+    /*1/2宽度*/
+    background: rgba(255,255,46,0.4);
+    z-index: 100;
+    text-align: center;
+	z-index: 2;
+	line-height: 95px;
+}
+.modal-dialog::after{
+	/*display: none;*/
+	content:'';
+	position:fixed;
+	top:0;
+	right:0;
+	left:0;
+	bottom:0;
+	background: rgba(255,255,255,0.3);
+}
+.game-container .panel{
+	width:100px;
+	margin-bottom: 0;
+	border-bottom: #12E040 1px solid;
+}
+.game-container .panel .panel-body{
+	padding:0;
+}
+
+/*游戏显示区块*/
+.game-main-panel{
+	position: absolute;
+	left:100px;
+	top:0;
+	width:390px;
+	height: 600px;
+	border-left:1px solid green;
+	border-right:1px solid green;
+}
+.game-container canvas {
+    width: 100px;
+}
+.game-main-panel canvas {
+    width: 390px;
+    height:600px;
+}
+
+/*两边面板*/
+.timer-panel{
+	height:100px;
+}
+.help-panel{
+	height: 400px;
+	line-height: 80px;
+	text-align: center;
+}
+.leval-panel{
+	height: 100px;
+}
+.next-panel{
+	position: absolute;
+	top:0;
+	right:0;
+	height: 150px;
+}
+.setting-panel{
+	position: absolute;
+	top:150px;
+	right:0;
+	height:250px;
+	/*调节按钮间距*/
+	line-height: 80px;  
+	text-align: center;
+	font-weight: bold;
+}
+.setting-panel button{
+	color:#fff;
+	font-weight: bold;
+}
+.score-panel{
+	position: absolute;
+	top:400px;
+	right:0;
+	height:100px;
+}
+.high-score-panel{
+	position: absolute;
+	top:500px;
+	right:0;
+	height:100px;
+}
+.tetris-touch-controls {
+	position: fixed;
+	left: 50%;
+	bottom: calc(10px + env(safe-area-inset-bottom));
+	z-index: 200;
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 8px;
+	width: min(360px, calc(100vw - 24px));
+	transform: translateX(-50%);
+}
+.tetris-touch-controls button {
+	height: 46px;
+	border: 0;
+	border-radius: 10px;
+	background: rgba(18, 224, 64, 0.88);
+	color: #082312;
+	font-size: 15px;
+	font-weight: 700;
+	box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+}
+
+.tetris-mobile-hud {
+	display: none;
+}
+
+.tetris-dialog-panel[hidden] {
+	display: none !important;
+}
+
+.tetris-dialog-panel {
+	position: fixed;
+	inset: 0;
+	z-index: 260;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 18px;
+	background: rgba(0, 0, 0, 0.58);
+}
+
+.tetris-dialog-card {
+	width: min(340px, calc(100vw - 36px));
+	border-radius: 14px;
+	padding: 16px;
+	background: #101820;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	box-shadow: 0 18px 46px rgba(0, 0, 0, 0.45);
+	color: #ffffff;
+}
+
+.tetris-dialog-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 14px;
+	font-size: 18px;
+	font-weight: 800;
+}
+
+.tetris-dialog-close {
+	width: 36px;
+	height: 36px;
+	border: 0;
+	border-radius: 50%;
+	background: rgba(255, 255, 255, 0.12);
+	color: #ffffff;
+	font-size: 24px;
+	line-height: 1;
+}
+
+.tetris-dialog-row {
+	min-height: 48px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 8px 0;
+	font-size: 15px;
+}
+
+.tetris-dialog-row--stack {
+	display: block;
+}
+
+.tetris-difficulty-options {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+	margin-top: 10px;
+}
+
+.tetris-difficulty-options button {
+	height: 38px;
+	border: 1px solid rgba(255, 255, 255, 0.18);
+	border-radius: 9px;
+	background: rgba(255, 255, 255, 0.1);
+	color: #ffffff;
+	font-size: 14px;
+	font-weight: 800;
+}
+
+.tetris-difficulty-options button.is-active {
+	background: #12e040;
+	color: #082312;
+	border-color: #12e040;
+}
+
+.tetris-dialog-row input {
+	width: 22px;
+	height: 22px;
+}
+
+.tetris-dialog-action {
+	width: 100%;
+	height: 44px;
+	margin-top: 10px;
+	border: 0;
+	border-radius: 10px;
+	background: #12e040;
+	color: #082312;
+	font-size: 15px;
+	font-weight: 800;
+}
+
+.tetris-record-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+}
+
+.tetris-record-grid div {
+	min-height: 70px;
+	border-radius: 10px;
+	padding: 10px;
+	background: rgba(255, 255, 255, 0.1);
+}
+
+.tetris-record-grid span,
+.tetris-record-grid strong {
+	display: block;
+}
+
+.tetris-record-grid span {
+	font-size: 12px;
+	color: rgba(255, 255, 255, 0.68);
+}
+
+.tetris-record-grid strong {
+	margin-top: 8px;
+	font-size: 20px;
+	color: #ffffff;
+}
+
+.game-container,
+.start-container {
+	position: absolute;
+	left: 50%;
+	top: var(--tetris-top, 0);
+	transform-origin: top center;
+	transform: translateX(-50%) scale(var(--tetris-scale, 1));
+}
+
+.game-container {
+	padding-bottom: 70px;
+}
+
+.start-container p {
+	left: 95px;
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+	.tetris-mobile-hud {
+		position: fixed;
+		left: 8px;
+		right: 8px;
+		top: calc(8px + env(safe-area-inset-top));
+		z-index: 210;
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 6px;
+		align-items: stretch;
+	}
+
+	.tetris-hud-stat,
+	.tetris-hud-button {
+		min-width: 0;
+		height: 44px;
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		border-radius: 9px;
+		background: rgba(8, 15, 22, 0.84);
+		color: #ffffff;
+		box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+	}
+
+	.tetris-hud-stat {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 3px 2px;
+	}
+
+	.tetris-hud-stat span {
+		font-size: 10px;
+		line-height: 1;
+		color: rgba(255, 255, 255, 0.66);
+	}
+
+	.tetris-hud-stat strong {
+		margin-top: 4px;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 13px;
+		line-height: 1;
+		color: #ffffff;
+	}
+
+	.tetris-hud-button {
+		width: auto;
+		padding: 0;
+		font-size: 12px;
+		font-weight: 800;
+		grid-column: span 2;
+	}
+
+	.game-container {
+		width: 390px;
+		height: 600px;
+	}
+
+	.timer-panel,
+	.help-panel,
+	.leval-panel,
+	.next-panel,
+	.setting-panel,
+	.score-panel,
+	.high-score-panel {
+		display: none;
+	}
+
+	.game-main-panel {
+		left: 0;
+		top: 0;
+		border-left: 0;
+		border-right: 0;
+	}
+}

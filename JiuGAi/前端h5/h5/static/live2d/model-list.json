@@ -1,0 +1,11 @@
+[
+	{
+		"id": "ug",
+		"name": "UG",
+		"path": "/static/live2d/models/ug/ugofficial.model3.json",
+		"icon": "/static/live2d/models/ug/icon.png",
+		"defaultScale": 0.22,
+		"defaultWidth": 230,
+		"defaultHeight": 260
+	}
+]

@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.conversation.mapper.AppConversationMapper">
+
+    <resultMap id="AppConversationResultMap" type="com.example.sillyspringboot.conversation.entity.AppConversation">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="character_id" property="characterId"/>
+        <result column="title" property="title"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.conversation.entity.AppConversation"
+            useGeneratedKeys="true" keyProperty="id">
+        <choose>
+            <when test="id != null">
+                INSERT INTO app_conversation (id, user_id, character_id, title)
+                VALUES (#{id}, #{userId}, #{characterId}, #{title})
+            </when>
+            <otherwise>
+                INSERT INTO app_conversation (user_id, character_id, title)
+                VALUES (#{userId}, #{characterId}, #{title})
+            </otherwise>
+        </choose>
+    </insert>
+
+    <select id="findById" resultMap="AppConversationResultMap">
+        SELECT id, user_id, character_id, title, created_at, updated_at
+        FROM app_conversation
+        WHERE id = #{conversationId}
+        LIMIT 1
+    </select>
+
+    <select id="findByIdForUser" resultMap="AppConversationResultMap">
+        SELECT id, user_id, character_id, title, created_at, updated_at
+        FROM app_conversation
+        WHERE id = #{conversationId}
+          AND user_id = #{userId}
+    </select>
+
+    <select id="listByUser" resultMap="AppConversationResultMap">
+        SELECT id, user_id, character_id, title, created_at, updated_at
+        FROM app_conversation
+        WHERE user_id = #{userId}
+        ORDER BY updated_at DESC
+    </select>
+
+    <select id="listInboxByUser" resultType="com.example.sillyspringboot.conversation.dto.ConversationInboxItemDto">
+        SELECT
+            c.id              AS conversationId,
+            c.character_id    AS characterId,
+            c.title           AS title,
+            c.updated_at      AS updatedAt,
+            ch.name           AS characterName,
+            COALESCE(NULLIF(TRIM(ch.avatar_url), ''), NULLIF(TRIM(ch.cover_url), ''), ch.st_avatar_url) AS characterAvatarUrl,
+            ch.description    AS characterDescription,
+            m.role            AS lastMessageRole,
+            m.content         AS lastMessageContent,
+            m.created_at      AS lastMessageAt
+        FROM app_conversation c
+        JOIN app_character ch ON ch.id = c.character_id
+        LEFT JOIN (
+            SELECT conversation_id, MAX(id) AS last_msg_id
+            FROM app_message
+            WHERE status IN ('SUCCESS', 'STOPPED')
+              AND deleted_at IS NULL
+            GROUP BY conversation_id
+        ) lm ON lm.conversation_id = c.id
+        LEFT JOIN app_message m ON m.id = lm.last_msg_id
+        WHERE c.user_id = #{userId}
+          AND (
+              (ch.private_card = 1 AND ch.owner_user_id = #{userId})
+              OR (
+                  ch.private_card = 0
+                  AND ch.owner_user_id IS NULL
+                  AND ch.client_visible = 1
+                  AND COALESCE(NULLIF(ch.review_status, ''), 'APPROVED') = 'APPROVED'
+              )
+          )
+          AND lm.last_msg_id IS NOT NULL
+        ORDER BY c.updated_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listInboxByUserExcludeArchived" resultType="com.example.sillyspringboot.conversation.dto.ConversationInboxItemDto">
+        SELECT
+            c.id              AS conversationId,
+            c.character_id    AS characterId,
+            c.title           AS title,
+            c.updated_at      AS updatedAt,
+            ch.name           AS characterName,
+            COALESCE(NULLIF(TRIM(ch.avatar_url), ''), NULLIF(TRIM(ch.cover_url), ''), ch.st_avatar_url) AS characterAvatarUrl,
+            ch.description    AS characterDescription,
+            m.role            AS lastMessageRole,
+            m.content         AS lastMessageContent,
+            m.created_at      AS lastMessageAt
+        FROM app_conversation c
+        JOIN app_character ch ON ch.id = c.character_id
+        LEFT JOIN (
+            SELECT conversation_id, MAX(id) AS last_msg_id
+            FROM app_message
+            WHERE status IN ('SUCCESS', 'STOPPED')
+              AND deleted_at IS NULL
+            GROUP BY conversation_id
+        ) lm ON lm.conversation_id = c.id
+        LEFT JOIN app_message m ON m.id = lm.last_msg_id
+        LEFT JOIN app_conversation_archive a
+            ON a.user_id = c.user_id AND a.conversation_id = c.id
+        WHERE c.user_id = #{userId}
+          AND (
+              (ch.private_card = 1 AND ch.owner_user_id = #{userId})
+              OR (
+                  ch.private_card = 0
+                  AND ch.owner_user_id IS NULL
+                  AND ch.client_visible = 1
+                  AND COALESCE(NULLIF(ch.review_status, ''), 'APPROVED') = 'APPROVED'
+              )
+          )
+          AND a.id IS NULL
+          AND lm.last_msg_id IS NOT NULL
+        ORDER BY c.updated_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listIdsByUserAndCharacter" resultType="long">
+        SELECT id
+        FROM app_conversation
+        WHERE user_id = #{userId}
+          AND character_id = #{characterId}
+        ORDER BY id ASC
+    </select>
+
+    <update id="touchUpdatedAt">
+        UPDATE app_conversation
+        SET updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{conversationId}
+    </update>
+
+    <update id="setTitleIfNull">
+        UPDATE app_conversation
+        SET title = #{title},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{conversationId}
+          AND (title IS NULL OR title = '')
+    </update>
+
+    <update id="setTitleToCharacterNameIfNull">
+        UPDATE app_conversation
+        SET title = (SELECT name FROM app_character WHERE id = app_conversation.character_id),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{conversationId}
+          AND (title IS NULL OR title = '')
+    </update>
+
+    <select id="countActiveForUser" resultType="int">
+        SELECT COUNT(*)
+        FROM app_conversation c
+        LEFT JOIN app_conversation_archive a
+            ON a.user_id = c.user_id AND a.conversation_id = c.id
+        WHERE c.user_id = #{userId}
+          AND a.id IS NULL
+    </select>
+
+    <delete id="deleteByIdForUser">
+        DELETE FROM app_conversation
+        WHERE id = #{conversationId}
+          AND user_id = #{userId}
+    </delete>
+
+</mapper>
+

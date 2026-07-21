@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppConversationArchiveMapper">
+
+    <insert id="upsert">
+        INSERT INTO app_conversation_archive (user_id, conversation_id, archived_at)
+        VALUES (#{userId}, #{conversationId}, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE archived_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <select id="existsByUserAndConversation" resultType="int">
+        SELECT COUNT(1)
+        FROM app_conversation_archive
+        WHERE user_id = #{userId}
+          AND conversation_id = #{conversationId}
+    </select>
+
+    <delete id="deleteByUserAndConversation">
+        DELETE FROM app_conversation_archive
+        WHERE user_id = #{userId}
+          AND conversation_id = #{conversationId}
+    </delete>
+</mapper>
+

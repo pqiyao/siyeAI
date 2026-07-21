@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "dompurify": "^3.2.4",
+    "live2dcubismcore": "1.0.2",
+    "marked": "^14.1.3",
+    "pixi-live2d-display": "0.4.0",
+    "pixi.js": "6.5.10",
+    "uview-ui": "^1.8.8"
+  }
+}

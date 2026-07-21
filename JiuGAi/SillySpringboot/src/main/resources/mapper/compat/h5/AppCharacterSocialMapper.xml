@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppCharacterSocialMapper">
+
+    <select id="isFavorite" resultType="boolean">
+        SELECT CASE WHEN COUNT(*) > 0 THEN TRUE ELSE FALSE END
+        FROM app_character_favorite
+        WHERE user_id = #{userId} AND character_id = #{characterId}
+    </select>
+
+    <insert id="insertFavorite">
+        INSERT INTO app_character_favorite (user_id, character_id)
+        VALUES (#{userId}, #{characterId})
+    </insert>
+
+    <delete id="deleteFavorite">
+        DELETE FROM app_character_favorite
+        WHERE user_id = #{userId} AND character_id = #{characterId}
+    </delete>
+
+    <delete id="deleteFavoritesBatch">
+        DELETE FROM app_character_favorite
+        WHERE user_id = #{userId}
+          AND character_id IN
+        <foreach collection="characterIds" item="cid" open="(" close=")" separator=",">
+            #{cid}
+        </foreach>
+    </delete>
+
+    <select id="findVote" resultType="string">
+        SELECT vote
+        FROM app_character_vote
+        WHERE user_id = #{userId} AND character_id = #{characterId}
+        LIMIT 1
+    </select>
+
+    <insert id="upsertVote">
+        INSERT INTO app_character_vote (user_id, character_id, vote, updated_at)
+        VALUES (#{userId}, #{characterId}, #{vote}, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE vote = VALUES(vote), updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <delete id="deleteVote">
+        DELETE FROM app_character_vote
+        WHERE user_id = #{userId} AND character_id = #{characterId}
+    </delete>
+
+    <select id="countFavoritesByCharacter" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character_favorite
+        WHERE character_id = #{characterId}
+    </select>
+
+    <select id="countVoteByCharacter" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character_vote
+        WHERE character_id = #{characterId} AND vote = #{vote}
+    </select>
+
+    <select id="countVisibleFavoritesByUser" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character_favorite f
+        JOIN app_character c ON c.id = f.character_id
+        WHERE f.user_id = #{userId}
+          AND c.deleted_at IS NULL
+          AND c.private_card = 0
+          AND c.owner_user_id IS NULL
+          AND c.client_visible = 1
+    </select>
+
+    <select id="listFavoriteCharacterIds" resultType="long">
+        SELECT character_id
+        FROM app_character_favorite
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listFavoriteCharacterIdsByRecentChat" resultType="long">
+        SELECT f.character_id
+        FROM app_character_favorite f
+        LEFT JOIN (
+            SELECT character_id, MAX(updated_at) AS last_at
+            FROM app_conversation
+            WHERE user_id = #{userId}
+            GROUP BY character_id
+        ) c ON c.character_id = f.character_id
+        WHERE f.user_id = #{userId}
+        ORDER BY COALESCE(c.last_at, f.created_at) DESC, f.created_at DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>
+

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.conversation.mapper.AppConversationIdempotencyMapper">
+
+    <resultMap id="AppConversationIdempotencyResultMap" type="com.example.sillyspringboot.conversation.entity.AppConversationIdempotency">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="idempotency_key" property="idempotencyKey"/>
+        <result column="conversation_id" property="conversationId"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <select id="findByUserAndKey" resultMap="AppConversationIdempotencyResultMap">
+        SELECT *
+        FROM app_conversation_idempotency
+        WHERE user_id = #{userId}
+          AND idempotency_key = #{idempotencyKey}
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.conversation.entity.AppConversationIdempotency"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_conversation_idempotency (user_id, idempotency_key, conversation_id)
+        VALUES (#{userId}, #{idempotencyKey}, #{conversationId})
+    </insert>
+
+    <delete id="deleteByConversationForUser">
+        DELETE FROM app_conversation_idempotency
+        WHERE conversation_id = #{conversationId}
+          AND user_id = #{userId}
+    </delete>
+
+</mapper>
+

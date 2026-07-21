@@ -1,0 +1,9 @@
+.git
+.idea
+target
+*.log
+.mvn
+mvnw
+mvnw.cmd
+spring-live.log
+spring-live.err.log

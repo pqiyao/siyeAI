@@ -1,8 +1,0 @@
-# 忽略 .idea 文件夹
-.idea/
-.tmp/
-temp/
-test/
-README.md~
-README.pdf
-node_modules/

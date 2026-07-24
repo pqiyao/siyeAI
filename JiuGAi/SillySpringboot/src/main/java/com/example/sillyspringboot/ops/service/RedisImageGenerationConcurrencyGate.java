@@ -7,6 +7,9 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.UUID;
 
 public class RedisImageGenerationConcurrencyGate implements ImageGenerationConcurrencyGate {
 
@@ -17,12 +20,18 @@ public class RedisImageGenerationConcurrencyGate implements ImageGenerationConcu
     private final AppImageGenerationSettingsService settingsService;
     private final DefaultRedisScript<List> acquireScript;
     private final DefaultRedisScript<List> releaseScript;
+    private final DefaultRedisScript<List> claimRequestScript;
+    private final DefaultRedisScript<Long> completeRequestScript;
+    private final DefaultRedisScript<Long> cancelRequestScript;
 
     public RedisImageGenerationConcurrencyGate(StringRedisTemplate redis, AppImageGenerationSettingsService settingsService) {
         this.redis = redis;
         this.settingsService = settingsService;
         this.acquireScript = new DefaultRedisScript<>(ACQUIRE_LUA, List.class);
         this.releaseScript = new DefaultRedisScript<>(RELEASE_LUA, List.class);
+        this.claimRequestScript = new DefaultRedisScript<>(CLAIM_REQUEST_LUA, List.class);
+        this.completeRequestScript = new DefaultRedisScript<>(COMPLETE_REQUEST_LUA, Long.class);
+        this.cancelRequestScript = new DefaultRedisScript<>(CANCEL_REQUEST_LUA, Long.class);
     }
 
     @Override
@@ -47,6 +56,49 @@ public class RedisImageGenerationConcurrencyGate implements ImageGenerationConcu
             throw new BusinessException(ErrorCode.SERVICE_BUSY, "生图引擎繁忙，请稍后再试");
         }
         return new RedisLease(redis, releaseScript, userKey);
+    }
+
+    @Override
+    public RequestLease claimRequest(long userId, String requestId) {
+        String key = "image:request:" + userId + ":" + sha256(requestId);
+        String token = UUID.randomUUID().toString();
+        List<?> result = redis.execute(claimRequestScript, List.of(key), token, "300");
+        if (result == null || result.isEmpty() || toLong(result.get(0)) != 1L) {
+            String status = result != null && result.size() > 1 ? String.valueOf(result.get(1)) : "RUNNING";
+            if ("DONE".equals(status)) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "该生图请求已经完成，请勿重复提交");
+            }
+            throw new BusinessException(ErrorCode.SERVICE_BUSY, "该生图请求正在处理中，请稍后查看结果");
+        }
+        AtomicBoolean closed = new AtomicBoolean(false);
+        AtomicBoolean succeeded = new AtomicBoolean(false);
+        return new RequestLease() {
+            @Override
+            public void markSucceeded() {
+                if (succeeded.compareAndSet(false, true)) {
+                    redis.execute(completeRequestScript, List.of(key), token, "86400");
+                }
+            }
+
+            @Override
+            public void close() {
+                if (closed.compareAndSet(false, true) && !succeeded.get()) {
+                    redis.execute(cancelRequestScript, List.of(key), token);
+                }
+            }
+        };
+    }
+
+    private static String sha256(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder(digest.length * 2);
+            for (byte item : digest) out.append(String.format("%02x", item & 0xff));
+            return out.toString();
+        } catch (Exception ex) {
+            throw new IllegalStateException("SHA-256 unavailable", ex);
+        }
     }
 
     private static long toLong(Object value) {
@@ -123,5 +175,32 @@ public class RedisImageGenerationConcurrencyGate implements ImageGenerationConcu
               end
             end
             return {1, 'OK'}
+            """;
+
+    private static final String CLAIM_REQUEST_LUA = """
+            local current = redis.call('get', KEYS[1])
+            if current then
+              if current == 'DONE' then return {0, 'DONE'} end
+              return {0, 'RUNNING'}
+            end
+            local accepted = redis.call('set', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]), 'NX')
+            if accepted then return {1, 'RUNNING'} end
+            return {0, 'RUNNING'}
+            """;
+
+    private static final String COMPLETE_REQUEST_LUA = """
+            if redis.call('get', KEYS[1]) == ARGV[1] then
+              redis.call('set', KEYS[1], 'DONE', 'EX', tonumber(ARGV[2]))
+              return 1
+            end
+            return 0
+            """;
+
+    private static final String CANCEL_REQUEST_LUA = """
+            if redis.call('get', KEYS[1]) == ARGV[1] then
+              redis.call('del', KEYS[1])
+              return 1
+            end
+            return 0
             """;
 }

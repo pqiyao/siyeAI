@@ -20,11 +20,13 @@ import com.example.sillyspringboot.compat.h5.mapper.AppH5ProfileMapper;
 import com.example.sillyspringboot.compat.h5.mapper.H5MyCharacterMapper;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.conversation.entity.AppConversation;
+import com.example.sillyspringboot.conversation.entity.AppConversationBranch;
 import com.example.sillyspringboot.conversation.entity.AppConversationStBinding;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationStBindingMapper;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryAttachService;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryAutoRefreshService;
+import com.example.sillyspringboot.conversation.service.ConversationBranchService;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
 import com.example.sillyspringboot.integration.sillytavern.StStreamControl;
 import com.example.sillyspringboot.integration.sillytavern.StWorldbookCatalogService;
@@ -41,7 +43,7 @@ import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -54,6 +56,120 @@ public class AppChatServiceMemoryInjectionTest {
     private StAdapter serviceTestStAdapter;
     private ChatPresetService serviceTestChatPresetService;
     private ChatImageContentService serviceTestChatImageContentService;
+    private ChatSnapshotService serviceTestSnapshotService;
+
+    @Test
+    void streamGenerate_shouldExcludeOnlyCurrentUserMessageRefFromSnapshot() {
+        long conversationId = 129L;
+        AppChatService service = buildService(conversationId);
+
+        AppChatStreamRequest request = new AppChatStreamRequest();
+        request.setConversationId(conversationId);
+        request.setUserMessage("hello once");
+        request.setClientMessageId("client-current-message");
+
+        service.streamGenerate(request, "token", "root:456", chunk -> {}, new StStreamControl());
+
+        verify(serviceTestSnapshotService).saveSnapshotFromDb(conversationId, 99L, 800, "root:456");
+        ArgumentCaptor<ChatGenerateRequest> requestCaptor = ArgumentCaptor.forClass(ChatGenerateRequest.class);
+        verify(serviceTestStAdapter).streamGenerateAssistantReply(requestCaptor.capture(), any(), any(StStreamControl.class));
+        assertThat(requestCaptor.getValue().stMessageRef()).isEqualTo("root:456");
+        assertThat(requestCaptor.getValue().userMessage()).isEqualTo("hello once");
+    }
+
+    @Test
+    void syncAssistantReplyToStReportsWhetherTheRuntimeWriteCompleted() {
+        long conversationId = 130L;
+        AppChatService service = buildService(conversationId);
+
+        assertThat(service.syncAssistantReplyToSt(conversationId, "root:457", "assistant reply", "token"))
+                .isTrue();
+        assertThat(service.syncAssistantReplyToSt(conversationId, "root:458", "  ", "token"))
+                .isFalse();
+        assertThat(service.syncAssistantReplyToSt(conversationId, "root:459", "", "token", true))
+                .isTrue();
+
+        ArgumentCaptor<ChatGenerateRequest> requestCaptor = ArgumentCaptor.forClass(ChatGenerateRequest.class);
+        verify(serviceTestStAdapter, times(1)).appendAssistantMessage(requestCaptor.capture(), eq("assistant reply"));
+        assertThat(requestCaptor.getValue().stMessageRef()).isEqualTo("root:457");
+        verify(serviceTestStAdapter).appendAssistantMessage(
+                any(ChatGenerateRequest.class),
+                eq(""),
+                eq(true)
+        );
+    }
+
+    @Test
+    void normalizeAssistantOutputReturnsTheCanonicalStRegexText() {
+        long conversationId = 131L;
+        AppChatService service = buildService(conversationId);
+        when(serviceTestStAdapter.applyAssistantOutputRegex(any(ChatGenerateRequest.class), eq("raw <status>x</status>")))
+                .thenReturn("\n raw \t");
+
+        AppChatService.AssistantOutputNormalization result =
+                service.normalizeAssistantOutput(conversationId, " raw <status>x</status> ", "token");
+
+        assertThat(result.content()).isEqualTo("raw");
+        assertThat(result.finalized()).isTrue();
+        ArgumentCaptor<ChatGenerateRequest> requestCaptor = ArgumentCaptor.forClass(ChatGenerateRequest.class);
+        verify(serviceTestStAdapter).applyAssistantOutputRegex(
+                requestCaptor.capture(),
+                eq("raw <status>x</status>")
+        );
+        assertThat(requestCaptor.getValue().stAvatarUrl()).isEqualTo("avatar.png");
+    }
+
+    @Test
+    void normalizeAssistantOutputKeepsFailOpenTextCanonicalWhenStRegexCallFails() {
+        long conversationId = 132L;
+        AppChatService service = buildService(conversationId);
+        when(serviceTestStAdapter.applyAssistantOutputRegex(any(ChatGenerateRequest.class), eq("raw output")))
+                .thenThrow(new RuntimeException("ST unavailable"));
+
+        AppChatService.AssistantOutputNormalization result =
+                service.normalizeAssistantOutput(conversationId, "raw output", "token");
+
+        assertThat(result.content()).isEqualTo("raw output");
+        assertThat(result.finalized()).isTrue();
+        assertThat(service.syncAssistantReplyToSt(
+                conversationId,
+                "root:459",
+                result.content(),
+                "token",
+                result.finalized()
+        )).isTrue();
+        verify(serviceTestStAdapter).appendAssistantMessage(
+                any(ChatGenerateRequest.class),
+                eq("raw output"),
+                eq(true)
+        );
+    }
+
+    @Test
+    void normalizeAssistantOutputDistinguishesSuccessfulEmptyTextFromFailure() {
+        long conversationId = 133L;
+        AppChatService service = buildService(conversationId);
+        when(serviceTestStAdapter.applyAssistantOutputRegex(any(ChatGenerateRequest.class), eq("internal only")))
+                .thenReturn("");
+
+        AppChatService.AssistantOutputNormalization result =
+                service.normalizeAssistantOutput(conversationId, "internal only", "token");
+
+        assertThat(result.content()).isEmpty();
+        assertThat(result.finalized()).isTrue();
+        assertThat(service.syncAssistantReplyToSt(
+                conversationId,
+                "root:460",
+                result.content(),
+                "token",
+                result.finalized()
+        )).isTrue();
+        verify(serviceTestStAdapter).appendAssistantMessage(
+                any(ChatGenerateRequest.class),
+                eq(""),
+                eq(true)
+        );
+    }
 
     @Test
     void streamGenerate_shouldKeepBaseWorldNamesAttachMemoryWorldbookAndSkipDuplicateTailMemoryPrompt() {
@@ -227,6 +343,7 @@ public class AppChatServiceMemoryInjectionTest {
     ) {
         long userId = 77L;
         long characterId = 88L;
+        long branchId = 99L;
 
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
         AppConversationStBindingMapper bindingMapper = mock(AppConversationStBindingMapper.class);
@@ -245,6 +362,7 @@ public class AppChatServiceMemoryInjectionTest {
         ChatImageContentService chatImageContentService = mock(ChatImageContentService.class);
         ConversationMemoryAttachService memoryAttachService = mock(ConversationMemoryAttachService.class);
         ConversationMemoryAutoRefreshService memoryAutoRefreshService = mock(ConversationMemoryAutoRefreshService.class);
+        ConversationBranchService branchService = mock(ConversationBranchService.class);
         StWorldbookCatalogService worldbookCatalogService = mock(StWorldbookCatalogService.class);
         ChatPresetService chatPresetService = mock(ChatPresetService.class);
 
@@ -258,6 +376,11 @@ public class AppChatServiceMemoryInjectionTest {
         conversation.setUserId(userId);
         conversation.setCharacterId(characterId);
         when(conversationMapper.findByIdForUser(conversationId, userId)).thenReturn(conversation);
+        AppConversationBranch branch = new AppConversationBranch();
+        branch.setId(branchId);
+        branch.setConversationId(conversationId);
+        branch.setUserId(userId);
+        when(branchService.requireActiveBranch(conversation)).thenReturn(branch);
 
         AppConversationStBinding binding = new AppConversationStBinding();
         binding.setConversationId(conversationId);
@@ -294,9 +417,9 @@ public class AppChatServiceMemoryInjectionTest {
                 "test-key",
                 ""
         ));
-        when(memoryAttachService.attachMemoryWorldbookIfAvailable(anyLong(), any()))
+        when(memoryAttachService.attachMemoryWorldbookIfAvailable(eq(conversationId), eq(branchId), any()))
                 .thenAnswer(invocation -> {
-                    List<String> base = invocation.getArgument(1);
+                    List<String> base = invocation.getArgument(2);
                     java.util.ArrayList<String> out = new java.util.ArrayList<>();
                     if (base != null) {
                         out.addAll(base);
@@ -304,9 +427,9 @@ public class AppChatServiceMemoryInjectionTest {
                     out.add("memory_world");
                     return List.copyOf(out);
                 });
-        when(memoryAttachService.buildTailMemoryPromptFallbackIfWorldbookUnavailable(conversationId))
+        when(memoryAttachService.buildTailMemoryPromptFallbackIfWorldbookUnavailable(conversationId, branchId))
                 .thenReturn("");
-        when(memoryAttachService.buildTailMemoryPromptIfAvailable(conversationId))
+        when(memoryAttachService.buildTailMemoryPromptIfAvailable(conversationId, branchId))
                 .thenReturn("""
                         Long-term memory for this conversation:
                         - User likes being called captain.
@@ -359,6 +482,7 @@ public class AppChatServiceMemoryInjectionTest {
                 chatImageContentService,
                 memoryAttachService,
                 memoryAutoRefreshService,
+                branchService,
                 worldbookCatalogService,
                 chatPresetService,
                 mock(AppChatCompatibilityService.class),
@@ -367,6 +491,7 @@ public class AppChatServiceMemoryInjectionTest {
         serviceTestStAdapter = stAdapter;
         serviceTestChatPresetService = chatPresetService;
         serviceTestChatImageContentService = chatImageContentService;
+        serviceTestSnapshotService = snapshotService;
         return service;
     }
 }

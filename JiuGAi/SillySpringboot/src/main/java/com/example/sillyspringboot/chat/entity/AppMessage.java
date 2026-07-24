@@ -7,6 +7,8 @@ public class AppMessage {
     private Long id;
     private Long userId;
     private Long conversationId;
+    private Long branchId;
+    private Long parentMessageId;
     private String role;
     private String messageKind;
     private Long continueFromMessageId;
@@ -44,6 +46,22 @@ public class AppMessage {
 
     public void setConversationId(Long conversationId) {
         this.conversationId = conversationId;
+    }
+
+    public Long getBranchId() {
+        return branchId;
+    }
+
+    public void setBranchId(Long branchId) {
+        this.branchId = branchId;
+    }
+
+    public Long getParentMessageId() {
+        return parentMessageId;
+    }
+
+    public void setParentMessageId(Long parentMessageId) {
+        this.parentMessageId = parentMessageId;
     }
 
     public String getRole() {

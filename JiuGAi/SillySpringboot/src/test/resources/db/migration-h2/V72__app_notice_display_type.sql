@@ -1,0 +1,2 @@
+ALTER TABLE app_notice ADD COLUMN IF NOT EXISTS display_type VARCHAR(24) NOT NULL DEFAULT 'inbox';
+

@@ -17,6 +17,9 @@ public class AppPaymentOrder {
     private Integer vipDays;
     private String paymentChannel;
     private String status;
+    private String providerTradeNo;
+    private Integer paidAmountCents;
+    private String notifyPayloadHash;
     private LocalDateTime createdAt;
     private LocalDateTime paidAt;
     private LocalDateTime updatedAt;
@@ -131,6 +134,30 @@ public class AppPaymentOrder {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getProviderTradeNo() {
+        return providerTradeNo;
+    }
+
+    public void setProviderTradeNo(String providerTradeNo) {
+        this.providerTradeNo = providerTradeNo;
+    }
+
+    public Integer getPaidAmountCents() {
+        return paidAmountCents;
+    }
+
+    public void setPaidAmountCents(Integer paidAmountCents) {
+        this.paidAmountCents = paidAmountCents;
+    }
+
+    public String getNotifyPayloadHash() {
+        return notifyPayloadHash;
+    }
+
+    public void setNotifyPayloadHash(String notifyPayloadHash) {
+        this.notifyPayloadHash = notifyPayloadHash;
     }
 
     public LocalDateTime getCreatedAt() {

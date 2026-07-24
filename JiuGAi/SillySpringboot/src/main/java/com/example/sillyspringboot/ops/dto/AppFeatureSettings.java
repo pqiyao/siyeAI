@@ -11,6 +11,9 @@ public class AppFeatureSettings {
     private boolean userByokEnabled = false;
     private boolean imageGenerationEnabled = true;
     private boolean voiceFeatureEnabled = true;
+    private boolean illustrationEntryEnabled = true;
+    private boolean rechargeEntryVisible = true;
+    private boolean checkinEntryVisible = true;
     private int userByokVipMinLevel = 0;
     private int anonymousTrialChatLimit = 30;
     private int anonymousTrialConversationLimit = 6;
@@ -62,6 +65,30 @@ public class AppFeatureSettings {
 
     public void setVoiceFeatureEnabled(boolean voiceFeatureEnabled) {
         this.voiceFeatureEnabled = voiceFeatureEnabled;
+    }
+
+    public boolean isIllustrationEntryEnabled() {
+        return illustrationEntryEnabled;
+    }
+
+    public void setIllustrationEntryEnabled(boolean illustrationEntryEnabled) {
+        this.illustrationEntryEnabled = illustrationEntryEnabled;
+    }
+
+    public boolean isRechargeEntryVisible() {
+        return rechargeEntryVisible;
+    }
+
+    public void setRechargeEntryVisible(boolean rechargeEntryVisible) {
+        this.rechargeEntryVisible = rechargeEntryVisible;
+    }
+
+    public boolean isCheckinEntryVisible() {
+        return checkinEntryVisible;
+    }
+
+    public void setCheckinEntryVisible(boolean checkinEntryVisible) {
+        this.checkinEntryVisible = checkinEntryVisible;
     }
 
     public int getUserByokVipMinLevel() {

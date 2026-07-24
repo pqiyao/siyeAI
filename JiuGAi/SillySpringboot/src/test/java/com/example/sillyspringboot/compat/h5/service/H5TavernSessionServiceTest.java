@@ -3,6 +3,7 @@ package com.example.sillyspringboot.compat.h5.service;
 import com.example.sillyspringboot.chat.mapper.AppGenerationTaskMapper;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
+import com.example.sillyspringboot.chat.service.StaleGenerationTaskService;
 import com.example.sillyspringboot.compat.h5.mapper.AppConversationArchiveMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationIdempotencyMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
@@ -50,7 +51,8 @@ public class H5TavernSessionServiceTest {
                 mock(AppConversationIdempotencyMapper.class),
                 mock(AppConversationStBindingMapper.class),
                 mock(AppConversationArchiveMapper.class),
-                snapshotService
+                snapshotService,
+                mock(StaleGenerationTaskService.class)
         );
     }
 }

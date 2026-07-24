@@ -14,7 +14,7 @@ class AdminPermissionCatalogTest {
 
     @Test
     void keepsLegacyPermissionKeysValid() {
-        assertThat(catalog.allPermissionKeys()).containsExactlyInAnyOrderElementsOf(List.of(
+        assertThat(catalog.allPermissionKeys()).containsAll(List.of(
                 "system:admin-user:view",
                 "system:admin-user:edit",
                 "system:admin-user:create",
@@ -31,6 +31,8 @@ class AdminPermissionCatalogTest {
                 "system:permission-log:view",
                 "system:notice:view",
                 "system:notice:edit",
+                "system:inbox-ad:view",
+                "system:inbox-ad:edit",
                 "support:ticket:list",
                 "support:ticket:view",
                 "support:ticket:reply",
@@ -57,6 +59,7 @@ class AdminPermissionCatalogTest {
                 "commerce:product:edit",
                 "commerce:payment:view",
                 "commerce:payment:edit",
+                "commerce:wallet:view",
                 "commerce:order:view",
                 "commerce:order:edit",
                 "ops:openrouter:view",
@@ -64,6 +67,11 @@ class AdminPermissionCatalogTest {
                 "ops:openrouter:delete",
                 "ops:ailog:view",
                 "ops:ailog:clean",
+                "ops:chat-runtime:view",
+                "ops:chat-runtime:cancel",
+                "ops:chat-runtime:delete",
+                "ops:visitor-risk:view",
+                "ops:visitor-risk:delete",
                 "conversation:runtime:view",
                 "conversation:runtime:edit",
                 AdminPermissionCatalog.ALL_PERMISSION

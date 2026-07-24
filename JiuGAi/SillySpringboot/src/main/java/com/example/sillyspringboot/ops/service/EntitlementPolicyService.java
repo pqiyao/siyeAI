@@ -67,6 +67,15 @@ public class EntitlementPolicyService {
             current.setRegenerateConsumesQuota(boolVal(body.get("regenerateConsumesQuota"), current.isRegenerateConsumesQuota()));
             current.setByokContinueConsumesQuota(boolVal(body.get("byokContinueConsumesQuota"), current.isByokContinueConsumesQuota()));
             current.setByokRegenerateConsumesQuota(boolVal(body.get("byokRegenerateConsumesQuota"), current.isByokRegenerateConsumesQuota()));
+            current.setOverQuotaBillingEnabled(boolVal(body.get("overQuotaBillingEnabled"), current.isOverQuotaBillingEnabled()));
+            current.setChatScoreCost(intVal(body.get("chatScoreCost"), current.getChatScoreCost()));
+            current.setChatGoldCost(intVal(body.get("chatGoldCost"), current.getChatGoldCost()));
+            current.setImageScoreCost(intVal(body.get("imageScoreCost"), current.getImageScoreCost()));
+            current.setImageGoldCost(intVal(body.get("imageGoldCost"), current.getImageGoldCost()));
+            current.setTtsScoreCost(intVal(body.get("ttsScoreCost"), current.getTtsScoreCost()));
+            current.setTtsGoldCost(intVal(body.get("ttsGoldCost"), current.getTtsGoldCost()));
+            current.setSttScoreCost(intVal(body.get("sttScoreCost"), current.getSttScoreCost()));
+            current.setSttGoldCost(intVal(body.get("sttGoldCost"), current.getSttGoldCost()));
         }
         runtimeSettingMapper.upsert(SETTING_KEY, writeJson(current));
         return current;
@@ -93,6 +102,15 @@ public class EntitlementPolicyService {
         data.put("regenerateConsumesQuota", policy.isRegenerateConsumesQuota());
         data.put("byokContinueConsumesQuota", policy.isByokContinueConsumesQuota());
         data.put("byokRegenerateConsumesQuota", policy.isByokRegenerateConsumesQuota());
+        data.put("overQuotaBillingEnabled", policy.isOverQuotaBillingEnabled());
+        data.put("chatScoreCost", policy.getChatScoreCost());
+        data.put("chatGoldCost", policy.getChatGoldCost());
+        data.put("imageScoreCost", policy.getImageScoreCost());
+        data.put("imageGoldCost", policy.getImageGoldCost());
+        data.put("ttsScoreCost", policy.getTtsScoreCost());
+        data.put("ttsGoldCost", policy.getTtsGoldCost());
+        data.put("sttScoreCost", policy.getSttScoreCost());
+        data.put("sttGoldCost", policy.getSttGoldCost());
         return data;
     }
 

@@ -7,7 +7,7 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "app.payment.mock")
 public class MockPaymentProperties {
 
-    private boolean enabled = true;
+    private boolean enabled = false;
     private boolean allowInProd = false;
 
     public boolean isEnabled() {

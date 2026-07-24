@@ -4,6 +4,78 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.sillyspringboot.admin.mapper.AdminDashboardMapper">
 
+    <sql id="GenerationAttemptFacts">
+        SELECT
+            DATE(a.started_at) AS stat_day,
+            a.provider_key,
+            a.route_key,
+            COALESCE(a.model, '') AS model,
+            COALESCE(a.character_id, 0) AS character_id,
+            a.status,
+            COALESCE(a.error_code, '') AS error_code,
+            COALESCE(a.http_status, 0) AS http_status,
+            a.was_fallback,
+            1 AS attempt_count,
+            CASE WHEN a.status = 'SUCCESS' THEN 1 ELSE 0 END AS success_count,
+            CASE WHEN a.status = 'FAILED' THEN 1 ELSE 0 END AS failure_count,
+            CASE WHEN a.status = 'CANCELLED' THEN 1 ELSE 0 END AS cancelled_count,
+            CASE WHEN a.was_fallback = TRUE THEN 1 ELSE 0 END AS fallback_attempts,
+            COALESCE(a.duration_ms, 0) AS duration_sum_ms,
+            CASE WHEN a.duration_ms IS NULL THEN 0 ELSE 1 END AS duration_sample_count,
+            COALESCE(a.ttft_ms, 0) AS ttft_sum_ms,
+            CASE WHEN a.ttft_ms IS NULL THEN 0 ELSE 1 END AS ttft_sample_count,
+            COALESCE(a.prompt_tokens, 0) AS prompt_tokens,
+            COALESCE(a.completion_tokens, 0) AS completion_tokens,
+            CASE WHEN a.prompt_tokens_estimated = TRUE OR a.completion_tokens_estimated = TRUE THEN 1 ELSE 0 END AS estimated_token_attempts,
+            COALESCE(a.total_cost_usd, 0) AS total_cost_usd,
+            CASE WHEN a.pricing_id IS NOT NULL THEN 1 ELSE 0 END AS priced_attempts,
+            CASE WHEN a.pricing_id IS NULL THEN 1 ELSE 0 END AS unpriced_attempts,
+            CASE WHEN a.cost_estimated = TRUE THEN 1 ELSE 0 END AS estimated_cost_attempts,
+            CASE WHEN a.cost_partial = TRUE THEN 1 ELSE 0 END AS partial_cost_attempts,
+            a.finished_at AS last_finished_at
+        FROM app_generation_attempt a
+        <where>
+            <if test="startAt != null">
+                a.started_at &gt;= #{startAt}
+            </if>
+        </where>
+        UNION ALL
+        SELECT
+            d.stat_day,
+            d.provider_key,
+            d.route_key,
+            d.model,
+            d.character_id,
+            d.status,
+            d.error_code,
+            d.http_status,
+            d.was_fallback,
+            d.attempt_count,
+            CASE WHEN d.status = 'SUCCESS' THEN d.attempt_count ELSE 0 END,
+            CASE WHEN d.status = 'FAILED' THEN d.attempt_count ELSE 0 END,
+            CASE WHEN d.status = 'CANCELLED' THEN d.attempt_count ELSE 0 END,
+            CASE WHEN d.was_fallback = TRUE THEN d.attempt_count ELSE 0 END,
+            d.duration_sum_ms,
+            d.duration_sample_count,
+            d.ttft_sum_ms,
+            d.ttft_sample_count,
+            d.prompt_tokens,
+            d.completion_tokens,
+            d.estimated_token_attempts,
+            d.total_cost_usd,
+            d.priced_attempts,
+            d.unpriced_attempts,
+            d.estimated_cost_attempts,
+            d.partial_cost_attempts,
+            d.last_finished_at
+        FROM app_generation_attempt_daily_stat d
+        <where>
+            <if test="startAt != null">
+                d.stat_day &gt;= DATE(#{startAt})
+            </if>
+        </where>
+    </sql>
+
     <select id="totalCharacters" resultType="long">
         SELECT COUNT(*)
         FROM app_character
@@ -71,30 +143,27 @@
     </select>
 
     <select id="totalTasks" resultType="long">
-        SELECT COUNT(*)
-        FROM (
-            SELECT e.id AS row_id
-            FROM app_generation_stat_event e
-            UNION ALL
-            SELECT t.id AS row_id
-            FROM app_generation_task t
-            LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
-            WHERE e.id IS NULL
-        ) s
+        SELECT
+            COALESCE((SELECT SUM(task_count) FROM app_generation_task_daily_stat), 0)
+            + (SELECT COUNT(*) FROM app_generation_stat_event)
+            + (
+                SELECT COUNT(*)
+                FROM app_generation_task t
+                LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
+                WHERE e.id IS NULL
+            )
     </select>
 
     <select id="successTasks" resultType="long">
-        SELECT COUNT(*)
-        FROM (
-            SELECT e.status
-            FROM app_generation_stat_event e
-            UNION ALL
-            SELECT COALESCE(NULLIF(t.status, ''), 'QUEUED') AS status
-            FROM app_generation_task t
-            LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
-            WHERE e.id IS NULL
-        ) s
-        WHERE s.status = 'SUCCESS'
+        SELECT
+            COALESCE((SELECT SUM(task_count) FROM app_generation_task_daily_stat WHERE status = 'SUCCESS'), 0)
+            + (SELECT COUNT(*) FROM app_generation_stat_event WHERE status = 'SUCCESS')
+            + (
+                SELECT COUNT(*)
+                FROM app_generation_task t
+                LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
+                WHERE e.id IS NULL AND t.status = 'SUCCESS'
+            )
     </select>
 
     <select id="totalPaidOrders" resultType="long">
@@ -113,13 +182,25 @@
         SELECT
             DATE_FORMAT(day_key, '%Y-%m-%d') AS dayKey,
             DATE_FORMAT(day_key, '%m-%d') AS date,
-            COUNT(*) AS generations,
-            SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END) AS successCount,
-            SUM(CASE WHEN status IN ('FAILED', 'STOPPED') THEN 1 ELSE 0 END) AS failureCount
+            SUM(task_count) AS generations,
+            SUM(CASE WHEN status = 'SUCCESS' THEN task_count ELSE 0 END) AS successCount,
+            SUM(CASE WHEN status IN ('FAILED', 'STOPPED') THEN task_count ELSE 0 END) AS failureCount
         FROM (
             SELECT
+                d.stat_day AS day_key,
+                d.status,
+                d.task_count
+            FROM app_generation_task_daily_stat d
+            <where>
+                <if test="days != null">
+                    d.stat_day &gt;= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+                </if>
+            </where>
+            UNION ALL
+            SELECT
                 e.event_day AS day_key,
-                e.status
+                e.status,
+                1 AS task_count
             FROM app_generation_stat_event e
             <where>
                 <if test="days != null">
@@ -129,7 +210,8 @@
             UNION ALL
             SELECT
                 DATE(COALESCE(t.queued_at, t.started_at, t.finished_at, CURRENT_TIMESTAMP)) AS day_key,
-                COALESCE(NULLIF(t.status, ''), 'QUEUED') AS status
+                COALESCE(NULLIF(t.status, ''), 'QUEUED') AS status,
+                1 AS task_count
             FROM app_generation_task t
             LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
             <where>
@@ -192,5 +274,201 @@
                  c.sort_order ASC,
                  c.id DESC
         LIMIT #{limit}
+    </select>
+
+    <select id="generationOpsSummary" resultType="map">
+        WITH facts AS (
+            <include refid="GenerationAttemptFacts"/>
+        ),
+        duration_distribution AS (
+            SELECT a.duration_ms, CUME_DIST() OVER (ORDER BY a.duration_ms) AS percentile
+            FROM app_generation_attempt a
+            <where>
+                a.duration_ms IS NOT NULL
+                <if test="startAt != null">AND a.started_at &gt;= #{startAt}</if>
+            </where>
+        ),
+        ttft_distribution AS (
+            SELECT a.ttft_ms, CUME_DIST() OVER (ORDER BY a.ttft_ms) AS percentile
+            FROM app_generation_attempt a
+            <where>
+                a.ttft_ms IS NOT NULL
+                <if test="startAt != null">AND a.started_at &gt;= #{startAt}</if>
+            </where>
+        )
+        SELECT
+            COALESCE(SUM(attempt_count), 0) AS totalAttempts,
+            COALESCE(SUM(success_count), 0) AS successAttempts,
+            COALESCE(SUM(failure_count), 0) AS failedAttempts,
+            COALESCE(SUM(cancelled_count), 0) AS cancelledAttempts,
+            COALESCE(SUM(success_count) / NULLIF(SUM(attempt_count), 0), 0) AS successRate,
+            COALESCE(SUM(prompt_tokens), 0) AS promptTokens,
+            COALESCE(SUM(completion_tokens), 0) AS completionTokens,
+            COALESCE(SUM(estimated_token_attempts), 0) AS estimatedTokenAttempts,
+            COALESCE(SUM(total_cost_usd), 0) AS totalCostUsd,
+            COALESCE(SUM(priced_attempts), 0) AS pricedAttempts,
+            COALESCE(SUM(unpriced_attempts), 0) AS unpricedAttempts,
+            COALESCE(SUM(estimated_cost_attempts), 0) AS estimatedCostAttempts,
+            COALESCE(SUM(partial_cost_attempts), 0) AS partialCostAttempts,
+            COALESCE(ROUND(SUM(duration_sum_ms) / NULLIF(SUM(duration_sample_count), 0)), 0) AS avgDurationMs,
+            (SELECT MIN(duration_ms) FROM duration_distribution WHERE percentile &gt;= 0.95) AS p95DurationMs,
+            COALESCE(ROUND(SUM(ttft_sum_ms) / NULLIF(SUM(ttft_sample_count), 0)), 0) AS avgTtftMs,
+            (SELECT MIN(ttft_ms) FROM ttft_distribution WHERE percentile &gt;= 0.95) AS p95TtftMs
+        FROM facts
+    </select>
+
+    <select id="generationLatencyTrend" resultType="map">
+        WITH facts AS (
+            <include refid="GenerationAttemptFacts"/>
+        )
+        SELECT
+            stat_day AS dayKey,
+            SUM(attempt_count) AS attempts,
+            SUM(success_count) AS successCount,
+            SUM(failure_count) AS failureCount,
+            COALESCE(ROUND(SUM(duration_sum_ms) / NULLIF(SUM(duration_sample_count), 0)), 0) AS avgDurationMs,
+            COALESCE(ROUND(SUM(ttft_sum_ms) / NULLIF(SUM(ttft_sample_count), 0)), 0) AS avgTtftMs,
+            COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS totalTokens,
+            COALESCE(SUM(total_cost_usd), 0) AS totalCostUsd
+        FROM facts
+        GROUP BY stat_day
+        ORDER BY stat_day ASC
+    </select>
+
+    <select id="generationProviderStats" resultType="map">
+        WITH facts AS (
+            <include refid="GenerationAttemptFacts"/>
+        ),
+        ranked AS (
+            SELECT a.provider_key, a.duration_ms,
+                   CUME_DIST() OVER (PARTITION BY a.provider_key ORDER BY a.duration_ms) AS percentile
+            FROM app_generation_attempt a
+            <where>
+                a.duration_ms IS NOT NULL
+                <if test="startAt != null">AND a.started_at &gt;= #{startAt}</if>
+            </where>
+        )
+        SELECT
+            f.provider_key AS providerKey,
+            SUM(f.attempt_count) AS attempts,
+            SUM(f.success_count) AS successCount,
+            SUM(f.failure_count) AS failureCount,
+            COALESCE(SUM(f.success_count) / NULLIF(SUM(f.attempt_count), 0), 0) AS successRate,
+            SUM(f.fallback_attempts) AS fallbackAttempts,
+            COALESCE(ROUND(SUM(f.duration_sum_ms) / NULLIF(SUM(f.duration_sample_count), 0)), 0) AS avgDurationMs,
+            (SELECT MIN(r.duration_ms) FROM ranked r WHERE r.provider_key = f.provider_key AND r.percentile &gt;= 0.95) AS p95DurationMs,
+            COALESCE(ROUND(SUM(f.ttft_sum_ms) / NULLIF(SUM(f.ttft_sample_count), 0)), 0) AS avgTtftMs,
+            COALESCE(SUM(f.prompt_tokens + f.completion_tokens), 0) AS totalTokens,
+            COALESCE(SUM(f.total_cost_usd), 0) AS totalCostUsd
+        FROM facts f
+        GROUP BY f.provider_key
+        ORDER BY attempts DESC, f.provider_key ASC
+    </select>
+
+    <select id="generationModelStats" resultType="map">
+        WITH facts AS (
+            <include refid="GenerationAttemptFacts"/>
+        )
+        SELECT
+            provider_key AS providerKey,
+            COALESCE(NULLIF(model, ''), 'unknown') AS model,
+            SUM(attempt_count) AS attempts,
+            COALESCE(SUM(success_count) / NULLIF(SUM(attempt_count), 0), 0) AS successRate,
+            COALESCE(ROUND(SUM(duration_sum_ms) / NULLIF(SUM(duration_sample_count), 0)), 0) AS avgDurationMs,
+            COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS totalTokens,
+            COALESCE(SUM(total_cost_usd), 0) AS totalCostUsd
+        FROM facts
+        GROUP BY provider_key, COALESCE(NULLIF(model, ''), 'unknown')
+        ORDER BY attempts DESC, provider_key ASC, model ASC
+        LIMIT 30
+    </select>
+
+    <select id="generationCharacterStats" resultType="map">
+        WITH facts AS (
+            <include refid="GenerationAttemptFacts"/>
+        )
+        SELECT
+            NULLIF(a.character_id, 0) AS characterId,
+            COALESCE(c.name, '未关联角色') AS characterName,
+            SUM(a.attempt_count) AS attempts,
+            COALESCE(SUM(a.success_count) / NULLIF(SUM(a.attempt_count), 0), 0) AS successRate,
+            COALESCE(SUM(a.prompt_tokens + a.completion_tokens), 0) AS totalTokens,
+            COALESCE(SUM(a.total_cost_usd), 0) AS totalCostUsd
+        FROM facts a
+        LEFT JOIN app_character c ON c.id = a.character_id
+        GROUP BY a.character_id, c.name
+        ORDER BY attempts DESC, a.character_id DESC
+        LIMIT 20
+    </select>
+
+    <select id="generationErrorStats" resultType="map">
+        WITH facts AS (
+            <include refid="GenerationAttemptFacts"/>
+        )
+        SELECT
+            COALESCE(NULLIF(error_code, ''), 'UNKNOWN') AS errorCode,
+            NULLIF(http_status, 0) AS httpStatus,
+            SUM(attempt_count) AS count,
+            MAX(last_finished_at) AS lastOccurredAt
+        FROM facts
+        WHERE status = 'FAILED'
+        GROUP BY COALESCE(NULLIF(error_code, ''), 'UNKNOWN'), http_status
+        ORDER BY count DESC, lastOccurredAt DESC
+        LIMIT 20
+    </select>
+
+    <select id="generationRouteHealth" resultType="map">
+        WITH facts AS (
+            <include refid="GenerationAttemptFacts"/>
+        ),
+        route_stats AS (
+            SELECT
+                route_key,
+                provider_key,
+                SUM(attempt_count) AS attempts,
+                COALESCE(SUM(success_count) / NULLIF(SUM(attempt_count), 0), 0) AS success_rate,
+                SUM(fallback_attempts) AS fallback_attempts
+            FROM facts
+            GROUP BY route_key, provider_key
+        ),
+        configured_routes AS (
+            SELECT r.scene_key AS route_key, p.provider_key
+            FROM app_st_model_provider p
+            LEFT JOIN app_st_model_route r
+              ON r.primary_provider_key = p.provider_key
+              OR CONCAT('|', COALESCE(r.fallback_provider_keys, ''), '|')
+                    LIKE CONCAT('%|', p.provider_key, '|%')
+        )
+        SELECT
+            s.route_key AS routeKey,
+            s.provider_key AS providerKey,
+            s.attempts AS attempts,
+            s.success_rate AS successRate,
+            s.fallback_attempts AS fallbackAttempts,
+            COALESCE(p.consecutive_failures, 0) AS consecutiveFailures,
+            p.circuit_open_until AS circuitOpenUntil,
+            COALESCE(p.last_health_status, 'unmanaged') AS lastHealthStatus
+        FROM route_stats s
+        LEFT JOIN app_st_model_provider p ON p.provider_key = s.provider_key
+        UNION ALL
+        SELECT
+            COALESCE(c.route_key, 'unassigned') AS routeKey,
+            c.provider_key AS providerKey,
+            0 AS attempts,
+            0 AS successRate,
+            0 AS fallbackAttempts,
+            COALESCE(p.consecutive_failures, 0) AS consecutiveFailures,
+            p.circuit_open_until AS circuitOpenUntil,
+            COALESCE(p.last_health_status, 'unknown') AS lastHealthStatus
+        FROM configured_routes c
+        JOIN app_st_model_provider p ON p.provider_key = c.provider_key
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM route_stats s
+            WHERE s.provider_key = c.provider_key
+              AND s.route_key = COALESCE(c.route_key, 'unassigned')
+        )
+        ORDER BY attempts DESC, routeKey ASC, providerKey ASC
+        LIMIT 30
     </select>
 </mapper>

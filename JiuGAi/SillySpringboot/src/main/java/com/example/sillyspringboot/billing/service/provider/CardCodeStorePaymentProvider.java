@@ -62,7 +62,7 @@ public class CardCodeStorePaymentProvider implements StorePaymentProvider {
         data.put("ready", false);
         data.put("manualSettlement", false);
         data.put("action", "await_card_code_flow");
-        data.put("message", "卡密兑换通道已预留，后续可接兑换码核销逻辑。");
+        data.put("message", "卡密兑换通道已预留，后续可接兑换码核销逻辑");
         data.put("orderNo", order.getOrderNo());
         data.put("productCode", order.getProductCode());
         data.put("productName", order.getProductName());

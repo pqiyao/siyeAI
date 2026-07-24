@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppUserChatPreferenceMapper">
+    <resultMap id="PreferenceMap" type="com.example.sillyspringboot.compat.h5.entity.AppUserChatPreference">
+        <id column="user_id" property="userId"/>
+        <result column="character_id" property="characterId"/>
+        <result column="bubble_json" property="bubbleJson"/>
+        <result column="reading_json" property="readingJson"/>
+        <result column="reply_format_json" property="replyFormatJson"/>
+        <result column="revision" property="revision"/>
+    </resultMap>
+    <select id="lockUser" resultType="java.lang.Long">
+        SELECT id FROM app_user WHERE id = #{userId} FOR UPDATE
+    </select>
+    <select id="find" resultMap="PreferenceMap">
+        SELECT user_id, character_id, bubble_json, reading_json, reply_format_json, revision
+        FROM app_user_chat_preference WHERE user_id = #{userId} AND character_id = #{characterId}
+    </select>
+    <select id="countCharacterPreferences" resultType="int">
+        SELECT COUNT(*)
+        FROM app_user_chat_preference p
+        JOIN app_character c ON c.id = p.character_id
+        WHERE p.user_id = #{userId}
+          AND p.character_id &gt; 0
+          AND c.deleted_at IS NULL
+          AND (
+              (
+                  (c.owner_user_id IS NOT NULL OR c.private_card = 1)
+                  AND c.owner_user_id = #{userId}
+              )
+              OR (
+                  c.owner_user_id IS NULL
+                  AND c.private_card = 0
+                  AND c.client_visible = 1
+                  AND COALESCE(NULLIF(c.review_status, ''), 'APPROVED') = 'APPROVED'
+              )
+          )
+    </select>
+    <update id="updateIfRevision">
+        UPDATE app_user_chat_preference
+        SET bubble_json = #{row.bubbleJson}, reading_json = #{row.readingJson}, reply_format_json = #{row.replyFormatJson},
+            revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{row.userId}
+          AND character_id = #{row.characterId}
+          AND revision = #{expectedRevision}
+    </update>
+    <insert id="insert">
+        INSERT INTO app_user_chat_preference
+            (user_id, character_id, bubble_json, reading_json, reply_format_json, revision)
+        VALUES (#{userId}, #{characterId}, #{bubbleJson}, #{readingJson}, #{replyFormatJson}, 1)
+    </insert>
+    <delete id="deleteIfRevision">
+        DELETE FROM app_user_chat_preference
+        WHERE user_id = #{userId}
+          AND character_id = #{characterId}
+          AND revision = #{expectedRevision}
+    </delete>
+</mapper>

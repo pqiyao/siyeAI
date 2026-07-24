@@ -1,7 +1,11 @@
 package com.example.sillyspringboot.chat.service;
 
 import com.example.sillyspringboot.conversation.entity.AppConversationStBinding;
+import com.example.sillyspringboot.conversation.entity.AppConversation;
+import com.example.sillyspringboot.conversation.entity.AppConversationBranch;
+import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationStBindingMapper;
+import com.example.sillyspringboot.conversation.service.ConversationBranchService;
 import com.example.sillyspringboot.chat.entity.AppMessage;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
 import com.example.sillyspringboot.integration.sillytavern.SillyTavernProperties;
@@ -29,17 +33,23 @@ import java.util.Set;
 public class ChatSnapshotService {
 
     private final AppConversationStBindingMapper bindingMapper;
+    private final AppConversationMapper conversationMapper;
+    private final ConversationBranchService branchService;
     private final AppMessageMapper messageMapper;
     private final StAdapter stAdapter;
     private final SillyTavernProperties stProps;
 
     public ChatSnapshotService(
             AppConversationStBindingMapper bindingMapper,
+            AppConversationMapper conversationMapper,
+            ConversationBranchService branchService,
             AppMessageMapper messageMapper,
             StAdapter stAdapter,
             SillyTavernProperties stProps
     ) {
         this.bindingMapper = bindingMapper;
+        this.conversationMapper = conversationMapper;
+        this.branchService = branchService;
         this.messageMapper = messageMapper;
         this.stAdapter = stAdapter;
         this.stProps = stProps;
@@ -61,6 +71,17 @@ public class ChatSnapshotService {
     }
 
     public SnapshotRef ensureSnapshot(long conversationId) {
+        SnapshotRef ref = resolveSnapshotRef(conversationId);
+        Object got = stAdapter.getChatSnapshot(new StChatGetRequest(ref.avatarUrl(), ref.fileName()));
+        // ST chats/get 若目录不存在会返回 {}；若存在则返回数组
+        if (!(got instanceof List)) {
+            List<Map<String, Object>> headerOnly = List.of(defaultHeader());
+            stAdapter.saveChatSnapshot(new StChatSaveRequest(ref.avatarUrl(), ref.fileName(), headerOnly, Boolean.FALSE));
+        }
+        return ref;
+    }
+
+    private SnapshotRef resolveSnapshotRef(long conversationId) {
         AppConversationStBinding binding = bindingMapper.findByConversationId(conversationId);
         if (binding == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "会话绑定不存在");
@@ -73,13 +94,6 @@ public class ChatSnapshotService {
         String fileName = binding.getStChatFileName();
         if (fileName == null || fileName.isBlank()) {
             fileName = binding.getStChatRef();
-        }
-
-        Object got = stAdapter.getChatSnapshot(new StChatGetRequest(avatarUrl, fileName));
-        // ST chats/get 若目录不存在会返回 {}；若存在则返回数组
-        if (!(got instanceof List)) {
-            List<Map<String, Object>> headerOnly = List.of(defaultHeader());
-            stAdapter.saveChatSnapshot(new StChatSaveRequest(avatarUrl, fileName, headerOnly, Boolean.FALSE));
         }
         return new SnapshotRef(avatarUrl, fileName);
     }
@@ -117,21 +131,131 @@ public class ChatSnapshotService {
      * 业务库为事实源；ST 仅作为受控运行时与可恢复快照。
      */
     public void saveSnapshotFromDb(long conversationId, int limit) {
-        SnapshotRef ref = ensureSnapshot(conversationId);
+        Long branchId = resolveActiveBranchId(conversationId);
+        if (branchId != null && branchId > 0) {
+            saveSnapshotFromDb(conversationId, branchId, limit);
+            return;
+        }
+        saveSnapshotFromRows(conversationId, messageMapper.listRecentByConversationAsc(conversationId, limit));
+    }
+
+    public void saveSnapshotFromDb(long conversationId, long branchId, int limit) {
+        saveSnapshotFromRows(conversationId, messageMapper.listRecentByConversationBranchAsc(conversationId, branchId, limit));
+    }
+
+    /**
+     * Writes a generation snapshot without the current user message. The runtime appends that
+     * message after applying ST input regexes, so including it here would put it in the prompt twice.
+     */
+    public void saveSnapshotFromDb(
+            long conversationId,
+            long branchId,
+            int limit,
+            String excludedUserMessageRef
+    ) {
+        saveSnapshotFromRows(
+                conversationId,
+                messageMapper.listRecentByConversationBranchAsc(conversationId, branchId, limit),
+                normalizeMessageRef(excludedUserMessageRef)
+        );
+    }
+
+    private void saveSnapshotFromRows(long conversationId, List<AppMessage> rows) {
+        saveSnapshotFromRows(conversationId, rows, "");
+    }
+
+    private void saveSnapshotFromRows(
+            long conversationId,
+            List<AppMessage> rows,
+            String excludedUserMessageRef
+    ) {
+        SnapshotRef ref = resolveSnapshotRef(conversationId);
         Object existingSnapshot = stAdapter.getChatSnapshot(new StChatGetRequest(ref.avatarUrl(), ref.fileName()));
         List<Map<String, Object>> existingMessages = extractMessages(existingSnapshot);
         Set<Integer> usedExistingIndexes = new HashSet<>();
-        List<AppMessage> rows = messageMapper.listRecentByConversationAsc(conversationId, limit);
         Map<String, List<AppMessage>> variantsByRef = buildVariantsByRef(rows);
 
         List<Map<String, Object>> chat = new ArrayList<>();
         Map<String, Object> existingHeader = extractHeader(existingSnapshot);
         chat.add(existingHeader.isEmpty() ? defaultHeader() : existingHeader);
+        Map<Long, Map<String, Object>> serializedByMessageId = new HashMap<>();
         for (AppMessage m : rows) {
             if (!AppChatService.includeVisibleMessage(m)) continue;
-            chat.add(mergeExistingMessage(m, existingMessages, usedExistingIndexes, variantsByRef.get(messageRefFor(m))));
+            if (isExcludedUserMessage(m, excludedUserMessageRef)) continue;
+            if (mergeContinuationIntoAnchor(m, serializedByMessageId)) continue;
+            Map<String, Object> serialized = mergeExistingMessage(
+                    m,
+                    existingMessages,
+                    usedExistingIndexes,
+                    variantsByRef.get(messageRefFor(m))
+            );
+            chat.add(serialized);
+            if (m.getId() != null) {
+                serializedByMessageId.put(m.getId(), serialized);
+            }
+        }
+        if (existingSnapshot instanceof List<?> existingChat && existingChat.equals(chat)) {
+            return;
         }
         stAdapter.saveChatSnapshot(new StChatSaveRequest(ref.avatarUrl(), ref.fileName(), chat, Boolean.FALSE));
+    }
+
+    private boolean mergeContinuationIntoAnchor(
+            AppMessage message,
+            Map<Long, Map<String, Object>> serializedByMessageId
+    ) {
+        if (message == null
+                || !"assistant".equalsIgnoreCase(message.getRole())
+                || !"CONTINUATION".equalsIgnoreCase(message.getMessageKind())
+                || message.getContinueFromMessageId() == null) {
+            return false;
+        }
+        Map<String, Object> anchor = serializedByMessageId.get(message.getContinueFromMessageId());
+        if (anchor == null || isUserMessage(anchor)) {
+            return false;
+        }
+
+        String base = String.valueOf(anchor.getOrDefault("mes", ""));
+        String suffix = message.getContent() == null ? "" : message.getContent();
+        String merged = base + suffix;
+        anchor.put("mes", merged);
+
+        int swipeId = intValue(anchor.get("swipe_id"), 0);
+        List<Object> swipes = objectToList(anchor.get("swipes"));
+        while (swipes.size() <= swipeId) {
+            swipes.add("");
+        }
+        swipes.set(swipeId, merged);
+        anchor.put("swipes", swipes);
+        anchor.put("swipe_id", swipeId);
+        if (message.getId() != null) {
+            serializedByMessageId.put(message.getId(), anchor);
+        }
+        return true;
+    }
+
+    private boolean isExcludedUserMessage(AppMessage message, String excludedUserMessageRef) {
+        return !excludedUserMessageRef.isBlank()
+                && message != null
+                && "user".equalsIgnoreCase(message.getRole())
+                && excludedUserMessageRef.equals(messageRefFor(message));
+    }
+
+    private String normalizeMessageRef(String messageRef) {
+        return messageRef == null ? "" : messageRef.trim();
+    }
+
+    private Long resolveActiveBranchId(long conversationId) {
+        try {
+            AppConversation conversation = conversationMapper.findById(conversationId);
+            if (conversation == null) {
+                return null;
+            }
+            AppConversationBranch branch = branchService.requireActiveBranch(conversation);
+            return branch == null ? null : branch.getId();
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /** 仅保留 jsonl 头行，用于删会话/重新开始后的 ST 侧对齐。 */
@@ -333,13 +457,16 @@ public class ChatSnapshotService {
     }
 
     private boolean includeSwipeVariant(AppMessage message) {
-        if (message == null || message.getContent() == null || message.getContent().isBlank()) {
+        if (message == null || message.getContent() == null) {
             return false;
         }
         if (!"assistant".equalsIgnoreCase(message.getRole()) || message.getSwipeIndex() == null) {
             return false;
         }
         String status = message.getStatus() == null ? "" : message.getStatus();
+        if (message.getContent().isBlank()) {
+            return "SUCCESS".equalsIgnoreCase(status);
+        }
         return "SUCCESS".equalsIgnoreCase(status) || "STOPPED".equalsIgnoreCase(status);
     }
 

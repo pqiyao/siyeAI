@@ -113,11 +113,11 @@ public class ApiV1SupportController {
             @RequestParam("clientUid") String clientUid,
             @RequestPart("file") MultipartFile file
     ) {
-        resolveUser(clientUid);
+        AppUser user = resolveUser(clientUid);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "截图不能为空");
         }
-        return ApiV1Result.ok(Map.of("url", uploadService.saveImageAndGetUrl(file)));
+        return ApiV1Result.ok(Map.of("url", uploadService.saveOwnedImageAndGetUrl(file, user.getId())));
     }
 
     private AppUser resolveUser(String clientUid) {

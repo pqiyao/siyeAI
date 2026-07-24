@@ -92,7 +92,7 @@ public class H5LegacyIndexController {
         request.setAccount(username);
         request.setPassword(password);
         try {
-            AppAuthSessionResponse session = appAuthService.registerWithH5Account(request, clientUid);
+            AppAuthSessionResponse session = appAuthService.registerWithH5Account(request);
             return legacyAuthOk(legacyUserService.buildLegacyUserInfoByToken(session.token()));
         } catch (BusinessException ex) {
             return legacyFail(0, safeMessage(ex.getMessage()), null);
@@ -124,8 +124,7 @@ public class H5LegacyIndexController {
         String token = legacyUserService.pickToken(headerToken, requestToken);
         try {
             AppUser user = legacyUserService.requireUserByToken(token);
-            userLifecycleService.deleteUserById(user.getId());
-            return legacyOk(new LinkedHashMap<>());
+            return legacyOk(userLifecycleService.deleteUserById(user.getId()));
         } catch (BusinessException ex) {
             if (ex.getErrorCode() == ErrorCode.UNAUTHORIZED) {
                 return legacyFail(4003, safeMessage(ex.getMessage()), null);

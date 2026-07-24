@@ -77,12 +77,14 @@ public class ApiV1TavernInboxController {
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
         long userId = tokenService.validateAndLoadUser(token).getId();
         long conversationId = ensureConversationId(characterId, clientUid, token);
+        long activeBranchId = chatService.requireActiveBranchId(conversationId, token);
         int safeLimit = normalizeMessagePageLimit(limit);
 
         Map<String, Object> envelope = new HashMap<>();
         envelope.put("conversationId", conversationId);
+        envelope.put("activeBranchId", activeBranchId);
         envelope.put("tavernMeta", tavernMeta(characterId, clientUid, conversationId, token));
-        envelope.put("memory", conversationMemoryService.toH5MemoryMap(conversationId));
+        envelope.put("memory", conversationMemoryService.toH5MemoryMap(conversationId, activeBranchId));
 
         if (archiveMapper.existsByUserAndConversation(userId, conversationId) > 0) {
             envelope.put("messages", List.of());
@@ -91,14 +93,18 @@ public class ApiV1TavernInboxController {
 
         chatService.ensureOpeningAssistantMessage(conversationId, token);
 
-        MessagePageSlice pageSlice = loadMessagePage(conversationId, beforeMessageId, safeLimit);
+        activeBranchId = chatService.requireActiveBranchId(conversationId, token);
+        envelope.put("activeBranchId", activeBranchId);
+        MessagePageSlice pageSlice = loadMessagePage(conversationId, activeBranchId, beforeMessageId, safeLimit);
         List<Map<String, Object>> out = pageSlice.rows().stream()
                 .filter(this::includeMessageForH5Chat)
                 .map(m -> {
                     Map<String, Object> row = new HashMap<>();
                     row.put("id", "db_" + m.getId());
+                    row.put("branchId", m.getBranchId());
                     row.put("role", "assistant".equalsIgnoreCase(m.getRole()) ? "char" : "user");
                     row.put("text", m.getContent() == null ? "" : m.getContent());
+                    row.put("openingMessage", isOpeningMessage(m));
                     row.put("messageKind", normalizeMessageKind(m.getMessageKind()));
                     if (m.getContinueFromMessageId() != null && m.getContinueFromMessageId() > 0) {
                         row.put("continueFromMessageId", "db_" + m.getContinueFromMessageId());
@@ -119,6 +125,14 @@ public class ApiV1TavernInboxController {
     private static String normalizeMessageKind(String value) {
         String kind = value == null ? "" : value.trim().toUpperCase();
         return "CONTINUATION".equals(kind) ? "CONTINUATION" : "NORMAL";
+    }
+
+    private static boolean isOpeningMessage(AppMessage message) {
+        String clientMessageId = message == null || message.getClientMessageId() == null
+                ? ""
+                : message.getClientMessageId();
+        return "assistant".equalsIgnoreCase(message == null ? "" : message.getRole())
+                && clientMessageId.startsWith("opening_");
     }
 
     private Map<String, Object> tavernMeta(long characterId, String clientUid, long conversationId, String token) {
@@ -160,11 +174,11 @@ public class ApiV1TavernInboxController {
         return true;
     }
 
-    private MessagePageSlice loadMessagePage(long conversationId, String beforeMessageId, int limit) {
+    private MessagePageSlice loadMessagePage(long conversationId, long branchId, String beforeMessageId, int limit) {
         Long beforeId = parseDbMessageId(beforeMessageId);
         List<AppMessage> raw = beforeId == null
-                ? messageMapper.listRecentByConversationAsc(conversationId, limit + 1)
-                : messageMapper.listBeforeConversationAsc(conversationId, beforeId, limit + 1);
+                ? messageMapper.listRecentByConversationBranchAsc(conversationId, branchId, limit + 1)
+                : messageMapper.listBeforeConversationBranchAsc(conversationId, branchId, beforeId, limit + 1);
         boolean hasMore = raw.size() > limit;
         List<AppMessage> rows;
         if (hasMore) {

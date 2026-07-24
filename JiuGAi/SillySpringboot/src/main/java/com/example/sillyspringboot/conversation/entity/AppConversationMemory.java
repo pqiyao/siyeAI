@@ -5,13 +5,20 @@ import java.time.LocalDateTime;
 public class AppConversationMemory {
 
     private Long conversationId;
+    private Long branchId;
     private String summaryPreview;
     private int factsCount;
     private String memoryWorldName;
     private int entryCount;
     private int enabledEntryCount;
+    private long manualRevision;
+    private long memoryRevision;
+    private long appliedSourceRevision;
     private Long lastSourceMessageId;
     private int lastRefreshedMessageCount;
+    private LocalDateTime lastManualRefreshAt;
+    private LocalDateTime manualRefreshStartedAt;
+    private String manualRefreshToken;
     private LocalDateTime lastSyncedAt;
     private String syncStatus;
     private String syncError;
@@ -23,6 +30,14 @@ public class AppConversationMemory {
 
     public void setConversationId(Long conversationId) {
         this.conversationId = conversationId;
+    }
+
+    public Long getBranchId() {
+        return branchId;
+    }
+
+    public void setBranchId(Long branchId) {
+        this.branchId = branchId;
     }
 
     public String getSummaryPreview() {
@@ -65,6 +80,30 @@ public class AppConversationMemory {
         this.enabledEntryCount = enabledEntryCount;
     }
 
+    public long getManualRevision() {
+        return manualRevision;
+    }
+
+    public void setManualRevision(long manualRevision) {
+        this.manualRevision = manualRevision;
+    }
+
+    public long getMemoryRevision() {
+        return memoryRevision;
+    }
+
+    public void setMemoryRevision(long memoryRevision) {
+        this.memoryRevision = memoryRevision;
+    }
+
+    public long getAppliedSourceRevision() {
+        return appliedSourceRevision;
+    }
+
+    public void setAppliedSourceRevision(long appliedSourceRevision) {
+        this.appliedSourceRevision = appliedSourceRevision;
+    }
+
     public Long getLastSourceMessageId() {
         return lastSourceMessageId;
     }
@@ -79,6 +118,30 @@ public class AppConversationMemory {
 
     public void setLastRefreshedMessageCount(int lastRefreshedMessageCount) {
         this.lastRefreshedMessageCount = lastRefreshedMessageCount;
+    }
+
+    public LocalDateTime getLastManualRefreshAt() {
+        return lastManualRefreshAt;
+    }
+
+    public void setLastManualRefreshAt(LocalDateTime lastManualRefreshAt) {
+        this.lastManualRefreshAt = lastManualRefreshAt;
+    }
+
+    public LocalDateTime getManualRefreshStartedAt() {
+        return manualRefreshStartedAt;
+    }
+
+    public void setManualRefreshStartedAt(LocalDateTime manualRefreshStartedAt) {
+        this.manualRefreshStartedAt = manualRefreshStartedAt;
+    }
+
+    public String getManualRefreshToken() {
+        return manualRefreshToken;
+    }
+
+    public void setManualRefreshToken(String manualRefreshToken) {
+        this.manualRefreshToken = manualRefreshToken;
     }
 
     public LocalDateTime getLastSyncedAt() {

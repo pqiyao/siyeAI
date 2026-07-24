@@ -34,6 +34,7 @@ public final class StApiPaths {
 
     /** 方案一（StepA）：ST chat 运行时写入与同源 messages 构建 */
     public static final String RUNTIME_CHAT_APPEND = "/api/runtime/chat/append";
+    public static final String RUNTIME_CHAT_APPLY_OUTPUT_REGEX = "/api/runtime/chat/apply-output-regex";
     public static final String RUNTIME_CHAT_BUILD = "/api/runtime/chat/build";
     public static final String RUNTIME_CHAT_GENERATE = "/api/runtime/chat/generate";
     public static final String RUNTIME_CHAT_STOP = "/api/runtime/chat/stop";

@@ -7,6 +7,7 @@ public class AppConversation {
     private Long id;
     private Long userId;
     private Long characterId;
+    private Long activeBranchId;
     private String title;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -33,6 +34,14 @@ public class AppConversation {
 
     public void setCharacterId(Long characterId) {
         this.characterId = characterId;
+    }
+
+    public Long getActiveBranchId() {
+        return activeBranchId;
+    }
+
+    public void setActiveBranchId(Long activeBranchId) {
+        this.activeBranchId = activeBranchId;
     }
 
     public String getTitle() {

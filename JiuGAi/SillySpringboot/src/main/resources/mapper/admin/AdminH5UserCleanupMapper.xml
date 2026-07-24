@@ -23,19 +23,11 @@
         WHERE owner_user_id = #{userId}
     </select>
 
-    <select id="listUserAssetUrls" resultType="java.lang.String">
-        SELECT asset_url
-        FROM (
-            SELECT photo_url AS asset_url
-            FROM app_user
-            WHERE id = #{userId}
-            UNION ALL
-            SELECT avatar AS asset_url
-            FROM app_h5_user_profile_ext
-            WHERE user_id = #{userId}
-        ) assets
-        WHERE asset_url IS NOT NULL
-          AND TRIM(asset_url) != ''
+    <select id="listOwnedUploadRelativePaths" resultType="java.lang.String">
+        SELECT relative_path
+        FROM app_h5_upload_asset
+        WHERE owner_user_id = #{userId}
+        ORDER BY id
     </select>
 
     <delete id="deleteSupportTicketMessagesByUser">
@@ -142,6 +134,17 @@
            )
     </delete>
 
+    <delete id="deleteConversationMemoryEntriesByUser">
+        DELETE FROM app_conversation_memory_entry
+        WHERE conversation_id IN (
+            SELECT id FROM (
+                SELECT id
+                FROM app_conversation
+                WHERE user_id = #{userId}
+            ) c
+        )
+    </delete>
+
     <delete id="deleteConversationMemoriesByUser">
         DELETE FROM app_conversation_memory
         WHERE conversation_id IN (
@@ -189,8 +192,25 @@
            )
     </delete>
 
+    <delete id="deleteConversationBranchesByUser">
+        DELETE FROM app_conversation_branch
+        WHERE user_id = #{userId}
+           OR conversation_id IN (
+                SELECT id FROM (
+                    SELECT id
+                    FROM app_conversation
+                    WHERE user_id = #{userId}
+                ) c
+           )
+    </delete>
+
     <delete id="deleteConversationsByUser">
         DELETE FROM app_conversation
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deletePasswordResetTokensByUser">
+        DELETE FROM app_password_reset_token
         WHERE user_id = #{userId}
     </delete>
 
@@ -199,10 +219,44 @@
         WHERE user_id = #{userId}
     </delete>
 
+    <update id="anonymizeH5SecurityEventsByUser">
+        UPDATE app_h5_security_event
+        SET device_id = NULL,
+            client_uid = NULL,
+            user_id = NULL,
+            ip_address = NULL,
+            ua_hash = NULL,
+            detail = NULL
+        WHERE user_id = #{userId}
+           OR client_uid IN (
+                SELECT client_uid
+                FROM app_h5_client_uid
+                WHERE user_id = #{userId}
+           )
+           OR device_id IN (
+                SELECT id
+                FROM app_h5_visitor_device
+                WHERE first_user_id = #{userId}
+                   OR latest_user_id = #{userId}
+                   OR trusted_user_id = #{userId}
+                   OR first_client_uid IN (
+                        SELECT client_uid
+                        FROM app_h5_client_uid
+                        WHERE user_id = #{userId}
+                   )
+                   OR latest_client_uid IN (
+                        SELECT client_uid
+                        FROM app_h5_client_uid
+                        WHERE user_id = #{userId}
+                   )
+           )
+    </update>
+
     <delete id="deleteVisitorDevicesByUser">
         DELETE FROM app_h5_visitor_device
         WHERE first_user_id = #{userId}
            OR latest_user_id = #{userId}
+           OR trusted_user_id = #{userId}
            OR first_client_uid IN (
                 SELECT client_uid FROM (
                     SELECT client_uid
@@ -256,6 +310,11 @@
         WHERE user_id = #{userId}
     </delete>
 
+    <delete id="deleteOwnedUploadAssetsByUser">
+        DELETE FROM app_h5_upload_asset
+        WHERE owner_user_id = #{userId}
+    </delete>
+
     <delete id="deleteCharacterReviewLogsByOwner">
         DELETE FROM app_character_review_log
         WHERE owner_user_id = #{userId}
@@ -277,6 +336,18 @@
                 WHERE owner_user_id = #{userId}
             ) c
         )
+    </delete>
+
+    <delete id="deleteChatPreferencesRelatedToUser">
+        DELETE FROM app_user_chat_preference
+        WHERE user_id = #{userId}
+           OR character_id IN (
+                SELECT id FROM (
+                    SELECT id
+                    FROM app_character
+                    WHERE owner_user_id = #{userId}
+                ) c
+           )
     </delete>
 
     <delete id="deleteOwnedCharacters">

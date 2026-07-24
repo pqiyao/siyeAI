@@ -23,8 +23,6 @@ public class AppImageGenerationProperties {
 
     private StComfy stComfy = new StComfy();
 
-    private ManagedOpenAiCompatible managedOpenAiCompatible = new ManagedOpenAiCompatible();
-
     public String getEngine() {
         return engine;
     }
@@ -63,56 +61,6 @@ public class AppImageGenerationProperties {
 
     public void setStComfy(StComfy stComfy) {
         this.stComfy = stComfy == null ? new StComfy() : stComfy;
-    }
-
-    public ManagedOpenAiCompatible getManagedOpenAiCompatible() {
-        return managedOpenAiCompatible;
-    }
-
-    public void setManagedOpenAiCompatible(ManagedOpenAiCompatible managedOpenAiCompatible) {
-        this.managedOpenAiCompatible = managedOpenAiCompatible == null
-                ? new ManagedOpenAiCompatible()
-                : managedOpenAiCompatible;
-    }
-
-    public static class ManagedOpenAiCompatible {
-
-        private String providerSource = "siliconflow";
-        private String imageModelName = "";
-        private String apiKey = "";
-        private String customUrl = "";
-
-        public String getProviderSource() {
-            return providerSource;
-        }
-
-        public void setProviderSource(String providerSource) {
-            this.providerSource = providerSource == null ? "" : providerSource;
-        }
-
-        public String getImageModelName() {
-            return imageModelName;
-        }
-
-        public void setImageModelName(String imageModelName) {
-            this.imageModelName = imageModelName == null ? "" : imageModelName;
-        }
-
-        public String getApiKey() {
-            return apiKey;
-        }
-
-        public void setApiKey(String apiKey) {
-            this.apiKey = apiKey == null ? "" : apiKey;
-        }
-
-        public String getCustomUrl() {
-            return customUrl;
-        }
-
-        public void setCustomUrl(String customUrl) {
-            this.customUrl = customUrl == null ? "" : customUrl;
-        }
     }
 
     public static class StComfy {

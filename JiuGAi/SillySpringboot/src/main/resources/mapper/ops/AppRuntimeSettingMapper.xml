@@ -24,4 +24,8 @@
             setting_value = VALUES(setting_value),
             updated_at = CURRENT_TIMESTAMP
     </insert>
+
+    <delete id="deleteByKey">
+        DELETE FROM app_runtime_setting WHERE setting_key = #{settingKey}
+    </delete>
 </mapper>

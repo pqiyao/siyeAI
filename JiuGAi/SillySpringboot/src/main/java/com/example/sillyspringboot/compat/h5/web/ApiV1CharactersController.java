@@ -5,6 +5,7 @@ import com.example.sillyspringboot.character.dto.AppCharacterSummaryDto;
 import com.example.sillyspringboot.character.entity.AppCharacter;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.character.service.CharacterCatalogService;
+import com.example.sillyspringboot.character.service.CharacterPublicProfileService;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.compat.h5.service.H5SocialService;
 import com.example.sillyspringboot.compat.h5.service.H5StAssetUrls;
@@ -42,6 +43,7 @@ public class ApiV1CharactersController {
     private final H5StAssetUrls stAssetUrls;
     private final TagLibraryService tagLibraryService;
     private final H5EntitlementService entitlementService;
+    private final CharacterPublicProfileService publicProfileService;
 
     public ApiV1CharactersController(
             CharacterCatalogService catalogService,
@@ -52,7 +54,8 @@ public class ApiV1CharactersController {
             StAdapter stAdapter,
             H5StAssetUrls stAssetUrls,
             TagLibraryService tagLibraryService,
-            H5EntitlementService entitlementService
+            H5EntitlementService entitlementService,
+            CharacterPublicProfileService publicProfileService
     ) {
         this.catalogService = catalogService;
         this.characterMapper = characterMapper;
@@ -63,6 +66,7 @@ public class ApiV1CharactersController {
         this.stAssetUrls = stAssetUrls;
         this.tagLibraryService = tagLibraryService;
         this.entitlementService = entitlementService;
+        this.publicProfileService = publicProfileService;
     }
 
     @GetMapping("")
@@ -224,13 +228,15 @@ public class ApiV1CharactersController {
             return true;
         }
         if (contains(item.name(), query)
+                || contains(item.publicSummary(), query)
                 || contains(item.description(), query)
                 || contains(item.tagline(), query)
                 || contains(item.bio(), query)
                 || contains(item.occupationLabel(), query)
                 || contains(item.gameplayType(), query)
+                || CharacterJsonSupport.tagsJsonMatches(item.publicTagsJson(), query)
                 || CharacterJsonSupport.tagsJsonMatches(item.tagsJson(), query)
-                || matchesResolvedLabels(item.tagsJson(), query)) {
+                || matchesResolvedLabels(preferredTagsJson(item.publicTagsJson(), item.tagsJson()), query)) {
             return true;
         }
         return false;
@@ -240,13 +246,15 @@ public class ApiV1CharactersController {
         if (tag.isBlank()) {
             return true;
         }
-        if (CharacterJsonSupport.tagsJsonMatches(item.tagsJson(), tag)) {
+        String tagsJson = preferredTagsJson(item.publicTagsJson(), item.tagsJson());
+        if (CharacterJsonSupport.tagsJsonMatches(tagsJson, tag)) {
             return true;
         }
-        if (matchesResolvedLabels(item.tagsJson(), tag)) {
+        if (matchesResolvedLabels(tagsJson, tag)) {
             return true;
         }
         return contains(item.name(), tag)
+                || contains(item.publicSummary(), tag)
                 || contains(item.description(), tag)
                 || contains(item.bio(), tag)
                 || contains(item.tagline(), tag)
@@ -273,7 +281,9 @@ public class ApiV1CharactersController {
         if (item.gameplayType() != null && !item.gameplayType().isBlank()) {
             return CharacterJsonSupport.gameplayMatches(item.gameplayType(), gameplay);
         }
-        return contains(item.name(), gameplay) || contains(item.description(), gameplay);
+        return contains(item.name(), gameplay)
+                || contains(item.publicSummary(), gameplay)
+                || contains(item.description(), gameplay);
     }
 
     private Map<String, Object> toDiscoverCard(
@@ -295,16 +305,21 @@ public class ApiV1CharactersController {
                 item.stAvatarUrl(),
                 "card"
         );
-        String rawDesc = firstNonBlank(item.tagline(), item.bio(), item.description());
+        String rawDesc = firstNonBlank(item.publicSummary(), item.tagline(), item.bio(), item.description());
         String shortDesc = shortDescriptionForDiscoverCard(rawDesc);
+        String tagsJson = preferredTagsJson(item.publicTagsJson(), item.tagsJson());
 
         card.put("id", item.characterId());
         card.put("sort_order", item.sortOrder());
         card.put("name", item.name());
         card.put("nickname", item.name());
         card.put("description", shortDesc);
-        card.put("tagline", blankToDefault(item.tagline(), shortDesc));
-        card.put("bio", blankToDefault(item.bio(), shortDesc));
+        card.put("tagline", shortDesc);
+        card.put("bio", shortDesc);
+        card.put("public_summary", shortDesc);
+        card.put("public_warnings", CharacterJsonSupport.parseStringArrayJson(item.publicWarningsJson()));
+        card.put("health_score", item.healthScore() != null ? item.healthScore() : 0);
+        card.put("health_issues", CharacterJsonSupport.parseStringArrayJson(item.healthIssuesJson()));
         card.put("avatar_url", item.stAvatarUrl());
         card.put("avatar", portrait);
         card.put("cover", portrait);
@@ -323,7 +338,7 @@ public class ApiV1CharactersController {
         card.put("vip_only", Boolean.TRUE.equals(item.vipOnly()));
         card.put("client_visible", !Boolean.FALSE.equals(item.clientVisible()));
         card.put("private_card", false);
-        card.put("label_array", tagLibraryService.buildDiscoverLabelArray(item.tagsJson()));
+        card.put("label_array", tagLibraryService.buildDiscoverLabelArray(tagsJson));
         card.put("occupation_arr", blankToDefault(item.occupationLabel(), ""));
         card.put("token_display", blankToDefault(item.tokenDisplay(), "<2000"));
         card.put("gameplay_type", blankToDefault(item.gameplayType(), "对手戏"));
@@ -338,6 +353,53 @@ public class ApiV1CharactersController {
         card.put("user_vote", "");
         applyPreviewBlurState(card, item.previewBlurVipLevel(), viewerVipLevel);
         return card;
+    }
+
+    private Map<String, Object> buildPublicDetailProfile(
+            AppCharacter row,
+            StCharacterDetail detail,
+            String cleanSummary
+    ) {
+        Map<String, Object> profile = new LinkedHashMap<>();
+        String detailDescription = detail != null ? detail.description() : "";
+        String openingSource = firstNonBlank(
+                row.getFirstMessage(),
+                detail != null ? detail.firstMes() : ""
+        );
+        String personalitySource = firstNonBlank(
+                row.getPersona(),
+                detail != null ? detail.personality() : "",
+                detailDescription
+        );
+        String scenarioSource = firstNonBlank(
+                row.getScenario(),
+                detail != null ? detail.scenario() : "",
+                openingSource
+        );
+        String summary = publicProfileService.cleanPublicSection(
+                firstNonBlank(detailDescription, cleanSummary), 420);
+        if (summary.isBlank()) {
+            summary = publicProfileService.cleanPublicSection(cleanSummary, 420);
+        }
+        String personality = publicProfileService.cleanPublicSection(personalitySource, 520);
+        String scenario = publicProfileService.cleanPublicSection(scenarioSource, 760);
+        String opening = publicProfileService.cleanPublicSection(openingSource, 800);
+        String relationshipHook = publicProfileService.buildRelationshipHook(
+                scenarioSource,
+                detailDescription,
+                personalitySource,
+                openingSource
+        );
+        String oneLiner = publicProfileService.cleanPublicSection(
+                firstNonBlank(row.getTagline(), row.getOccupationLabel(), summary), 72);
+        profile.put("oneLiner", oneLiner);
+        profile.put("summary", summary);
+        profile.put("personality", personality);
+        profile.put("scenario", scenario);
+        profile.put("relationshipHook", relationshipHook);
+        profile.put("openingPreview", opening);
+        profile.put("warnings", CharacterJsonSupport.parseStringArrayJson(row.getPublicWarningsJson()));
+        return profile;
     }
 
     private Map<String, Object> toDetailCard(
@@ -367,17 +429,28 @@ public class ApiV1CharactersController {
                 "detail"
         );
         String name = row.getName();
-        String bio = row.getBio() != null && !row.getBio().isBlank() ? row.getBio() : row.getDescription();
+        boolean privateOwnedCard = row.getOwnerUserId() != null || Boolean.TRUE.equals(row.getPrivateCard());
+        String cleanSummary = firstNonBlank(row.getPublicSummary(), row.getTagline(), row.getBio(), row.getDescription());
+        String bio = privateOwnedCard
+                ? firstNonBlank(row.getBio(), row.getDescription(), cleanSummary)
+                : cleanSummary;
         if (bio == null) {
             bio = "";
         }
-        String tagline = row.getTagline() != null && !row.getTagline().isBlank() ? row.getTagline() : bio;
+        String tagline = privateOwnedCard
+                ? firstNonBlank(row.getTagline(), bio, cleanSummary)
+                : cleanSummary;
+        String tagsJson = preferredTagsJson(row.getPublicTagsJson(), row.getTagsJson());
 
         card.put("id", row.getId());
         card.put("sort_order", row.getSortOrder() != null ? row.getSortOrder() : 0);
         card.put("name", name);
         card.put("nickname", name);
         card.put("description", bio);
+        card.put("public_summary", cleanSummary);
+        card.put("public_warnings", CharacterJsonSupport.parseStringArrayJson(row.getPublicWarningsJson()));
+        card.put("health_score", row.getHealthScore() != null ? row.getHealthScore() : 0);
+        card.put("health_issues", CharacterJsonSupport.parseStringArrayJson(row.getHealthIssuesJson()));
         card.put("avatar_url", row.getStAvatarUrl());
         card.put("avatar", portrait);
         card.put("cover", portrait);
@@ -387,6 +460,7 @@ public class ApiV1CharactersController {
         card.put("chat_background_url", stAssetUrls.resolve(firstNonBlank(row.getChatBackgroundUrl(), row.getCoverUrl(), "")));
         card.put("tagline", tagline);
         card.put("bio", bio);
+        card.put("public_profile", buildPublicDetailProfile(row, detail, cleanSummary));
         card.put("creator", blankToDefault(row.getCreatorName(), "SillyTavern"));
         card.put("creator_handle", formatCreatorHandle(row.getCreatorHandle()));
         card.put("unlocked", access.unlocked());
@@ -394,7 +468,7 @@ public class ApiV1CharactersController {
         card.put("lock_reason", access.lockReason());
         card.put("client_visible", !Boolean.FALSE.equals(row.getClientVisible()));
         card.put("private_card", Boolean.TRUE.equals(row.getPrivateCard()));
-        card.put("label_array", tagLibraryService.buildDetailLabelArrayFromJson(row.getTagsJson()));
+        card.put("label_array", tagLibraryService.buildDetailLabelArrayFromJson(tagsJson));
         card.put("occupation_arr", blankToDefault(row.getOccupationLabel(), ""));
         card.put("token_display", blankToDefault(row.getTokenDisplay(), "<2000"));
         card.put("gameplay_type", blankToDefault(row.getGameplayType(), "对手戏"));
@@ -406,7 +480,7 @@ public class ApiV1CharactersController {
                 card.put("nickname", detail.name());
                 card.put("name", detail.name());
             }
-            if (detail.description() != null && !detail.description().isBlank()) {
+            if (privateOwnedCard && detail.description() != null && !detail.description().isBlank()) {
                 if (row.getBio() == null || row.getBio().isBlank()) {
                     card.put("description", detail.description());
                     card.put("bio", detail.description());
@@ -415,10 +489,10 @@ public class ApiV1CharactersController {
                     card.put("tagline", detail.description());
                 }
             }
-            card.put("persona", firstNonBlank(detail.personality(), row.getPersona(), ""));
-            card.put("scenario", firstNonBlank(detail.scenario(), row.getScenario(), ""));
-            card.put("first_message", firstNonBlank(detail.firstMes(), row.getFirstMessage(), ""));
-            if (CharacterJsonSupport.parseStringArrayJson(row.getTagsJson()).isEmpty()) {
+            card.put("persona", privateOwnedCard ? firstNonBlank(detail.personality(), row.getPersona(), "") : "");
+            card.put("scenario", privateOwnedCard ? firstNonBlank(detail.scenario(), row.getScenario(), "") : "");
+            card.put("first_message", privateOwnedCard ? firstNonBlank(detail.firstMes(), row.getFirstMessage(), "") : "");
+            if (CharacterJsonSupport.parseStringArrayJson(tagsJson).isEmpty()) {
                 List<String> tags = detail.tags();
                 if (tags != null && !tags.isEmpty()) {
                     List<Map<String, String>> labels = tagLibraryService.buildDetailLabelArray(tags);
@@ -428,9 +502,9 @@ public class ApiV1CharactersController {
                 }
             }
         } else {
-            card.put("persona", blankToDefault(row.getPersona(), ""));
-            card.put("scenario", blankToDefault(row.getScenario(), ""));
-            card.put("first_message", blankToDefault(row.getFirstMessage(), ""));
+            card.put("persona", privateOwnedCard ? blankToDefault(row.getPersona(), "") : "");
+            card.put("scenario", privateOwnedCard ? blankToDefault(row.getScenario(), "") : "");
+            card.put("first_message", privateOwnedCard ? blankToDefault(row.getFirstMessage(), "") : "");
         }
 
         if (!access.unlocked()) {
@@ -488,14 +562,23 @@ public class ApiV1CharactersController {
         return value != null && value.toLowerCase(Locale.ROOT).contains(query);
     }
 
-    private static String firstNonBlank(String a, String b, String c) {
-        if (a != null && !a.isBlank()) {
-            return a;
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
         }
-        if (b != null && !b.isBlank()) {
-            return b;
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
         }
-        return c == null ? "" : c;
+        return "";
+    }
+
+    private static String preferredTagsJson(String publicTagsJson, String rawTagsJson) {
+        if (publicTagsJson != null && !publicTagsJson.isBlank() && !"[]".equals(publicTagsJson.trim())) {
+            return publicTagsJson;
+        }
+        return rawTagsJson == null ? "" : rawTagsJson;
     }
 
     private static String blankToDefault(String value, String def) {

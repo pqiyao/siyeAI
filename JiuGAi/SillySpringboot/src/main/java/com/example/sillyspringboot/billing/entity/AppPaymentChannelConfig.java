@@ -11,6 +11,8 @@ public class AppPaymentChannelConfig {
     private Boolean enabled;
     private Boolean clientVisible;
     private String note;
+    private String configCipher;
+    private LocalDateTime configUpdatedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -76,6 +78,22 @@ public class AppPaymentChannelConfig {
 
     public void setNote(String note) {
         this.note = note;
+    }
+
+    public String getConfigCipher() {
+        return configCipher;
+    }
+
+    public void setConfigCipher(String configCipher) {
+        this.configCipher = configCipher;
+    }
+
+    public LocalDateTime getConfigUpdatedAt() {
+        return configUpdatedAt;
+    }
+
+    public void setConfigUpdatedAt(LocalDateTime configUpdatedAt) {
+        this.configUpdatedAt = configUpdatedAt;
     }
 
     public LocalDateTime getCreatedAt() {

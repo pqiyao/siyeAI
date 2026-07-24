@@ -10,4 +10,6 @@ public interface AppRuntimeSettingMapper {
     AppRuntimeSetting findByKey(@Param("settingKey") String settingKey);
 
     void upsert(@Param("settingKey") String settingKey, @Param("settingValue") String settingValue);
+
+    int deleteByKey(@Param("settingKey") String settingKey);
 }

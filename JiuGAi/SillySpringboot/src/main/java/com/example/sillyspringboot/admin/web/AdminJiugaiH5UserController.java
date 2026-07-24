@@ -32,6 +32,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/admin/jiugai/h5-user")
@@ -100,6 +101,7 @@ public class AdminJiugaiH5UserController {
         if (data == null || data.isEmpty()) {
             return AdminAjaxResult.error("用户不存在");
         }
+        addExpectedFinancialSnapshot(data);
         data.put("conversations", normalizeConversationRows(adminH5UserMapper.listRecentConversationsByUser(id, 20)));
         Map<String, Object> result = AdminAjaxResult.ok();
         result.put("data", data);
@@ -108,22 +110,40 @@ public class AdminJiugaiH5UserController {
 
     @PutMapping
     @AdminPermitted({"commerce:user:update", "commerce:user:edit"})
+    @Transactional
     public Map<String, Object> update(@RequestBody(required = false) Map<String, Object> body) {
         if (body == null) {
             return AdminAjaxResult.error("请求体不能为空");
         }
         Long id = longVal(body.get("id"));
-        Map<String, Object> before = id == null ? null : adminH5UserMapper.findDetail(id);
-        if (id == null || before == null || before.isEmpty()) {
+        if (id == null || id <= 0) {
             return AdminAjaxResult.error("用户不存在");
         }
-
-        AppH5UserProfileExt ext = profileExtMapper.findByUserId(id);
-        AppH5Profile profile = profileMapper.findByUserId(id);
-        if (ext == null) {
-            ext = new AppH5UserProfileExt();
-            ext.setUserId(id);
+        FinancialSnapshot expected = parseExpectedFinancialSnapshot(body);
+        if (expected == null) {
+            return AdminAjaxResult.error("编辑数据缺少或包含无效的并发校验快照，请重新打开用户详情");
         }
+
+        AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(id);
+        if (ext == null) {
+            if (!matchesFinancialSnapshot(null, expected)) {
+                return financialConflictResult();
+            }
+            profileExtMapper.insertDefaultIfAbsent(id);
+            ext = profileExtMapper.findByUserIdForUpdate(id);
+        }
+        if (ext == null) {
+            return AdminAjaxResult.error("用户不存在");
+        }
+        if (!matchesFinancialSnapshot(ext, expected)) {
+            return financialConflictResult();
+        }
+
+        Map<String, Object> before = adminH5UserMapper.findDetail(id);
+        if (before == null || before.isEmpty()) {
+            return AdminAjaxResult.error("用户不存在");
+        }
+        AppH5Profile profile = profileMapper.findByUserId(id);
 
         int vipType = intVal(body.get("vipType"), 0);
         LocalDateTime vipExpiresAt = parseDateTime(body.get("vipExpiresAt"));
@@ -137,13 +157,19 @@ public class AdminJiugaiH5UserController {
             vipExpiresAt = null;
         }
 
+        int score = intVal(body.get("score"), ext.getScore() == null ? 0 : ext.getScore());
+        int goldCoin = intVal(body.get("goldCoin"), ext.getGoldCoin() == null ? 0 : ext.getGoldCoin());
+        if (score < 0 || goldCoin < 0) {
+            return AdminAjaxResult.error("钱包余额不能为负数");
+        }
+
         ext.setNickname(str(body.get("nickname")));
         ext.setAvatar(str(body.get("avatar")));
         ext.setBio(str(body.get("bio")));
         ext.setVipType(vipType);
         ext.setVipExpiresAt(vipExpiresAt);
-        ext.setScore(intVal(body.get("score"), 0));
-        ext.setGoldCoin(intVal(body.get("goldCoin"), 0));
+        ext.setScore(score);
+        ext.setGoldCoin(goldCoin);
         ext.setChatQuotaOverride(nullableInt(body.get("chatQuotaOverride")));
         ext.setImageQuotaOverride(nullableInt(body.get("imageQuotaOverride")));
         if (body.containsKey("dailyChatQuota") && !body.containsKey("chatQuotaOverride")) {
@@ -169,6 +195,8 @@ public class AdminJiugaiH5UserController {
         ext.setLabel(str(body.get("label")));
 
         profileExtMapper.upsert(ext);
+        profileExtMapper.setWalletBalances(id, score, goldCoin);
+        profileExtMapper.setMembership(id, vipType, vipExpiresAt);
         String persona = body.containsKey("persona")
                 ? str(body.get("persona"))
                 : (profile == null ? "" : str(profile.getPersona()));
@@ -272,12 +300,20 @@ public class AdminJiugaiH5UserController {
         }
         Map<String, Object> summary = userLifecycleService.deleteUsers(userIds);
         int failedCount = intVal(summary.get("failedCount"), 0);
+        int cleanupWarningCount = intVal(summary.get("cleanupWarningCount"), 0);
         String message = "已删除 " + summary.get("deleted") + " / " + summary.get("requested") + " 个用户";
         if (failedCount > 0) {
             String firstReason = firstFailureReason(summary.get("failed"));
             message = message + "，失败 " + failedCount + " 个";
             if (!firstReason.isBlank()) {
                 message = message + "，" + firstReason;
+            }
+        }
+        if (cleanupWarningCount > 0) {
+            String firstCleanupWarning = firstFailureReason(summary.get("cleanupWarnings"));
+            message = message + "，外部资源清理警告 " + cleanupWarningCount + " 项";
+            if (!firstCleanupWarning.isBlank()) {
+                message = message + "，" + firstCleanupWarning;
             }
         }
         Map<String, Object> result = AdminAjaxResult.ok(message);
@@ -447,5 +483,81 @@ public class AdminJiugaiH5UserController {
             return null;
         }
     }
+
+    private static void addExpectedFinancialSnapshot(Map<String, Object> data) {
+        data.put("expectedScore", intVal(data.get("score"), 0));
+        data.put("expectedGoldCoin", intVal(data.get("goldCoin"), 0));
+        data.put("expectedVipType", intVal(data.get("vipType"), 0));
+        data.put("expectedVipExpiresAt", str(data.get("vipExpiresAt")));
+    }
+
+    private static FinancialSnapshot parseExpectedFinancialSnapshot(Map<String, Object> body) {
+        if (!body.containsKey("expectedScore")
+                || !body.containsKey("expectedGoldCoin")
+                || !body.containsKey("expectedVipType")
+                || !body.containsKey("expectedVipExpiresAt")) {
+            return null;
+        }
+        Integer score = strictInteger(body.get("expectedScore"));
+        Integer goldCoin = strictInteger(body.get("expectedGoldCoin"));
+        Integer vipType = strictInteger(body.get("expectedVipType"));
+        String expiresAtText = str(body.get("expectedVipExpiresAt"));
+        LocalDateTime vipExpiresAt = parseDateTime(expiresAtText);
+        if (score == null || score < 0 || goldCoin == null || goldCoin < 0 || vipType == null || vipType < 0) {
+            return null;
+        }
+        if (!expiresAtText.isBlank() && vipExpiresAt == null) {
+            return null;
+        }
+        return new FinancialSnapshot(score, goldCoin, vipType, normalizeFinancialTime(vipExpiresAt));
+    }
+
+    private static Integer strictInteger(Object value) {
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer) {
+            return ((Number) value).intValue();
+        }
+        if (value instanceof Long number) {
+            long raw = number.longValue();
+            return raw >= Integer.MIN_VALUE && raw <= Integer.MAX_VALUE ? (int) raw : null;
+        }
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static boolean matchesFinancialSnapshot(AppH5UserProfileExt ext, FinancialSnapshot expected) {
+        int score = ext == null || ext.getScore() == null ? 0 : ext.getScore();
+        int goldCoin = ext == null || ext.getGoldCoin() == null ? 0 : ext.getGoldCoin();
+        int vipType = ext == null || ext.getVipType() == null ? 0 : ext.getVipType();
+        LocalDateTime vipExpiresAt = normalizeFinancialTime(ext == null ? null : ext.getVipExpiresAt());
+        return score == expected.score()
+                && goldCoin == expected.goldCoin()
+                && vipType == expected.vipType()
+                && Objects.equals(vipExpiresAt, expected.vipExpiresAt());
+    }
+
+    private static LocalDateTime normalizeFinancialTime(LocalDateTime value) {
+        return value == null ? null : value.withNano(0);
+    }
+
+    private static Map<String, Object> financialConflictResult() {
+        return AdminAjaxResult.error("用户钱包或会员权益已发生变化，请关闭编辑窗口并重新打开后再保存");
+    }
+
+    private record FinancialSnapshot(
+            int score,
+            int goldCoin,
+            int vipType,
+            LocalDateTime vipExpiresAt
+    ) {}
 }
 

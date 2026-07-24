@@ -26,6 +26,8 @@ public class AppChatRegenerateRequest {
 
     private List<String> avoidExpressionHints;
 
+    private String replySplitMode;
+
     public Long getConversationId() {
         return conversationId;
     }
@@ -64,6 +66,14 @@ public class AppChatRegenerateRequest {
 
     public void setAvoidExpressionHints(List<String> avoidExpressionHints) {
         this.avoidExpressionHints = avoidExpressionHints;
+    }
+
+    public String getReplySplitMode() {
+        return replySplitMode;
+    }
+
+    public void setReplySplitMode(String replySplitMode) {
+        this.replySplitMode = replySplitMode;
     }
 }
 

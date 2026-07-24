@@ -3,6 +3,7 @@ package com.example.sillyspringboot.chat.web;
 import com.example.sillyspringboot.chat.service.AppChatFrontendBridgeService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,6 +16,11 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 @RestController
+@ConditionalOnProperty(
+        prefix = "app.chat.compatibility",
+        name = "frontend-bridge-enabled",
+        havingValue = "true"
+)
 @RequestMapping("/api/internal/st-frontend-bridge")
 public class StFrontendBridgeController {
 

@@ -1,6 +1,8 @@
 package com.example.sillyspringboot.admin.web;
 
 import com.example.sillyspringboot.admin.config.RuoYiAdminProperties;
+import com.example.sillyspringboot.admin.security.AdminCaptchaService;
+import com.example.sillyspringboot.admin.security.AdminLoginAttemptService;
 import com.example.sillyspringboot.admin.security.RuoYiAdminAccessService;
 import com.example.sillyspringboot.admin.security.RuoYiAdminJwtService;
 import com.example.sillyspringboot.admin.service.AdminIdentityService;
@@ -23,32 +25,57 @@ public class RuoYiShellAuthController {
     private final RuoYiAdminJwtService jwtService;
     private final RuoYiAdminAccessService accessService;
     private final AdminIdentityService identityService;
+    private final AdminCaptchaService captchaService;
+    private final AdminLoginAttemptService loginAttemptService;
 
     public RuoYiShellAuthController(
             RuoYiAdminProperties props,
             RuoYiAdminJwtService jwtService,
             RuoYiAdminAccessService accessService,
-            AdminIdentityService identityService
+            AdminIdentityService identityService,
+            AdminCaptchaService captchaService,
+            AdminLoginAttemptService loginAttemptService
     ) {
         this.props = props;
         this.jwtService = jwtService;
         this.accessService = accessService;
         this.identityService = identityService;
+        this.captchaService = captchaService;
+        this.loginAttemptService = loginAttemptService;
     }
 
     @PostMapping("/login")
     public Map<String, Object> login(@RequestBody Map<String, String> body, HttpServletRequest request) {
         String username = body == null ? null : body.get("username");
         String password = body == null ? null : body.get("password");
+        String attemptKey = loginAttemptService.keyFor(username, request);
+        AdminLoginAttemptService.AttemptDecision currentDecision = loginAttemptService.check(attemptKey);
+        if (!currentDecision.allowed()) {
+            return AdminAjaxResult.tooManyRequests(
+                    "登录失败次数过多，请在 " + currentDecision.retryAfterSeconds() + " 秒后重试"
+            );
+        }
         if (props.isCaptchaEnabled()) {
-            return AdminAjaxResult.error("Captcha is not enabled on this admin portal.");
+            String uuid = body == null ? null : body.get("uuid");
+            String code = body == null ? null : body.get("code");
+            if (!captchaService.verifyAndConsume(uuid, code)) {
+                loginAttemptService.recordFailure(attemptKey);
+                return AdminAjaxResult.error("验证码错误或已过期");
+            }
         }
         RuoYiAdminAccessService.AdminSession session = accessService.authenticate(username, password);
         if (session == null) {
+            AdminLoginAttemptService.AttemptDecision failureDecision = loginAttemptService.recordFailure(attemptKey);
+            if (!failureDecision.allowed()) {
+                return AdminAjaxResult.tooManyRequests(
+                        "登录失败次数过多，请在 " + failureDecision.retryAfterSeconds() + " 秒后重试"
+                );
+            }
             return AdminAjaxResult.error("Invalid username or password");
         }
         String token = jwtService.createToken(session.getUsername());
         identityService.recordLoginSuccess(session.getId(), request == null ? null : request.getRemoteAddr());
+        loginAttemptService.recordSuccess(attemptKey);
         Map<String, Object> result = AdminAjaxResult.ok("Login success");
         result.put("token", token);
         return result;
@@ -57,7 +84,12 @@ public class RuoYiShellAuthController {
     @GetMapping("/captchaImage")
     public Map<String, Object> captchaImage() {
         Map<String, Object> result = AdminAjaxResult.ok();
-        result.put("captchaEnabled", false);
+        result.put("captchaEnabled", props.isCaptchaEnabled());
+        if (props.isCaptchaEnabled()) {
+            AdminCaptchaService.CaptchaChallenge challenge = captchaService.createChallenge();
+            result.put("uuid", challenge.uuid());
+            result.put("img", challenge.imageBase64());
+        }
         return result;
     }
 
@@ -100,7 +132,10 @@ public class RuoYiShellAuthController {
         contentChildren.add(routeChild("JgLorebook", "lorebook", "jiugai/lorebook/index", "\u4e16\u754c\u4e66", "documentation", "content:lorebook:view"));
         contentChildren.add(routeChild("JgChatPreset", "chatpreset", "jiugai/chatpreset/index", "\u804a\u5929\u9884\u8bbe", "dict", "content:chat-preset:view"));
         contentChildren.add(routeChild("JgOpenRouter", "openrouter", "jiugai/openrouter/index", "\u6a21\u578b\u8def\u7531", "server", "ops:openrouter:view"));
+        contentChildren.add(routeChild("JgMediaCenter", "media", "jiugai/media/index", "AI 媒体中心", "component", "ops:media:view"));
         contentChildren.add(routeChild("JgAiLog", "ailog", "jiugai/ailog/index", "AI \u65e5\u5fd7", "log", "ops:ailog:view"));
+        contentChildren.add(routeChild("JgChatRuntime", "chatruntime", "jiugai/chatruntime/index", "\u804a\u5929\u8fd0\u884c\u4e2d\u5fc3", "monitor", "ops:chat-runtime:view"));
+        contentChildren.add(routeChild("JgVisitorRisk", "visitorrisk", "jiugai/visitorrisk/index", "\u8bbf\u5ba2\u98ce\u9669", "shield", "ops:visitor-risk:view"));
         contentOps.put("children", filterChildrenByPermission(contentChildren, session.getPermissions()));
 
         Map<String, Object> illustrationOps = routeParent("JiugaiIllustrationSite", "/jiugai/illustration", "\u63d2\u753b\u7f51\u7ad9", "color");
@@ -113,11 +148,13 @@ public class RuoYiShellAuthController {
         Map<String, Object> commerceOps = routeParent("JiugaiCommerce", "/jiugai/commerce", "\u5546\u4e1a\u8fd0\u8425", "chart");
         List<Map<String, Object>> commerceChildren = new ArrayList<>();
         commerceChildren.add(routeChild("JgEntitlement", "entitlement", "jiugai/entitlement/index", "\u6743\u76ca\u7b56\u7565", "star", "commerce:entitlement:view"));
+        commerceChildren.add(routeChild("JgCheckin", "checkin", "jiugai/checkin/index", "\u6bcf\u65e5\u7b7e\u5230", "date", "commerce:checkin:view"));
         commerceChildren.add(routeChild("JgEntitlementLog", "entitlementlog", "jiugai/entitlementlog/index", "\u6743\u76ca\u65e5\u5fd7", "clipboard", "commerce:entitlement-log:view"));
         commerceChildren.add(routeChild("JgH5User", "h5user", "jiugai/h5user/index", "\u7528\u6237\u7ba1\u7406", "people", "commerce:user:view"));
         commerceChildren.add(routeChild("JgStoreProduct", "storeproduct", "jiugai/storeproduct/index", "\u5546\u54c1\u7ba1\u7406", "shopping", "commerce:product:view"));
         commerceChildren.add(routeChild("JgPaymentChannel", "paymentchannel", "jiugai/paymentchannel/index", "\u652f\u4ed8\u6e20\u9053", "money", "commerce:payment:view"));
         commerceChildren.add(routeChild("JgStoreOrder", "storeorder", "jiugai/storeorder/index", "\u8ba2\u5355\u7ba1\u7406", "money", "commerce:order:view"));
+        commerceChildren.add(routeChild("JgWalletLedger", "walletledger", "jiugai/walletledger/index", "钱包流水", "money", "commerce:wallet:view"));
         commerceChildren.add(routeChild("JgSupportTicket", "supportticket", "jiugai/supportticket/index", "\u5ba2\u670d\u5de5\u5355", "message", "support:ticket:list"));
         commerceOps.put("children", filterChildrenByPermission(commerceChildren, session.getPermissions()));
 
@@ -126,6 +163,7 @@ public class RuoYiShellAuthController {
         systemChildren.add(routeChild("JgAdminAccount", "adminaccount", "jiugai/adminaccount/index", "\u7ba1\u7406\u5458\u8d26\u53f7", "user", "system:admin-user:view"));
         systemChildren.add(routeChild("JgAdminRole", "adminrole", "jiugai/adminrole/index", "\u7ba1\u7406\u5458\u89d2\u8272", "peoples", "system:admin-role:view"));
         systemChildren.add(routeChild("JgNotice", "notice", "jiugai/notice/index", "\u7cfb\u7edf\u516c\u544a", "bell", "system:notice:view"));
+        systemChildren.add(routeChild("JgInboxAd", "inboxad", "jiugai/inboxad/index", "\u4f1a\u8bdd\u5e7f\u544a", "money", "system:inbox-ad:view"));
         systemChildren.add(routeChild("JgPermissionLog", "permissionlog", "jiugai/permissionlog/index", "\u6743\u9650\u53d8\u66f4\u65e5\u5fd7", "log", "system:permission-log:view", "system:admin-role:view", "system:admin-user:view"));
         systemOps.put("children", filterChildrenByPermission(systemChildren, session.getPermissions()));
 

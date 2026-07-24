@@ -51,6 +51,10 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
         <!-- 若依 Vue3 壳：与 JG 相同的 HS256 Admin JWT -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>

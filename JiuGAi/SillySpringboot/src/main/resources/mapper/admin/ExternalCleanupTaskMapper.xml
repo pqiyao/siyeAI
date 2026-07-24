@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.ExternalCleanupTaskMapper">
+
+    <sql id="columns">
+        id,
+        task_key AS taskKey,
+        source_user_id AS sourceUserId,
+        resource_type AS resourceType,
+        primary_ref AS primaryRef,
+        secondary_ref AS secondaryRef,
+        status,
+        attempt_count AS attemptCount,
+        max_attempts AS maxAttempts,
+        next_attempt_at AS nextAttemptAt,
+        last_attempt_at AS lastAttemptAt,
+        locked_until AS lockedUntil,
+        lock_token AS lockToken,
+        last_error AS lastError,
+        completed_at AS completedAt,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+    </sql>
+
+    <insert id="insertOrKeep">
+        INSERT INTO app_external_cleanup_task (
+            id,
+            task_key,
+            source_user_id,
+            resource_type,
+            primary_ref,
+            secondary_ref,
+            status,
+            attempt_count,
+            max_attempts,
+            next_attempt_at
+        ) VALUES (
+            #{task.id},
+            #{task.taskKey},
+            #{task.sourceUserId},
+            #{task.resourceType},
+            #{task.primaryRef},
+            #{task.secondaryRef},
+            #{task.status},
+            #{task.attemptCount},
+            #{task.maxAttempts},
+            #{task.nextAttemptAt}
+        )
+        ON DUPLICATE KEY UPDATE task_key = VALUES(task_key)
+    </insert>
+
+    <select id="findById" resultType="com.example.sillyspringboot.admin.model.ExternalCleanupTask">
+        SELECT <include refid="columns"/>
+        FROM app_external_cleanup_task
+        WHERE id = #{id}
+    </select>
+
+    <select id="findByTaskKey" resultType="com.example.sillyspringboot.admin.model.ExternalCleanupTask">
+        SELECT <include refid="columns"/>
+        FROM app_external_cleanup_task
+        WHERE task_key = #{taskKey}
+    </select>
+
+    <select id="listDueTasks" resultType="com.example.sillyspringboot.admin.model.ExternalCleanupTask">
+        SELECT <include refid="columns"/>
+        FROM app_external_cleanup_task
+        WHERE attempt_count &lt; max_attempts
+          AND (
+                (status IN ('PENDING', 'RETRY') AND next_attempt_at &lt;= #{now})
+             OR (status = 'PROCESSING' AND locked_until &lt;= #{now})
+          )
+        ORDER BY
+            CASE WHEN status = 'PROCESSING' THEN 0 ELSE 1 END,
+            COALESCE(locked_until, next_attempt_at),
+            created_at,
+            id
+        LIMIT #{limit}
+    </select>
+
+    <update id="claimTask">
+        UPDATE app_external_cleanup_task
+        SET status = 'PROCESSING',
+            attempt_count = attempt_count + 1,
+            last_attempt_at = #{now},
+            locked_until = #{lockedUntil},
+            lock_token = #{lockToken},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND attempt_count &lt; max_attempts
+          AND (
+                (status IN ('PENDING', 'RETRY') AND next_attempt_at &lt;= #{now})
+             OR (status = 'PROCESSING' AND locked_until &lt;= #{now})
+          )
+    </update>
+
+    <update id="markCompleted">
+        UPDATE app_external_cleanup_task
+        SET status = 'COMPLETED',
+            next_attempt_at = NULL,
+            locked_until = NULL,
+            lock_token = NULL,
+            last_error = NULL,
+            completed_at = #{completedAt},
+            updated_at = #{completedAt}
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_token = #{lockToken}
+    </update>
+
+    <update id="markFailed">
+        UPDATE app_external_cleanup_task
+        SET status = #{status},
+            next_attempt_at = #{nextAttemptAt},
+            locked_until = NULL,
+            lock_token = NULL,
+            last_error = #{lastError},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_token = #{lockToken}
+    </update>
+
+    <update id="expireExhaustedProcessingTasks">
+        UPDATE app_external_cleanup_task
+        SET status = 'DEAD',
+            next_attempt_at = NULL,
+            locked_until = NULL,
+            lock_token = NULL,
+            last_error = CASE
+                WHEN last_error IS NULL OR TRIM(last_error) = '' THEN #{lastError}
+                ELSE last_error
+            END,
+            updated_at = #{now}
+        WHERE status = 'PROCESSING'
+          AND locked_until &lt;= #{now}
+          AND attempt_count &gt;= max_attempts
+    </update>
+</mapper>

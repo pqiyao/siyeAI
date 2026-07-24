@@ -18,6 +18,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AppChatFrontendBridgeServiceTest {
 
     @Test
+    void tokenIsRejectedWhileBridgeIsDisabled() {
+        AppChatProperties properties = new AppChatProperties();
+        String token = "bridge-A1!f99c9fba744d2432b93823ef9415d";
+        properties.getCompatibility().setFrontendBridgeToken(token);
+        AppChatFrontendBridgeService service = new AppChatFrontendBridgeService(properties);
+
+        assertThat(service.validToken(token)).isFalse();
+
+        properties.getCompatibility().setFrontendBridgeEnabled(true);
+        assertThat(service.validToken(token)).isTrue();
+    }
+
+    @Test
     void pollNext_shouldSerializeDispatchedFrontendJobs() throws Exception {
         AppChatProperties properties = new AppChatProperties();
         properties.getCompatibility().setFrontendBridgeEnabled(true);

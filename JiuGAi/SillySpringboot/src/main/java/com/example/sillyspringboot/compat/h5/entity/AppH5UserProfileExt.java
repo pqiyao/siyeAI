@@ -16,10 +16,14 @@ public class AppH5UserProfileExt {
     private Integer dailyChatQuota;
     private Integer chatQuotaOverride;
     private Integer dailyChatUsed;
+    /** Same-day check-in / campaign chat quota bonus; resets with usage window. */
+    private Integer dailyChatBonus;
     private Integer dailyByokChatUsed;
     private Integer dailyImageQuota;
     private Integer imageQuotaOverride;
     private Integer dailyImageUsed;
+    /** Same-day check-in / campaign image quota bonus; resets with usage window. */
+    private Integer dailyImageBonus;
     private LocalDate usageResetDate;
     private Integer characterCreateAllowed;
     private Integer needEdit;
@@ -123,6 +127,14 @@ public class AppH5UserProfileExt {
         this.dailyChatUsed = dailyChatUsed;
     }
 
+    public Integer getDailyChatBonus() {
+        return dailyChatBonus;
+    }
+
+    public void setDailyChatBonus(Integer dailyChatBonus) {
+        this.dailyChatBonus = dailyChatBonus;
+    }
+
     public Integer getDailyByokChatUsed() {
         return dailyByokChatUsed;
     }
@@ -153,6 +165,14 @@ public class AppH5UserProfileExt {
 
     public void setDailyImageUsed(Integer dailyImageUsed) {
         this.dailyImageUsed = dailyImageUsed;
+    }
+
+    public Integer getDailyImageBonus() {
+        return dailyImageBonus;
+    }
+
+    public void setDailyImageBonus(Integer dailyImageBonus) {
+        this.dailyImageBonus = dailyImageBonus;
     }
 
     public LocalDate getUsageResetDate() {

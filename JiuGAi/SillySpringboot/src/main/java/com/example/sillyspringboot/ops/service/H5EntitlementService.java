@@ -2,6 +2,7 @@ package com.example.sillyspringboot.ops.service;
 
 import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.auth.token.AppTokenService;
+import com.example.sillyspringboot.billing.service.WalletLedgerService;
 import com.example.sillyspringboot.character.entity.AppCharacter;
 import com.example.sillyspringboot.character.entity.CharacterReviewStatus;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
@@ -12,17 +13,28 @@ import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.ops.dto.AppFeatureSettings;
 import com.example.sillyspringboot.ops.dto.EntitlementPolicy;
+import com.example.sillyspringboot.ops.checkin.entity.AppCheckinActivity;
+import com.example.sillyspringboot.ops.checkin.mapper.AppCheckinActivityMapper;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class H5EntitlementService {
+
+    private static final String DAILY_CHECKIN_CODE = "daily_checkin";
+    private static final ZoneId DEFAULT_DAILY_USAGE_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final long DAILY_USAGE_ZONE_CACHE_MILLIS = 60_000L;
 
     public enum QuotaBucket {
         OFFICIAL_CHAT,
@@ -37,8 +49,43 @@ public class H5EntitlementService {
             int consumeAmount,
             QuotaBucket quotaBucket,
             Long characterId,
-            String action
-    ) {}
+            String action,
+            boolean usesWallet,
+            int scoreCost,
+            int goldCost,
+            String consumeBizRef,
+            boolean walletChargeCreated
+    ) {
+        public AccessTicket(
+                long userId,
+                String clientUid,
+                boolean consumesQuota,
+                int consumeAmount,
+                QuotaBucket quotaBucket,
+                Long characterId,
+                String action,
+                boolean usesWallet,
+                int scoreCost,
+                int goldCost,
+                String consumeBizRef
+        ) {
+            this(userId, clientUid, consumesQuota, consumeAmount, quotaBucket, characterId, action,
+                    usesWallet, scoreCost, goldCost, consumeBizRef, false);
+        }
+
+        public AccessTicket(
+                long userId,
+                String clientUid,
+                boolean consumesQuota,
+                int consumeAmount,
+                QuotaBucket quotaBucket,
+                Long characterId,
+                String action
+        ) {
+            this(userId, clientUid, consumesQuota, consumeAmount, quotaBucket, characterId, action,
+                    false, 0, 0, "", false);
+        }
+    }
 
     public record CharacterAccess(boolean unlocked, boolean vipOnly, String lockReason) {}
 
@@ -59,6 +106,11 @@ public class H5EntitlementService {
     private final H5UserAiProviderService userAiProviderService;
     private final AppFeatureSettingsService featureSettingsService;
     private final EntitlementAuditLogService auditLogService;
+    private final WalletLedgerService walletLedgerService;
+    private final AppCheckinActivityMapper checkinActivityMapper;
+    private final SecureRandom secureRandom = new SecureRandom();
+    private volatile ZoneId dailyUsageZone = DEFAULT_DAILY_USAGE_ZONE;
+    private volatile long dailyUsageZoneRefreshAt;
 
     public H5EntitlementService(
             H5ClientUidAuthService h5Auth,
@@ -69,7 +121,9 @@ public class H5EntitlementService {
             EntitlementPolicyService entitlementPolicyService,
             H5UserAiProviderService userAiProviderService,
             AppFeatureSettingsService featureSettingsService,
-            EntitlementAuditLogService auditLogService
+            EntitlementAuditLogService auditLogService,
+            WalletLedgerService walletLedgerService,
+            AppCheckinActivityMapper checkinActivityMapper
     ) {
         this.h5Auth = h5Auth;
         this.tokenService = tokenService;
@@ -80,6 +134,8 @@ public class H5EntitlementService {
         this.userAiProviderService = userAiProviderService;
         this.featureSettingsService = featureSettingsService;
         this.auditLogService = auditLogService;
+        this.walletLedgerService = walletLedgerService;
+        this.checkinActivityMapper = checkinActivityMapper;
     }
 
     @Transactional
@@ -195,32 +251,67 @@ public class H5EntitlementService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "当前角色仅会员可用，请先开通会员");
         }
 
-        if (consumesQuota) {
-            int quota;
-            int used;
-            if (byokActive) {
-                EntitlementPolicy policy = entitlementPolicyService.getPolicy();
-                quota = entitlementPolicyService.byokChatQuotaFor(policy, entitlementPolicyService.effectiveVipLevel(ext));
-                used = nvl(ext.getDailyByokChatUsed());
-            } else {
-                quota = nvl(ext.getDailyChatQuota());
-                used = nvl(ext.getDailyChatUsed());
-            }
-            if (quota <= 0 || used >= quota) {
-                if (byokActive) {
-                    throw new BusinessException(ErrorCode.RATE_LIMITED, "今日自定义 API 聊天次数已用完，请明日再试");
-                }
-                throw new BusinessException(ErrorCode.RATE_LIMITED, "今日聊天次数已用完，请升级会员或明日再试");
-            }
+        String actionName = action == null ? "" : action.name();
+        if (!consumesQuota) {
+            return new AccessTicket(
+                    user.getId(),
+                    blankClientUid(clientUid),
+                    false,
+                    0,
+                    quotaBucket,
+                    characterId,
+                    actionName,
+                    false,
+                    0,
+                    0,
+                    ""
+            );
         }
-        return new AccessTicket(
-                user.getId(),
+
+        EntitlementPolicy policy = entitlementPolicyService.getPolicy();
+        int quota;
+        int used;
+        int bonus = 0;
+        if (byokActive) {
+            quota = entitlementPolicyService.byokChatQuotaFor(policy, entitlementPolicyService.effectiveVipLevel(ext));
+            used = nvl(ext.getDailyByokChatUsed());
+        } else {
+            quota = nvl(ext.getDailyChatQuota());
+            used = nvl(ext.getDailyChatUsed());
+            bonus = nvl(ext.getDailyChatBonus());
+        }
+
+        int effectiveQuota = quota + bonus;
+        if (effectiveQuota > 0 && used < effectiveQuota) {
+            return new AccessTicket(
+                    user.getId(),
+                    blankClientUid(clientUid),
+                    true,
+                    1,
+                    quotaBucket,
+                    characterId,
+                    actionName,
+                    false,
+                    0,
+                    0,
+                    ""
+            );
+        }
+
+        return buildWalletOverageTicket(
+                user,
+                ext,
                 blankClientUid(clientUid),
-                consumesQuota,
-                consumesQuota ? 1 : 0,
                 quotaBucket,
                 characterId,
-                action == null ? "" : action.name()
+                actionName,
+                Math.max(0, policy.getChatScoreCost()),
+                Math.max(0, policy.getChatGoldCost()),
+                policy.isOverQuotaBillingEnabled(),
+                byokActive
+                        ? "今日自定义 API 聊天次数已用完，请明日再试"
+                        : "今日聊天次数已用完，请升级会员或明日再试",
+                "chat"
         );
     }
 
@@ -279,7 +370,21 @@ public class H5EntitlementService {
 
     @Transactional
     public void recordSuccessfulChat(AccessTicket ticket, boolean generatedContentReady) {
-        if (ticket == null || !ticket.consumesQuota() || !generatedContentReady) {
+        if (ticket == null || !generatedContentReady) {
+            return;
+        }
+        if (ticket.usesWallet()) {
+            walletLedgerService.consumeDiamonds(
+                    ticket.userId(),
+                    ticket.scoreCost(),
+                    ticket.goldCost(),
+                    WalletLedgerService.BIZ_CHAT_CONSUME,
+                    ticket.consumeBizRef(),
+                    "聊天超额消费"
+            );
+            return;
+        }
+        if (!ticket.consumesQuota()) {
             return;
         }
         AppH5UserProfileExt ext = profileExtMapper.findByUserId(ticket.userId());
@@ -323,25 +428,235 @@ public class H5EntitlementService {
 
     @Transactional
     public AccessTicket guardImage(String clientUid, int imageCount, long characterId) {
+        return guardImage(clientUid, imageCount, characterId, null);
+    }
+
+    @Transactional
+    public AccessTicket guardImage(String clientUid, int imageCount, long characterId, String requestId) {
         AppUser user = resolveUser(clientUid);
         if (!featureSettingsService.getSettings().isImageGenerationEnabled()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "当前已关闭聊天生图");
         }
-        AppH5UserProfileExt ext = ensureProfileExt(user);
+        ensureProfileExt(user);
+        AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(user.getId());
+        if (ext == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "用户权益数据不存在");
+        }
+        boolean changed = refreshUsageWindow(ext);
+        if (entitlementPolicyService.refreshEffectiveQuota(ext)) {
+            changed = true;
+        }
+        if (changed) {
+            profileExtMapper.upsert(ext);
+            ext = profileExtMapper.findByUserIdForUpdate(user.getId());
+        }
         int requested = Math.max(1, imageCount);
+        EntitlementPolicy policy = entitlementPolicyService.getPolicy();
         int quota = nvl(ext.getDailyImageQuota());
         int used = nvl(ext.getDailyImageUsed());
-        if (quota <= 0 || used + requested > quota) {
+        int freeRemaining = Math.max(0, quota + nvl(ext.getDailyImageBonus()) - used);
+
+        if (freeRemaining >= requested) {
+            ext.setDailyImageUsed(used + requested);
+            profileExtMapper.upsert(ext);
+            return new AccessTicket(
+                    user.getId(),
+                    blankClientUid(clientUid),
+                    true,
+                    requested,
+                    QuotaBucket.IMAGE,
+                    characterId > 0 ? characterId : null,
+                    "GENERATE_IMAGE",
+                    false,
+                    0,
+                    0,
+                    "",
+                    false
+            );
+        }
+
+        int paidCount = requested - freeRemaining;
+        int unitScore = Math.max(0, policy.getImageScoreCost());
+        int unitGold = Math.max(0, policy.getImageGoldCost());
+        int scoreCost = unitScore * paidCount;
+        int goldCost = unitGold * paidCount;
+
+        if (!policy.isOverQuotaBillingEnabled() || (scoreCost <= 0 && goldCost <= 0)) {
             throw new BusinessException(ErrorCode.RATE_LIMITED, "今日生图次数已用完，请升级会员或明日再试");
+        }
+        assertWalletBalance(ext, scoreCost, goldCost);
+        String bizRef = retryableConsumeBizRef(
+                imageConsumeBizRef(user.getId(), requestId),
+                WalletLedgerService.BIZ_IMAGE_CONSUME,
+                WalletLedgerService.BIZ_IMAGE_REFUND
+        );
+        boolean chargeCreated = walletLedgerService.consumeDiamonds(
+                user.getId(), scoreCost, goldCost, WalletLedgerService.BIZ_IMAGE_CONSUME, bizRef, "生图超额消费");
+        if (freeRemaining > 0) {
+            ext.setDailyImageUsed(used + freeRemaining);
+            profileExtMapper.upsert(ext);
         }
         return new AccessTicket(
                 user.getId(),
                 blankClientUid(clientUid),
-                true,
-                requested,
+                freeRemaining > 0,
+                freeRemaining,
                 QuotaBucket.IMAGE,
                 characterId > 0 ? characterId : null,
-                "GENERATE_IMAGE"
+                "GENERATE_IMAGE",
+                true,
+                scoreCost,
+                goldCost,
+                bizRef,
+                chargeCreated
+        );
+    }
+
+    /**
+     * TTS 无免费日额度：cost&gt;0 时走钱包；均为 0 则语音功能开启后不限次免费。
+     */
+    @Transactional
+    public AccessTicket guardTts(String clientUid) {
+        return guardTts(clientUid, null);
+    }
+
+    @Transactional
+    public AccessTicket guardTts(String clientUid, String requestId) {
+        AppUser user = resolveUser(clientUid);
+        featureSettingsService.ensureVoiceFeatureEnabled();
+        AppH5UserProfileExt ext = ensureProfileExt(user);
+        EntitlementPolicy policy = entitlementPolicyService.getPolicy();
+        int scoreCost = Math.max(0, policy.getTtsScoreCost());
+        int goldCost = Math.max(0, policy.getTtsGoldCost());
+        if (scoreCost == 0 && goldCost == 0) {
+            return new AccessTicket(
+                    user.getId(),
+                    blankClientUid(clientUid),
+                    false,
+                    0,
+                    QuotaBucket.OFFICIAL_CHAT,
+                    null,
+                    "TTS",
+                    false,
+                    0,
+                    0,
+                    ""
+            );
+        }
+        String bizRef = retryableConsumeBizRef(
+                ttsConsumeBizRef(user.getId(), requestId),
+                WalletLedgerService.BIZ_TTS_CONSUME,
+                WalletLedgerService.BIZ_TTS_REFUND
+        );
+        if (!walletLedgerService.hasLedgerEntry(WalletLedgerService.BIZ_TTS_CONSUME, bizRef)) {
+            assertWalletBalance(ext, scoreCost, goldCost);
+        }
+        return new AccessTicket(
+                user.getId(),
+                blankClientUid(clientUid),
+                false,
+                0,
+                QuotaBucket.OFFICIAL_CHAT,
+                null,
+                "TTS",
+                true,
+                scoreCost,
+                goldCost,
+                bizRef
+        );
+    }
+
+    @Transactional
+    public boolean recordSuccessfulTts(AccessTicket ticket) {
+        if (ticket == null || !ticket.usesWallet()) {
+            return false;
+        }
+        return walletLedgerService.consumeDiamonds(
+                ticket.userId(),
+                ticket.scoreCost(),
+                ticket.goldCost(),
+                WalletLedgerService.BIZ_TTS_CONSUME,
+                ticket.consumeBizRef(),
+                "语音合成消费"
+        );
+    }
+
+    /**
+     * Refund a wallet consume that was reserved before an operation failed.
+     * Uses a distinct refund idempotency key to avoid colliding with the original consume row.
+     */
+    @Transactional
+    public void refundWalletConsume(AccessTicket ticket) {
+        if (ticket == null || !ticket.usesWallet()) {
+            return;
+        }
+        if (ticket.scoreCost() <= 0 && ticket.goldCost() <= 0) {
+            return;
+        }
+        String bizRef = ticket.consumeBizRef();
+        if (bizRef == null || bizRef.isBlank()) {
+            return;
+        }
+        walletLedgerService.refundConsume(
+                ticket.userId(),
+                ticket.scoreCost(),
+                ticket.goldCost(),
+                WalletLedgerService.BIZ_TTS_REFUND,
+                "refund:" + bizRef,
+                "语音合成失败退回"
+        );
+    }
+
+    /**
+     * STT 默认免费；后台配置单价后，每个录音任务只扣一次，失败自动退款。
+     */
+    @Transactional
+    public AccessTicket guardStt(String clientUid, String requestId) {
+        AppUser user = resolveUser(clientUid);
+        featureSettingsService.ensureVoiceFeatureEnabled();
+        AppH5UserProfileExt ext = ensureProfileExt(user);
+        EntitlementPolicy policy = entitlementPolicyService.getPolicy();
+        int scoreCost = Math.max(0, policy.getSttScoreCost());
+        int goldCost = Math.max(0, policy.getSttGoldCost());
+        if (scoreCost == 0 && goldCost == 0) {
+            return new AccessTicket(
+                    user.getId(), blankClientUid(clientUid), false, 0, QuotaBucket.OFFICIAL_CHAT,
+                    null, "STT", false, 0, 0, ""
+            );
+        }
+        String bizRef = retryableConsumeBizRef(
+                hashedConsumeBizRef("stt", user.getId(), requestId),
+                WalletLedgerService.BIZ_STT_CONSUME,
+                WalletLedgerService.BIZ_STT_REFUND
+        );
+        if (!walletLedgerService.hasLedgerEntry(WalletLedgerService.BIZ_STT_CONSUME, bizRef)) {
+            assertWalletBalance(ext, scoreCost, goldCost);
+        }
+        return new AccessTicket(
+                user.getId(), blankClientUid(clientUid), false, 0, QuotaBucket.OFFICIAL_CHAT,
+                null, "STT", true, scoreCost, goldCost, bizRef
+        );
+    }
+
+    @Transactional
+    public boolean reserveSttCharge(AccessTicket ticket) {
+        if (ticket == null || !ticket.usesWallet()) {
+            return false;
+        }
+        return walletLedgerService.consumeDiamonds(
+                ticket.userId(), ticket.scoreCost(), ticket.goldCost(),
+                WalletLedgerService.BIZ_STT_CONSUME, ticket.consumeBizRef(), "语音识别消费"
+        );
+    }
+
+    @Transactional
+    public void refundSttCharge(AccessTicket ticket) {
+        if (ticket == null || !ticket.usesWallet() || ticket.consumeBizRef().isBlank()) {
+            return;
+        }
+        walletLedgerService.refundConsume(
+                ticket.userId(), ticket.scoreCost(), ticket.goldCost(),
+                WalletLedgerService.BIZ_STT_REFUND, "refund:" + ticket.consumeBizRef(), "语音识别失败退回"
         );
     }
 
@@ -378,7 +693,10 @@ public class H5EntitlementService {
 
     @Transactional
     public void recordSuccessfulImage(AccessTicket ticket, int generatedCount) {
-        if (ticket == null || !ticket.consumesQuota() || generatedCount <= 0) {
+        if (ticket == null || generatedCount <= 0) {
+            return;
+        }
+        if (!ticket.consumesQuota()) {
             return;
         }
         AppH5UserProfileExt ext = profileExtMapper.findByUserId(ticket.userId());
@@ -387,20 +705,48 @@ public class H5EntitlementService {
         }
         refreshUsageWindow(ext);
         int quota = nvl(ext.getDailyImageQuota());
-        int beforeUsed = nvl(ext.getDailyImageUsed());
-        ext.setDailyImageUsed(beforeUsed + Math.max(1, generatedCount));
-        profileExtMapper.upsert(ext);
+        int quotaConsume = Math.max(0, ticket.consumeAmount());
+        if (quotaConsume <= 0) {
+            return;
+        }
+        int afterUsed = nvl(ext.getDailyImageUsed());
+        int beforeUsed = Math.max(0, afterUsed - quotaConsume);
         auditLogService.recordQuotaConsumed(
                 ticket.userId(),
                 ticket.clientUid(),
                 ticket.quotaBucket().name(),
-                Math.max(1, generatedCount),
+                quotaConsume,
                 quota,
                 beforeUsed,
-                nvl(ext.getDailyImageUsed()),
+                afterUsed,
                 ticket.characterId(),
                 ticket.action()
         );
+    }
+
+    @Transactional
+    public void releaseImageReservation(AccessTicket ticket) {
+        if (ticket == null || ticket.quotaBucket() != QuotaBucket.IMAGE) {
+            return;
+        }
+        if (ticket.consumesQuota() && ticket.consumeAmount() > 0) {
+            AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(ticket.userId());
+            if (ext != null) {
+                refreshUsageWindow(ext);
+                ext.setDailyImageUsed(Math.max(0, nvl(ext.getDailyImageUsed()) - ticket.consumeAmount()));
+                profileExtMapper.upsert(ext);
+            }
+        }
+        if (ticket.walletChargeCreated()) {
+            walletLedgerService.refundConsume(
+                    ticket.userId(),
+                    ticket.scoreCost(),
+                    ticket.goldCost(),
+                    WalletLedgerService.BIZ_IMAGE_REFUND,
+                    "refund:" + ticket.consumeBizRef(),
+                    "生图失败退回"
+            );
+        }
     }
 
     @Transactional
@@ -422,9 +768,11 @@ public class H5EntitlementService {
             ext.setChatQuotaOverride(null);
             ext.setImageQuotaOverride(null);
             ext.setDailyChatUsed(0);
+            ext.setDailyChatBonus(0);
             ext.setDailyByokChatUsed(0);
             ext.setDailyImageUsed(0);
-            ext.setUsageResetDate(LocalDate.now());
+            ext.setDailyImageBonus(0);
+            ext.setUsageResetDate(currentUsageDate());
             ext.setCharacterCreateAllowed(0);
             ext.setNeedEdit(0);
             ext.setStatus("normal");
@@ -478,17 +826,19 @@ public class H5EntitlementService {
         }
         int quota = nvl(ext.getDailyImageQuota());
         int used = nvl(ext.getDailyImageUsed());
-        return Math.max(0, quota - used);
+        return Math.max(0, quota + nvl(ext.getDailyImageBonus()) - used);
     }
 
     private boolean refreshUsageWindow(AppH5UserProfileExt ext) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = currentUsageDate();
         boolean changed = false;
         if (ext.getUsageResetDate() == null || !today.equals(ext.getUsageResetDate())) {
             ext.setUsageResetDate(today);
             ext.setDailyChatUsed(0);
             ext.setDailyByokChatUsed(0);
             ext.setDailyImageUsed(0);
+            ext.setDailyChatBonus(0);
+            ext.setDailyImageBonus(0);
             changed = true;
         }
         if (ext.getDailyChatUsed() == null) {
@@ -503,7 +853,151 @@ public class H5EntitlementService {
             ext.setDailyImageUsed(0);
             changed = true;
         }
+        if (ext.getDailyChatBonus() == null) {
+            ext.setDailyChatBonus(0);
+            changed = true;
+        }
+        if (ext.getDailyImageBonus() == null) {
+            ext.setDailyImageBonus(0);
+            changed = true;
+        }
         return changed;
+    }
+
+    public void updateDailyUsageTimezone(String timezone) {
+        dailyUsageZone = parseDailyUsageZone(timezone);
+        dailyUsageZoneRefreshAt = System.currentTimeMillis() + DAILY_USAGE_ZONE_CACHE_MILLIS;
+    }
+
+    private LocalDate currentUsageDate() {
+        return LocalDate.now(currentDailyUsageZone());
+    }
+
+    private ZoneId currentDailyUsageZone() {
+        long now = System.currentTimeMillis();
+        if (now < dailyUsageZoneRefreshAt) {
+            return dailyUsageZone;
+        }
+        synchronized (this) {
+            if (now < dailyUsageZoneRefreshAt) {
+                return dailyUsageZone;
+            }
+            try {
+                AppCheckinActivity activity = checkinActivityMapper.findByCode(DAILY_CHECKIN_CODE);
+                dailyUsageZone = parseDailyUsageZone(activity == null ? null : activity.getTimezone());
+            } catch (RuntimeException ignored) {
+                dailyUsageZone = DEFAULT_DAILY_USAGE_ZONE;
+            }
+            dailyUsageZoneRefreshAt = now + DAILY_USAGE_ZONE_CACHE_MILLIS;
+            return dailyUsageZone;
+        }
+    }
+
+    private static ZoneId parseDailyUsageZone(String timezone) {
+        String value = timezone == null || timezone.isBlank() ? DEFAULT_DAILY_USAGE_ZONE.getId() : timezone.trim();
+        try {
+            return ZoneId.of(value);
+        } catch (Exception ignored) {
+            return DEFAULT_DAILY_USAGE_ZONE;
+        }
+    }
+
+    private AccessTicket buildWalletOverageTicket(
+            AppUser user,
+            AppH5UserProfileExt ext,
+            String clientUid,
+            QuotaBucket quotaBucket,
+            Long characterId,
+            String action,
+            int scoreCost,
+            int goldCost,
+            boolean overQuotaBillingEnabled,
+            String exhaustedMessage,
+            String bizPrefix
+    ) {
+        if (!overQuotaBillingEnabled || (scoreCost <= 0 && goldCost <= 0)) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, exhaustedMessage);
+        }
+        assertWalletBalance(ext, scoreCost, goldCost);
+        String bizRef = newConsumeBizRef(bizPrefix, user.getId());
+        return new AccessTicket(
+                user.getId(),
+                clientUid,
+                false,
+                0,
+                quotaBucket,
+                characterId,
+                action,
+                true,
+                scoreCost,
+                goldCost,
+                bizRef
+        );
+    }
+
+    private void assertWalletBalance(AppH5UserProfileExt ext, int scoreCost, int goldCost) {
+        if (nvl(ext.getScore()) < scoreCost || nvl(ext.getGoldCoin()) < goldCost) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, "免费次数已用完，钻石不足，请充值");
+        }
+    }
+
+    private String newConsumeBizRef(String prefix, long userId) {
+        return prefix + ":" + userId + ":" + System.currentTimeMillis() + ":"
+                + Integer.toHexString(secureRandom.nextInt())
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    }
+
+    private String ttsConsumeBizRef(long userId, String requestId) {
+        String safeRequestId = requestId == null ? "" : requestId.trim();
+        if (safeRequestId.isBlank()) {
+            return newConsumeBizRef("tts", userId);
+        }
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest((userId + ":" + safeRequestId).getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(32);
+            for (int i = 0; i < 16; i++) {
+                hex.append(String.format("%02x", digest[i] & 0xff));
+            }
+            return "tts:" + userId + ":" + hex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "TTS 幂等标识生成失败", ex);
+        }
+    }
+
+    private String imageConsumeBizRef(long userId, String requestId) {
+        String safeRequestId = requestId == null ? "" : requestId.trim();
+        if (safeRequestId.isBlank()) {
+            return newConsumeBizRef("image", userId);
+        }
+        return hashedConsumeBizRef("image", userId, safeRequestId);
+    }
+
+    private String hashedConsumeBizRef(String prefix, long userId, String requestId) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest((userId + ":" + requestId).getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(32);
+            for (int i = 0; i < 16; i++) {
+                hex.append(String.format("%02x", digest[i] & 0xff));
+            }
+            return prefix + ":" + userId + ":" + hex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, prefix + " 幂等标识生成失败", ex);
+        }
+    }
+
+    private String retryableConsumeBizRef(String baseBizRef, String consumeType, String refundType) {
+        String base = baseBizRef == null ? "" : baseBizRef.trim();
+        for (int attempt = 0; attempt < 32; attempt++) {
+            String candidate = attempt == 0 ? base : base + ":r" + attempt;
+            boolean consumed = walletLedgerService.hasLedgerEntry(consumeType, candidate);
+            boolean refunded = walletLedgerService.hasLedgerEntry(refundType, "refund:" + candidate);
+            if (!consumed || !refunded) {
+                return candidate;
+            }
+        }
+        throw new BusinessException(ErrorCode.RATE_LIMITED, "媒体任务重试次数过多，请稍后重新发起");
     }
 
     private static int nvl(Integer value) {

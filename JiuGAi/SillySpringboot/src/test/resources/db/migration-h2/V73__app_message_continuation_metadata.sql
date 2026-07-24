@@ -1,0 +1,4 @@
+ALTER TABLE app_message ADD COLUMN IF NOT EXISTS message_kind VARCHAR(32) NOT NULL DEFAULT 'NORMAL';
+
+ALTER TABLE app_message ADD COLUMN IF NOT EXISTS continue_from_message_id BIGINT NULL;
+

@@ -17,6 +17,11 @@ public class AppCharacter {
     private String description;
     private String tagline;
     private String bio;
+    private String publicSummary;
+    private String publicTagsJson;
+    private String publicWarningsJson;
+    private Integer healthScore;
+    private String healthIssuesJson;
     private String persona;
     private String scenario;
     private String firstMessage;
@@ -136,6 +141,46 @@ public class AppCharacter {
 
     public void setBio(String bio) {
         this.bio = bio;
+    }
+
+    public String getPublicSummary() {
+        return publicSummary;
+    }
+
+    public void setPublicSummary(String publicSummary) {
+        this.publicSummary = publicSummary;
+    }
+
+    public String getPublicTagsJson() {
+        return publicTagsJson;
+    }
+
+    public void setPublicTagsJson(String publicTagsJson) {
+        this.publicTagsJson = publicTagsJson;
+    }
+
+    public String getPublicWarningsJson() {
+        return publicWarningsJson;
+    }
+
+    public void setPublicWarningsJson(String publicWarningsJson) {
+        this.publicWarningsJson = publicWarningsJson;
+    }
+
+    public Integer getHealthScore() {
+        return healthScore;
+    }
+
+    public void setHealthScore(Integer healthScore) {
+        this.healthScore = healthScore;
+    }
+
+    public String getHealthIssuesJson() {
+        return healthIssuesJson;
+    }
+
+    public void setHealthIssuesJson(String healthIssuesJson) {
+        this.healthIssuesJson = healthIssuesJson;
     }
 
     public String getPersona() {

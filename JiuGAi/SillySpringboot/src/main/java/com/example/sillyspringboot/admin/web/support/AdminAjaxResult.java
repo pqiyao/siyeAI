@@ -57,4 +57,11 @@ public final class AdminAjaxResult {
         m.put("msg", msg != null ? msg : "没有权限");
         return m;
     }
+
+    public static Map<String, Object> tooManyRequests(String msg) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("code", 429);
+        m.put("msg", msg != null ? msg : "请求过于频繁，请稍后再试");
+        return m;
+    }
 }

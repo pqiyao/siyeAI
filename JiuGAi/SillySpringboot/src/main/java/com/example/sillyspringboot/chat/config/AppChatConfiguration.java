@@ -13,7 +13,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 @Configuration
-@EnableConfigurationProperties(AppChatProperties.class)
+@EnableConfigurationProperties({AppChatProperties.class, AppMediaProperties.class})
 public class AppChatConfiguration {
 
     @Bean

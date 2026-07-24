@@ -4,6 +4,19 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.sillyspringboot.billing.mapper.AppWalletLedgerMapper">
 
+    <resultMap id="AppWalletLedgerResultMap" type="com.example.sillyspringboot.billing.entity.AppWalletLedger">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="biz_type" property="bizType"/>
+        <result column="order_no" property="orderNo"/>
+        <result column="biz_ref" property="bizRef"/>
+        <result column="idempotency_key" property="idempotencyKey"/>
+        <result column="delta_score" property="deltaScore"/>
+        <result column="delta_gold_coin" property="deltaGoldCoin"/>
+        <result column="note" property="note"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
     <insert id="insert">
         INSERT INTO app_wallet_ledger (
             user_id, biz_type, order_no, delta_score, delta_gold_coin, note
@@ -11,4 +24,61 @@
             #{userId}, #{bizType}, #{orderNo}, #{deltaScore}, #{deltaGoldCoin}, #{note}
         )
     </insert>
+
+    <insert id="insertFull">
+        INSERT INTO app_wallet_ledger (
+            user_id, biz_type, order_no, biz_ref, idempotency_key,
+            delta_score, delta_gold_coin, note
+        ) VALUES (
+            #{userId}, #{bizType}, #{orderNo}, #{bizRef}, #{idempotencyKey},
+            #{deltaScore}, #{deltaGoldCoin}, #{note}
+        )
+    </insert>
+
+    <select id="findByIdempotencyKey" resultMap="AppWalletLedgerResultMap">
+        SELECT id, user_id, biz_type, order_no, biz_ref, idempotency_key,
+               delta_score, delta_gold_coin, note, created_at
+        FROM app_wallet_ledger
+        WHERE idempotency_key = #{idempotencyKey}
+        LIMIT 1
+    </select>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(1)
+        FROM app_wallet_ledger
+        WHERE 1 = 1
+        <if test="keyword != null and keyword != ''">
+            AND (
+                CAST(user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                OR IFNULL(order_no, '') LIKE CONCAT('%', #{keyword}, '%')
+                OR IFNULL(biz_ref, '') LIKE CONCAT('%', #{keyword}, '%')
+                OR IFNULL(note, '') LIKE CONCAT('%', #{keyword}, '%')
+                OR IFNULL(idempotency_key, '') LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="bizType != null and bizType != ''">
+            AND biz_type = #{bizType}
+        </if>
+    </select>
+
+    <select id="listAdminPage" resultMap="AppWalletLedgerResultMap">
+        SELECT id, user_id, biz_type, order_no, biz_ref, idempotency_key,
+               delta_score, delta_gold_coin, note, created_at
+        FROM app_wallet_ledger
+        WHERE 1 = 1
+        <if test="keyword != null and keyword != ''">
+            AND (
+                CAST(user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                OR IFNULL(order_no, '') LIKE CONCAT('%', #{keyword}, '%')
+                OR IFNULL(biz_ref, '') LIKE CONCAT('%', #{keyword}, '%')
+                OR IFNULL(note, '') LIKE CONCAT('%', #{keyword}, '%')
+                OR IFNULL(idempotency_key, '') LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="bizType != null and bizType != ''">
+            AND biz_type = #{bizType}
+        </if>
+        ORDER BY id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
 </mapper>

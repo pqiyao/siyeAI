@@ -40,6 +40,20 @@ public class ChatGenerationDispatcher {
         executor.execute(task);
     }
 
+    public DispatcherStatus status() {
+        return new DispatcherStatus(
+                executor.getQueue().size(),
+                executor.getQueue().remainingCapacity(),
+                executor.getActiveCount(),
+                executor.getPoolSize(),
+                executor.getCompletedTaskCount(),
+                executor.getTaskCount()
+        );
+    }
+
+    public record DispatcherStatus(int queued, int remainingCapacity, int active, int poolSize,
+                                   long completed, long submitted) {}
+
     private static final class NamedThreadFactory implements ThreadFactory {
         private final String prefix;
         private final AtomicInteger seq = new AtomicInteger(1);

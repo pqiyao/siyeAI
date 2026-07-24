@@ -9,6 +9,7 @@ public class AppH5VisitorDevice {
     private String latestClientUid;
     private Long firstUserId;
     private Long latestUserId;
+    private Long trustedUserId;
     private String firstIp;
     private String latestIp;
     private String uaHash;
@@ -65,6 +66,14 @@ public class AppH5VisitorDevice {
 
     public void setLatestUserId(Long latestUserId) {
         this.latestUserId = latestUserId;
+    }
+
+    public Long getTrustedUserId() {
+        return trustedUserId;
+    }
+
+    public void setTrustedUserId(Long trustedUserId) {
+        this.trustedUserId = trustedUserId;
     }
 
     public String getFirstIp() {

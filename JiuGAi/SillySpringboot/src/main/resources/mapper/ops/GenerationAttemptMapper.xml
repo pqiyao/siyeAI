@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.generation.mapper.GenerationAttemptMapper">
+
+    <resultMap id="AttemptContextResultMap" type="com.example.sillyspringboot.ops.generation.model.GenerationAttemptContext">
+        <result column="generation_task_id" property="generationTaskId"/>
+        <result column="character_id" property="characterId"/>
+    </resultMap>
+
+    <select id="findContext" resultMap="AttemptContextResultMap">
+        SELECT
+            (
+                SELECT t.id
+                FROM app_generation_task t
+                WHERE t.conversation_id = #{conversationId}
+                  AND t.client_message_id = #{clientMessageId}
+                  AND t.deleted_at IS NULL
+                ORDER BY t.id DESC
+                LIMIT 1
+            ) AS generation_task_id,
+            c.character_id
+        FROM app_conversation c
+        WHERE c.id = #{conversationId}
+    </select>
+
+    <insert id="insert">
+        INSERT INTO app_generation_attempt (
+            generation_task_id, conversation_id, character_id, attempt_no,
+            provider_key, route_key, provider_source, model, byok, was_fallback,
+            started_at, first_token_at, finished_at, ttft_ms, duration_ms,
+            http_status, status, error_code,
+            prompt_tokens, completion_tokens,
+            prompt_tokens_estimated, completion_tokens_estimated,
+            pricing_id, pricing_version, currency,
+            input_usd_per_million_tokens, output_usd_per_million_tokens,
+            input_cost_usd, output_cost_usd, total_cost_usd,
+            cost_estimated, cost_partial
+        ) VALUES (
+            #{generationTaskId}, #{conversationId}, #{characterId}, #{attemptNo},
+            #{providerKey}, #{routeKey}, #{providerSource}, #{model}, #{byok}, #{fallback},
+            #{startedAt}, #{firstTokenAt}, #{finishedAt}, #{ttftMs}, #{durationMs},
+            #{httpStatus}, #{status}, #{errorCode},
+            #{promptTokens}, #{completionTokens},
+            #{promptTokensEstimated}, #{completionTokensEstimated},
+            #{pricingId}, #{pricingVersion}, #{currency},
+            #{inputUsdPerMillionTokens}, #{outputUsdPerMillionTokens},
+            #{inputCostUsd}, #{outputCostUsd}, #{totalCostUsd},
+            #{costEstimated}, #{costPartial}
+        )
+    </insert>
+</mapper>

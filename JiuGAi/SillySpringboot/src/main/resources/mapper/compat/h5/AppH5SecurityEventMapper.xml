@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppH5SecurityEventMapper">
+
+    <insert id="insert">
+        INSERT INTO app_h5_security_event (
+            device_id, event_type, client_uid, user_id, ip_address, ua_hash, endpoint_group, detail
+        ) VALUES (
+            #{deviceId}, #{eventType}, #{clientUid}, #{userId}, #{ipAddress}, #{uaHash}, #{endpointGroup}, #{detail}
+        )
+    </insert>
+
+    <delete id="deleteOldestBefore">
+        DELETE FROM app_h5_security_event
+        WHERE id IN (
+            SELECT stale.id
+            FROM (
+                SELECT id
+                FROM app_h5_security_event
+                WHERE created_at &lt; #{cutoff}
+                ORDER BY id
+                LIMIT #{limit}
+            ) stale
+        )
+    </delete>
+</mapper>

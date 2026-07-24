@@ -1,26 +1,54 @@
 app:
   environment: ${APP_ENV:dev}
+  ai-routing:
+    enabled: ${APP_AI_ROUTING_ENABLED:false}
+    shadow-enabled: ${APP_AI_ROUTING_SHADOW_ENABLED:true}
+    chat-canary-percent: ${APP_AI_ROUTING_CHAT_CANARY_PERCENT:0}
+    image-enabled: ${APP_AI_ROUTING_IMAGE_ENABLED:false}
+    tts-enabled: ${APP_AI_ROUTING_TTS_ENABLED:false}
+    stt-enabled: ${APP_AI_ROUTING_STT_ENABLED:false}
   flyway:
     legacy-baseline-version: ${APP_FLYWAY_LEGACY_BASELINE_VERSION:14}
     history-table: ${APP_FLYWAY_HISTORY_TABLE:flyway_schema_history}
+    locations:
+      - classpath:db/migration-common
+      - classpath:db/migration-mysql
   ruoyi-admin:
-    username: ${APP_RUOYI_ADMIN_USERNAME:admin}
+    username: ${APP_RUOYI_ADMIN_USERNAME:}
     nick-name: ${APP_RUOYI_ADMIN_NICK_NAME:酒馆运营后台}
-    encoded-password: ${APP_RUOYI_ADMIN_PASSWORD:{noop}admin123}
+    encoded-password: ${APP_RUOYI_ADMIN_PASSWORD:}
     role: ${APP_RUOYI_ADMIN_ROLE:super-admin}
     jwt-secret: ${APP_RUOYI_JWT_SECRET:silly-ruoyi-admin-jwt-secret-change-me-32b!!}
-    jwt-expire-hours: ${APP_RUOYI_JWT_EXPIRE_HOURS:720}
-    captcha-enabled: false
+    jwt-expire-hours: ${APP_RUOYI_JWT_EXPIRE_HOURS:8}
+    captcha-enabled: ${APP_RUOYI_CAPTCHA_ENABLED:true}
+    captcha-ttl-seconds: ${APP_RUOYI_CAPTCHA_TTL_SECONDS:120}
+    login-max-attempts: ${APP_RUOYI_LOGIN_MAX_ATTEMPTS:5}
+    login-window-seconds: ${APP_RUOYI_LOGIN_WINDOW_SECONDS:300}
+    login-block-seconds: ${APP_RUOYI_LOGIN_BLOCK_SECONDS:900}
   memory:
     llm-enabled: ${APP_MEMORY_LLM_ENABLED:true}
     max-messages: ${APP_MEMORY_MAX_MESSAGES:80}
     max-transcript-chars: ${APP_MEMORY_MAX_TRANSCRIPT_CHARS:14000}
     fallback-to-heuristic: ${APP_MEMORY_FALLBACK_HEURISTIC:true}
+    auto-refresh-worker-threads: ${APP_MEMORY_AUTO_REFRESH_WORKER_THREADS:2}
+    auto-refresh-queue-capacity: ${APP_MEMORY_AUTO_REFRESH_QUEUE_CAPACITY:64}
+    auto-refresh-lease-seconds: ${APP_MEMORY_AUTO_REFRESH_LEASE_SECONDS:900}
+    manual-refresh-cooldown-seconds: ${APP_MEMORY_MANUAL_COOLDOWN_SECONDS:60}
+    manual-refresh-lease-seconds: ${APP_MEMORY_MANUAL_LEASE_SECONDS:300}
+    max-enabled-entries: ${APP_MEMORY_MAX_ENABLED_ENTRIES:80}
+    max-constant-entries: ${APP_MEMORY_MAX_CONSTANT_ENTRIES:12}
+    max-archived-entries: ${APP_MEMORY_MAX_ARCHIVED_ENTRIES:40}
   cors:
     allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,http://192.168.164.102:*}
   auth:
     secret: ${APP_AUTH_SECRET:dev-change-me}
-    token-ttl-seconds: ${APP_TOKEN_TTL_SECONDS:2592000}
+    token-ttl-seconds: ${APP_TOKEN_TTL_SECONDS:604800}
+    password-reset:
+      enabled: ${APP_AUTH_PASSWORD_RESET_ENABLED:false}
+      from: ${APP_AUTH_PASSWORD_RESET_FROM:}
+      token-ttl-seconds: ${APP_AUTH_PASSWORD_RESET_TOKEN_TTL_SECONDS:600}
+      request-cooldown-seconds: ${APP_AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS:60}
+      max-attempts: ${APP_AUTH_PASSWORD_RESET_MAX_ATTEMPTS:5}
   chat:
     global-concurrent-limit: ${APP_CHAT_GLOBAL_CONCURRENT_LIMIT:8}
     per-user-concurrent-limit: ${APP_CHAT_PER_USER_CONCURRENT_LIMIT:1}
@@ -32,24 +60,30 @@ app:
     generation-timeout-seconds: ${APP_CHAT_GENERATION_TIMEOUT_SECONDS:600}
     compatibility:
       mode: ${APP_CHAT_COMPATIBILITY_MODE:auto}
-      frontend-bridge-enabled: ${APP_CHAT_FRONTEND_BRIDGE_ENABLED:true}
+      frontend-bridge-enabled: ${APP_CHAT_FRONTEND_BRIDGE_ENABLED:false}
       fallback-to-runtime: ${APP_CHAT_COMPATIBILITY_FALLBACK_TO_RUNTIME:true}
       worldbook-probe-cache-seconds: ${APP_CHAT_WORLDBOOK_PROBE_CACHE_SECONDS:300}
-      frontend-bridge-token: ${APP_CHAT_FRONTEND_BRIDGE_TOKEN:dev-st-h5-bridge-token}
+      frontend-bridge-token: ${APP_CHAT_FRONTEND_BRIDGE_TOKEN:}
       frontend-bridge-request-timeout-seconds: ${APP_CHAT_FRONTEND_BRIDGE_REQUEST_TIMEOUT_SECONDS:600}
       frontend-bridge-worker-stale-seconds: ${APP_CHAT_FRONTEND_BRIDGE_WORKER_STALE_SECONDS:30}
       frontend-bridge-max-queue-size: ${APP_CHAT_FRONTEND_BRIDGE_MAX_QUEUE_SIZE:64}
       frontend-bridge-poll-wait-seconds: ${APP_CHAT_FRONTEND_BRIDGE_POLL_WAIT_SECONDS:20}
+  media:
+    counter-ttl-seconds: ${APP_MEDIA_COUNTER_TTL_SECONDS:180}
+    rate-window-seconds: ${APP_MEDIA_RATE_WINDOW_SECONDS:60}
+    tts:
+      global-concurrent-limit: ${APP_TTS_GLOBAL_CONCURRENT_LIMIT:8}
+      per-user-concurrent-limit: ${APP_TTS_PER_USER_CONCURRENT_LIMIT:1}
+      per-user-requests-per-window: ${APP_TTS_PER_USER_REQUESTS_PER_WINDOW:12}
+    stt:
+      global-concurrent-limit: ${APP_STT_GLOBAL_CONCURRENT_LIMIT:4}
+      per-user-concurrent-limit: ${APP_STT_PER_USER_CONCURRENT_LIMIT:1}
+      per-user-requests-per-window: ${APP_STT_PER_USER_REQUESTS_PER_WINDOW:6}
   image-generation:
     engine: ${APP_IMAGE_GENERATION_ENGINE:user_openai_compatible}
     global-concurrent-limit: ${APP_IMAGE_GENERATION_GLOBAL_CONCURRENT_LIMIT:2}
     per-user-concurrent-limit: ${APP_IMAGE_GENERATION_PER_USER_CONCURRENT_LIMIT:1}
     counter-ttl-seconds: ${APP_IMAGE_GENERATION_COUNTER_TTL_SECONDS:600}
-    managed-openai-compatible:
-      provider-source: ${APP_IMAGE_GENERATION_MANAGED_PROVIDER_SOURCE:siliconflow}
-      image-model-name: ${APP_IMAGE_GENERATION_MANAGED_IMAGE_MODEL:}
-      api-key: ${APP_IMAGE_GENERATION_MANAGED_API_KEY:}
-      custom-url: ${APP_IMAGE_GENERATION_MANAGED_CUSTOM_URL:}
     st-comfy:
       comfy-url: ${APP_IMAGE_GENERATION_COMFY_URL:http://127.0.0.1:8188}
       workflow: ${APP_IMAGE_GENERATION_COMFY_WORKFLOW:Default_Comfy_Workflow.json}
@@ -67,9 +101,35 @@ app:
     enabled: ${APP_API_RATE_LIMIT_ENABLED:true}
     window-seconds: ${APP_API_RATE_LIMIT_WINDOW_SECONDS:60}
     max-requests-per-window: ${APP_API_RATE_LIMIT_MAX_REQUESTS:180}
+    max-requests-per-ip-window: ${APP_API_RATE_LIMIT_MAX_REQUESTS_PER_IP:900}
+    security-event-dedup-seconds: ${APP_API_RATE_LIMIT_EVENT_DEDUP_SECONDS:60}
+    trusted-proxy-cidrs: ${APP_API_RATE_LIMIT_TRUSTED_PROXY_CIDRS:}
+  h5-security-event:
+    cleanup-enabled: ${APP_H5_SECURITY_EVENT_CLEANUP_ENABLED:true}
+    retention-days: ${APP_H5_SECURITY_EVENT_RETENTION_DAYS:30}
+    cleanup-batch-size: ${APP_H5_SECURITY_EVENT_CLEANUP_BATCH_SIZE:2000}
+    max-batches-per-run: ${APP_H5_SECURITY_EVENT_MAX_BATCHES_PER_RUN:10}
+    cleanup-initial-delay-ms: ${APP_H5_SECURITY_EVENT_CLEANUP_INITIAL_DELAY_MS:300000}
+    cleanup-interval-ms: ${APP_H5_SECURITY_EVENT_CLEANUP_INTERVAL_MS:21600000}
+  generation-retention:
+    enabled: ${APP_GENERATION_RETENTION_ENABLED:true}
+    retention-days: ${APP_GENERATION_RETENTION_DAYS:30}
+    batch-size: ${APP_GENERATION_RETENTION_BATCH_SIZE:2000}
+    max-batches-per-run: ${APP_GENERATION_RETENTION_MAX_BATCHES_PER_RUN:10}
+    cleanup-initial-delay-ms: ${APP_GENERATION_RETENTION_CLEANUP_INITIAL_DELAY_MS:300000}
+    cleanup-interval-ms: ${APP_GENERATION_RETENTION_CLEANUP_INTERVAL_MS:21600000}
+  external-cleanup:
+    retry-enabled: ${APP_EXTERNAL_CLEANUP_RETRY_ENABLED:true}
+    batch-size: ${APP_EXTERNAL_CLEANUP_BATCH_SIZE:50}
+    max-attempts: ${APP_EXTERNAL_CLEANUP_MAX_ATTEMPTS:8}
+    base-backoff-seconds: ${APP_EXTERNAL_CLEANUP_BASE_BACKOFF_SECONDS:60}
+    max-backoff-seconds: ${APP_EXTERNAL_CLEANUP_MAX_BACKOFF_SECONDS:21600}
+    processing-lease-seconds: ${APP_EXTERNAL_CLEANUP_PROCESSING_LEASE_SECONDS:900}
+    retry-initial-delay-ms: ${APP_EXTERNAL_CLEANUP_RETRY_INITIAL_DELAY_MS:60000}
+    retry-interval-ms: ${APP_EXTERNAL_CLEANUP_RETRY_INTERVAL_MS:60000}
   payment:
     mock:
-      enabled: ${APP_PAYMENT_MOCK_ENABLED:true}
+      enabled: ${APP_PAYMENT_MOCK_ENABLED:false}
       allow-in-prod: ${APP_PAYMENT_MOCK_ALLOW_IN_PROD:false}
     wechat-h5:
       enabled: ${APP_PAYMENT_WECHAT_H5_ENABLED:false}
@@ -98,6 +158,15 @@ app:
       bot-username: ${APP_PAYMENT_TELEGRAM_STARS_BOT_USERNAME:}
       webhook-secret: ${APP_PAYMENT_TELEGRAM_STARS_WEBHOOK_SECRET:}
       invoice-photo-url: ${APP_PAYMENT_TELEGRAM_STARS_INVOICE_PHOTO_URL:}
+    epay:
+      enabled: ${APP_PAYMENT_EPAY_ENABLED:false}
+      pid: ${APP_PAYMENT_EPAY_PID:}
+      key: ${APP_PAYMENT_EPAY_KEY:}
+      api-url: ${APP_PAYMENT_EPAY_API_URL:}
+      notify-url: ${APP_PAYMENT_EPAY_NOTIFY_URL:}
+      return-url: ${APP_PAYMENT_EPAY_RETURN_URL:}
+      default-pay-type: ${APP_PAYMENT_EPAY_DEFAULT_PAY_TYPE:}
+    secrets-master-key: ${APP_PAYMENT_SECRETS_MASTER_KEY:}
 
 telegram:
   bot-token: ${TELEGRAM_BOT_TOKEN:}
@@ -113,10 +182,21 @@ spring:
     multipart:
       max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:28MB}
       max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:30MB}
+  mail:
+    host: ${SPRING_MAIL_HOST:}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:true}
   security:
     user:
       name: ${SPRING_SECURITY_USER_NAME:phase1-local}
-      password: ${SPRING_SECURITY_USER_PASSWORD:{noop}phase1-local}
+      password: ${SPRING_SECURITY_USER_PASSWORD:${random.uuid}}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/silly_app?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
     username: ${SPRING_DATASOURCE_USERNAME:root}
@@ -130,7 +210,9 @@ spring:
       timeout: ${SPRING_DATA_REDIS_TIMEOUT:2s}
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    locations:
+      - classpath:db/migration-common
+      - classpath:db/migration-mysql
     baseline-on-migrate: true
 
 mybatis:

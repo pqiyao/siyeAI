@@ -3,6 +3,8 @@ package com.example.sillyspringboot.ops.dto;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 public class AppImageGenerationSettings {
 
@@ -10,6 +12,7 @@ public class AppImageGenerationSettings {
     private int globalConcurrentLimit = 2;
     private int perUserConcurrentLimit = 1;
     private int counterTtlSeconds = 600;
+    // Retained only so historical runtime-setting JSON can still be deserialized safely.
     private String managedProviderSource = "siliconflow";
     private String managedImageModelName = "";
     private String managedApiKeyCipher = "";
@@ -26,6 +29,12 @@ public class AppImageGenerationSettings {
     private long seed = -1L;
     private double denoise = 1.0d;
     private long requestTimeoutSeconds = 90L;
+    private String defaultConsistencyMode = "balanced";
+    private List<String> allowedConsistencyModes = new ArrayList<>(List.of("free", "balanced", "strong"));
+    private String defaultReferenceSourceMode = "latest_generated_first";
+    private List<String> allowedReferenceSourceModes = new ArrayList<>(List.of("latest_generated_first", "avatar_only"));
+    private boolean referenceImagesEnabled = true;
+    private boolean recentSceneContextEnabled = true;
 
     public String getEngine() {
         return engine;
@@ -194,5 +203,53 @@ public class AppImageGenerationSettings {
 
     public void setRequestTimeout(Duration requestTimeout) {
         this.requestTimeoutSeconds = requestTimeout == null ? 90L : Math.max(1L, requestTimeout.toSeconds());
+    }
+
+    public String getDefaultConsistencyMode() {
+        return defaultConsistencyMode;
+    }
+
+    public void setDefaultConsistencyMode(String defaultConsistencyMode) {
+        this.defaultConsistencyMode = defaultConsistencyMode == null ? "" : defaultConsistencyMode;
+    }
+
+    public List<String> getAllowedConsistencyModes() {
+        return allowedConsistencyModes;
+    }
+
+    public void setAllowedConsistencyModes(List<String> allowedConsistencyModes) {
+        this.allowedConsistencyModes = allowedConsistencyModes == null ? new ArrayList<>() : new ArrayList<>(allowedConsistencyModes);
+    }
+
+    public String getDefaultReferenceSourceMode() {
+        return defaultReferenceSourceMode;
+    }
+
+    public void setDefaultReferenceSourceMode(String defaultReferenceSourceMode) {
+        this.defaultReferenceSourceMode = defaultReferenceSourceMode == null ? "" : defaultReferenceSourceMode;
+    }
+
+    public List<String> getAllowedReferenceSourceModes() {
+        return allowedReferenceSourceModes;
+    }
+
+    public void setAllowedReferenceSourceModes(List<String> allowedReferenceSourceModes) {
+        this.allowedReferenceSourceModes = allowedReferenceSourceModes == null ? new ArrayList<>() : new ArrayList<>(allowedReferenceSourceModes);
+    }
+
+    public boolean isReferenceImagesEnabled() {
+        return referenceImagesEnabled;
+    }
+
+    public void setReferenceImagesEnabled(boolean referenceImagesEnabled) {
+        this.referenceImagesEnabled = referenceImagesEnabled;
+    }
+
+    public boolean isRecentSceneContextEnabled() {
+        return recentSceneContextEnabled;
+    }
+
+    public void setRecentSceneContextEnabled(boolean recentSceneContextEnabled) {
+        this.recentSceneContextEnabled = recentSceneContextEnabled;
     }
 }

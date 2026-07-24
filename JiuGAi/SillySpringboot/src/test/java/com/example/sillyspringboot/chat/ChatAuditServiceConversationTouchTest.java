@@ -37,7 +37,7 @@ public class ChatAuditServiceConversationTouchTest {
     void migrate() {
         Flyway.configure()
                 .dataSource(dataSource)
-                .locations("classpath:db/migration")
+                .locations("classpath:db/migration-common", "classpath:db/migration-h2")
                 .baselineOnMigrate(true)
                 .baselineVersion("1")
                 .load()

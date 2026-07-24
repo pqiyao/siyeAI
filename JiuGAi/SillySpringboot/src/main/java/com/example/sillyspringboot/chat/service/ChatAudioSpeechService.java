@@ -1,15 +1,23 @@
 package com.example.sillyspringboot.chat.service;
 
+import com.example.sillyspringboot.ai.model.AiCapability;
+import com.example.sillyspringboot.ai.service.AiProviderCallException;
+import com.example.sillyspringboot.ai.service.AiProviderFailurePolicy;
+import com.example.sillyspringboot.ai.service.AiMediaAttemptTelemetry;
+import com.example.sillyspringboot.ai.service.AiRoutingService;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.ops.service.TtsVoiceProvisionService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
+import com.example.sillyspringboot.shared.net.BoundedHttpBodyHandlers;
+import com.example.sillyspringboot.shared.net.MediaPayloadValidator;
+import com.example.sillyspringboot.shared.net.OutboundUrlGuard;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
@@ -17,8 +25,11 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -26,8 +37,8 @@ import java.util.Set;
 @Service
 public class ChatAudioSpeechService {
 
-    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final int MAX_INPUT_CHARS = 1200;
+    private static final int MAX_AUDIO_RESPONSE_BYTES = 16 * 1024 * 1024;
     private static final String DEFAULT_VOICE_NAME = "alloy";
     private static final String DEFAULT_SILICONFLOW_VOICE_NAME = "alex";
     private static final String DEFAULT_RESPONSE_FORMAT = "mp3";
@@ -37,22 +48,52 @@ public class ChatAudioSpeechService {
     public record AudioSpeechResult(byte[] audioBytes, String mimeType, String modelName, String voiceName) {
     }
 
+    private record RawSpeechResponse(byte[] bytes, String contentType) {}
+
+    record SpeechSelection(String modelName, String voiceName, String voiceTemplateCode) {}
+
+    private record SpeechRuntime(
+            String providerKey,
+            String providerSource,
+            String baseUrl,
+            String apiKey,
+            String modelName,
+            String voiceName,
+            String voiceTemplateCode,
+            Long deploymentId,
+            boolean customModeActive,
+            int connectTimeoutSeconds,
+            int requestTimeoutSeconds
+    ) {}
+
     private final H5UserAiProviderService userAiProviderService;
     private final TtsVoiceProvisionService ttsVoiceProvisionService;
+    private final AiRoutingService routingService;
     private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
+    private final AiMediaAttemptTelemetry attemptTelemetry;
 
     public ChatAudioSpeechService(
             H5UserAiProviderService userAiProviderService,
             TtsVoiceProvisionService ttsVoiceProvisionService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            AiRoutingService routingService
+    ) {
+        this(userAiProviderService, ttsVoiceProvisionService, objectMapper, routingService, null);
+    }
+
+    @Autowired
+    public ChatAudioSpeechService(
+            H5UserAiProviderService userAiProviderService,
+            TtsVoiceProvisionService ttsVoiceProvisionService,
+            ObjectMapper objectMapper,
+            AiRoutingService routingService,
+            AiMediaAttemptTelemetry attemptTelemetry
     ) {
         this.userAiProviderService = userAiProviderService;
         this.ttsVoiceProvisionService = ttsVoiceProvisionService;
+        this.routingService = routingService;
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(CONNECT_TIMEOUT)
-                .build();
+        this.attemptTelemetry = attemptTelemetry;
     }
 
     public AudioSpeechResult synthesizeForUser(long userId, String text) {
@@ -71,126 +112,270 @@ public class ChatAudioSpeechService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "语音内容不能为空");
         }
 
+        List<SpeechRuntime> runtimes = resolveRuntimes(userId);
+        BusinessException last = null;
+        int attemptNo = 0;
+        String telemetryRequestId = attemptTelemetry == null
+                ? "" : attemptTelemetry.newRequestId(AiCapability.TTS);
+        for (SpeechRuntime runtime : runtimes) {
+            attemptNo++;
+            AiMediaAttemptTelemetry.Attempt attempt = startTelemetry(telemetryRequestId, runtime, attemptNo);
+            try {
+                AudioSpeechResult result = synthesizeAttempt(
+                        userId,
+                        safeText,
+                        ttsModelNameOverride,
+                        ttsVoiceNameOverride,
+                        ttsVoiceTemplateCodeOverride,
+                        runtime
+                );
+                recordSuccessQuietly(runtime.deploymentId());
+                successTelemetry(attempt);
+                return result;
+            } catch (BusinessException ex) {
+                failureTelemetry(attempt, ex);
+                last = ex;
+                if (!AiProviderFailurePolicy.shouldFallback(ex)) {
+                    recordConfigurationErrorQuietly(runtime.deploymentId(), ex.getMessage());
+                    throw ex;
+                }
+                if (AiProviderFailurePolicy.shouldCountCircuitFailure(ex)) {
+                    recordFailureQuietly(runtime.deploymentId(), ex.getMessage());
+                }
+            }
+        }
+        throw last == null
+                ? new BusinessException(ErrorCode.FORBIDDEN, "语音合成服务尚未配置")
+                : last;
+    }
+
+    private List<SpeechRuntime> resolveRuntimes(long userId) {
         H5UserAiProviderService.UserTtsSettings settings = userAiProviderService.resolveActiveTtsSettingsForUser(userId);
-        if (settings == null) {
+        if (settings != null) {
+            return List.of(new SpeechRuntime(
+                    "user_byok", safe(settings.providerSource()), safe(settings.baseUrl()), safe(settings.apiKey()),
+                    safe(settings.modelName()), safe(settings.voiceName()), safe(settings.voiceTemplateCode()),
+                    null, true, 10, 90
+            ));
+        }
+        if (userAiProviderService.isCustomModeSelectedForUser(userId)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "用户自定义 TTS 配置不可用，请检查模型、地址和 API Key");
+        }
+        if (!routingService.isCapabilityEnabled(AiCapability.TTS)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "请先配置可用的自定义 API");
         }
+        List<SpeechRuntime> runtimes = new ArrayList<>();
+        for (AiRoutingService.ResolvedProvider provider : routingService.resolve(AiCapability.TTS)) {
+            runtimes.add(new SpeechRuntime(
+                    provider.providerKey(), provider.vendor(), provider.baseUrl(), provider.apiKey(), provider.modelName(),
+                    provider.voiceName(), "", provider.deploymentId(), false,
+                    provider.connectTimeoutSeconds(), provider.requestTimeoutSeconds()
+            ));
+        }
+        if (runtimes.isEmpty()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "系统语音合成供应商尚未配置");
+        }
+        return List.copyOf(runtimes);
+    }
 
-        String modelName = safe(ttsModelNameOverride);
-        if (!StringUtils.hasText(modelName)) {
-            modelName = safe(settings.modelName());
-        }
-        String configuredVoice = safe(ttsVoiceNameOverride);
-        if (!StringUtils.hasText(configuredVoice)) {
-            configuredVoice = safe(settings.voiceName());
-        }
-        String configuredTemplateCode = safe(ttsVoiceTemplateCodeOverride);
-        if (!StringUtils.hasText(configuredTemplateCode)) {
-            configuredTemplateCode = safe(settings.voiceTemplateCode());
-        }
-        String apiKey = safe(settings.apiKey());
-        if (!StringUtils.hasText(apiKey)) {
+    private AudioSpeechResult synthesizeAttempt(
+            long userId,
+            String safeText,
+            String modelOverride,
+            String voiceOverride,
+            String templateOverride,
+            SpeechRuntime runtime
+    ) {
+        SpeechSelection selection = selectSpeechSettings(
+                runtime.customModeActive(), runtime.modelName(), runtime.voiceName(), runtime.voiceTemplateCode(),
+                modelOverride, voiceOverride, templateOverride);
+        String modelName = selection.modelName();
+        String configuredVoice = selection.voiceName();
+        String configuredTemplateCode = selection.voiceTemplateCode();
+        if (!StringUtils.hasText(runtime.apiKey())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "当前未配置可用的 API Key");
         }
-        String providerSource = safe(settings.providerSource());
-        String baseUrl = safe(settings.baseUrl());
-
         if (StringUtils.hasText(configuredTemplateCode)) {
             TtsVoiceProvisionService.ResolvedVoice resolvedVoice = ttsVoiceProvisionService.resolveVoiceForUser(
                     userId,
                     configuredTemplateCode,
-                    new TtsVoiceProvisionService.TtsRuntimeContext(true, providerSource, baseUrl, apiKey, modelName)
+                    new TtsVoiceProvisionService.TtsRuntimeContext(
+                            runtime.customModeActive(), runtime.providerSource(), runtime.baseUrl(), runtime.apiKey(), modelName)
             );
             configuredVoice = safe(resolvedVoice.voiceUri());
             modelName = safe(resolvedVoice.modelName());
         }
-
         if (!StringUtils.hasText(modelName)) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先在 AI Provider 里配置语音合成模型");
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先配置语音合成模型");
         }
         String voiceName = resolveVoiceName(modelName, configuredVoice);
-
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("model", modelName);
         payload.put("input", safeText);
-        if (StringUtils.hasText(voiceName)) {
-            payload.put("voice", voiceName);
-        }
+        if (StringUtils.hasText(voiceName)) payload.put("voice", voiceName);
         payload.put("response_format", DEFAULT_RESPONSE_FORMAT);
-
         try {
-            RestClient client = buildRestClient(baseUrl, apiKey);
-            ResponseEntity<byte[]> entity = client.post()
+            RawSpeechResponse raw = buildRestClient(
+                    runtime.baseUrl(), runtime.apiKey(),
+                    runtime.connectTimeoutSeconds(), runtime.requestTimeoutSeconds()).post()
                     .uri("/audio/speech")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .accept(
-                            MediaType.parseMediaType("audio/mpeg"),
-                            MediaType.parseMediaType("audio/mp3"),
-                            MediaType.APPLICATION_OCTET_STREAM
-                    )
+                    .accept(MediaType.parseMediaType("audio/mpeg"), MediaType.parseMediaType("audio/mp3"), MediaType.APPLICATION_OCTET_STREAM)
                     .body(payload)
-                    .retrieve()
-                    .toEntity(byte[].class);
-            byte[] body = entity.getBody();
+                    .exchange((request, response) -> {
+                        byte[] bytes = BoundedHttpBodyHandlers.readBytes(response.getBody(), MAX_AUDIO_RESPONSE_BYTES);
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw AiProviderCallException.http(
+                                     response.getStatusCode().value(),
+                                    safeProviderErrorMessage(
+                                            new String(bytes, StandardCharsets.UTF_8), runtime.customModeActive()),
+                                    null
+                            );
+                        }
+                        MediaType contentType = response.getHeaders().getContentType();
+                        return new RawSpeechResponse(bytes, contentType == null ? "" : contentType.toString());
+                    });
+            byte[] body = raw == null ? null : raw.bytes();
             if (body == null || body.length == 0) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "语音合成结果为空");
             }
-            MediaType contentType = entity.getHeaders().getContentType();
-            String mimeType = contentType != null ? contentType.toString() : "audio/mpeg";
-            return new AudioSpeechResult(body, mimeType, modelName, voiceName);
+            String contentType = MediaPayloadValidator.requireAudio(body, raw.contentType());
+            return new AudioSpeechResult(body, contentType, modelName, voiceName);
         } catch (BusinessException ex) {
             throw ex;
+        } catch (BoundedHttpBodyHandlers.BodyTooLargeException ex) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "语音合成结果过大，请缩短文本后重试");
         } catch (RestClientResponseException ex) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, safeProviderErrorMessage(ex.getResponseBodyAsString()));
+            throw AiProviderCallException.http(
+                    ex.getStatusCode().value(),
+                    safeProviderErrorMessage(ex.getResponseBodyAsString(), runtime.customModeActive()),
+                    ex
+            );
         } catch (RestClientException ex) {
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "语音合成服务暂时不可用");
+            throw AiProviderCallException.transientFailure("语音合成服务暂时不可用", ex);
         }
     }
 
-    private RestClient buildRestClient(String baseUrl, String apiKey) {
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(this.httpClient);
-        factory.setReadTimeout(Duration.ofSeconds(90));
+    private void recordSuccessQuietly(Long deploymentId) {
+        if (deploymentId == null) return;
+        try { routingService.recordSuccess(deploymentId); } catch (RuntimeException ignored) {}
+    }
+
+    private void recordFailureQuietly(Long deploymentId, String message) {
+        if (deploymentId == null) return;
+        try { routingService.recordFailure(deploymentId, message); } catch (RuntimeException ignored) {}
+    }
+
+    private void recordConfigurationErrorQuietly(Long deploymentId, String message) {
+        if (deploymentId == null) return;
+        try { routingService.recordConfigurationError(deploymentId, message); } catch (RuntimeException ignored) {}
+    }
+
+    private AiMediaAttemptTelemetry.Attempt startTelemetry(
+            String requestId,
+            SpeechRuntime runtime,
+            int attemptNo
+    ) {
+        if (attemptTelemetry == null) return null;
+        return attemptTelemetry.start(
+                requestId, AiCapability.TTS, attemptNo, runtime.providerKey(), runtime.providerSource(),
+                runtime.modelName(), runtime.deploymentId() == null);
+    }
+
+    private void successTelemetry(AiMediaAttemptTelemetry.Attempt attempt) {
+        if (attemptTelemetry != null) attemptTelemetry.success(attempt);
+    }
+
+    private void failureTelemetry(AiMediaAttemptTelemetry.Attempt attempt, Throwable error) {
+        if (attemptTelemetry != null) attemptTelemetry.failure(attempt, error);
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) if (StringUtils.hasText(value)) return value.trim();
+        return "";
+    }
+
+    static SpeechSelection selectSpeechSettings(
+            boolean customModeActive,
+            String runtimeModel,
+            String runtimeVoice,
+            String runtimeTemplate,
+            String modelOverride,
+            String voiceOverride,
+            String templateOverride
+    ) {
+        if (!customModeActive) {
+            return new SpeechSelection(safe(runtimeModel), safe(runtimeVoice), "");
+        }
+        return new SpeechSelection(
+                firstNonBlank(modelOverride, runtimeModel),
+                firstNonBlank(voiceOverride, runtimeVoice),
+                firstNonBlank(templateOverride, runtimeTemplate));
+    }
+
+    private RestClient buildRestClient(
+            String baseUrl,
+            String apiKey,
+            int connectTimeoutSeconds,
+            int requestTimeoutSeconds
+    ) {
+        String safeBaseUrl = OutboundUrlGuard.requirePublicHttpUrl(
+                baseUrl, "TTS 服务地址不安全，请使用可公开访问的 HTTP(S) 地址").toString();
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(clamp(connectTimeoutSeconds, 1, 60, 10)))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(client);
+        factory.setReadTimeout(Duration.ofSeconds(clamp(requestTimeoutSeconds, 5, 600, 90)));
         return RestClient.builder()
-                .baseUrl(baseUrl)
+                .baseUrl(safeBaseUrl)
                 .requestFactory(factory)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .build();
     }
 
-    private String safeProviderErrorMessage(String responseBody) {
+    private String safeProviderErrorMessage(String responseBody, boolean customModeActive) {
         String message = "";
         try {
             JsonNode root = objectMapper.readTree(responseBody == null ? "" : responseBody);
             message = safe(root.path("error").path("message").asText(""));
             if (!message.isBlank()) {
-                return normalizeProviderSpeechMessage(message);
+                return normalizeProviderSpeechMessage(message, customModeActive);
             }
             message = safe(root.path("message").asText(""));
             if (!message.isBlank()) {
-                return normalizeProviderSpeechMessage(message);
+                return normalizeProviderSpeechMessage(message, customModeActive);
             }
         } catch (Exception ignored) {
         }
         return "语音合成失败，请检查 TTS 模型和音色配置";
     }
 
-    private String normalizeProviderSpeechMessage(String message) {
+    private String normalizeProviderSpeechMessage(String message, boolean customModeActive) {
         String text = safe(message);
         String lower = text.toLowerCase(Locale.ROOT);
         if (lower.contains("illegal operation") || lower.contains("not support") || lower.contains("unsupported")) {
-            return "当前 TTS 模型不支持语音合成，请到 AI 设置里单独填写可用的 TTS 模型";
+            return customModeActive
+                    ? "当前 TTS 模型不支持语音合成，请到 AI 设置里单独填写可用的 TTS 模型"
+                    : "系统 TTS 模型不支持语音合成，请联系管理员检查模型路由";
         }
         if (lower.contains("voice") && lower.contains("invalid")) {
-            return "当前 TTS 音色不可用，请到 AI 设置里更换音色";
+            return customModeActive
+                    ? "当前 TTS 音色不可用，请到 AI 设置里更换音色"
+                    : "系统 TTS 音色不可用，请联系管理员检查模型路由";
         }
         if (lower.contains("voice or reference audio should be set")) {
             return "当前 TTS 模型需要音色或参考音频，请先在 AI 设置里选择可用音色";
         }
         if (lower.contains("model") && (lower.contains("not found") || lower.contains("does not exist"))) {
-            return "当前 TTS 模型不可用，请到 AI 设置里检查模型名称";
+            return customModeActive
+                    ? "当前 TTS 模型不可用，请到 AI 设置里检查模型名称"
+                    : "系统 TTS 模型不可用，请联系管理员检查模型路由";
         }
         if (lower.contains("api key") || lower.contains("unauthorized") || lower.contains("authentication")) {
-            return "当前语音配置的 API Key 不可用，请检查 BYOK 设置";
+            return customModeActive
+                    ? "当前语音配置的 API Key 不可用，请检查 BYOK 设置"
+                    : "系统 TTS 供应商鉴权失败，请联系管理员检查模型路由";
         }
         return text;
     }
@@ -254,12 +439,17 @@ public class ChatAudioSpeechService {
             return "";
         }
         if (value.length() > MAX_INPUT_CHARS) {
-            return value.substring(0, MAX_INPUT_CHARS);
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "单段语音内容过长，请分段后重试");
         }
         return value;
     }
 
     private static String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static int clamp(int value, int min, int max, int fallback) {
+        int candidate = value <= 0 ? fallback : value;
+        return Math.max(min, Math.min(max, candidate));
     }
 }

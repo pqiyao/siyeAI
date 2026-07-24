@@ -8,15 +8,19 @@ import java.util.List;
 @ConfigurationProperties(prefix = "app.ruoyi-admin")
 public class RuoYiAdminProperties {
 
-    private String username = "admin";
+    private String username = "";
     private String nickName = "酒馆运营后台";
-    private String encodedPassword = "{noop}admin123";
+    private String encodedPassword = "";
     private String role = "super-admin";
     private List<String> roles = new ArrayList<>();
     private List<Account> accounts = new ArrayList<>();
-    private String jwtSecret = "silly-ruoyi-admin-jwt-secret-change-me-32b!!";
-    private int jwtExpireHours = 720;
-    private boolean captchaEnabled = false;
+    private String jwtSecret = "";
+    private int jwtExpireHours = 8;
+    private boolean captchaEnabled = true;
+    private int captchaTtlSeconds = 120;
+    private int loginMaxAttempts = 5;
+    private int loginWindowSeconds = 300;
+    private int loginBlockSeconds = 900;
 
     public String getUsername() {
         return username;
@@ -88,6 +92,38 @@ public class RuoYiAdminProperties {
 
     public void setCaptchaEnabled(boolean captchaEnabled) {
         this.captchaEnabled = captchaEnabled;
+    }
+
+    public int getCaptchaTtlSeconds() {
+        return captchaTtlSeconds;
+    }
+
+    public void setCaptchaTtlSeconds(int captchaTtlSeconds) {
+        this.captchaTtlSeconds = captchaTtlSeconds;
+    }
+
+    public int getLoginMaxAttempts() {
+        return loginMaxAttempts;
+    }
+
+    public void setLoginMaxAttempts(int loginMaxAttempts) {
+        this.loginMaxAttempts = loginMaxAttempts;
+    }
+
+    public int getLoginWindowSeconds() {
+        return loginWindowSeconds;
+    }
+
+    public void setLoginWindowSeconds(int loginWindowSeconds) {
+        this.loginWindowSeconds = loginWindowSeconds;
+    }
+
+    public int getLoginBlockSeconds() {
+        return loginBlockSeconds;
+    }
+
+    public void setLoginBlockSeconds(int loginBlockSeconds) {
+        this.loginBlockSeconds = loginBlockSeconds;
     }
 
     public static class Account {

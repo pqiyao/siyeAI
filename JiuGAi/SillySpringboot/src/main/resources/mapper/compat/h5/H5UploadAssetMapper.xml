@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.H5UploadAssetMapper">
+
+    <insert id="insertOwnedAsset">
+        INSERT INTO app_h5_upload_asset (
+            asset_url,
+            relative_path,
+            owner_user_id
+        ) VALUES (
+            #{assetUrl},
+            #{relativePath},
+            #{ownerUserId}
+        )
+    </insert>
+</mapper>

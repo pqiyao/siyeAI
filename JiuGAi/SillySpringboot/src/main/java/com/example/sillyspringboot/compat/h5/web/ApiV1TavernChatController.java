@@ -11,6 +11,7 @@ import com.example.sillyspringboot.chat.service.ChatAudioSpeechService;
 import com.example.sillyspringboot.chat.service.ChatAuditService;
 import com.example.sillyspringboot.chat.service.ChatGenerationDispatcher;
 import com.example.sillyspringboot.chat.service.ChatGenerationTimeout;
+import com.example.sillyspringboot.chat.service.MediaConcurrencyGate;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
@@ -46,6 +47,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -74,6 +76,7 @@ public class ApiV1TavernChatController {
     private final ChatAuditService auditService;
     private final ChatAudioTranscriptionService chatAudioTranscriptionService;
     private final ChatAudioSpeechService chatAudioSpeechService;
+    private final MediaConcurrencyGate mediaConcurrencyGate;
     private final ChatSnapshotService snapshotService;
     private final AppMessageMapper messageMapper;
     private final H5EntitlementService entitlementService;
@@ -90,6 +93,7 @@ public class ApiV1TavernChatController {
             ChatAuditService auditService,
             ChatAudioTranscriptionService chatAudioTranscriptionService,
             ChatAudioSpeechService chatAudioSpeechService,
+            MediaConcurrencyGate mediaConcurrencyGate,
             ChatSnapshotService snapshotService,
             AppMessageMapper messageMapper,
             H5EntitlementService entitlementService,
@@ -105,6 +109,7 @@ public class ApiV1TavernChatController {
         this.auditService = auditService;
         this.chatAudioTranscriptionService = chatAudioTranscriptionService;
         this.chatAudioSpeechService = chatAudioSpeechService;
+        this.mediaConcurrencyGate = mediaConcurrencyGate;
         this.snapshotService = snapshotService;
         this.messageMapper = messageMapper;
         this.entitlementService = entitlementService;
@@ -140,6 +145,7 @@ public class ApiV1TavernChatController {
         req.setAttachmentHint(payload.getAttachmentHint());
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
+        req.setReplySplitMode(payload.getReplySplitMode());
         req.setClientMessageId(clientMessageId);
 
         return runStream(req, token, conversationId, clientMessageId, userText, StreamKind.GENERATE, 0L, accessTicket);
@@ -171,6 +177,7 @@ public class ApiV1TavernChatController {
         req.setAttachmentHint(payload.getAttachmentHint());
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
+        req.setReplySplitMode(payload.getReplySplitMode());
         req.setClientMessageId(clientMessageId);
 
         return ApiV1Result.ok(
@@ -189,13 +196,14 @@ public class ApiV1TavernChatController {
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
         String clientMessageId = "h5_http_cont_" + System.currentTimeMillis();
 
-        long anchorId = resolveAssistantAnchor(payload, conversationId);
+        long anchorId = resolveAssistantAnchor(payload, conversationId, token);
         AppChatContinueRequest req = new AppChatContinueRequest();
         req.setConversationId(conversationId);
         req.setClientMessageId(clientMessageId);
         req.setTargetMessageId(String.valueOf(anchorId));
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
+        req.setReplySplitMode(payload.getReplySplitMode());
         return ApiV1Result.ok(
                 runBlockingGenerate(req, token, conversationId, clientMessageId, "", StreamKind.CONTINUE, anchorId, accessTicket)
         );
@@ -212,13 +220,14 @@ public class ApiV1TavernChatController {
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
         String clientMessageId = "h5_http_regen_" + System.currentTimeMillis();
 
-        long anchorId = resolveAssistantAnchor(payload, conversationId);
+        long anchorId = resolveAssistantAnchor(payload, conversationId, token);
         AppChatRegenerateRequest req = new AppChatRegenerateRequest();
         req.setConversationId(conversationId);
         req.setClientMessageId(clientMessageId);
         req.setTargetMessageId(String.valueOf(anchorId));
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
+        req.setReplySplitMode(payload.getReplySplitMode());
         return ApiV1Result.ok(
                 runBlockingGenerate(req, token, conversationId, clientMessageId, "", StreamKind.REGENERATE, anchorId, accessTicket)
         );
@@ -234,7 +243,7 @@ public class ApiV1TavernChatController {
                 entitlementService.guardChat(clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.CONTINUE);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
         String clientMessageId = "h5_cont_" + System.currentTimeMillis();
-        long anchorId = resolveAssistantAnchor(payload, conversationId);
+        long anchorId = resolveAssistantAnchor(payload, conversationId, token);
 
         AppChatContinueRequest req = new AppChatContinueRequest();
         req.setConversationId(conversationId);
@@ -242,6 +251,7 @@ public class ApiV1TavernChatController {
         req.setTargetMessageId(String.valueOf(anchorId));
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
+        req.setReplySplitMode(payload.getReplySplitMode());
         return runStream(req, token, conversationId, clientMessageId, "", StreamKind.CONTINUE, anchorId, accessTicket);
     }
 
@@ -255,7 +265,7 @@ public class ApiV1TavernChatController {
                 entitlementService.guardChat(clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.REGENERATE);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
         String clientMessageId = "h5_regen_" + System.currentTimeMillis();
-        long anchorId = resolveAssistantAnchor(payload, conversationId);
+        long anchorId = resolveAssistantAnchor(payload, conversationId, token);
 
         AppChatRegenerateRequest req = new AppChatRegenerateRequest();
         req.setConversationId(conversationId);
@@ -263,6 +273,7 @@ public class ApiV1TavernChatController {
         req.setTargetMessageId(String.valueOf(anchorId));
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
+        req.setReplySplitMode(payload.getReplySplitMode());
         return runStream(req, token, conversationId, clientMessageId, "", StreamKind.REGENERATE, anchorId, accessTicket);
     }
 
@@ -295,20 +306,32 @@ public class ApiV1TavernChatController {
     @PostMapping(value = "/chat/transcribe-audio", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiV1Result<Map<String, Object>> transcribeAudio(
             @RequestPart("file") MultipartFile file,
-            @RequestParam("clientUid") String clientUid
+            @RequestParam("clientUid") String clientUid,
+            @RequestParam(value = "sttRequestId", required = false) String rawSttRequestId
     ) {
         featureSettingsService.ensureVoiceFeatureEnabled();
         String safeClientUid = requireClientUidValue(clientUid);
         visitorTrialGuardService.guardAnonymousChatAttempt(safeClientUid);
         String token = h5Auth.requireAuthenticatedTokenForClientUid(safeClientUid);
         long userId = chatService.resolveUserId(token);
-        ChatAudioTranscriptionService.AudioTranscriptionResult result =
-                chatAudioTranscriptionService.transcribeForUser(userId, file);
-        Map<String, Object> data = new HashMap<>();
-        data.put("text", result.text());
-        data.put("modelName", result.modelName());
-        data.put("audioUrl", result.audioUrl());
-        return ApiV1Result.ok(data);
+        String sttRequestId = normalizeMediaRequestId(rawSttRequestId, "stt");
+        H5EntitlementService.AccessTicket sttTicket = entitlementService.guardStt(safeClientUid, sttRequestId);
+        boolean sttChargeCreated = sttTicket.usesWallet() && entitlementService.reserveSttCharge(sttTicket);
+        try (MediaConcurrencyGate.Lease ignored = mediaConcurrencyGate.acquire(
+                MediaConcurrencyGate.Capability.STT, userId, sttRequestId)) {
+            ChatAudioTranscriptionService.AudioTranscriptionResult result =
+                    chatAudioTranscriptionService.transcribeForUser(userId, file);
+            Map<String, Object> data = new HashMap<>();
+            data.put("text", result.text());
+            data.put("modelName", result.modelName());
+            data.put("audioUrl", result.audioUrl());
+            return ApiV1Result.ok(data);
+        } catch (RuntimeException ex) {
+            if (sttChargeCreated) {
+                entitlementService.refundSttCharge(sttTicket);
+            }
+            throw ex;
+        }
     }
 
     @PostMapping(value = "/chat/tts")
@@ -321,20 +344,81 @@ public class ApiV1TavernChatController {
         }
         visitorTrialGuardService.guardAnonymousChatAttempt(clientUid);
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
-        long userId = chatService.resolveUserId(token);
-        ChatAudioSpeechService.AudioSpeechResult result = chatAudioSpeechService.synthesizeForUser(
-                userId,
-                text,
-                payload.getTtsModelName(),
-                payload.getTtsVoiceName(),
-                payload.getTtsVoiceTemplateCode()
+        String ttsRequestId = normalizeTtsRequestId(payload.getTtsRequestId());
+        int ttsSegmentIndex = validateTtsSegmentMetadata(
+                ttsRequestId,
+                payload.getTtsSegmentIndex(),
+                payload.getTtsSegmentCount()
         );
-        Map<String, Object> data = new HashMap<>();
-        data.put("audioDataUrl", "data:" + result.mimeType() + ";base64," + Base64.getEncoder().encodeToString(result.audioBytes()));
-        data.put("mimeType", result.mimeType());
-        data.put("modelName", result.modelName());
-        data.put("voiceName", result.voiceName());
-        return ApiV1Result.ok(data);
+        H5EntitlementService.AccessTicket ttsTicket = ttsRequestId.isBlank()
+                ? entitlementService.guardTts(clientUid)
+                : entitlementService.guardTts(clientUid, ttsRequestId);
+        // Wallet TTS: deduct before synthesis to avoid unpaid success; refund if synthesis fails.
+        boolean ttsChargeCreated = ttsTicket.usesWallet()
+                && entitlementService.recordSuccessfulTts(ttsTicket);
+        try {
+            long userId = chatService.resolveUserId(token);
+            try (MediaConcurrencyGate.Lease ignored =
+                         mediaConcurrencyGate.acquire(MediaConcurrencyGate.Capability.TTS, userId, ttsRequestId)) {
+                ChatAudioSpeechService.AudioSpeechResult result = chatAudioSpeechService.synthesizeForUser(
+                        userId,
+                        text,
+                        payload.getTtsModelName(),
+                        payload.getTtsVoiceName(),
+                        payload.getTtsVoiceTemplateCode()
+                );
+                Map<String, Object> data = new HashMap<>();
+                data.put("audioDataUrl", "data:" + result.mimeType() + ";base64," + Base64.getEncoder().encodeToString(result.audioBytes()));
+                data.put("mimeType", result.mimeType());
+                data.put("modelName", result.modelName());
+                data.put("voiceName", result.voiceName());
+                return ApiV1Result.ok(data);
+            }
+        } catch (RuntimeException ex) {
+            if (ttsChargeCreated && (ttsRequestId.isBlank() || ttsSegmentIndex == 0)) {
+                entitlementService.refundWalletConsume(ttsTicket);
+            }
+            throw ex;
+        }
+    }
+
+    private static String normalizeTtsRequestId(String value) {
+        String requestId = value == null ? "" : value.trim();
+        if (requestId.isBlank()) {
+            return "";
+        }
+        if (requestId.length() < 8 || requestId.length() > 160
+                || !requestId.matches("[A-Za-z0-9._:-]+")) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "TTS 请求标识不合法");
+        }
+        return requestId;
+    }
+
+    private static String normalizeMediaRequestId(String value, String prefix) {
+        String requestId = value == null ? "" : value.trim();
+        if (requestId.isBlank()) {
+            return prefix + "-legacy-" + UUID.randomUUID().toString().replace("-", "");
+        }
+        if (requestId.length() < 8 || requestId.length() > 160
+                || !requestId.matches("[A-Za-z0-9._:-]+")) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "媒体请求标识不合法");
+        }
+        return requestId;
+    }
+
+    private static int validateTtsSegmentMetadata(String requestId, Integer segmentIndex, Integer segmentCount) {
+        if (requestId.isBlank()) {
+            if (segmentIndex != null || segmentCount != null) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "TTS 分段参数缺少请求标识");
+            }
+            return 0;
+        }
+        if (segmentIndex == null || segmentCount == null
+                || segmentCount < 1 || segmentCount > 256
+                || segmentIndex < 0 || segmentIndex >= segmentCount) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "TTS 分段参数不合法");
+        }
+        return segmentIndex;
     }
 
     private enum StreamKind { GENERATE, CONTINUE, REGENERATE }
@@ -371,6 +455,7 @@ public class ApiV1TavernChatController {
     ) {
         String traceId = traceId();
         StStreamControl control = new StStreamControl();
+        chatService.registerControl(conversationId, control);
         boolean ensureUserMessage = kind == StreamKind.GENERATE
                 && request instanceof AppChatStreamRequest streamRequest
                 && hasImageUrls(streamRequest);
@@ -380,22 +465,29 @@ public class ApiV1TavernChatController {
         Integer voiceDurationMs = request instanceof AppChatStreamRequest streamRequest
                 ? normalizeVoiceDurationMs(streamRequest.getVoiceDurationMs())
                 : null;
-        ChatAuditService.AuditContext audit = auditService.onQueued(
-                conversationId,
-                userMessage,
-                clientMessageId,
-                token,
-                traceId,
-                channelFor(kind, false),
-                ensureUserMessage,
-                voiceUrl,
-                voiceDurationMs,
-                auditModelForToken(token, ensureUserMessage)
-        );
+        ChatAuditService.AuditContext audit;
+        try {
+            audit = auditService.onQueued(
+                    conversationId,
+                    userMessage,
+                    clientMessageId,
+                    token,
+                    traceId,
+                    channelFor(kind, false),
+                    ensureUserMessage,
+                    voiceUrl,
+                    voiceDurationMs,
+                    auditModelForToken(token, ensureUserMessage)
+            );
+            chatService.bindControlTask(conversationId, audit.taskId(), control);
+        } catch (RuntimeException ex) {
+            control.cancel();
+            chatService.unregisterControl(conversationId, control);
+            throw ex;
+        }
         try (var lease = chatService.acquireLease(token);
              ChatGenerationTimeout timeout = ChatGenerationTimeout.start(control, chatService.generationTimeoutSeconds())) {
             auditService.onGenerating(audit.assistantMessageId(), audit.taskId(), traceId);
-            snapshotService.ensureSnapshot(conversationId);
             StringBuilder assistant = new StringBuilder();
             boolean[] frontendBridgeGenerated = {false};
             switch (kind) {
@@ -445,26 +537,39 @@ public class ApiV1TavernChatController {
                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试");
             }
 
+            boolean cancelled = control.isCancelled();
             String content = assistant.toString().trim();
-            if (shouldFailEmptyGeneratedContent(kind, false, content)) {
+            if (shouldFailEmptyGeneratedContent(kind, cancelled, content)) {
                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, emptyGeneratedContentMessage(kind));
             }
-            applyBlockingPostStream(
+            AppChatService.AssistantOutputNormalization normalization = frontendBridgeGenerated[0]
+                    ? AppChatService.AssistantOutputNormalization.passthrough(content)
+                    : chatService.normalizeAssistantOutput(conversationId, content, token);
+            content = normalization.content();
+            if (timeout.isTimedOut()) {
+                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试");
+            }
+            cancelled = control.isCancelled();
+            boolean assistantSynced = applyStreamPostGenerate(
                     kind,
                     conversationId,
                     anchorOrTargetMessageId,
                     audit,
                     content,
+                    cancelled,
                     token,
                     traceId,
-                    frontendBridgeGenerated[0]
+                    frontendBridgeGenerated[0],
+                    normalization.finalized()
             );
-            if (kind == StreamKind.GENERATE && !frontendBridgeGenerated[0]) {
+            if (kind == StreamKind.GENERATE
+                    && !frontendBridgeGenerated[0]
+                    && !assistantSynced) {
                 saveSnapshotQuietly(conversationId);
             }
             entitlementService.recordSuccessfulChat(accessTicket, !content.isBlank());
             Map<String, Object> done = buildDonePayload(kind, anchorOrTargetMessageId, audit, content);
-            done.put("cancelled", false);
+            done.put("cancelled", cancelled);
             return done;
         } catch (BusinessException be) {
             auditService.onFailed(audit.assistantMessageId(), audit.taskId(), be, traceId);
@@ -475,66 +580,11 @@ public class ApiV1TavernChatController {
             restoreSnapshotAfterFailedMutation(kind, conversationId);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "服务暂时不可用，请稍后重试");
         } finally {
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         }
     }
 
-    private void applyBlockingPostStream(
-            StreamKind kind,
-            long conversationId,
-            long anchorOrTargetMessageId,
-            ChatAuditService.AuditContext audit,
-            String content,
-            String token,
-            String traceId,
-            boolean generatedByFrontendBridge
-    ) {
-        switch (kind) {
-            case GENERATE -> {
-                auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), content, traceId);
-                markUserMessageSuccessIfQueued(audit);
-                if (!generatedByFrontendBridge) {
-                try {
-                    // A：写回 ST chat，绑定 assistant ↔ message_ref（root:<assistantMessageId>）
-                    chatService.syncAssistantReplyToSt(conversationId, "root:" + audit.assistantMessageId(), content, token);
-                } catch (Exception ignored) {
-                }
-            }
-            }
-            case CONTINUE -> chatService.finalizeContinueAsMessage(
-                    conversationId,
-                    anchorOrTargetMessageId,
-                    audit.assistantMessageId(),
-                    audit.taskId(),
-                    content,
-                    token,
-                    !generatedByFrontendBridge
-            );
-            case REGENERATE -> {
-                if (content.isBlank()) {
-                    auditService.onFailed(
-                            audit.assistantMessageId(),
-                            audit.taskId(),
-                            ErrorCode.VALIDATION_FAILED,
-                            traceId,
-                            "重新生成结果为空"
-                    );
-                    messageMapper.deleteById(audit.assistantMessageId());
-                    throw new BusinessException(ErrorCode.VALIDATION_FAILED, "重新生成结果为空");
-                }
-                auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), content, traceId);
-                chatService.promoteRegenerateVariant(
-                        conversationId,
-                        anchorOrTargetMessageId,
-                        audit.assistantMessageId(),
-                        token,
-                        !generatedByFrontendBridge
-                );
-            }
-        }
-    }
-
-    private void applyStreamPostGenerate(
+    private boolean applyStreamPostGenerate(
             StreamKind kind,
             long conversationId,
             long anchorOrTargetMessageId,
@@ -543,8 +593,10 @@ public class ApiV1TavernChatController {
             boolean cancelled,
             String token,
             String traceId,
-            boolean generatedByFrontendBridge
+            boolean generatedByFrontendBridge,
+            boolean outputRegexApplied
     ) {
+        boolean assistantSynced = false;
         switch (kind) {
             case GENERATE -> {
                 if (cancelled) {
@@ -554,10 +606,16 @@ public class ApiV1TavernChatController {
                 }
                 markUserMessageSuccessIfQueued(audit);
                 if (!generatedByFrontendBridge) {
-                try {
-                    chatService.syncAssistantReplyToSt(conversationId, "root:" + audit.assistantMessageId(), content, token);
-                } catch (Exception ignored) {
-                }
+                    try {
+                        assistantSynced = chatService.syncAssistantReplyToSt(
+                                conversationId,
+                                "root:" + audit.assistantMessageId(),
+                                content,
+                                token,
+                                outputRegexApplied
+                        );
+                    } catch (Exception ignored) {
+                    }
                 }
             }
             case CONTINUE -> {
@@ -567,52 +625,35 @@ public class ApiV1TavernChatController {
                     chatService.finalizeContinueAsMessage(
                             conversationId,
                             anchorOrTargetMessageId,
-                                audit.assistantMessageId(),
-                                audit.taskId(),
-                                content,
-                                token,
-                                !generatedByFrontendBridge
-                        );
+                            audit.assistantMessageId(),
+                            audit.taskId(),
+                            content,
+                            token,
+                            !generatedByFrontendBridge,
+                            outputRegexApplied,
+                            cancelled
+                    );
                 }
             }
             case REGENERATE -> {
-                if (content.isBlank()) {
+                if (cancelled) {
                     restoreSnapshotAfterFailedMutation(kind, conversationId);
-                    if (cancelled) {
-                        auditService.onStopped(audit.assistantMessageId(), audit.taskId(), "", traceId);
-                    } else {
-                        auditService.onFailed(
-                                audit.assistantMessageId(),
-                                audit.taskId(),
-                                ErrorCode.VALIDATION_FAILED,
-                                traceId,
-                                "重新生成结果为空"
-                        );
-                        messageMapper.deleteById(audit.assistantMessageId());
-                    }
+                    auditService.onStopped(audit.assistantMessageId(), audit.taskId(), "", traceId);
                 } else {
-                    if (cancelled) {
-                        auditService.onStopped(audit.assistantMessageId(), audit.taskId(), content, traceId);
-                    } else {
-                        auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), content, traceId);
-                    }
-                    try {
-                        // A：regenerate 的 ST 语义是“替换目标 assistant”，所以 message_ref 绑定 root:<targetMessageId>
-                        if (!generatedByFrontendBridge) {
-                            chatService.syncAssistantReplyToSt(conversationId, "root:" + anchorOrTargetMessageId, content, token);
-                        }
-                    } catch (Exception ignored) {
-                    }
+                    auditService.stageFinalAssistantContent(audit.assistantMessageId(), content, traceId);
                     chatService.promoteRegenerateVariant(
                             conversationId,
                             anchorOrTargetMessageId,
                             audit.assistantMessageId(),
                             token,
-                            !generatedByFrontendBridge
+                            !generatedByFrontendBridge,
+                            outputRegexApplied
                     );
+                    auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), content, traceId);
                 }
             }
         }
+        return assistantSynced;
     }
 
     private Map<String, Object> buildDonePayload(
@@ -736,18 +777,18 @@ public class ApiV1TavernChatController {
         emitter.onTimeout(() -> {
             cancelHeartbeat(heartbeat);
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
             emitter.complete();
         });
         emitter.onError(ex -> {
             cancelHeartbeat(heartbeat);
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         });
         emitter.onCompletion(() -> {
             cancelHeartbeat(heartbeat);
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         });
         sendEvent(emitter, "ping", Map.of());
 
@@ -761,29 +802,38 @@ public class ApiV1TavernChatController {
                 ? normalizeVoiceDurationMs(streamRequest.getVoiceDurationMs())
                 : null;
         String traceId = traceId();
-        ChatAuditService.AuditContext audit = auditService.onQueued(
-                conversationId,
-                userMessage,
-                clientMessageId,
-                token,
-                traceId,
-                channelFor(kind, true),
-                ensureUserMessage,
-                voiceUrl,
-                voiceDurationMs,
-                auditModelForToken(token, ensureUserMessage)
-        );
+        ChatAuditService.AuditContext audit;
+        try {
+            audit = auditService.onQueued(
+                    conversationId,
+                    userMessage,
+                    clientMessageId,
+                    token,
+                    traceId,
+                    channelFor(kind, true),
+                    ensureUserMessage,
+                    voiceUrl,
+                    voiceDurationMs,
+                    auditModelForToken(token, ensureUserMessage)
+            );
+            chatService.bindControlTask(conversationId, audit.taskId(), control);
+        } catch (RuntimeException ex) {
+            cancelHeartbeat(heartbeat);
+            control.cancel();
+            chatService.unregisterControl(conversationId, control);
+            throw ex;
+        }
 
         try {
             dispatcher.submit(() -> {
                 try {
                     long start = System.nanoTime();
                     long maxWaitNanos = Duration.ofSeconds(chatService.maxQueueWaitSeconds()).toNanos();
+                    boolean[] contentFinalized = {false};
                     while (!control.isCancelled()) {
                         try (var lease = chatService.acquireLease(token);
                              ChatGenerationTimeout timeout = ChatGenerationTimeout.start(control, chatService.generationTimeoutSeconds())) {
-                            snapshotService.ensureSnapshot(conversationId);
-
+                            auditService.onGenerating(audit.assistantMessageId(), audit.taskId(), traceId);
                             StringBuilder assistant = new StringBuilder();
                             boolean[] frontendBridgeGenerated = {false};
                             switch (kind) {
@@ -833,6 +883,7 @@ public class ApiV1TavernChatController {
                                         traceId,
                                         "generation timed out after " + chatService.generationTimeoutSeconds() + " seconds"
                                 );
+                                restoreSnapshotAfterFailedMutation(kind, conversationId);
                                 sendEvent(emitter, "error", Map.of("message", "生成超时，请稍后重试"), control);
                                 emitter.complete();
                                 return;
@@ -840,7 +891,15 @@ public class ApiV1TavernChatController {
                             if (shouldFailEmptyGeneratedContent(kind, cancelled, content)) {
                                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, emptyGeneratedContentMessage(kind));
                             }
-                            applyStreamPostGenerate(
+                            AppChatService.AssistantOutputNormalization normalization = frontendBridgeGenerated[0]
+                                    ? AppChatService.AssistantOutputNormalization.passthrough(content)
+                                    : chatService.normalizeAssistantOutput(conversationId, content, token);
+                            content = normalization.content();
+                            if (timeout.isTimedOut()) {
+                                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试");
+                            }
+                            cancelled = control.isCancelled();
+                            boolean assistantSynced = applyStreamPostGenerate(
                                     kind,
                                     conversationId,
                                     anchorOrTargetMessageId,
@@ -849,16 +908,14 @@ public class ApiV1TavernChatController {
                                     cancelled,
                                     token,
                                     traceId,
-                                    frontendBridgeGenerated[0]
+                                    frontendBridgeGenerated[0],
+                                    normalization.finalized()
                             );
+                            contentFinalized[0] = true;
 
-                            if (kind == StreamKind.REGENERATE && !cancelled && content.isBlank()) {
-                                sendEvent(emitter, "error", Map.of("message", "重新生成结果为空"));
-                                emitter.complete();
-                                return;
-                            }
-
-                            if (kind == StreamKind.GENERATE && !cancelled && !frontendBridgeGenerated[0]) {
+                            if (kind == StreamKind.GENERATE
+                                    && !frontendBridgeGenerated[0]
+                                    && !assistantSynced) {
                                 saveSnapshotQuietly(conversationId);
                             }
 
@@ -870,6 +927,9 @@ public class ApiV1TavernChatController {
                             emitter.complete();
                             return;
                         } catch (BusinessException be) {
+                            if (contentFinalized[0]) {
+                                throw be;
+                            }
                             if (be.getErrorCode() != ErrorCode.SERVICE_BUSY
                                     && be.getErrorCode() != ErrorCode.RATE_LIMITED) {
                                 throw be;
@@ -886,50 +946,58 @@ public class ApiV1TavernChatController {
                         }
                     }
 
-                    Map<String, Object> done = new HashMap<>();
-                    done.put("content", "");
-                    done.put("messageId", h5MessageId(audit.assistantMessageId()));
-                    if (audit.userMessageId() > 0) {
-                        done.put("userMessageId", h5MessageId(audit.userMessageId()));
-                    }
-                    done.put("swipes", List.of(""));
-                    done.put("swipeIndex", 0);
-                    done.put("cancelled", true);
                     auditService.onStopped(audit.assistantMessageId(), audit.taskId(), "", traceId);
                     markUserMessageSuccessIfQueued(audit);
                     restoreSnapshotAfterFailedMutation(kind, conversationId);
+                    Map<String, Object> done;
+                    if (kind == StreamKind.REGENERATE) {
+                        done = buildDonePayload(kind, anchorOrTargetMessageId, audit, "");
+                    } else {
+                        done = new HashMap<>();
+                        done.put("content", "");
+                        done.put("messageId", h5MessageId(audit.assistantMessageId()));
+                        if (audit.userMessageId() > 0) {
+                            done.put("userMessageId", h5MessageId(audit.userMessageId()));
+                        }
+                        done.put("swipes", List.of(""));
+                        done.put("swipeIndex", 0);
+                    }
+                    done.put("cancelled", true);
                     sendEvent(emitter, "done", done, control);
                     emitter.complete();
                 } catch (BusinessException be) {
                     log.warn("h5 stream business error conversationId={} kind={} code={} message={}",
                             conversationId, kind, be.getErrorCode(), be.getMessage());
-                    auditService.onFailed(audit.assistantMessageId(), audit.taskId(), be, traceId);
-                    restoreSnapshotAfterFailedMutation(kind, conversationId);
-                    sendEvent(emitter, "error", Map.of("message", be.getMessage()), control);
-                    emitter.complete();
+                    try {
+                        recordStreamFailureQuietly(conversationId, kind, audit, be, traceId);
+                        restoreSnapshotAfterFailedMutation(kind, conversationId);
+                        sendEvent(emitter, "error", Map.of("message", be.getMessage()), control);
+                    } finally {
+                        completeEmitterQuietly(emitter);
+                    }
                 } catch (Exception ex) {
                     log.error("h5 stream unhandled error conversationId={} kind={} clientMessageId={}",
                             conversationId, kind, clientMessageId, ex);
-                    auditService.onFailed(audit.assistantMessageId(), audit.taskId(), ex, ErrorCode.INTERNAL_ERROR, traceId);
-                    restoreSnapshotAfterFailedMutation(kind, conversationId);
-                    sendEvent(emitter, "error", Map.of("message", "服务暂时不可用，请稍后重试"));
-                    emitter.complete();
+                    try {
+                        recordStreamFailureQuietly(conversationId, kind, audit, ex, traceId);
+                        restoreSnapshotAfterFailedMutation(kind, conversationId);
+                        sendEvent(emitter, "error", Map.of("message", "服务暂时不可用，请稍后重试"), control);
+                    } finally {
+                        completeEmitterQuietly(emitter);
+                    }
                 } finally {
                     cancelHeartbeat(heartbeat);
-                    chatService.unregisterControl(conversationId);
+                    chatService.unregisterControl(conversationId, control);
                 }
             });
         } catch (RejectedExecutionException ex) {
-            chatService.unregisterControl(conversationId);
-            auditService.onFailed(
-                    audit.assistantMessageId(),
-                    audit.taskId(),
-                    ErrorCode.SERVICE_BUSY,
-                    traceId,
-                    "dispatcher rejected execution"
-            );
-            sendEvent(emitter, "error", Map.of("message", "系统繁忙，请稍后重试"));
-            emitter.complete();
+            chatService.unregisterControl(conversationId, control);
+            try {
+                recordStreamFailureQuietly(conversationId, kind, audit, ex, traceId);
+                sendEvent(emitter, "error", Map.of("message", "系统繁忙，请稍后重试"), control);
+            } finally {
+                completeEmitterQuietly(emitter);
+            }
         }
 
         return emitter;
@@ -959,6 +1027,42 @@ public class ApiV1TavernChatController {
         }
     }
 
+    private void recordStreamFailureQuietly(
+            long conversationId,
+            StreamKind kind,
+            ChatAuditService.AuditContext audit,
+            BusinessException exception,
+            String traceId
+    ) {
+        try {
+            auditService.onFailed(audit.assistantMessageId(), audit.taskId(), exception, traceId);
+        } catch (Exception auditException) {
+            log.error("h5 stream failure persistence failed conversationId={} kind={} taskId={}",
+                    conversationId, kind, audit.taskId(), auditException);
+        }
+    }
+
+    private void recordStreamFailureQuietly(
+            long conversationId,
+            StreamKind kind,
+            ChatAuditService.AuditContext audit,
+            Exception exception,
+            String traceId
+    ) {
+        try {
+            auditService.onFailed(
+                    audit.assistantMessageId(),
+                    audit.taskId(),
+                    exception,
+                    ErrorCode.INTERNAL_ERROR,
+                    traceId
+            );
+        } catch (Exception auditException) {
+            log.error("h5 stream failure persistence failed conversationId={} kind={} taskId={}",
+                    conversationId, kind, audit.taskId(), auditException);
+        }
+    }
+
     private void saveSnapshotQuietly(long conversationId) {
         try {
             snapshotService.saveSnapshotFromDb(conversationId, 800);
@@ -980,6 +1084,13 @@ public class ApiV1TavernChatController {
             }
         }
         return false;
+    }
+
+    private static void completeEmitterQuietly(SseEmitter emitter) {
+        try {
+            emitter.complete();
+        } catch (IllegalStateException ignored) {
+        }
     }
 
     private static ScheduledFuture<?> startHeartbeat(SseEmitter emitter, StStreamControl control) {
@@ -1018,20 +1129,21 @@ public class ApiV1TavernChatController {
         return detail.conversationId();
     }
 
-    private long findLastAssistantMessageId(long conversationId) {
-        List<AppMessage> list = messageMapper.listByConversation(conversationId, 200);
+    private long findLastAssistantMessageId(long conversationId, long branchId) {
+        List<AppMessage> list = messageMapper.listByConversationBranch(conversationId, branchId, 200);
         for (AppMessage message : list) {
             if (isUsableAssistantAnchor(message)) {
-                return canonicalAssistantAnchorId(message, conversationId);
+                return canonicalAssistantAnchorId(message, conversationId, branchId);
             }
         }
         throw new BusinessException(ErrorCode.NOT_FOUND, "当前没有可继续或重生的 AI 回复");
     }
 
-    private long resolveAssistantAnchor(H5ChatPayload payload, long conversationId) {
+    private long resolveAssistantAnchor(H5ChatPayload payload, long conversationId, String token) {
+        long branchId = chatService.requireActiveBranchId(conversationId, token);
         String raw = payload == null ? null : payload.getTargetAssistantMessageId();
         if (raw == null || raw.isBlank()) {
-            return waitForLastAssistantAnchor(conversationId);
+            return waitForLastAssistantAnchor(conversationId, branchId);
         }
         String normalized = raw.trim();
         if (normalized.startsWith("db_")) {
@@ -1046,7 +1158,7 @@ public class ApiV1TavernChatController {
         if (messageId <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "targetAssistantMessageId 非法");
         }
-        return awaitUsableAssistantAnchor(messageId, conversationId);
+        return awaitUsableAssistantAnchor(messageId, conversationId, branchId);
         /*
         AppMessage message = messageMapper.findById(messageId);
         if (message == null || message.getConversationId() == null || message.getConversationId() != conversationId) {
@@ -1064,11 +1176,11 @@ public class ApiV1TavernChatController {
         */
     }
 
-    private long waitForLastAssistantAnchor(long conversationId) {
+    private long waitForLastAssistantAnchor(long conversationId, long branchId) {
         BusinessException lastError = null;
         for (int attempt = 0; attempt < ASSISTANT_ANCHOR_RETRY_ATTEMPTS; attempt++) {
             try {
-                return findLastAssistantMessageId(conversationId);
+                return findLastAssistantMessageId(conversationId, branchId);
             } catch (BusinessException ex) {
                 lastError = ex;
                 if (attempt >= ASSISTANT_ANCHOR_RETRY_ATTEMPTS - 1 || ex.getErrorCode() != ErrorCode.NOT_FOUND) {
@@ -1082,7 +1194,7 @@ public class ApiV1TavernChatController {
                 : lastError;
     }
 
-    private long awaitUsableAssistantAnchor(long messageId, long conversationId) {
+    private long awaitUsableAssistantAnchor(long messageId, long conversationId, long branchId) {
         AppMessage lastSeen = null;
         for (int attempt = 0; attempt < ASSISTANT_ANCHOR_RETRY_ATTEMPTS; attempt++) {
             AppMessage message = messageMapper.findById(messageId);
@@ -1092,8 +1204,10 @@ public class ApiV1TavernChatController {
             if (message != null
                     && message.getConversationId() != null
                     && message.getConversationId() == conversationId
+                    && message.getBranchId() != null
+                    && message.getBranchId().longValue() == branchId
                     && "assistant".equalsIgnoreCase(message.getRole())) {
-                long canonicalId = canonicalAssistantAnchorId(message, conversationId);
+                long canonicalId = canonicalAssistantAnchorId(message, conversationId, branchId);
                 AppMessage canonical = messageMapper.findById(canonicalId);
                 if (isUsableAssistantAnchor(canonical)) {
                     return canonicalId;
@@ -1103,7 +1217,11 @@ public class ApiV1TavernChatController {
                 pauseAssistantAnchorRetry();
             }
         }
-        if (lastSeen == null || lastSeen.getConversationId() == null || lastSeen.getConversationId() != conversationId) {
+        if (lastSeen == null
+                || lastSeen.getConversationId() == null
+                || lastSeen.getConversationId() != conversationId
+                || lastSeen.getBranchId() == null
+                || lastSeen.getBranchId().longValue() != branchId) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "目标 AI 消息不存在");
         }
         if (!"assistant".equalsIgnoreCase(lastSeen.getRole())) {
@@ -1193,7 +1311,7 @@ public class ApiV1TavernChatController {
         return clientUid.trim();
     }
 
-    private long canonicalAssistantAnchorId(AppMessage message, long conversationId) {
+    private long canonicalAssistantAnchorId(AppMessage message, long conversationId, long branchId) {
         if (message == null || message.getId() == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "目标 AI 消息不存在");
         }
@@ -1214,6 +1332,8 @@ public class ApiV1TavernChatController {
         if (root == null
                 || root.getConversationId() == null
                 || root.getConversationId() != conversationId
+                || root.getBranchId() == null
+                || root.getBranchId().longValue() != branchId
                 || !"assistant".equalsIgnoreCase(root.getRole())) {
             return message.getId();
         }

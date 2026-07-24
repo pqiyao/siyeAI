@@ -45,6 +45,7 @@ public class CharacterCatalogService {
     private final StAdapter stAdapter;
     private final StWorldbookCatalogService worldbookCatalogService;
     private final EmbeddedLorebookSyncService embeddedLorebookSyncService;
+    private final CharacterPublicProfileService publicProfileService;
     private final Object feedSyncLock = new Object();
     private volatile long lastFeedSyncAttemptAt = 0L;
     private volatile boolean lastFeedSyncSucceeded = false;
@@ -53,12 +54,14 @@ public class CharacterCatalogService {
             AppCharacterMapper mapper,
             StAdapter stAdapter,
             StWorldbookCatalogService worldbookCatalogService,
-            EmbeddedLorebookSyncService embeddedLorebookSyncService
+            EmbeddedLorebookSyncService embeddedLorebookSyncService,
+            CharacterPublicProfileService publicProfileService
     ) {
         this.mapper = mapper;
         this.stAdapter = stAdapter;
         this.worldbookCatalogService = worldbookCatalogService;
         this.embeddedLorebookSyncService = embeddedLorebookSyncService;
+        this.publicProfileService = publicProfileService;
     }
 
     @Transactional
@@ -144,6 +147,10 @@ public class CharacterCatalogService {
             if (c == null) {
                 continue;
             }
+            if (isBlank(c.getPublicSummary()) || c.getHealthScore() == null) {
+                applyPublicProfile(c);
+                mapper.updateById(c);
+            }
             AppCharacterSummaryDto dto = AppCharacterSummaryDto.from(c);
             if (dto != null) {
                 out.add(dto);
@@ -164,6 +171,7 @@ public class CharacterCatalogService {
                 if (d != null && d.name() != null && !d.name().isBlank()) {
                     c.setName(d.name());
                     c.setDescription(d.description());
+                    applyPublicProfile(c);
                     mapper.updateById(c);
                 }
             } catch (StUnavailableException ex) {
@@ -214,6 +222,7 @@ public class CharacterCatalogService {
             if (description != null) {
                 existed.setDescription(description);
             }
+            applyPublicProfile(existed);
             mapper.updateById(existed);
             return existed;
         }
@@ -221,6 +230,7 @@ public class CharacterCatalogService {
         c.setStAvatarUrl(clip(safeAvatar, MAX_ST_AVATAR_URL));
         c.setName(clip(name == null || name.isBlank() ? safeAvatar : name, MAX_NAME));
         c.setDescription(description);
+        applyPublicProfile(c);
         mapper.insert(c);
         AppCharacter created = mapper.findById(c.getId());
         syncEmbeddedLorebookFromSt(created, safeAvatar);
@@ -371,6 +381,11 @@ public class CharacterCatalogService {
         if (isBlank(row.getAvatarUrl())) {
             row.setAvatarUrl(clip(avatarUrl, MAX_ST_AVATAR_URL));
         }
+        applyPublicProfile(row);
+    }
+
+    public void applyPublicProfile(AppCharacter row) {
+        publicProfileService.apply(row);
     }
 
     private static String buildImportedTagline(String value) {

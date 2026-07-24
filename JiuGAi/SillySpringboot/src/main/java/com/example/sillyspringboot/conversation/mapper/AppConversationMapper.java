@@ -30,6 +30,8 @@ public interface AppConversationMapper {
 
     void setTitleToCharacterNameIfNull(@Param("conversationId") long conversationId);
 
+    void setActiveBranchId(@Param("conversationId") long conversationId, @Param("branchId") long branchId);
+
     int countActiveForUser(@Param("userId") long userId);
 
     void deleteByIdForUser(@Param("conversationId") long conversationId, @Param("userId") long userId);

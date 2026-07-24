@@ -36,6 +36,10 @@ public class ConversationMemoryAttachService {
     }
 
     public List<String> attachMemoryWorldbookIfAvailable(long conversationId, List<String> worldNames) {
+        return attachMemoryWorldbookIfAvailable(conversationId, null, worldNames);
+    }
+
+    public List<String> attachMemoryWorldbookIfAvailable(long conversationId, Long branchId, List<String> worldNames) {
         LinkedHashSet<String> out = new LinkedHashSet<>();
         if (worldNames != null) {
             for (String name : worldNames) {
@@ -44,43 +48,71 @@ public class ConversationMemoryAttachService {
                 }
             }
         }
-        AppConversationMemory memory = memoryMapper.findByConversationId(conversationId);
+        AppConversationMemory memory = hasBranch(branchId)
+                ? memoryMapper.findByConversationBranchId(conversationId, branchId)
+                : memoryMapper.findByConversationId(conversationId);
         if (memory == null || memory.getEnabledEntryCount() <= 0) {
             return out.isEmpty() ? List.of() : List.copyOf(out);
         }
         if (!ConversationMemoryWorldbookSyncService.SYNC_SUCCESS.equalsIgnoreCase(memory.getSyncStatus())) {
-            log.debug("memory worldbook attach skipped conversationId={} status={}", conversationId, memory.getSyncStatus());
+            log.debug("memory worldbook attach skipped conversationId={} branchId={} status={}",
+                    conversationId, branchId, memory.getSyncStatus());
             return out.isEmpty() ? List.of() : List.copyOf(out);
         }
         String worldName = memory.getMemoryWorldName();
         if (worldName == null || worldName.isBlank()) {
-            worldName = syncService.resolveWorldName(conversationId);
+            worldName = hasBranch(branchId)
+                    ? syncService.resolveWorldName(conversationId, branchId)
+                    : syncService.resolveWorldName(conversationId);
+        }
+        if (worldName == null || worldName.isBlank()) {
+            log.warn("memory worldbook attach skipped because world name is empty conversationId={} branchId={}",
+                    conversationId, branchId);
+            return out.isEmpty() ? List.of() : List.copyOf(out);
         }
         out.add(worldName.trim());
         return List.copyOf(new ArrayList<>(out));
     }
 
     public boolean hasSyncedMemoryWorldbook(long conversationId) {
-        AppConversationMemory memory = memoryMapper.findByConversationId(conversationId);
+        return hasSyncedMemoryWorldbook(conversationId, null);
+    }
+
+    public boolean hasSyncedMemoryWorldbook(long conversationId, Long branchId) {
+        AppConversationMemory memory = hasBranch(branchId)
+                ? memoryMapper.findByConversationBranchId(conversationId, branchId)
+                : memoryMapper.findByConversationId(conversationId);
         return memory != null
                 && memory.getEnabledEntryCount() > 0
                 && ConversationMemoryWorldbookSyncService.SYNC_SUCCESS.equalsIgnoreCase(memory.getSyncStatus());
     }
 
     public String buildTailMemoryPromptFallbackIfWorldbookUnavailable(long conversationId) {
-        if (hasSyncedMemoryWorldbook(conversationId)) {
+        return buildTailMemoryPromptFallbackIfWorldbookUnavailable(conversationId, null);
+    }
+
+    public String buildTailMemoryPromptFallbackIfWorldbookUnavailable(long conversationId, Long branchId) {
+        if (hasSyncedMemoryWorldbook(conversationId, branchId)) {
             return "";
         }
-        return buildTailMemoryPromptIfAvailable(conversationId);
+        return buildTailMemoryPromptIfAvailable(conversationId, branchId);
     }
 
     public String buildTailMemoryPromptIfAvailable(long conversationId) {
-        AppConversationMemory memory = memoryMapper.findByConversationId(conversationId);
+        return buildTailMemoryPromptIfAvailable(conversationId, null);
+    }
+
+    public String buildTailMemoryPromptIfAvailable(long conversationId, Long branchId) {
+        AppConversationMemory memory = hasBranch(branchId)
+                ? memoryMapper.findByConversationBranchId(conversationId, branchId)
+                : memoryMapper.findByConversationId(conversationId);
         if (memory == null || memory.getEnabledEntryCount() <= 0) {
             return "";
         }
 
-        List<AppConversationMemoryEntry> entries = entryMapper.listEnabledByConversationId(conversationId);
+        List<AppConversationMemoryEntry> entries = hasBranch(branchId)
+                ? entryMapper.listEnabledByConversationBranchId(conversationId, branchId)
+                : entryMapper.listEnabledByConversationId(conversationId);
         if (entries == null || entries.isEmpty()) {
             return "";
         }
@@ -131,5 +163,9 @@ public class ConversationMemoryAttachService {
             content = content.substring(0, maxChars).trim();
         }
         return content;
+    }
+
+    private static boolean hasBranch(Long branchId) {
+        return branchId != null && branchId > 0;
     }
 }

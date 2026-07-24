@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.compat.h5.mapper.AppInboxAdMapper">
+
+    <resultMap id="InboxAdResultMap" type="com.example.sillyspringboot.compat.h5.entity.AppInboxAd">
+        <id column="id" property="id"/>
+        <result column="title" property="title"/>
+        <result column="content" property="content"/>
+        <result column="image_url" property="imageUrl"/>
+        <result column="link_url" property="linkUrl"/>
+        <result column="enabled" property="enabled"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="start_at" property="startAt"/>
+        <result column="end_at" property="endAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="AdColumns">
+        id, title, content, image_url, link_url, enabled, sort_order, start_at, end_at, created_at, updated_at
+    </sql>
+
+    <select id="findActive" resultMap="InboxAdResultMap">
+        SELECT
+        <include refid="AdColumns"/>
+        FROM app_inbox_ad
+        WHERE enabled = 1
+          AND (start_at IS NULL OR start_at &lt;= CURRENT_TIMESTAMP)
+          AND (end_at IS NULL OR end_at &gt;= CURRENT_TIMESTAMP)
+        ORDER BY sort_order DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="listActive" resultMap="InboxAdResultMap">
+        SELECT
+        <include refid="AdColumns"/>
+        FROM app_inbox_ad
+        WHERE enabled = 1
+          AND (start_at IS NULL OR start_at &lt;= CURRENT_TIMESTAMP)
+          AND (end_at IS NULL OR end_at &gt;= CURRENT_TIMESTAMP)
+        ORDER BY sort_order DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countUnreadForUser" resultType="long">
+        SELECT COUNT(*)
+        FROM app_inbox_ad a
+        WHERE a.enabled = 1
+          AND (a.start_at IS NULL OR a.start_at &lt;= CURRENT_TIMESTAMP)
+          AND (a.end_at IS NULL OR a.end_at &gt;= CURRENT_TIMESTAMP)
+          AND NOT EXISTS (
+              SELECT 1
+              FROM app_user_inbox_ad_read r
+              WHERE r.user_id = #{userId}
+                AND r.ad_id = a.id
+          )
+    </select>
+
+    <insert id="markAllReadForUser">
+        INSERT IGNORE INTO app_user_inbox_ad_read (user_id, ad_id)
+        SELECT #{userId}, a.id
+        FROM app_inbox_ad a
+        WHERE a.enabled = 1
+          AND (a.start_at IS NULL OR a.start_at &lt;= CURRENT_TIMESTAMP)
+          AND (a.end_at IS NULL OR a.end_at &gt;= CURRENT_TIMESTAMP)
+    </insert>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(*)
+        FROM app_inbox_ad
+        <where>
+            <if test="title != null and title != ''">
+                title LIKE CONCAT('%', #{title}, '%')
+            </if>
+            <if test="enabled != null">
+                AND enabled = #{enabled}
+            </if>
+        </where>
+    </select>
+
+    <select id="listAdminPage" resultMap="InboxAdResultMap">
+        SELECT
+        <include refid="AdColumns"/>
+        FROM app_inbox_ad
+        <where>
+            <if test="title != null and title != ''">
+                title LIKE CONCAT('%', #{title}, '%')
+            </if>
+            <if test="enabled != null">
+                AND enabled = #{enabled}
+            </if>
+        </where>
+        ORDER BY sort_order DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findById" resultMap="InboxAdResultMap">
+        SELECT
+        <include refid="AdColumns"/>
+        FROM app_inbox_ad
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.compat.h5.entity.AppInboxAd"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_inbox_ad (
+            title, content, image_url, link_url, enabled, sort_order, start_at, end_at
+        ) VALUES (
+            COALESCE(#{title}, ''),
+            COALESCE(#{content}, ''),
+            COALESCE(#{imageUrl}, ''),
+            COALESCE(#{linkUrl}, ''),
+            COALESCE(#{enabled}, 1),
+            COALESCE(#{sortOrder}, 0),
+            #{startAt},
+            #{endAt}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.compat.h5.entity.AppInboxAd">
+        UPDATE app_inbox_ad
+        SET title = COALESCE(#{title}, ''),
+            content = COALESCE(#{content}, ''),
+            image_url = COALESCE(#{imageUrl}, ''),
+            link_url = COALESCE(#{linkUrl}, ''),
+            enabled = COALESCE(#{enabled}, 1),
+            sort_order = COALESCE(#{sortOrder}, 0),
+            start_at = #{startAt},
+            end_at = #{endAt},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM app_inbox_ad
+        WHERE id = #{id}
+    </delete>
+</mapper>

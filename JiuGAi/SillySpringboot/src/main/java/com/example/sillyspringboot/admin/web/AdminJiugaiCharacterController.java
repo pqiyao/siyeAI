@@ -70,6 +70,7 @@ public class AdminJiugaiCharacterController {
             @RequestParam(required = false) String name,
             @RequestParam(required = false) String ownerClientUid,
             @RequestParam(required = false) String reviewStatus,
+            @RequestParam(required = false) String healthLevel,
             @RequestParam(required = false, defaultValue = "system") String scope
     ) {
         String safeScope = scope == null ? "system" : scope.trim().toLowerCase(Locale.ROOT);
@@ -77,7 +78,7 @@ public class AdminJiugaiCharacterController {
             catalogService.refreshFeedFromStNow();
         }
         AdminCharacterPageResult result =
-                adminCharacterService.listPage(pageNum, pageSize, name, scope, ownerClientUid, reviewStatus);
+                adminCharacterService.listPage(pageNum, pageSize, name, scope, ownerClientUid, reviewStatus, healthLevel);
         return AdminAjaxResult.table(result.total(), result.rows());
     }
 
@@ -96,6 +97,18 @@ public class AdminJiugaiCharacterController {
             return AdminAjaxResult.error("角色不存在");
         }
         Map<String, Object> result = AdminAjaxResult.ok();
+        result.put("data", adminCharacterService.toFormMap(row));
+        return result;
+    }
+
+    @PostMapping("/{id}/recalculate-public-profile")
+    @AdminPermitted("content:character:edit")
+    public Map<String, Object> recalculatePublicProfile(@PathVariable long id) {
+        AppCharacter row = adminCharacterService.recalculatePublicProfile(id);
+        if (row == null) {
+            return AdminAjaxResult.error("角色不存在");
+        }
+        Map<String, Object> result = AdminAjaxResult.ok("公开摘要与健康评分已重新计算");
         result.put("data", adminCharacterService.toFormMap(row));
         return result;
     }

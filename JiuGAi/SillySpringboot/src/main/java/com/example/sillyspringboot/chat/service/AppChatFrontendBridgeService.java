@@ -200,6 +200,9 @@ public class AppChatFrontendBridgeService {
     }
 
     public boolean validToken(String token) {
+        if (!enabled()) {
+            return false;
+        }
         String expected = chatProperties.getCompatibility().getFrontendBridgeToken();
         if (!StringUtils.hasText(expected) || token == null) {
             return false;

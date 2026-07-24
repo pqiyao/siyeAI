@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapper">
+
+    <resultMap id="BranchMap" type="com.example.sillyspringboot.conversation.entity.AppConversationBranch">
+        <id column="id" property="id"/>
+        <result column="conversation_id" property="conversationId"/>
+        <result column="user_id" property="userId"/>
+        <result column="parent_branch_id" property="parentBranchId"/>
+        <result column="fork_message_id" property="forkMessageId"/>
+        <result column="opening_variant_index" property="openingVariantIndex"/>
+        <result column="title" property="title"/>
+        <result column="is_default" property="defaultBranch"/>
+        <result column="memory_source_revision" property="memorySourceRevision"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.conversation.entity.AppConversationBranch"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_conversation_branch (
+            conversation_id, user_id, parent_branch_id, fork_message_id, opening_variant_index, title, is_default
+        ) VALUES (
+            #{conversationId}, #{userId}, #{parentBranchId}, #{forkMessageId}, #{openingVariantIndex}, #{title}, #{defaultBranch}
+        )
+    </insert>
+
+    <select id="findById" resultMap="BranchMap">
+        SELECT *
+        FROM app_conversation_branch
+        WHERE id = #{branchId}
+          AND deleted_at IS NULL
+        LIMIT 1
+    </select>
+
+    <select id="findByIdForConversation" resultMap="BranchMap">
+        SELECT *
+        FROM app_conversation_branch
+        WHERE conversation_id = #{conversationId}
+          AND id = #{branchId}
+          AND deleted_at IS NULL
+        LIMIT 1
+    </select>
+
+    <select id="findByIdForConversationForUpdate" resultMap="BranchMap">
+        SELECT *
+        FROM app_conversation_branch
+        WHERE conversation_id = #{conversationId}
+          AND id = #{branchId}
+          AND deleted_at IS NULL
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <select id="findDefaultByConversationId" resultMap="BranchMap">
+        SELECT *
+        FROM app_conversation_branch
+        WHERE conversation_id = #{conversationId}
+          AND is_default = TRUE
+          AND deleted_at IS NULL
+        ORDER BY id ASC
+        LIMIT 1
+    </select>
+
+    <select id="findByConversationIdAndOpeningVariantIndex" resultMap="BranchMap">
+        SELECT *
+        FROM app_conversation_branch
+        WHERE conversation_id = #{conversationId}
+          AND opening_variant_index = #{openingVariantIndex}
+          AND deleted_at IS NULL
+        LIMIT 1
+    </select>
+
+    <select id="listByConversationId" resultMap="BranchMap">
+        SELECT *
+        FROM app_conversation_branch
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+        ORDER BY is_default DESC, updated_at DESC, id ASC
+    </select>
+
+    <select id="listAllIdsByConversationId" resultType="long">
+        SELECT id
+        FROM app_conversation_branch
+        WHERE conversation_id = #{conversationId}
+        ORDER BY id ASC
+    </select>
+
+    <select id="countByConversationId" resultType="int">
+        SELECT COUNT(1)
+        FROM app_conversation_branch
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+    </select>
+
+    <update id="setOpeningVariantIndex">
+        UPDATE app_conversation_branch
+        SET opening_variant_index = #{openingVariantIndex},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{branchId}
+    </update>
+
+    <update id="touch">
+        UPDATE app_conversation_branch
+        SET updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{branchId}
+    </update>
+
+    <update id="incrementMemorySourceRevision">
+        UPDATE app_conversation_branch
+        SET memory_source_revision = memory_source_revision + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND id = #{branchId}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="incrementMemorySourceRevisionForConversation">
+        UPDATE app_conversation_branch
+        SET memory_source_revision = memory_source_revision + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND deleted_at IS NULL
+    </update>
+</mapper>

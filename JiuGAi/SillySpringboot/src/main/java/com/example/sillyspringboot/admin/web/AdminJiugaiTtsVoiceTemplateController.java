@@ -21,7 +21,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/admin/jiugai/tts-voice-template")
-@AdminPermitted("commerce:entitlement:view")
+@AdminPermitted("ops:media:view")
 public class AdminJiugaiTtsVoiceTemplateController {
 
     private final TtsVoiceTemplateService templateService;
@@ -53,37 +53,37 @@ public class AdminJiugaiTtsVoiceTemplateController {
     }
 
     @PostMapping
-    @AdminPermitted("commerce:entitlement:edit")
+    @AdminPermitted("content:voice-template:edit")
     public Map<String, Object> add(@RequestBody(required = false) Map<String, Object> body) {
         return AdminAjaxResult.okData(templateService.save(body));
     }
 
     @PutMapping
-    @AdminPermitted("commerce:entitlement:edit")
+    @AdminPermitted("content:voice-template:edit")
     public Map<String, Object> update(@RequestBody(required = false) Map<String, Object> body) {
         return AdminAjaxResult.okData(templateService.save(body));
     }
 
     @DeleteMapping("/{id}")
-    @AdminPermitted("commerce:entitlement:edit")
+    @AdminPermitted("content:voice-template:edit")
     public Map<String, Object> remove(@PathVariable long id) {
         templateService.remove(id);
         return AdminAjaxResult.ok("删除成功");
     }
 
     @PostMapping(value = "/upload/audio", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @AdminPermitted("commerce:entitlement:edit")
+    @AdminPermitted("content:voice-template:edit")
     public Map<String, Object> uploadAudio(@RequestPart("file") MultipartFile file) {
-        String url = uploadService.saveAudioAndGetUrl(file);
+        String url = uploadService.saveUnownedAudioAndGetUrl(file);
         Map<String, Object> result = AdminAjaxResult.ok("ok");
         result.put("fileName", url);
         return result;
     }
 
     @PostMapping(value = "/upload/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @AdminPermitted("commerce:entitlement:edit")
+    @AdminPermitted("content:voice-template:edit")
     public Map<String, Object> uploadImage(@RequestPart("file") MultipartFile file) {
-        String url = uploadService.saveImageAndGetUrl(file);
+        String url = uploadService.saveUnownedImageAndGetUrl(file);
         Map<String, Object> result = AdminAjaxResult.ok("ok");
         result.put("fileName", url);
         return result;

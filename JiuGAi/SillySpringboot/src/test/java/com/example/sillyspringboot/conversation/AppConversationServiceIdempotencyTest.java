@@ -47,7 +47,7 @@ public class AppConversationServiceIdempotencyTest {
         // 这里用显式 migrate 保证表结构就绪（只影响测试，不改变第 3 阶段代码主线）。
         Flyway flyway = Flyway.configure()
                 .dataSource(dataSource)
-                .locations("classpath:db/migration")
+                .locations("classpath:db/migration-common", "classpath:db/migration-h2")
                 .baselineOnMigrate(true)
                 .baselineVersion("1")
                 .load();

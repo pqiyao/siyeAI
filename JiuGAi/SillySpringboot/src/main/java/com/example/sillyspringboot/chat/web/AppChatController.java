@@ -74,32 +74,40 @@ public class AppChatController {
         chatService.registerControl(conversationId, control);
         emitter.onTimeout(() -> {
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
             emitter.complete();
         });
         emitter.onError(ex -> {
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         });
         emitter.onCompletion(() -> {
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         });
 
         // 先入队：立刻发 QUEUED；队列满则直接标准化繁忙
         sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "QUEUED"));
-        ChatAuditService.AuditContext audit = auditService.onQueued(
-                conversationId,
-                request.getUserMessage() == null ? "" : request.getUserMessage(),
-                clientMessageId,
-                token,
-                traceId,
-                "CHAT_STREAM"
-        );
+        ChatAuditService.AuditContext audit;
+        try {
+            audit = auditService.onQueued(
+                    conversationId,
+                    request.getUserMessage() == null ? "" : request.getUserMessage(),
+                    clientMessageId,
+                    token,
+                    traceId,
+                    "CHAT_STREAM"
+            );
+            chatService.bindControlTask(conversationId, audit.taskId(), control);
+        } catch (RuntimeException ex) {
+            control.cancel();
+            chatService.unregisterControl(conversationId, control);
+            throw ex;
+        }
         try {
             dispatcher.submit(() -> runGeneration(emitter, request, token, control, traceId, audit));
         } catch (RejectedExecutionException ex) {
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
             auditService.onFailed(
                     audit.assistantMessageId(),
                     audit.taskId(),
@@ -129,7 +137,6 @@ public class AppChatController {
 
         ChatConcurrencyGate.Lease lease = null;
         try {
-            while (!control.isCancelled()) {
             // 排队等待闸门：避免无界阻塞；超时则返回繁忙
             while (!control.isCancelled()) {
                 try {
@@ -140,6 +147,13 @@ public class AppChatController {
                         throw be;
                     }
                     if (System.nanoTime() - start > maxWaitNanos) {
+                        auditService.onFailed(
+                                audit.assistantMessageId(),
+                                audit.taskId(),
+                                ErrorCode.SERVICE_BUSY,
+                                traceId,
+                                "queue wait timeout"
+                        );
                         sendQuietly(emitter, "error", ChatSseEvent.error(conversationId, clientMessageId, ErrorCode.SERVICE_BUSY, "系统繁忙，请稍后重试", traceId()));
                         emitter.complete();
                         return;
@@ -154,7 +168,13 @@ public class AppChatController {
             }
 
             if (control.isCancelled()) {
-                sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "STOPPED"));
+                auditService.onStopped(audit.assistantMessageId(), audit.taskId(), "", traceId);
+                sendQuietly(emitter, "state", ChatSseEvent.stateWithFinalContent(
+                        conversationId,
+                        clientMessageId,
+                        "STOPPED",
+                        ""
+                ));
                 emitter.complete();
                 return;
             }
@@ -177,11 +197,6 @@ public class AppChatController {
                 sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "PENDING"));
                 sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "GENERATING"));
 
-                // 运营级：生成前确保 ST chat 快照存在，便于恢复与后续玩法（continue/regen/swipe）消息定位
-                snapshotService.ensureSnapshot(conversationId);
-
-                snapshotService.ensureSnapshot(conversationId);
-
                 StringBuilder assistant = new StringBuilder();
                 boolean[] frontendBridgeGenerated = {false};
                 String userRef = audit.userMessageId() > 0 ? ("root:" + audit.userMessageId()) : "";
@@ -200,24 +215,56 @@ public class AppChatController {
                             "generation timed out after " + chatService.generationTimeoutSeconds() + " seconds"
                     );
                     sendQuietly(emitter, "error", ChatSseEvent.error(conversationId, clientMessageId, ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试", traceId()));
-                } else if (control.isCancelled()) {
-                    auditService.onStopped(audit.assistantMessageId(), audit.taskId(), assistant.toString(), traceId());
-                    sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "STOPPED"));
                 } else {
-                    auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), assistant.toString(), traceId());
-                    if (!frontendBridgeGenerated[0]) {
-                    try {
-                        chatService.syncAssistantReplyToSt(conversationId, "root:" + audit.assistantMessageId(), assistant.toString(), token);
-                    } catch (Exception ignored) {
+                    AppChatService.AssistantOutputNormalization normalization = frontendBridgeGenerated[0]
+                            ? AppChatService.AssistantOutputNormalization.passthrough(assistant.toString())
+                            : chatService.normalizeAssistantOutput(conversationId, assistant.toString(), token);
+                    String finalContent = normalization.content();
+                    if (timeout.isTimedOut()) {
+                        auditService.onFailed(
+                                audit.assistantMessageId(),
+                                audit.taskId(),
+                                ErrorCode.UPSTREAM_ERROR,
+                                traceId(),
+                                "generation timed out after " + chatService.generationTimeoutSeconds() + " seconds"
+                        );
+                        sendQuietly(emitter, "error", ChatSseEvent.error(
+                                conversationId,
+                                clientMessageId,
+                                ErrorCode.UPSTREAM_ERROR,
+                                "生成超时，请稍后重试",
+                                traceId()
+                        ));
+                    } else {
+                        boolean cancelled = control.isCancelled();
+                        if (cancelled) {
+                            auditService.onStopped(audit.assistantMessageId(), audit.taskId(), finalContent, traceId());
+                        } else {
+                            auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), finalContent, traceId());
+                        }
+                        if (!frontendBridgeGenerated[0]) {
+                            boolean assistantSynced = false;
+                            try {
+                                assistantSynced = chatService.syncAssistantReplyToSt(
+                                        conversationId,
+                                        "root:" + audit.assistantMessageId(),
+                                        finalContent,
+                                        token,
+                                        normalization.finalized()
+                                );
+                            } catch (Exception ignored) {
+                            }
+                            if (!assistantSynced) {
+                                saveSnapshotQuietly(conversationId);
+                            }
+                        }
+                        sendQuietly(emitter, "state", ChatSseEvent.stateWithFinalContent(
+                                conversationId,
+                                clientMessageId,
+                                cancelled ? "STOPPED" : "SUCCESS",
+                                finalContent
+                        ));
                     }
-                    try {
-                        snapshotService.saveSnapshotFromDb(conversationId, 800);
-                    } catch (Exception ignored) {
-                        // 快照回写失败不影响本次生成对用户可用性（可观测/可恢复在后续补齐）
-                    }
-                    }
-                    }
-                    sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "SUCCESS"));
                 }
                 emitter.complete();
             }
@@ -230,7 +277,7 @@ public class AppChatController {
             sendQuietly(emitter, "error", ChatSseEvent.error(conversationId, clientMessageId, ErrorCode.INTERNAL_ERROR, "服务暂时不可用，请稍后重试", traceId()));
             emitter.complete();
         } finally {
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         }
     }
 
@@ -250,8 +297,8 @@ public class AppChatController {
             @RequestHeader(name = "Authorization", required = false) String authorization
     ) {
         String token = extractToken(authorization);
-        chatService.resolveUserId(token);
-        return ApiResult.ok(Map.of("url", uploadService.saveImageAndGetUrl(file)));
+        long userId = chatService.resolveUserId(token);
+        return ApiResult.ok(Map.of("url", uploadService.saveOwnedImageAndGetUrl(file, userId)));
     }
 
     // ===== Phase 5 endpoints (stubs until ST snapshot/swipe wiring is implemented) =====
@@ -271,35 +318,66 @@ public class AppChatController {
         chatService.registerControl(conversationId, control);
         emitter.onTimeout(() -> {
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
             emitter.complete();
         });
         emitter.onError(ex -> {
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         });
         emitter.onCompletion(() -> {
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         });
 
         sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "QUEUED"));
         // continue 不新增 user 消息，只落 assistant 占位 + task
-        ChatAuditService.AuditContext audit = auditService.onQueued(
-                conversationId,
-                "",
-                clientMessageId,
-                token,
-                traceId,
-                "CONTINUE_STREAM"
-        );
+        ChatAuditService.AuditContext audit;
+        try {
+            audit = auditService.onQueued(
+                    conversationId,
+                    "",
+                    clientMessageId,
+                    token,
+                    traceId,
+                    "CONTINUE_STREAM"
+            );
+            chatService.bindControlTask(conversationId, audit.taskId(), control);
+        } catch (RuntimeException ex) {
+            control.cancel();
+            chatService.unregisterControl(conversationId, control);
+            throw ex;
+        }
         try {
             dispatcher.submit(() -> runPhase5(emitter, token, control, traceId, audit, conversationId, clientMessageId,
                     (onChunk) -> chatService.streamContinue(request, token, onChunk, control),
-                    null,
-                    "root:" + audit.assistantMessageId()));
+                    (finalText, generatedByFrontendBridge, outputRegexApplied, cancelled) -> {
+                        long anchorId = safeParseLong(request.getTargetMessageId());
+                        if (cancelled && finalText.isBlank()) {
+                            chatService.abortContinueEmpty(
+                                    conversationId,
+                                    audit.assistantMessageId(),
+                                    audit.taskId(),
+                                    token
+                                );
+                                return finalText;
+                            }
+                        chatService.finalizeContinueAsMessage(
+                                conversationId,
+                                anchorId,
+                                audit.assistantMessageId(),
+                                audit.taskId(),
+                                finalText,
+                                token,
+                                !generatedByFrontendBridge,
+                                outputRegexApplied,
+                                cancelled
+                        );
+                        return finalText;
+                    },
+                    null));
         } catch (RejectedExecutionException ex) {
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
             auditService.onFailed(
                     audit.assistantMessageId(),
                     audit.taskId(),
@@ -328,48 +406,65 @@ public class AppChatController {
         chatService.registerControl(conversationId, control);
         emitter.onTimeout(() -> {
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
             emitter.complete();
         });
         emitter.onError(ex -> {
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         });
         emitter.onCompletion(() -> {
             control.cancel();
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
         });
 
         sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "QUEUED"));
-        ChatAuditService.AuditContext audit = auditService.onQueued(
-                conversationId,
-                "",
-                clientMessageId,
-                token,
-                traceId,
-                "REGEN_STREAM"
-        );
+        ChatAuditService.AuditContext audit;
         try {
-            long targetIdSafe = safeParseLong(request.getTargetMessageId());
-            String stRef = targetIdSafe > 0 ? ("root:" + targetIdSafe) : ("root:" + audit.assistantMessageId());
+            audit = auditService.onQueued(
+                    conversationId,
+                    "",
+                    clientMessageId,
+                    token,
+                    traceId,
+                    "REGEN_STREAM"
+            );
+            chatService.bindControlTask(conversationId, audit.taskId(), control);
+        } catch (RuntimeException ex) {
+            control.cancel();
+            chatService.unregisterControl(conversationId, control);
+            throw ex;
+        }
+        try {
             dispatcher.submit(() -> runPhase5(emitter, token, control, traceId, audit, conversationId, clientMessageId,
                     (onChunk) -> chatService.streamRegenerate(request, token, onChunk, control),
-                    (finalText, generatedByFrontendBridge) -> {
-                        try {
-                            long targetId = Long.parseLong(request.getTargetMessageId());
-                            chatService.promoteRegenerateVariant(
+                    (finalText, generatedByFrontendBridge, outputRegexApplied, cancelled) -> {
+                        long targetId = Long.parseLong(request.getTargetMessageId());
+                        if (cancelled) {
+                            String restoredContent = chatService.getAssistantMessageContent(
                                     conversationId,
                                     targetId,
-                                    audit.assistantMessageId(),
-                                    token,
-                                    !generatedByFrontendBridge
+                                    token
                             );
-                        } catch (Exception ignored) {
+                            auditService.onStopped(audit.assistantMessageId(), audit.taskId(), "", traceId);
+                            saveSnapshotQuietly(conversationId);
+                            return restoredContent;
                         }
+                        auditService.stageFinalAssistantContent(audit.assistantMessageId(), finalText, traceId);
+                        chatService.promoteRegenerateVariant(
+                                conversationId,
+                                targetId,
+                                audit.assistantMessageId(),
+                                token,
+                                !generatedByFrontendBridge,
+                                outputRegexApplied
+                        );
+                        auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), finalText, traceId);
+                        return finalText;
                     },
-                    stRef));
+                    () -> snapshotService.saveSnapshotFromDb(conversationId, 800)));
         } catch (RejectedExecutionException ex) {
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
             auditService.onFailed(
                     audit.assistantMessageId(),
                     audit.taskId(),
@@ -389,8 +484,13 @@ public class AppChatController {
     }
 
     @FunctionalInterface
-    private interface Phase5OnSuccess {
-        void accept(String finalAssistantText, boolean generatedByFrontendBridge);
+    private interface Phase5OnFinalize {
+        String accept(
+                String finalAssistantText,
+                boolean generatedByFrontendBridge,
+                boolean outputRegexApplied,
+                boolean cancelled
+        );
     }
 
     private void runPhase5(
@@ -402,8 +502,8 @@ public class AppChatController {
             long conversationId,
             String clientMessageId,
             Phase5Runner runner,
-            Phase5OnSuccess onSuccess,
-            String stMessageRef
+            Phase5OnFinalize onFinalize,
+            Runnable restoreRuntimeState
     ) {
         long start = System.nanoTime();
         long maxWaitNanos = Duration.ofSeconds(chatService.maxQueueWaitSeconds()).toNanos();
@@ -433,8 +533,18 @@ public class AppChatController {
                 }
             }
             if (control.isCancelled() || lease == null) {
-                auditService.onStopped(audit.assistantMessageId(), audit.taskId(), "", traceId());
-                sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "STOPPED"));
+                String terminalContent = "";
+                if (onFinalize == null) {
+                    auditService.onStopped(audit.assistantMessageId(), audit.taskId(), "", traceId());
+                } else {
+                    terminalContent = onFinalize.accept("", false, false, true);
+                }
+                sendQuietly(emitter, "state", ChatSseEvent.stateWithFinalContent(
+                        conversationId,
+                        clientMessageId,
+                        "STOPPED",
+                        terminalContent == null ? "" : terminalContent
+                ));
                 emitter.complete();
                 return;
             }
@@ -444,8 +554,6 @@ public class AppChatController {
                 auditService.onGenerating(audit.assistantMessageId(), audit.taskId(), traceId());
                 sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "PENDING"));
                 sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "GENERATING"));
-
-                snapshotService.ensureSnapshot(conversationId);
 
                 StringBuilder assistant = new StringBuilder();
                 boolean[] frontendBridgeGenerated = {false};
@@ -463,42 +571,69 @@ public class AppChatController {
                             traceId(),
                             "generation timed out after " + chatService.generationTimeoutSeconds() + " seconds"
                     );
+                    restoreRuntimeStateQuietly(restoreRuntimeState);
                     sendQuietly(emitter, "error", ChatSseEvent.error(conversationId, clientMessageId, ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试", traceId()));
-                } else if (control.isCancelled()) {
-                    auditService.onStopped(audit.assistantMessageId(), audit.taskId(), assistant.toString(), traceId());
-                    sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "STOPPED"));
                 } else {
-                    auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), assistant.toString(), traceId());
-                    if (onSuccess != null) {
-                        try {
-                            onSuccess.accept(assistant.toString(), frontendBridgeGenerated[0]);
-                        } catch (Exception ignored) {
-                        }
+                    boolean cancelled = control.isCancelled();
+                    String rawContent = assistant.toString().trim();
+                    if (!cancelled && rawContent.isBlank()) {
+                        throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "模型返回空内容，生成失败");
                     }
-                    if (!frontendBridgeGenerated[0]) {
-                        try {
-                            chatService.syncAssistantReplyToSt(conversationId, stMessageRef, assistant.toString(), token);
-                        } catch (Exception ignored) {
-                        }
-                        try {
-                            snapshotService.saveSnapshotFromDb(conversationId, 800);
-                        } catch (Exception ignored) {
-                        }
+                    AppChatService.AssistantOutputNormalization normalization = frontendBridgeGenerated[0]
+                            ? AppChatService.AssistantOutputNormalization.passthrough(rawContent)
+                            : chatService.normalizeAssistantOutput(conversationId, rawContent, token);
+                    if (timeout.isTimedOut()) {
+                        throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试");
                     }
-                    sendQuietly(emitter, "state", ChatSseEvent.state(conversationId, clientMessageId, "SUCCESS"));
+                    cancelled = control.isCancelled();
+                    String finalContent = normalization.content();
+                    if (onFinalize == null) {
+                        throw new IllegalStateException("phase5 finalizer is required");
+                    }
+                    String terminalContent = onFinalize.accept(
+                            finalContent,
+                            frontendBridgeGenerated[0],
+                            normalization.finalized(),
+                            cancelled
+                    );
+                    sendQuietly(emitter, "state", ChatSseEvent.stateWithFinalContent(
+                            conversationId,
+                            clientMessageId,
+                            cancelled ? "STOPPED" : "SUCCESS",
+                            terminalContent == null ? "" : terminalContent
+                    ));
                 }
                 emitter.complete();
             }
         } catch (BusinessException be) {
+            restoreRuntimeStateQuietly(restoreRuntimeState);
             auditService.onFailed(audit.assistantMessageId(), audit.taskId(), be, traceId());
             sendQuietly(emitter, "error", ChatSseEvent.error(conversationId, clientMessageId, be.getErrorCode(), be.getMessage(), traceId()));
             emitter.complete();
         } catch (Exception ex) {
+            restoreRuntimeStateQuietly(restoreRuntimeState);
             auditService.onFailed(audit.assistantMessageId(), audit.taskId(), ex, ErrorCode.INTERNAL_ERROR, traceId());
             sendQuietly(emitter, "error", ChatSseEvent.error(conversationId, clientMessageId, ErrorCode.INTERNAL_ERROR, "服务暂时不可用，请稍后重试", traceId()));
             emitter.complete();
         } finally {
-            chatService.unregisterControl(conversationId);
+            chatService.unregisterControl(conversationId, control);
+        }
+    }
+
+    private static void restoreRuntimeStateQuietly(Runnable restoreRuntimeState) {
+        if (restoreRuntimeState == null) {
+            return;
+        }
+        try {
+            restoreRuntimeState.run();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void saveSnapshotQuietly(long conversationId) {
+        try {
+            snapshotService.saveSnapshotFromDb(conversationId, 800);
+        } catch (Exception ignored) {
         }
     }
 

@@ -67,7 +67,7 @@ public class TelegramStarsBotClient {
     @SuppressWarnings("unchecked")
     private Map<String, Object> post(String method, Map<String, Object> body) {
         if (!hasBotToken()) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Telegram Bot Token 未配置");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Telegram Bot Token 未配");
         }
         Map<String, Object> response = restClient.post()
                 .uri("https://api.telegram.org/bot" + telegramProperties.getBotToken() + "/" + method)

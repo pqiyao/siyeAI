@@ -7,7 +7,6 @@ import com.example.sillyspringboot.billing.entity.AppPaymentOrder;
 import com.example.sillyspringboot.billing.entity.AppStoreProduct;
 import com.example.sillyspringboot.billing.mapper.AppPaymentOrderMapper;
 import com.example.sillyspringboot.billing.mapper.AppStoreProductMapper;
-import com.example.sillyspringboot.billing.mapper.AppWalletLedgerMapper;
 import com.example.sillyspringboot.billing.service.provider.StorePaymentContext;
 import com.example.sillyspringboot.billing.service.provider.StorePaymentProvider;
 import com.example.sillyspringboot.billing.service.provider.StorePaymentProviderRegistry;
@@ -23,18 +22,18 @@ import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.UUID;
 
 @Service
 public class StoreService {
 
-    private static final DateTimeFormatter ORDER_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    private static final SecureRandom ORDER_RANDOM = new SecureRandom();
 
     private final H5ClientUidAuthService h5Auth;
     private final AppTokenService tokenService;
@@ -43,7 +42,7 @@ public class StoreService {
     private final AppH5UserProfileExtMapper profileExtMapper;
     private final AppStoreProductMapper productMapper;
     private final AppPaymentOrderMapper orderMapper;
-    private final AppWalletLedgerMapper walletLedgerMapper;
+    private final WalletLedgerService walletLedgerService;
     private final H5EntitlementService h5EntitlementService;
     private final EntitlementAuditLogService entitlementAuditLogService;
     private final EntitlementPolicyService entitlementPolicyService;
@@ -57,7 +56,7 @@ public class StoreService {
             AppH5UserProfileExtMapper profileExtMapper,
             AppStoreProductMapper productMapper,
             AppPaymentOrderMapper orderMapper,
-            AppWalletLedgerMapper walletLedgerMapper,
+            WalletLedgerService walletLedgerService,
             H5EntitlementService h5EntitlementService,
             EntitlementAuditLogService entitlementAuditLogService,
             EntitlementPolicyService entitlementPolicyService,
@@ -70,7 +69,7 @@ public class StoreService {
         this.profileExtMapper = profileExtMapper;
         this.productMapper = productMapper;
         this.orderMapper = orderMapper;
-        this.walletLedgerMapper = walletLedgerMapper;
+        this.walletLedgerService = walletLedgerService;
         this.h5EntitlementService = h5EntitlementService;
         this.entitlementAuditLogService = entitlementAuditLogService;
         this.entitlementPolicyService = entitlementPolicyService;
@@ -158,6 +157,12 @@ public class StoreService {
         if (order == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "订单不存在");
         }
+        if ("PAID".equalsIgnoreCase(order.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "订单已支付，请勿重复发起支付");
+        }
+        if ("CLOSED".equalsIgnoreCase(order.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "订单已关闭，请重新下单");
+        }
 
         AppStoreProduct product = order.getProductId() == null ? null : productMapper.findById(order.getProductId());
         if (product == null) {
@@ -189,9 +194,13 @@ public class StoreService {
         }
 
         if (!"PAID".equalsIgnoreCase(order.getStatus())) {
-            orderMapper.markPaid(order.getId());
-            order = orderMapper.findByOrderNoAndUserId(orderNo.trim(), user.getId());
-            applyOrderBenefits(user, order);
+            int updated = orderMapper.markPaid(order.getId(), null, order.getAmountCents(), null);
+            if (updated == 1) {
+                order = orderMapper.findByOrderNoAndUserId(orderNo.trim(), user.getId());
+                applyOrderBenefits(user, order);
+            } else {
+                order = orderMapper.findByOrderNoAndUserId(orderNo.trim(), user.getId());
+            }
         }
 
         AppH5UserProfileExt ext = ensureProfileExt(user);
@@ -204,6 +213,17 @@ public class StoreService {
 
     @Transactional
     public Map<String, Object> confirmProviderPaid(String orderNo, String expectedChannel) {
+        return confirmProviderPaid(orderNo, expectedChannel, null, null, null);
+    }
+
+    @Transactional
+    public Map<String, Object> confirmProviderPaid(
+            String orderNo,
+            String expectedChannel,
+            Integer paidAmountCents,
+            String providerTradeNo,
+            String notifyPayloadHash
+    ) {
         String safeOrderNo = trimToNull(orderNo);
         if (safeOrderNo == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "订单号不能为空");
@@ -220,15 +240,28 @@ public class StoreService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "订单支付渠道不匹配");
         }
 
+        if (paidAmountCents != null && paidAmountCents.intValue() != nvl(order.getAmountCents())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "支付金额与订单金额不一致");
+        }
+
         AppUser user = userMapper.findById(order.getUserId());
         if (user == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "订单用户不存在");
         }
 
         if (!"PAID".equalsIgnoreCase(order.getStatus())) {
-            orderMapper.markPaid(order.getId());
-            order = orderMapper.findByOrderNo(safeOrderNo);
-            applyOrderBenefits(user, order);
+            int updated = orderMapper.markPaid(
+                    order.getId(),
+                    trimToNull(providerTradeNo),
+                    paidAmountCents != null ? paidAmountCents : order.getAmountCents(),
+                    trimToNull(notifyPayloadHash)
+            );
+            if (updated == 1) {
+                order = orderMapper.findByOrderNo(safeOrderNo);
+                applyOrderBenefits(user, order);
+            } else {
+                order = orderMapper.findByOrderNo(safeOrderNo);
+            }
         }
 
         AppH5UserProfileExt ext = ensureProfileExt(user);
@@ -275,6 +308,7 @@ public class StoreService {
         body.setVipDays(nvl(body.getVipDays()));
         body.setSortOrder(nvl(body.getSortOrder()));
         body.setEnabled(body.getEnabled() == null || body.getEnabled());
+        validateProductBenefits(body);
         if (body.getId() == null) {
             productMapper.insert(body);
             return productMapper.findById(body.getId());
@@ -324,32 +358,67 @@ public class StoreService {
         if (order == null) {
             return;
         }
-        AppH5UserProfileExt ext = ensureProfileExt(user);
+        ensureProfileExt(user);
+        AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(user.getId());
+        if (ext == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "支付权益账户不存在，请人工核对订单");
+        }
         Map<String, Object> beforeProfile = toProfileMap(user, ext);
 
-        ext.setScore(nvl(ext.getScore()) + nvl(order.getScoreAmount()));
-        ext.setGoldCoin(nvl(ext.getGoldCoin()) + nvl(order.getGoldCoinAmount()));
-        if (nvl(order.getVipType()) > 0 && nvl(order.getVipDays()) > 0) {
+        int scoreAmount = nvl(order.getScoreAmount());
+        int goldCoinAmount = nvl(order.getGoldCoinAmount());
+        int vipType = nvl(order.getVipType());
+        int vipDays = nvl(order.getVipDays());
+        if (scoreAmount < 0 || goldCoinAmount < 0 || vipType < 0 || vipDays < 0) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "支付订单权益数量非法，请人工核对订单");
+        }
+        if ((vipType > 0) != (vipDays > 0)
+                || (scoreAmount == 0 && goldCoinAmount == 0 && vipType == 0)) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "支付订单权益配置不完整，请人工核对订单");
+        }
+        boolean ledgerInserted = walletLedgerService.insertPaymentCredit(
+                user.getId(),
+                order.getOrderNo(),
+                scoreAmount,
+                goldCoinAmount,
+                "支付到账：" + blank(order.getProductName())
+        );
+        if (!ledgerInserted) {
+            throw new BusinessException(ErrorCode.CONFLICT, "支付流水已存在，订单结算已停止，请人工核对");
+        }
+        if ((scoreAmount > 0 || goldCoinAmount > 0)
+                && profileExtMapper.creditWallet(user.getId(), scoreAmount, goldCoinAmount) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "支付余额入账失败，请人工核对订单");
+        }
+
+        if (vipType > 0) {
             LocalDateTime base = ext.getVipExpiresAt();
             LocalDateTime now = LocalDateTime.now();
             if (base == null || base.isBefore(now)) {
                 base = now;
             }
-            ext.setVipType(Math.max(nvl(ext.getVipType()), nvl(order.getVipType())));
-            ext.setVipExpiresAt(base.plusDays(nvl(order.getVipDays())));
+            ext.setVipType(Math.max(nvl(ext.getVipType()), vipType));
+            ext.setVipExpiresAt(base.plusDays(vipDays));
+            entitlementPolicyService.refreshEffectiveQuota(ext);
+            int membershipUpdated = profileExtMapper.updateMembershipAndEffectiveQuotas(
+                    user.getId(),
+                    nvl(ext.getVipType()),
+                    ext.getVipExpiresAt(),
+                    nvl(ext.getDailyChatQuota()),
+                    ext.getChatQuotaOverride(),
+                    nvl(ext.getDailyImageQuota()),
+                    ext.getImageQuotaOverride()
+            );
+            if (membershipUpdated != 1) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "支付会员权益入账失败，请人工核对订单");
+            }
         }
-        entitlementPolicyService.refreshEffectiveQuota(ext);
-        profileExtMapper.upsert(ext);
 
-        Map<String, Object> afterProfile = toProfileMap(user, ext);
-        walletLedgerMapper.insert(
-                user.getId(),
-                "PAYMENT",
-                order.getOrderNo(),
-                nvl(order.getScoreAmount()),
-                nvl(order.getGoldCoinAmount()),
-                "支付到账：" + blank(order.getProductName())
-        );
+        AppH5UserProfileExt applied = profileExtMapper.findByUserId(user.getId());
+        if (applied == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "支付权益入账后无法读取账户，请人工核对订单");
+        }
+        Map<String, Object> afterProfile = toProfileMap(user, applied);
         entitlementAuditLogService.recordPaymentApplied(
                 user.getId(),
                 order.getOrderNo(),
@@ -357,6 +426,27 @@ public class StoreService {
                 afterProfile,
                 toOrderMap(order)
         );
+    }
+
+    private static void validateProductBenefits(AppStoreProduct product) {
+        if (product.getPriceCents() <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "商品价格必须大于 0");
+        }
+        if (product.getScoreAmount() < 0
+                || product.getGoldCoinAmount() < 0
+                || product.getVipType() < 0
+                || product.getVipDays() < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "商品权益数量不能为负数");
+        }
+        if ("COIN".equals(product.getProductType())
+                && product.getScoreAmount() == 0
+                && product.getGoldCoinAmount() == 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "钻石商品必须提供钻石或金币权益");
+        }
+        if ("VIP".equals(product.getProductType())
+                && (product.getVipType() <= 0 || product.getVipDays() <= 0)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "会员商品必须提供有效的会员等级和天数");
+        }
     }
 
     private AppUser resolveUser(String clientUid) {
@@ -440,12 +530,16 @@ public class StoreService {
         data.put("vipExpiresAt", ext.getVipExpiresAt());
         data.put("score", nvl(ext.getScore()));
         data.put("goldCoin", nvl(ext.getGoldCoin()));
+        int chatBonus = nvl(ext.getDailyChatBonus());
+        int imageBonus = nvl(ext.getDailyImageBonus());
+        data.put("dailyChatBonus", chatBonus);
+        data.put("dailyImageBonus", imageBonus);
         data.put("dailyChatQuota", nvl(ext.getDailyChatQuota()));
         data.put("dailyChatUsed", nvl(ext.getDailyChatUsed()));
-        data.put("dailyChatRemaining", Math.max(0, nvl(ext.getDailyChatQuota()) - nvl(ext.getDailyChatUsed())));
+        data.put("dailyChatRemaining", Math.max(0, nvl(ext.getDailyChatQuota()) + chatBonus - nvl(ext.getDailyChatUsed())));
         data.put("dailyImageQuota", nvl(ext.getDailyImageQuota()));
         data.put("dailyImageUsed", nvl(ext.getDailyImageUsed()));
-        data.put("dailyImageRemaining", Math.max(0, nvl(ext.getDailyImageQuota()) - nvl(ext.getDailyImageUsed())));
+        data.put("dailyImageRemaining", Math.max(0, nvl(ext.getDailyImageQuota()) + imageBonus - nvl(ext.getDailyImageUsed())));
         data.put("chatQuotaOverride", ext.getChatQuotaOverride());
         data.put("imageQuotaOverride", ext.getImageQuotaOverride());
         data.put("status", blank(ext.getStatus()));
@@ -464,7 +558,7 @@ public class StoreService {
     private static String normalizeProductType(String productType) {
         String normalized = normalizeProductTypeAllowBlank(productType);
         if (normalized == null || normalized.isBlank()) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "商品类型不正确");
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "商品类型不正");
         }
         return normalized;
     }
@@ -477,7 +571,7 @@ public class StoreService {
         if ("COIN".equals(value) || "VIP".equals(value)) {
             return value;
         }
-        throw new BusinessException(ErrorCode.VALIDATION_FAILED, "商品类型不正确");
+        throw new BusinessException(ErrorCode.VALIDATION_FAILED, "商品类型不正");
     }
 
     private static String normalizeStatus(String status) {
@@ -522,7 +616,15 @@ public class StoreService {
     }
 
     private static String nextOrderNo() {
-        return "SP" + ORDER_TIME.format(LocalDateTime.now()) + ThreadLocalRandom.current().nextInt(1000, 10000);
+        byte[] bytes = new byte[10];
+        ORDER_RANDOM.nextBytes(bytes);
+        StringBuilder sb = new StringBuilder(26);
+        sb.append("SP");
+        for (byte b : bytes) {
+            sb.append(String.format(Locale.ROOT, "%02X", b));
+        }
+        sb.append(UUID.randomUUID().toString().replace("-", ""), 0, 4);
+        return sb.toString().toUpperCase(Locale.ROOT);
     }
 
     private static String fallbackUsername(AppUser user) {

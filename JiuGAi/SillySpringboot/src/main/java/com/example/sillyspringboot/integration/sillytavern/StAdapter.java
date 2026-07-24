@@ -81,10 +81,30 @@ public interface StAdapter {
      */
     void appendAssistantMessage(ChatGenerateRequest request, String assistantContent);
 
+    default void appendAssistantMessage(
+            ChatGenerateRequest request,
+            String assistantContent,
+            boolean outputRegexApplied
+    ) {
+        appendAssistantMessage(request, assistantContent);
+    }
+
+    default String applyAssistantOutputRegex(ChatGenerateRequest request, String assistantContent) {
+        return assistantContent == null ? "" : assistantContent;
+    }
+
     /**
      * A：swipe 选中某个版本后，同步替换 ST chat 的最后一条 assistant（商用一致性）。
      */
     void replaceLastAssistantMessage(ChatGenerateRequest request, String assistantContent);
+
+    default void replaceLastAssistantMessage(
+            ChatGenerateRequest request,
+            String assistantContent,
+            boolean outputRegexApplied
+    ) {
+        replaceLastAssistantMessage(request, assistantContent);
+    }
 
     /**
      * 阶段 4：流式生成（统一事件由上层桥接；此处只负责把 ST 流转为受控 chunk 回调）。

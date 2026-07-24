@@ -2,6 +2,8 @@ package com.example.sillyspringboot.compat.h5.web;
 
 import com.example.sillyspringboot.auth.token.AppTokenService;
 import com.example.sillyspringboot.character.entity.AppCharacter;
+import com.example.sillyspringboot.compat.h5.entity.AppInboxAd;
+import com.example.sillyspringboot.compat.h5.mapper.AppInboxAdMapper;
 import com.example.sillyspringboot.compat.h5.mapper.AppInboxReadMapper;
 import com.example.sillyspringboot.compat.h5.mapper.AppNoticeMapper;
 import com.example.sillyspringboot.compat.h5.mapper.AppUserMessageMapper;
@@ -37,6 +39,7 @@ public class ApiV1AppController {
     private final H5ClientUidAuthService h5Auth;
     private final AppTokenService tokenService;
     private final AppNoticeMapper noticeMapper;
+    private final AppInboxAdMapper inboxAdMapper;
     private final AppUserMessageMapper userMessageMapper;
     private final AppInboxReadMapper inboxReadMapper;
     private final H5SocialService socialService;
@@ -49,6 +52,7 @@ public class ApiV1AppController {
             H5ClientUidAuthService h5Auth,
             AppTokenService tokenService,
             AppNoticeMapper noticeMapper,
+            AppInboxAdMapper inboxAdMapper,
             AppUserMessageMapper userMessageMapper,
             AppInboxReadMapper inboxReadMapper,
             H5SocialService socialService,
@@ -60,6 +64,7 @@ public class ApiV1AppController {
         this.h5Auth = h5Auth;
         this.tokenService = tokenService;
         this.noticeMapper = noticeMapper;
+        this.inboxAdMapper = inboxAdMapper;
         this.userMessageMapper = userMessageMapper;
         this.inboxReadMapper = inboxReadMapper;
         this.socialService = socialService;
@@ -90,6 +95,58 @@ public class ApiV1AppController {
             return data;
         }).toList();
         return ApiV1Result.ok(list);
+    }
+
+    @GetMapping("/inbox-ad")
+    public ApiV1Result<Map<String, Object>> inboxAd() {
+        AppInboxAd ad = inboxAdMapper.findActive();
+        if (ad == null) {
+            return ApiV1Result.ok(null);
+        }
+        return ApiV1Result.ok(toPublicInboxAd(ad));
+    }
+
+    @GetMapping("/inbox-ads")
+    public ApiV1Result<List<Map<String, Object>>> inboxAds(
+            @RequestParam(name = "limit", required = false, defaultValue = "50") int limit
+    ) {
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        List<Map<String, Object>> list = inboxAdMapper.listActive(safeLimit).stream()
+                .map(this::toPublicInboxAd)
+                .toList();
+        return ApiV1Result.ok(list);
+    }
+
+    @GetMapping("/inbox-ads/unread")
+    public ApiV1Result<Map<String, Object>> inboxAdsUnread(@RequestParam("clientUid") String clientUid) {
+        long userId = resolveUserId(clientUid);
+        Map<String, Object> data = new HashMap<>();
+        long unread = Math.max(0L, inboxAdMapper.countUnreadForUser(userId));
+        data.put("unreadCount", unread);
+        return ApiV1Result.ok(data);
+    }
+
+    @PostMapping("/inbox-ads/read-all")
+    @Transactional
+    public ApiV1Result<Map<String, Object>> inboxAdsReadAll(@RequestBody(required = false) Map<String, Object> body) {
+        String clientUid = body == null ? "" : asString(body.get("clientUid"));
+        long userId = resolveUserId(clientUid);
+        inboxAdMapper.markAllReadForUser(userId);
+        Map<String, Object> data = new HashMap<>();
+        data.put("unreadCount", Math.max(0L, inboxAdMapper.countUnreadForUser(userId)));
+        return ApiV1Result.ok(data);
+    }
+
+    private Map<String, Object> toPublicInboxAd(AppInboxAd ad) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", ad.getId());
+        data.put("title", ad.getTitle() == null ? "" : ad.getTitle());
+        data.put("content", ad.getContent() == null ? "" : ad.getContent());
+        data.put("imageUrl", ad.getImageUrl() == null ? "" : ad.getImageUrl());
+        data.put("linkUrl", ad.getLinkUrl() == null ? "" : ad.getLinkUrl());
+        data.put("createdAt", ad.getCreatedAt());
+        data.put("updatedAt", ad.getUpdatedAt());
+        return data;
     }
 
     @GetMapping("/messages")

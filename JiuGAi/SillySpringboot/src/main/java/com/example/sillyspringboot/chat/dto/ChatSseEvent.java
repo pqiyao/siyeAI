@@ -15,20 +15,42 @@ public record ChatSseEvent(
         Integer chunkIndex,
         String delta,
         Boolean done,
+        String finalContent,
         ErrorCode errorCode,
         String message,
         String traceId
 ) {
     public static ChatSseEvent state(Long conversationId, String clientMessageId, String state) {
-        return new ChatSseEvent("state", conversationId, clientMessageId, state, null, null, null, null, null, null);
+        return new ChatSseEvent("state", conversationId, clientMessageId, state, null, null, null, null, null, null, null);
+    }
+
+    public static ChatSseEvent stateWithFinalContent(
+            Long conversationId,
+            String clientMessageId,
+            String state,
+            String finalContent
+    ) {
+        return new ChatSseEvent(
+                "state",
+                conversationId,
+                clientMessageId,
+                state,
+                null,
+                null,
+                true,
+                finalContent,
+                null,
+                null,
+                null
+        );
     }
 
     public static ChatSseEvent chunk(Long conversationId, String clientMessageId, int chunkIndex, String delta, boolean done) {
-        return new ChatSseEvent("chunk", conversationId, clientMessageId, null, chunkIndex, delta, done, null, null, null);
+        return new ChatSseEvent("chunk", conversationId, clientMessageId, null, chunkIndex, delta, done, null, null, null, null);
     }
 
     public static ChatSseEvent error(Long conversationId, String clientMessageId, ErrorCode code, String message, String traceId) {
-        return new ChatSseEvent("error", conversationId, clientMessageId, "FAILED", null, null, true, code, message, traceId);
+        return new ChatSseEvent("error", conversationId, clientMessageId, "FAILED", null, null, true, null, code, message, traceId);
     }
 }
 

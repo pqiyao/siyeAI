@@ -6,12 +6,14 @@ import com.example.sillyspringboot.shared.error.ErrorCode;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.UUID;
 
 public class InMemoryImageGenerationConcurrencyGate implements ImageGenerationConcurrencyGate {
 
     private final AppImageGenerationSettingsService settingsService;
     private final AtomicInteger global = new AtomicInteger(0);
     private final ConcurrentHashMap<Long, AtomicInteger> perUser = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, RequestState> requests = new ConcurrentHashMap<>();
 
     public InMemoryImageGenerationConcurrencyGate(AppImageGenerationSettingsService settingsService) {
         this.settingsService = settingsService;
@@ -43,4 +45,44 @@ public class InMemoryImageGenerationConcurrencyGate implements ImageGenerationCo
             }
         };
     }
+
+    @Override
+    public RequestLease claimRequest(long userId, String requestId) {
+        long now = System.currentTimeMillis();
+        String key = userId + ":" + requestId;
+        String token = UUID.randomUUID().toString();
+        RequestState state = requests.compute(key, (ignored, current) -> {
+            if (current == null || current.expiresAt() <= now) {
+                return new RequestState("RUNNING", token, now + 5 * 60_000L);
+            }
+            return current;
+        });
+        if (!token.equals(state.token())) {
+            if ("DONE".equals(state.status())) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "该生图请求已经完成，请勿重复提交");
+            }
+            throw new BusinessException(ErrorCode.SERVICE_BUSY, "该生图请求正在处理中，请稍后查看结果");
+        }
+        AtomicBoolean closed = new AtomicBoolean(false);
+        AtomicBoolean succeeded = new AtomicBoolean(false);
+        return new RequestLease() {
+            @Override
+            public void markSucceeded() {
+                if (succeeded.compareAndSet(false, true)) {
+                    requests.computeIfPresent(key, (ignored, current) -> token.equals(current.token())
+                            ? new RequestState("DONE", token, System.currentTimeMillis() + 24 * 60 * 60_000L)
+                            : current);
+                }
+            }
+
+            @Override
+            public void close() {
+                if (closed.compareAndSet(false, true) && !succeeded.get()) {
+                    requests.computeIfPresent(key, (ignored, current) -> token.equals(current.token()) ? null : current);
+                }
+            }
+        };
+    }
+
+    private record RequestState(String status, String token, long expiresAt) {}
 }

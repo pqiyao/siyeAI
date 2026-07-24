@@ -78,10 +78,10 @@ public class AlipayWapStorePaymentProvider implements StorePaymentProvider {
     ) {
         AppPaymentChannelConfig config = channelConfigService.getRequired(CHANNEL_CODE);
         if (!Boolean.TRUE.equals(config.getEnabled())) {
-            return unavailablePayload(config, "支付宝通道尚未开启，请联系客服。");
+            return unavailablePayload(config, "支付宝通道尚未开启，请联系客服");
         }
         if (!credentialsReady()) {
-            return unavailablePayload(config, "支付宝商户参数未配置完成，请先在后台补齐配置。");
+            return unavailablePayload(config, "支付宝商户参数未配置完成，请先在后台补齐配置");
         }
 
         PrivateKey privateKey = PaymentPrivateKeySupport.loadPrivateKey(
@@ -120,7 +120,7 @@ public class AlipayWapStorePaymentProvider implements StorePaymentProvider {
         data.put("ready", true);
         data.put("manualSettlement", false);
         data.put("action", "open_external_url");
-        data.put("message", "已生成支付宝支付链接，请继续完成支付。");
+        data.put("message", "已生成支付宝支付链接，请继续完成支付");
         data.put("paymentUrl", paymentUrl);
         data.put("orderNo", order.getOrderNo());
         data.put("productCode", order.getProductCode());
@@ -164,10 +164,10 @@ public class AlipayWapStorePaymentProvider implements StorePaymentProvider {
 
     private String channelDescription(AppPaymentChannelConfig config, boolean credentialsReady) {
         if (!Boolean.TRUE.equals(config.getEnabled())) {
-            return "后台已预留支付宝通道，当前未对用户开放。";
+            return "后台已预留支付宝通道，当前未对用户开放";
         }
         if (!credentialsReady) {
-            return "支付宝通道已开启，但商户参数尚未补齐。";
+            return "支付宝通道已开启，但商户参数尚未补齐";
         }
         return blank(config.getDescription());
     }

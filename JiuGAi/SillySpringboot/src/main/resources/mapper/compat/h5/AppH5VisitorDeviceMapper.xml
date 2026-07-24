@@ -11,6 +11,7 @@
         <result column="latest_client_uid" property="latestClientUid"/>
         <result column="first_user_id" property="firstUserId"/>
         <result column="latest_user_id" property="latestUserId"/>
+        <result column="trusted_user_id" property="trustedUserId"/>
         <result column="first_ip" property="firstIp"/>
         <result column="latest_ip" property="latestIp"/>
         <result column="ua_hash" property="uaHash"/>
@@ -37,6 +38,7 @@
             latest_client_uid,
             first_user_id,
             latest_user_id,
+            trusted_user_id,
             first_ip,
             latest_ip,
             ua_hash,
@@ -50,6 +52,7 @@
             #{latestClientUid},
             #{firstUserId},
             #{latestUserId},
+            #{trustedUserId},
             #{firstIp},
             #{latestIp},
             #{uaHash},
@@ -58,6 +61,7 @@
             #{anonymousConversationCreateCount},
             #{anonymousCharacterCreateCount}
         )
+        ON DUPLICATE KEY UPDATE device_token = VALUES(device_token)
     </insert>
 
     <update id="touch">
@@ -79,6 +83,10 @@
             latest_user_id = CASE
                 WHEN #{latestUserId} IS NULL THEN latest_user_id
                 ELSE #{latestUserId}
+            END,
+            trusted_user_id = CASE
+                WHEN #{trustedUserId} IS NULL THEN trusted_user_id
+                ELSE #{trustedUserId}
             END,
             first_ip = CASE
                 WHEN (first_ip IS NULL OR first_ip = '')

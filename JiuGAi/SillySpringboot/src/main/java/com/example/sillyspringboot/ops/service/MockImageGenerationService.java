@@ -24,9 +24,10 @@ public class MockImageGenerationService {
         if (safePrompt.isBlank()) {
             throw new IllegalArgumentException("prompt required");
         }
-        int safeCount = Math.max(1, Math.min(4, count));
-        entitlementService.guardImage(clientUid, safeCount);
+        // Mock 链路只产出 1 张图，按实际交付记账，避免按请求张数超额预检。
+        H5EntitlementService.AccessTicket ticket = entitlementService.guardImage(clientUid, 1);
         String imageUrl = buildImageDataUrl(safePrompt);
+        entitlementService.recordSuccessfulImage(ticket, 1);
 
         Map<String, Object> image = new LinkedHashMap<>();
         image.put("url", imageUrl);

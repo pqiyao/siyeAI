@@ -3,20 +3,21 @@ package com.example.sillyspringboot.compat.h5.service;
 import com.example.sillyspringboot.chat.mapper.AppGenerationTaskMapper;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
+import com.example.sillyspringboot.chat.service.StaleGenerationTaskService;
 import com.example.sillyspringboot.compat.h5.mapper.AppConversationArchiveMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationIdempotencyMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationStBindingMapper;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryCleanupService;
+import com.example.sillyspringboot.conversation.service.ConversationBranchService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -26,8 +27,6 @@ import java.util.List;
 public class H5TavernSessionService {
 
     private static final Logger log = LoggerFactory.getLogger(H5TavernSessionService.class);
-    private static final Duration STALE_ACTIVE_GRACE = Duration.ofMinutes(3);
-
     private final AppMessageMapper messageMapper;
     private final AppGenerationTaskMapper taskMapper;
     private final ConversationMemoryCleanupService memoryCleanupService;
@@ -36,6 +35,8 @@ public class H5TavernSessionService {
     private final AppConversationStBindingMapper bindingMapper;
     private final AppConversationArchiveMapper archiveMapper;
     private final ChatSnapshotService snapshotService;
+    private final StaleGenerationTaskService staleGenerationTaskService;
+    private final ConversationBranchService branchService;
 
     public H5TavernSessionService(
             AppMessageMapper messageMapper,
@@ -45,7 +46,34 @@ public class H5TavernSessionService {
             AppConversationIdempotencyMapper idempotencyMapper,
             AppConversationStBindingMapper bindingMapper,
             AppConversationArchiveMapper archiveMapper,
-            ChatSnapshotService snapshotService) {
+            ChatSnapshotService snapshotService,
+            StaleGenerationTaskService staleGenerationTaskService) {
+        this(
+                messageMapper,
+                taskMapper,
+                memoryCleanupService,
+                conversationMapper,
+                idempotencyMapper,
+                bindingMapper,
+                archiveMapper,
+                snapshotService,
+                staleGenerationTaskService,
+                null
+        );
+    }
+
+    @Autowired
+    public H5TavernSessionService(
+            AppMessageMapper messageMapper,
+            AppGenerationTaskMapper taskMapper,
+            ConversationMemoryCleanupService memoryCleanupService,
+            AppConversationMapper conversationMapper,
+            AppConversationIdempotencyMapper idempotencyMapper,
+            AppConversationStBindingMapper bindingMapper,
+            AppConversationArchiveMapper archiveMapper,
+            ChatSnapshotService snapshotService,
+            StaleGenerationTaskService staleGenerationTaskService,
+            ConversationBranchService branchService) {
         this.messageMapper = messageMapper;
         this.taskMapper = taskMapper;
         this.memoryCleanupService = memoryCleanupService;
@@ -54,6 +82,8 @@ public class H5TavernSessionService {
         this.bindingMapper = bindingMapper;
         this.archiveMapper = archiveMapper;
         this.snapshotService = snapshotService;
+        this.staleGenerationTaskService = staleGenerationTaskService;
+        this.branchService = branchService;
     }
 
     @Transactional
@@ -65,6 +95,7 @@ public class H5TavernSessionService {
             throw new BusinessException(ErrorCode.CONFLICT, "当前会话仍在生成中，请等待完成或停止后再删除");
         }
         taskMapper.softDeleteByConversationId(conversationId);
+        incrementAllBranchSourceRevisions(conversationId);
         memoryCleanupService.clearConversationMemory(conversationId);
         messageMapper.softDeleteByConversationId(conversationId, "conversation_wipe");
     }
@@ -93,6 +124,7 @@ public class H5TavernSessionService {
                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "清空聊天快照失败，请稍后重试");
             }
             taskMapper.softDeleteByConversationId(conversationId);
+            incrementAllBranchSourceRevisions(conversationId);
             memoryCleanupService.clearConversationMemory(conversationId);
             messageMapper.softDeleteByConversationId(conversationId, "character_conversation_purge");
             archiveMapper.upsert(userId, conversationId);
@@ -102,13 +134,15 @@ public class H5TavernSessionService {
     }
 
     private void clearStaleActiveGenerationRows(long conversationId) {
-        LocalDateTime cutoff = LocalDateTime.now().minus(STALE_ACTIVE_GRACE);
-        String traceId = "stale-active-cleanup";
-        int tasks = taskMapper.markStaleActiveByConversationId(conversationId, cutoff, traceId);
-        int messages = messageMapper.markStaleActiveByConversationId(conversationId, cutoff, traceId);
-        if (tasks > 0 || messages > 0) {
-            log.warn("Cleared stale active generation rows conversationId={} tasks={} messages={}",
-                    conversationId, tasks, messages);
+        int tasks = staleGenerationTaskService.reconcileConversation(conversationId);
+        if (tasks > 0) {
+            log.warn("Cleared stale active generation rows conversationId={} tasks={}", conversationId, tasks);
+        }
+    }
+
+    private void incrementAllBranchSourceRevisions(long conversationId) {
+        if (branchService != null) {
+            branchService.incrementMemorySourceRevisionForConversation(conversationId);
         }
     }
 

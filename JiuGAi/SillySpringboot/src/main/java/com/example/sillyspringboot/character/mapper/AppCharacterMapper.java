@@ -41,7 +41,9 @@ public interface AppCharacterMapper {
             @Param("ownerUserId") Long ownerUserId,
             @Param("systemOnly") Boolean systemOnly,
             @Param("userOnly") Boolean userOnly,
-            @Param("reviewStatus") String reviewStatus);
+            @Param("reviewStatus") String reviewStatus,
+            @Param("minHealthScore") Integer minHealthScore,
+            @Param("maxHealthScore") Integer maxHealthScore);
 
     List<AppCharacter> listAdminPage(
             @Param("name") String name,
@@ -49,6 +51,8 @@ public interface AppCharacterMapper {
             @Param("systemOnly") Boolean systemOnly,
             @Param("userOnly") Boolean userOnly,
             @Param("reviewStatus") String reviewStatus,
+            @Param("minHealthScore") Integer minHealthScore,
+            @Param("maxHealthScore") Integer maxHealthScore,
             @Param("offset") int offset,
             @Param("limit") int limit);
 

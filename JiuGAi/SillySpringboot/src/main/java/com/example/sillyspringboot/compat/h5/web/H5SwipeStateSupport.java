@@ -22,7 +22,10 @@ final class H5SwipeStateSupport {
             return new SwipeState(List.of(content), 0, List.of(0));
         }
 
-        List<AppMessage> rows = new ArrayList<>(messageMapper.listByStMessageRef(ref));
+        Long branchId = current.getBranchId();
+        List<AppMessage> rows = new ArrayList<>(branchId != null && branchId > 0
+                ? messageMapper.listByStMessageRefAndBranch(ref, branchId)
+                : messageMapper.listByStMessageRef(ref));
         rows.sort((a, b) -> {
             int ai = a == null || a.getSwipeIndex() == null ? 0 : a.getSwipeIndex();
             int bi = b == null || b.getSwipeIndex() == null ? 0 : b.getSwipeIndex();
@@ -69,10 +72,13 @@ final class H5SwipeStateSupport {
     }
 
     private static boolean isSwipeVisible(AppMessage row) {
-        if (row == null || row.getContent() == null || row.getContent().isBlank()) {
+        if (row == null || row.getContent() == null) {
             return false;
         }
         String status = row.getStatus() == null ? "" : row.getStatus();
+        if (row.getContent().isBlank()) {
+            return "SUCCESS".equalsIgnoreCase(status);
+        }
         return "SUCCESS".equalsIgnoreCase(status) || "STOPPED".equalsIgnoreCase(status);
     }
 

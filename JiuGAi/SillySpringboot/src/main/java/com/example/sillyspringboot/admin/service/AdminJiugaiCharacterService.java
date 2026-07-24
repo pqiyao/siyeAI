@@ -7,6 +7,7 @@ import com.example.sillyspringboot.character.entity.CharacterReviewStatus;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.character.mapper.AppLorebookEntryMapper;
 import com.example.sillyspringboot.character.service.EmbeddedLorebookSyncService;
+import com.example.sillyspringboot.character.service.CharacterPublicProfileService;
 import com.example.sillyspringboot.compat.h5.entity.AppH5ClientUid;
 import com.example.sillyspringboot.compat.h5.mapper.AppH5ClientUidMapper;
 import com.example.sillyspringboot.compat.h5.service.AppUserMessageService;
@@ -49,6 +50,7 @@ public class AdminJiugaiCharacterService {
     private final StWorldbookCatalogService worldbookCatalogService;
     private final StAdapter stAdapter;
     private final EmbeddedLorebookSyncService embeddedLorebookSyncService;
+    private final CharacterPublicProfileService publicProfileService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public AdminJiugaiCharacterService(
@@ -61,7 +63,8 @@ public class AdminJiugaiCharacterService {
             CharacterReviewAuditLogService reviewAuditLogService,
             StWorldbookCatalogService worldbookCatalogService,
             StAdapter stAdapter,
-            EmbeddedLorebookSyncService embeddedLorebookSyncService
+            EmbeddedLorebookSyncService embeddedLorebookSyncService,
+            CharacterPublicProfileService publicProfileService
     ) {
         this.characterMapper = characterMapper;
         this.lorebookEntryMapper = lorebookEntryMapper;
@@ -73,6 +76,7 @@ public class AdminJiugaiCharacterService {
         this.worldbookCatalogService = worldbookCatalogService;
         this.stAdapter = stAdapter;
         this.embeddedLorebookSyncService = embeddedLorebookSyncService;
+        this.publicProfileService = publicProfileService;
     }
 
     public Long resolveOwnerUserId(String ownerClientUid) {
@@ -102,7 +106,8 @@ public class AdminJiugaiCharacterService {
             String name,
             String scope,
             String ownerClientUid,
-            String reviewStatus
+            String reviewStatus,
+            String healthLevel
     ) {
         int safePage = Math.max(0, pageNum - 1);
         int safeSize = Math.min(100, Math.max(1, pageSize));
@@ -110,6 +115,7 @@ public class AdminJiugaiCharacterService {
         String safeScope = (scope == null || scope.isBlank()) ? "system" : scope.trim().toLowerCase(Locale.ROOT);
         Long ownerId = resolveOwnerUserId(ownerClientUid);
         String safeReviewStatus = normalizeReviewStatusFilter(reviewStatus);
+        HealthRange healthRange = resolveHealthRange(healthLevel);
 
         Boolean systemOnly = null;
         Boolean userOnly = null;
@@ -127,7 +133,9 @@ public class AdminJiugaiCharacterService {
                         ownerId,
                         systemOnly,
                         userOnly,
-                        safeReviewStatus
+                        safeReviewStatus,
+                        healthRange.minScore(),
+                        healthRange.maxScore()
                 );
         List<AppCharacter> page =
                 characterMapper.listAdminPage(
@@ -136,6 +144,8 @@ public class AdminJiugaiCharacterService {
                         systemOnly,
                         userOnly,
                         safeReviewStatus,
+                        healthRange.minScore(),
+                        healthRange.maxScore(),
                         safePage * safeSize,
                         safeSize
                 );
@@ -188,9 +198,24 @@ public class AdminJiugaiCharacterService {
         row.put("reviewedBy", blank(character.getReviewedBy()));
         row.put("reviewedAt", character.getReviewedAt() == null ? "" : CREATE_FMT.format(character.getReviewedAt()));
         row.put("sortOrder", character.getSortOrder() != null ? character.getSortOrder() : 0);
+        row.put("publicSummary", blank(character.getPublicSummary()));
+        row.put("publicWarningsJson", normalizeJsonArray(character.getPublicWarningsJson()));
+        row.put("healthScore", character.getHealthScore() != null ? character.getHealthScore() : 0);
+        row.put("healthIssuesJson", normalizeJsonArray(character.getHealthIssuesJson()));
         row.put("createTime", character.getCreatedAt() == null ? "" : CREATE_FMT.format(character.getCreatedAt()));
         row.put("lorebookSummary", lorebookSummaryMap(lorebookSummary));
         return row;
+    }
+
+    @Transactional
+    public AppCharacter recalculatePublicProfile(long characterId) {
+        AppCharacter character = characterMapper.findById(characterId);
+        if (character == null || character.getDeletedAt() != null) {
+            return null;
+        }
+        publicProfileService.apply(character);
+        characterMapper.updateById(character);
+        return characterMapper.findById(characterId);
     }
 
     public Map<String, Object> toFormMap(AppCharacter character) {
@@ -230,6 +255,11 @@ public class AdminJiugaiCharacterService {
         row.put("privateCard", Boolean.TRUE.equals(character.getPrivateCard()));
         row.put("ownerUserId", character.getOwnerUserId());
         row.put("description", blank(character.getDescription()));
+        row.put("publicSummary", blank(character.getPublicSummary()));
+        row.put("publicTagsJson", normalizeJsonArray(character.getPublicTagsJson()));
+        row.put("publicWarningsJson", normalizeJsonArray(character.getPublicWarningsJson()));
+        row.put("healthScore", character.getHealthScore() != null ? character.getHealthScore() : 0);
+        row.put("healthIssuesJson", normalizeJsonArray(character.getHealthIssuesJson()));
         row.put("reviewStatus", blank(character.getReviewStatus()));
         row.put("reviewReason", blank(character.getReviewReason()));
         row.put("reviewedBy", blank(character.getReviewedBy()));
@@ -392,6 +422,7 @@ public class AdminJiugaiCharacterService {
         String bio = payload.getBio() == null ? "" : payload.getBio().strip();
         String tagline = payload.getTagline() == null ? "" : payload.getTagline().strip();
         row.setDescription(bio.isBlank() ? tagline : bio);
+        publicProfileService.apply(row);
     }
 
     @Transactional
@@ -658,6 +689,19 @@ public class AdminJiugaiCharacterService {
         }
         String normalized = value.trim().toUpperCase(Locale.ROOT);
         return CharacterReviewStatus.isValid(normalized) ? normalized : null;
+    }
+
+    private static HealthRange resolveHealthRange(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "excellent" -> new HealthRange(90, null);
+            case "attention" -> new HealthRange(70, 89);
+            case "risk" -> new HealthRange(null, 69);
+            default -> new HealthRange(null, null);
+        };
+    }
+
+    private record HealthRange(Integer minScore, Integer maxScore) {
     }
 
     private static int normalizePreviewBlurVipLevel(Integer value) {

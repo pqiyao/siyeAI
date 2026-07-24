@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.mapper.AppCharacterImagePolicyMapper">
+
+    <resultMap id="PolicyResultMap" type="com.example.sillyspringboot.ops.entity.AppCharacterImagePolicy">
+        <id column="character_id" property="characterId"/>
+        <result column="image_enabled" property="imageEnabled"/>
+        <result column="default_mode" property="defaultMode"/>
+        <result column="allowed_modes_json" property="allowedModesJson"/>
+        <result column="reference_source_mode" property="referenceSourceMode"/>
+        <result column="reference_images_enabled" property="referenceImagesEnabled"/>
+        <result column="negative_prompt" property="negativePrompt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="findByCharacterId" resultMap="PolicyResultMap">
+        SELECT character_id, image_enabled, default_mode, allowed_modes_json,
+               reference_source_mode, reference_images_enabled, negative_prompt, updated_at
+        FROM app_character_image_policy
+        WHERE character_id = #{characterId}
+        LIMIT 1
+    </select>
+
+    <insert id="upsert" parameterType="com.example.sillyspringboot.ops.entity.AppCharacterImagePolicy">
+        INSERT INTO app_character_image_policy (
+            character_id, image_enabled, default_mode, allowed_modes_json,
+            reference_source_mode, reference_images_enabled, negative_prompt
+        ) VALUES (
+            #{characterId}, #{imageEnabled}, #{defaultMode}, #{allowedModesJson},
+            #{referenceSourceMode}, #{referenceImagesEnabled}, #{negativePrompt}
+        )
+        ON DUPLICATE KEY UPDATE
+            image_enabled = VALUES(image_enabled),
+            default_mode = VALUES(default_mode),
+            allowed_modes_json = VALUES(allowed_modes_json),
+            reference_source_mode = VALUES(reference_source_mode),
+            reference_images_enabled = VALUES(reference_images_enabled),
+            negative_prompt = VALUES(negative_prompt),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <delete id="deleteByCharacterId">
+        DELETE FROM app_character_image_policy WHERE character_id = #{characterId}
+    </delete>
+
+    <select id="countAdminCharacters" resultType="long">
+        SELECT COUNT(*)
+        FROM app_character c
+        WHERE c.deleted_at IS NULL
+        <if test="keyword != null and keyword != ''">
+            AND (c.name LIKE CONCAT('%', #{keyword}, '%') OR CAST(c.id AS CHAR) = #{keyword})
+        </if>
+    </select>
+
+    <select id="listAdminCharacters" resultType="map">
+        SELECT c.id AS characterId,
+               c.name AS characterName,
+               c.avatar_url AS avatarUrl,
+               c.st_avatar_url AS stAvatarUrl,
+               c.private_card AS privateCard,
+               c.owner_user_id AS ownerUserId,
+               p.character_id AS overrideCharacterId,
+               p.image_enabled AS imageEnabled,
+               p.default_mode AS defaultMode,
+               p.allowed_modes_json AS allowedModesJson,
+               p.reference_source_mode AS referenceSourceMode,
+               p.reference_images_enabled AS referenceImagesEnabled,
+               p.negative_prompt AS negativePrompt,
+               p.updated_at AS policyUpdatedAt
+        FROM app_character c
+        LEFT JOIN app_character_image_policy p ON p.character_id = c.id
+        WHERE c.deleted_at IS NULL
+        <if test="keyword != null and keyword != ''">
+            AND (c.name LIKE CONCAT('%', #{keyword}, '%') OR CAST(c.id AS CHAR) = #{keyword})
+        </if>
+        ORDER BY (p.character_id IS NOT NULL) DESC, c.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+</mapper>

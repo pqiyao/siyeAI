@@ -85,7 +85,7 @@ public class MockStorePaymentProvider implements StorePaymentProvider {
                     "ready", false,
                     "manualSettlement", true,
                     "action", "await_provider_config",
-                    "message", "模拟支付通道尚未开启。"
+                    "message", "模拟支付通道尚未开启"
             );
         }
         if (!runtimeReady()) {
@@ -95,7 +95,7 @@ public class MockStorePaymentProvider implements StorePaymentProvider {
                     "ready", false,
                     "manualSettlement", true,
                     "action", "await_provider_config",
-                    "message", "当前环境已禁用模拟支付，请改用真实支付通道。"
+                    "message", "当前环境已禁用模拟支付，请改用真实支付通道"
             );
         }
         return Map.of(
@@ -105,7 +105,7 @@ public class MockStorePaymentProvider implements StorePaymentProvider {
                 "manualSettlement", true,
                 "action", "mock_pay",
                 "buttonText", "确认模拟支付",
-                "message", "当前为开发/测试模拟支付，确认后会立即发放权益。",
+                "message", "当前为开发/测试模拟支付，确认后会立即发放权益",
                 "orderNo", order.getOrderNo()
         );
     }
@@ -127,7 +127,7 @@ public class MockStorePaymentProvider implements StorePaymentProvider {
                 "ready", true,
                 "manualSettlement", true,
                 "action", "mock_pay",
-                "message", "模拟支付已完成。",
+                "message", "模拟支付已完成",
                 "orderNo", order.getOrderNo()
         );
     }
@@ -138,15 +138,15 @@ public class MockStorePaymentProvider implements StorePaymentProvider {
         }
         String env = appProperties.getEnvironment() == null ? "" : appProperties.getEnvironment().trim().toLowerCase();
         boolean prodLike = "prod".equals(env) || "production".equals(env);
-        return !prodLike || paymentProperties.isAllowInProd();
+        return !prodLike;
     }
 
     private String channelDesc(AppPaymentChannelConfig config, boolean runtimeReady) {
         if (!Boolean.TRUE.equals(config.getEnabled())) {
-            return "后台已保留该模拟通道，但当前未对用户开放。";
+            return "后台已保留该模拟通道，但当前未对用户开放";
         }
         if (!runtimeReady) {
-            return "当前环境已禁用模拟支付，请改用真实支付通道。";
+            return "当前环境已禁用模拟支付，请改用真实支付通道";
         }
         return blank(config.getDescription());
     }

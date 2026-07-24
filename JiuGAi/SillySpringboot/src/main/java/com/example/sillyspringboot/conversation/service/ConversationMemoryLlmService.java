@@ -3,6 +3,7 @@ package com.example.sillyspringboot.conversation.service;
 import com.example.sillyspringboot.chat.entity.AppMessage;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
 import com.example.sillyspringboot.conversation.config.MemoryLlmProperties;
+import com.example.sillyspringboot.conversation.dto.ConversationMemoryRefreshSnapshot;
 import com.example.sillyspringboot.conversation.dto.ExtractedMemoryEntry;
 import com.example.sillyspringboot.conversation.dto.StructuredMemoryExtraction;
 import com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntry;
@@ -47,14 +48,57 @@ public class ConversationMemoryLlmService {
             long conversationId,
             List<AppConversationMemoryEntry> existingEntries
     ) {
+        return tryStructuredMemoryExtract(conversationId, null, existingEntries);
+    }
+
+    public Optional<StructuredMemoryExtraction> tryStructuredMemoryExtract(
+            long conversationId,
+            Long branchId,
+            List<AppConversationMemoryEntry> existingEntries
+    ) {
         if (!properties.isLlmEnabled()) {
             return Optional.empty();
         }
-        List<AppMessage> rows = messageMapper.listRecentByConversationAsc(
-                conversationId,
-                Math.max(10, properties.getMaxMessages())
-        );
-        String transcript = buildTranscript(rows);
+        List<AppMessage> rows = branchId == null || branchId <= 0
+                ? messageMapper.listRecentMemorySourceByConversationAsc(conversationId, Math.max(10, properties.getMaxMessages()))
+                : messageMapper.listRecentMemorySourceByConversationBranchAsc(
+                        conversationId,
+                        branchId,
+                        Math.max(10, properties.getMaxMessages())
+                );
+        List<ConversationMemoryRefreshSnapshot.MessageSnapshot> messages = rows == null
+                ? List.of()
+                : rows.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(ConversationMemoryRefreshSnapshot.MessageSnapshot::from)
+                .toList();
+        List<ConversationMemoryRefreshSnapshot.EntrySnapshot> entries = existingEntries == null
+                ? List.of()
+                : existingEntries.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(ConversationMemoryRefreshSnapshot.EntrySnapshot::from)
+                .toList();
+        return tryStructuredMemoryExtract(conversationId, messages, entries);
+    }
+
+    public Optional<StructuredMemoryExtraction> tryStructuredMemoryExtract(
+            ConversationMemoryRefreshSnapshot snapshot
+    ) {
+        if (snapshot == null) {
+            return Optional.empty();
+        }
+        return tryStructuredMemoryExtract(snapshot.conversationId(), snapshot.messages(), snapshot.existingEntries());
+    }
+
+    private Optional<StructuredMemoryExtraction> tryStructuredMemoryExtract(
+            long conversationId,
+            List<ConversationMemoryRefreshSnapshot.MessageSnapshot> rows,
+            List<ConversationMemoryRefreshSnapshot.EntrySnapshot> existingEntries
+    ) {
+        if (!properties.isLlmEnabled()) {
+            return Optional.empty();
+        }
+        String transcript = buildSnapshotTranscript(rows);
         if (transcript.isBlank()) {
             return Optional.empty();
         }
@@ -94,12 +138,14 @@ public class ConversationMemoryLlmService {
                   "disableEntryKeys": ["entryKey to disable if user clearly revoked it"]
                 }
                 Constant entries are allowed only for identity, relationship, boundary, or core setting.
+                Existing entries marked USER_DELETED are user deletion tombstones. Never recreate the same key or fact merely because it still appears in chat history.
+                Existing entries marked USER_DISABLED were explicitly disabled by the user. Do not recreate or re-enable the same fact under another key. Only when the recent transcript clearly establishes a different replacement fact may you emit a new key and include the disabled key in replaces.
                 Use priority 200 for names/call signs/boundaries/confirmed relationship, 160 for durable preference/promise, 120 for important event/plot, 80 for ordinary fact.
                 Example: if the user says "以后叫我哥哥", output one identity entry with entryKey "identity_user_call_gege", content "用户希望角色称呼他为哥哥。", keywords ["哥哥","称呼"], priority 200, constantInjection true, confidence >= 0.90.
                 Conflict example: if existing memory has "identity_user_call_gege" but the user later says "别叫哥哥了，叫我阿曜", output disableEntryKeys ["identity_user_call_gege"] and a new identity entry "identity_user_call_ayao" with content "用户希望角色称呼他为阿曜。".
                 Example: if the transcript only contains filler such as "哈哈", "嗯嗯", "哦哦", output a brief summaryPreview if useful, entries [], and disableEntryKeys [].
                 """;
-        String existing = summarizeExistingEntries(existingEntries);
+        String existing = summarizeExistingEntrySnapshots(existingEntries);
         List<ChatMessage> messages = List.of(
                 ChatMessage.text("system", sys),
                 ChatMessage.text("user", "Existing memory entries:\n" + existing + "\n\nRecent transcript:\n" + transcript)
@@ -147,14 +193,44 @@ public class ConversationMemoryLlmService {
     }
 
     public Optional<MemoryRollup> tryLlmRollup(long conversationId) {
+        return tryLlmRollup(conversationId, (Long) null);
+    }
+
+    public Optional<MemoryRollup> tryLlmRollup(long conversationId, Long branchId) {
         if (!properties.isLlmEnabled()) {
             return Optional.empty();
         }
-        List<AppMessage> rows = messageMapper.listRecentByConversationAsc(
-                conversationId,
-                Math.max(10, properties.getMaxMessages())
-        );
-        String transcript = buildTranscript(rows);
+        List<AppMessage> rows = branchId == null || branchId <= 0
+                ? messageMapper.listRecentMemorySourceByConversationAsc(conversationId, Math.max(10, properties.getMaxMessages()))
+                : messageMapper.listRecentMemorySourceByConversationBranchAsc(
+                        conversationId,
+                        branchId,
+                        Math.max(10, properties.getMaxMessages())
+                );
+        List<ConversationMemoryRefreshSnapshot.MessageSnapshot> messages = rows == null
+                ? List.of()
+                : rows.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(ConversationMemoryRefreshSnapshot.MessageSnapshot::from)
+                .toList();
+        return tryLlmRollup(conversationId, messages);
+    }
+
+    public Optional<MemoryRollup> tryLlmRollup(ConversationMemoryRefreshSnapshot snapshot) {
+        if (snapshot == null) {
+            return Optional.empty();
+        }
+        return tryLlmRollup(snapshot.conversationId(), snapshot.messages());
+    }
+
+    private Optional<MemoryRollup> tryLlmRollup(
+            long conversationId,
+            List<ConversationMemoryRefreshSnapshot.MessageSnapshot> rows
+    ) {
+        if (!properties.isLlmEnabled()) {
+            return Optional.empty();
+        }
+        String transcript = buildSnapshotTranscript(rows);
         if (transcript.isBlank()) {
             return Optional.empty();
         }
@@ -328,7 +404,36 @@ public class ConversationMemoryLlmService {
         StringBuilder sb = new StringBuilder();
         int count = 0;
         for (AppConversationMemoryEntry e : existingEntries) {
-            if (e == null || !e.isEnabled()) {
+            if (e == null) {
+                continue;
+            }
+            if (e.isManualDeleted()) {
+                sb.append("- USER_DELETED ")
+                        .append(e.getEntryKey())
+                        .append(": ")
+                        .append(trimTo(e.getContent(), 160))
+                        .append(" (do not recreate)\n");
+                count++;
+                if (count >= 80) {
+                    break;
+                }
+                continue;
+            }
+            if (e.isManualDisabled()) {
+                sb.append("- USER_DISABLED ")
+                        .append(e.getEntryKey())
+                        .append(" [")
+                        .append(e.getMemoryType())
+                        .append("]: ")
+                        .append(trimTo(e.getContent(), 160))
+                        .append(" (do not recreate or enable under another key)\n");
+                count++;
+                if (count >= 80) {
+                    break;
+                }
+                continue;
+            }
+            if (!e.isEnabled()) {
                 continue;
             }
             sb.append("- ")
@@ -338,6 +443,51 @@ public class ConversationMemoryLlmService {
                     .append("]: ")
                     .append(trimTo(e.getContent(), 160))
                     .append('\n');
+            count++;
+            if (count >= 80) {
+                break;
+            }
+        }
+        return sb.length() == 0 ? "(none)" : sb.toString().trim();
+    }
+
+    private static String summarizeExistingEntrySnapshots(
+            List<ConversationMemoryRefreshSnapshot.EntrySnapshot> existingEntries
+    ) {
+        if (existingEntries == null || existingEntries.isEmpty()) {
+            return "(none)";
+        }
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        for (ConversationMemoryRefreshSnapshot.EntrySnapshot entry : existingEntries) {
+            if (entry == null) {
+                continue;
+            }
+            if (entry.manualDeleted()) {
+                sb.append("- USER_DELETED ")
+                        .append(entry.entryKey())
+                        .append(": ")
+                        .append(trimTo(entry.content(), 160))
+                        .append(" (do not recreate)\n");
+            } else if (entry.manualDisabled()) {
+                sb.append("- USER_DISABLED ")
+                        .append(entry.entryKey())
+                        .append(" [")
+                        .append(entry.memoryType())
+                        .append("]: ")
+                        .append(trimTo(entry.content(), 160))
+                        .append(" (do not recreate or enable under another key)\n");
+            } else if (entry.enabled()) {
+                sb.append("- ")
+                        .append(entry.entryKey())
+                        .append(" [")
+                        .append(entry.memoryType())
+                        .append("]: ")
+                        .append(trimTo(entry.content(), 160))
+                        .append('\n');
+            } else {
+                continue;
+            }
             count++;
             if (count >= 80) {
                 break;
@@ -390,6 +540,55 @@ public class ConversationMemoryLlmService {
                     .append('\n');
         }
         return sb.toString().trim();
+    }
+
+    private static String buildSnapshotTranscript(
+            List<ConversationMemoryRefreshSnapshot.MessageSnapshot> rows
+    ) {
+        if (rows == null || rows.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (ConversationMemoryRefreshSnapshot.MessageSnapshot message : rows) {
+            if (message == null) {
+                continue;
+            }
+            String status = message.status() == null ? "" : message.status();
+            if ("FAILED".equalsIgnoreCase(status) || "DELETED".equalsIgnoreCase(status)) {
+                continue;
+            }
+            String role = message.role() == null ? "" : message.role();
+            if ("assistant".equalsIgnoreCase(role)) {
+                if ((!"SUCCESS".equalsIgnoreCase(status) && !"STOPPED".equalsIgnoreCase(status))
+                        || !isDisplayedRootMessage(message)) {
+                    continue;
+                }
+            } else if (!"user".equalsIgnoreCase(role)) {
+                continue;
+            }
+            String content = message.content() == null ? "" : message.content().trim();
+            if (!content.isBlank()) {
+                sb.append("user".equalsIgnoreCase(role) ? "User: " : "Assistant: ")
+                        .append(content)
+                        .append('\n');
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private static boolean isDisplayedRootMessage(
+            ConversationMemoryRefreshSnapshot.MessageSnapshot message
+    ) {
+        String ref = message.stMessageRef();
+        if (ref == null || !ref.startsWith("root:")) {
+            return true;
+        }
+        try {
+            long rootId = Long.parseLong(ref.substring("root:".length()));
+            return message.id() != null && message.id() == rootId;
+        } catch (RuntimeException ignored) {
+            return true;
+        }
     }
 
     private static boolean isDisplayedRootMessage(AppMessage m) {

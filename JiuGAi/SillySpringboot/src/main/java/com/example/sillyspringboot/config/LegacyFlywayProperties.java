@@ -2,6 +2,9 @@ package com.example.sillyspringboot.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @ConfigurationProperties(prefix = "app.flyway")
 public class LegacyFlywayProperties {
 
@@ -12,6 +15,11 @@ public class LegacyFlywayProperties {
     private String legacyBaselineVersion = "14";
 
     private String historyTable = "flyway_schema_history";
+
+    private List<String> locations = new ArrayList<>(List.of(
+            "classpath:db/migration-common",
+            "classpath:db/migration-mysql"
+    ));
 
     public String getLegacyBaselineVersion() {
         return legacyBaselineVersion;
@@ -27,5 +35,13 @@ public class LegacyFlywayProperties {
 
     public void setHistoryTable(String historyTable) {
         this.historyTable = historyTable;
+    }
+
+    public List<String> getLocations() {
+        return locations;
+    }
+
+    public void setLocations(List<String> locations) {
+        this.locations = locations == null ? new ArrayList<>() : new ArrayList<>(locations);
     }
 }

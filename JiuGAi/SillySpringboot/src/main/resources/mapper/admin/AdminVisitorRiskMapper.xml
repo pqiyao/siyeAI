@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AdminVisitorRiskMapper">
+
+    <sql id="RiskJoin">
+        LEFT JOIN (
+            SELECT device_id, COUNT(*) AS risk_score
+            FROM app_h5_security_event
+            WHERE created_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 24 HOUR)
+              AND event_type IN ('USER_CHANGED', 'CLIENT_UID_CHANGED', 'RATE_LIMIT_HIT')
+              AND device_id IS NOT NULL
+            GROUP BY device_id
+        ) risk ON risk.device_id = d.id
+    </sql>
+
+    <sql id="WhereClause">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    d.latest_client_uid LIKE CONCAT('%', #{keyword}, '%')
+                    OR CAST(d.latest_user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                    OR d.latest_ip LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="riskOnly">
+                AND COALESCE(risk.risk_score, 0) &gt; 0
+            </if>
+        </where>
+    </sql>
+
+    <select id="overview" resultType="map">
+        SELECT
+            COUNT(*) AS totalDevices,
+            COALESCE(SUM(CASE WHEN last_seen_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 24 HOUR) THEN 1 ELSE 0 END), 0) AS activeDay,
+            COALESCE(SUM(CASE WHEN created_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 24 HOUR) THEN 1 ELSE 0 END), 0) AS newDay,
+            (SELECT COUNT(*) FROM app_h5_security_event
+             WHERE created_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 24 HOUR)
+               AND event_type = 'RATE_LIMIT_HIT') AS limitHitsDay,
+            (SELECT COUNT(DISTINCT device_id) FROM app_h5_security_event
+             WHERE created_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 24 HOUR)
+               AND event_type IN ('USER_CHANGED', 'CLIENT_UID_CHANGED', 'RATE_LIMIT_HIT')
+               AND device_id IS NOT NULL) AS riskyDay
+        FROM app_h5_visitor_device
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*)
+        FROM app_h5_visitor_device d
+        <include refid="RiskJoin"/>
+        <include refid="WhereClause"/>
+    </select>
+
+    <select id="list" resultType="map">
+        SELECT
+            d.id,
+            CONCAT(LEFT(d.device_token, 8), '***', RIGHT(d.device_token, 4)) AS deviceToken,
+            d.latest_client_uid AS clientUid,
+            d.latest_user_id AS userId,
+            d.latest_ip AS ip,
+            d.user_agent AS userAgent,
+            d.anonymous_chat_attempt_count AS anonymousChats,
+            DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(d.last_seen_at, '%Y-%m-%d %H:%i:%s') AS lastSeenAt,
+            COALESCE(risk.risk_score, 0) AS riskScore
+        FROM app_h5_visitor_device d
+        <include refid="RiskJoin"/>
+        <include refid="WhereClause"/>
+        ORDER BY COALESCE(risk.risk_score, 0) DESC, d.last_seen_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="events" resultType="map">
+        SELECT
+            event_type AS eventType,
+            client_uid AS clientUid,
+            user_id AS userId,
+            ip_address AS ip,
+            endpoint_group AS endpointGroup,
+            detail,
+            DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
+        FROM app_h5_security_event
+        WHERE device_id = #{deviceId}
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+    <select id="countDevicesByIds" resultType="long">
+        SELECT COUNT(*)
+        FROM app_h5_visitor_device
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+    <delete id="deleteEventsByDeviceIds">
+        DELETE FROM app_h5_security_event
+        WHERE device_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+    <delete id="deleteDevicesByIds">
+        DELETE FROM app_h5_visitor_device
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

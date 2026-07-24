@@ -16,6 +16,11 @@
         <result column="description" property="description"/>
         <result column="tagline" property="tagline"/>
         <result column="bio" property="bio"/>
+        <result column="public_summary" property="publicSummary"/>
+        <result column="public_tags_json" property="publicTagsJson"/>
+        <result column="public_warnings_json" property="publicWarningsJson"/>
+        <result column="health_score" property="healthScore"/>
+        <result column="health_issues_json" property="healthIssuesJson"/>
         <result column="persona" property="persona"/>
         <result column="scenario" property="scenario"/>
         <result column="first_message" property="firstMessage"/>
@@ -51,7 +56,8 @@
 
     <sql id="AllColumns">
         id, st_avatar_url, avatar_url, cover_url, chat_background_url, st_world_names_json, owner_user_id, name, description,
-        tagline, bio, persona, scenario, first_message, alternate_greetings_json,
+        tagline, bio, public_summary, public_tags_json, public_warnings_json, health_score, health_issues_json,
+        persona, scenario, first_message, alternate_greetings_json,
         mes_example, system_prompt, post_history_instructions,
         private_card, review_status, review_reason, reviewed_at, reviewed_by, deleted_at, created_at, updated_at,
         occupation_label, tags_json, vip_only, unlocked_default, client_visible, preview_blur_vip_level,
@@ -134,15 +140,22 @@
 
     <insert id="insert" parameterType="com.example.sillyspringboot.character.entity.AppCharacter"
             useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO app_character (st_avatar_url, name, description)
-        VALUES (#{stAvatarUrl}, #{name}, #{description})
+        INSERT INTO app_character (
+            st_avatar_url, name, description,
+            public_summary, public_tags_json, public_warnings_json, health_score, health_issues_json
+        )
+        VALUES (
+            #{stAvatarUrl}, #{name}, #{description},
+            #{publicSummary}, #{publicTagsJson}, #{publicWarningsJson}, COALESCE(#{healthScore}, 0), #{healthIssuesJson}
+        )
     </insert>
 
     <insert id="insertFull" parameterType="com.example.sillyspringboot.character.entity.AppCharacter"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO app_character (
             st_avatar_url, name, description, owner_user_id,
-            tagline, bio, persona, scenario, first_message, alternate_greetings_json,
+            tagline, bio, public_summary, public_tags_json, public_warnings_json, health_score, health_issues_json,
+            persona, scenario, first_message, alternate_greetings_json,
             mes_example, system_prompt, post_history_instructions,
             avatar_url, cover_url, chat_background_url, st_world_names_json, private_card,
             review_status, review_reason, reviewed_at, reviewed_by,
@@ -151,7 +164,8 @@
             gameplay_type, chat_modes_json, sort_order, creator_notes, st_extra_json
         ) VALUES (
             #{stAvatarUrl}, #{name}, #{description}, #{ownerUserId},
-            #{tagline}, #{bio}, #{persona}, #{scenario}, #{firstMessage}, #{alternateGreetingsJson},
+            #{tagline}, #{bio}, #{publicSummary}, #{publicTagsJson}, #{publicWarningsJson}, COALESCE(#{healthScore}, 0), #{healthIssuesJson},
+            #{persona}, #{scenario}, #{firstMessage}, #{alternateGreetingsJson},
             #{mesExample}, #{systemPrompt}, #{postHistoryInstructions},
             #{avatarUrl}, #{coverUrl}, #{chatBackgroundUrl}, #{stWorldNamesJson}, #{privateCard},
             #{reviewStatus}, #{reviewReason}, #{reviewedAt}, #{reviewedBy},
@@ -173,6 +187,11 @@
             description = #{description},
             tagline = #{tagline},
             bio = #{bio},
+            public_summary = #{publicSummary},
+            public_tags_json = #{publicTagsJson},
+            public_warnings_json = #{publicWarningsJson},
+            health_score = COALESCE(#{healthScore}, 0),
+            health_issues_json = #{healthIssuesJson},
             persona = #{persona},
             scenario = #{scenario},
             first_message = #{firstMessage},
@@ -258,6 +277,12 @@
         <if test="reviewStatus != null and reviewStatus != ''">
             AND review_status = #{reviewStatus}
         </if>
+        <if test="minHealthScore != null">
+            AND health_score &gt;= #{minHealthScore}
+        </if>
+        <if test="maxHealthScore != null">
+            AND health_score &lt;= #{maxHealthScore}
+        </if>
     </select>
 
     <select id="listAdminPage" resultMap="AppCharacterResultMap">
@@ -280,6 +305,12 @@
         </if>
         <if test="reviewStatus != null and reviewStatus != ''">
             AND review_status = #{reviewStatus}
+        </if>
+        <if test="minHealthScore != null">
+            AND health_score &gt;= #{minHealthScore}
+        </if>
+        <if test="maxHealthScore != null">
+            AND health_score &lt;= #{maxHealthScore}
         </if>
         ORDER BY sort_order ASC, id DESC
         LIMIT #{limit} OFFSET #{offset}

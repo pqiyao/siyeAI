@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.retention.GenerationRetentionMapper">
+
+    <sql id="EligibleTaskIds">
+        SELECT selected.id
+        FROM (
+            SELECT id
+            FROM app_generation_task
+            WHERE COALESCE(finished_at, started_at, queued_at) &lt; #{cutoff}
+              AND status IN ('SUCCESS', 'FAILED', 'STOPPED')
+            ORDER BY id
+            LIMIT #{batchSize}
+        ) selected
+    </sql>
+
+    <sql id="OrphanAttemptIds">
+        SELECT selected.id
+        FROM (
+            SELECT a.id
+            FROM app_generation_attempt a
+            WHERE a.started_at &lt; #{cutoff}
+              AND (a.generation_task_id IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM app_generation_task t WHERE t.id = a.generation_task_id
+              ))
+            ORDER BY a.id
+            LIMIT #{batchSize}
+        ) selected
+    </sql>
+
+    <sql id="OrphanEventIds">
+        SELECT selected.id
+        FROM (
+            SELECT e.id
+            FROM app_generation_stat_event e
+            WHERE e.created_at &lt; #{cutoff}
+              AND (e.task_id IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM app_generation_task t WHERE t.id = e.task_id
+              ))
+            ORDER BY e.id
+            LIMIT #{batchSize}
+        ) selected
+    </sql>
+
+    <insert id="aggregateTaskBatch">
+        INSERT INTO app_generation_task_daily_stat (
+            stat_day, status, channel, model, task_count
+        )
+        SELECT
+            DATE(t.queued_at),
+            COALESCE(NULLIF(t.status, ''), 'QUEUED'),
+            COALESCE(t.channel, ''),
+            COALESCE(t.model, ''),
+            COUNT(*)
+        FROM app_generation_task t
+        WHERE t.id IN (<include refid="EligibleTaskIds"/>)
+        GROUP BY DATE(t.queued_at), COALESCE(NULLIF(t.status, ''), 'QUEUED'), COALESCE(t.channel, ''), COALESCE(t.model, '')
+        ON DUPLICATE KEY UPDATE
+            task_count = task_count + VALUES(task_count),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <insert id="aggregateAttemptsForTaskBatch">
+        INSERT INTO app_generation_attempt_daily_stat (
+            stat_day, provider_key, route_key, model, character_id, status, error_code, http_status,
+            byok, was_fallback, attempt_count, duration_sum_ms, duration_sample_count,
+            ttft_sum_ms, ttft_sample_count, prompt_tokens, completion_tokens, estimated_token_attempts,
+            total_cost_usd, priced_attempts, unpriced_attempts, estimated_cost_attempts, partial_cost_attempts,
+            first_started_at, last_finished_at
+        )
+        SELECT
+            DATE(a.started_at), a.provider_key, a.route_key, COALESCE(a.model, ''), COALESCE(a.character_id, 0),
+            a.status, COALESCE(a.error_code, ''), COALESCE(a.http_status, 0), a.byok, a.was_fallback,
+            COUNT(*), COALESCE(SUM(a.duration_ms), 0), COUNT(a.duration_ms), COALESCE(SUM(a.ttft_ms), 0), COUNT(a.ttft_ms),
+            COALESCE(SUM(a.prompt_tokens), 0), COALESCE(SUM(a.completion_tokens), 0),
+            SUM(CASE WHEN a.prompt_tokens_estimated = TRUE OR a.completion_tokens_estimated = TRUE THEN 1 ELSE 0 END),
+            COALESCE(SUM(a.total_cost_usd), 0), SUM(CASE WHEN a.pricing_id IS NOT NULL THEN 1 ELSE 0 END),
+            SUM(CASE WHEN a.pricing_id IS NULL THEN 1 ELSE 0 END), SUM(CASE WHEN a.cost_estimated = TRUE THEN 1 ELSE 0 END),
+            SUM(CASE WHEN a.cost_partial = TRUE THEN 1 ELSE 0 END), MIN(a.started_at), MAX(a.finished_at)
+        FROM app_generation_attempt a
+        WHERE a.id IN (
+            SELECT attempt_ids.id
+            FROM (
+                SELECT a2.id
+                FROM app_generation_attempt a2
+                WHERE a2.generation_task_id IN (<include refid="EligibleTaskIds"/>)
+                ORDER BY a2.id
+            ) attempt_ids
+        )
+        GROUP BY DATE(a.started_at), a.provider_key, a.route_key, COALESCE(a.model, ''), COALESCE(a.character_id, 0),
+                 a.status, COALESCE(a.error_code, ''), COALESCE(a.http_status, 0), a.byok, a.was_fallback
+        ON DUPLICATE KEY UPDATE
+            attempt_count = attempt_count + VALUES(attempt_count),
+            duration_sum_ms = duration_sum_ms + VALUES(duration_sum_ms),
+            duration_sample_count = duration_sample_count + VALUES(duration_sample_count),
+            ttft_sum_ms = ttft_sum_ms + VALUES(ttft_sum_ms),
+            ttft_sample_count = ttft_sample_count + VALUES(ttft_sample_count),
+            prompt_tokens = prompt_tokens + VALUES(prompt_tokens),
+            completion_tokens = completion_tokens + VALUES(completion_tokens),
+            estimated_token_attempts = estimated_token_attempts + VALUES(estimated_token_attempts),
+            total_cost_usd = total_cost_usd + VALUES(total_cost_usd),
+            priced_attempts = priced_attempts + VALUES(priced_attempts),
+            unpriced_attempts = unpriced_attempts + VALUES(unpriced_attempts),
+            estimated_cost_attempts = estimated_cost_attempts + VALUES(estimated_cost_attempts),
+            partial_cost_attempts = partial_cost_attempts + VALUES(partial_cost_attempts),
+            first_started_at = LEAST(first_started_at, VALUES(first_started_at)),
+            last_finished_at = GREATEST(last_finished_at, VALUES(last_finished_at)),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <delete id="deleteAttemptsForTaskBatch">
+        DELETE FROM app_generation_attempt
+        WHERE id IN (
+            SELECT attempt_ids.id
+            FROM (
+                SELECT a.id
+                FROM app_generation_attempt a
+                WHERE a.generation_task_id IN (<include refid="EligibleTaskIds"/>)
+                ORDER BY a.id
+            ) attempt_ids
+        )
+    </delete>
+
+    <delete id="deleteStatEventsForTaskBatch">
+        DELETE FROM app_generation_stat_event
+        WHERE task_id IN (<include refid="EligibleTaskIds"/>)
+    </delete>
+
+    <delete id="deleteTaskBatch">
+        DELETE FROM app_generation_task
+        WHERE id IN (<include refid="EligibleTaskIds"/>)
+    </delete>
+
+    <insert id="aggregateOrphanAttemptBatch">
+        INSERT INTO app_generation_attempt_daily_stat (
+            stat_day, provider_key, route_key, model, character_id, status, error_code, http_status,
+            byok, was_fallback, attempt_count, duration_sum_ms, duration_sample_count,
+            ttft_sum_ms, ttft_sample_count, prompt_tokens, completion_tokens, estimated_token_attempts,
+            total_cost_usd, priced_attempts, unpriced_attempts, estimated_cost_attempts, partial_cost_attempts,
+            first_started_at, last_finished_at
+        )
+        SELECT
+            DATE(a.started_at), a.provider_key, a.route_key, COALESCE(a.model, ''), COALESCE(a.character_id, 0),
+            a.status, COALESCE(a.error_code, ''), COALESCE(a.http_status, 0), a.byok, a.was_fallback,
+            COUNT(*), COALESCE(SUM(a.duration_ms), 0), COUNT(a.duration_ms), COALESCE(SUM(a.ttft_ms), 0), COUNT(a.ttft_ms),
+            COALESCE(SUM(a.prompt_tokens), 0), COALESCE(SUM(a.completion_tokens), 0),
+            SUM(CASE WHEN a.prompt_tokens_estimated = TRUE OR a.completion_tokens_estimated = TRUE THEN 1 ELSE 0 END),
+            COALESCE(SUM(a.total_cost_usd), 0), SUM(CASE WHEN a.pricing_id IS NOT NULL THEN 1 ELSE 0 END),
+            SUM(CASE WHEN a.pricing_id IS NULL THEN 1 ELSE 0 END), SUM(CASE WHEN a.cost_estimated = TRUE THEN 1 ELSE 0 END),
+            SUM(CASE WHEN a.cost_partial = TRUE THEN 1 ELSE 0 END), MIN(a.started_at), MAX(a.finished_at)
+        FROM app_generation_attempt a
+        WHERE a.id IN (<include refid="OrphanAttemptIds"/>)
+        GROUP BY DATE(a.started_at), a.provider_key, a.route_key, COALESCE(a.model, ''), COALESCE(a.character_id, 0),
+                 a.status, COALESCE(a.error_code, ''), COALESCE(a.http_status, 0), a.byok, a.was_fallback
+        ON DUPLICATE KEY UPDATE
+            attempt_count = attempt_count + VALUES(attempt_count),
+            duration_sum_ms = duration_sum_ms + VALUES(duration_sum_ms),
+            duration_sample_count = duration_sample_count + VALUES(duration_sample_count),
+            ttft_sum_ms = ttft_sum_ms + VALUES(ttft_sum_ms),
+            ttft_sample_count = ttft_sample_count + VALUES(ttft_sample_count),
+            prompt_tokens = prompt_tokens + VALUES(prompt_tokens),
+            completion_tokens = completion_tokens + VALUES(completion_tokens),
+            estimated_token_attempts = estimated_token_attempts + VALUES(estimated_token_attempts),
+            total_cost_usd = total_cost_usd + VALUES(total_cost_usd),
+            priced_attempts = priced_attempts + VALUES(priced_attempts),
+            unpriced_attempts = unpriced_attempts + VALUES(unpriced_attempts),
+            estimated_cost_attempts = estimated_cost_attempts + VALUES(estimated_cost_attempts),
+            partial_cost_attempts = partial_cost_attempts + VALUES(partial_cost_attempts),
+            first_started_at = LEAST(first_started_at, VALUES(first_started_at)),
+            last_finished_at = GREATEST(last_finished_at, VALUES(last_finished_at)),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <delete id="deleteOrphanAttemptBatch">
+        DELETE FROM app_generation_attempt
+        WHERE id IN (<include refid="OrphanAttemptIds"/>)
+    </delete>
+
+    <insert id="aggregateOrphanEventBatch">
+        INSERT INTO app_generation_task_daily_stat (stat_day, status, channel, model, task_count)
+        SELECT DATE(e.event_day), COALESCE(NULLIF(e.status, ''), 'QUEUED'), COALESCE(e.channel, ''), COALESCE(e.model, ''), COUNT(*)
+        FROM app_generation_stat_event e
+        WHERE e.id IN (<include refid="OrphanEventIds"/>)
+        GROUP BY DATE(e.event_day), COALESCE(NULLIF(e.status, ''), 'QUEUED'), COALESCE(e.channel, ''), COALESCE(e.model, '')
+        ON DUPLICATE KEY UPDATE
+            task_count = task_count + VALUES(task_count),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <delete id="deleteOrphanEventBatch">
+        DELETE FROM app_generation_stat_event
+        WHERE id IN (<include refid="OrphanEventIds"/>)
+    </delete>
+</mapper>

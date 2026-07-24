@@ -2,6 +2,7 @@ package com.example.sillyspringboot.compat.h5.web;
 
 import com.example.sillyspringboot.billing.service.StoreService;
 import com.example.sillyspringboot.billing.service.provider.StorePaymentContext;
+import com.example.sillyspringboot.config.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,9 +19,11 @@ import java.util.Map;
 public class ApiV1StoreController {
 
     private final StoreService storeService;
+    private final ClientIpResolver clientIpResolver;
 
-    public ApiV1StoreController(StoreService storeService) {
+    public ApiV1StoreController(StoreService storeService, ClientIpResolver clientIpResolver) {
         this.storeService = storeService;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @GetMapping("/overview")
@@ -69,35 +72,10 @@ public class ApiV1StoreController {
         return value == null ? null : String.valueOf(value);
     }
 
-    private static StorePaymentContext paymentContext(HttpServletRequest request) {
+    private StorePaymentContext paymentContext(HttpServletRequest request) {
         if (request == null) {
             return StorePaymentContext.empty();
         }
-        return new StorePaymentContext(resolveClientIp(request), request.getHeader("User-Agent"));
-    }
-
-    private static String resolveClientIp(HttpServletRequest request) {
-        String forwarded = firstNonBlank(
-                request.getHeader("X-Forwarded-For"),
-                request.getHeader("X-Real-IP"),
-                request.getRemoteAddr()
-        );
-        if (forwarded == null) {
-            return "";
-        }
-        int commaIndex = forwarded.indexOf(',');
-        return commaIndex >= 0 ? forwarded.substring(0, commaIndex).trim() : forwarded.trim();
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return null;
+        return new StorePaymentContext(clientIpResolver.resolve(request), request.getHeader("User-Agent"));
     }
 }

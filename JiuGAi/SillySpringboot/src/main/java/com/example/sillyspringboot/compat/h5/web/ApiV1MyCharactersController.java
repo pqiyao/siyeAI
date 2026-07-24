@@ -301,11 +301,11 @@ public class ApiV1MyCharactersController {
         if (clientUid == null || clientUid.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "clientUid missing");
         }
-        h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
+        AppUser user = tokenService.validateAndLoadUser(h5Auth.requireAuthenticatedTokenForClientUid(clientUid));
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "File is required.");
         }
-        String url = uploadService.saveAndGetUrl(file);
+        String url = uploadService.saveOwnedAndGetUrl(file, user.getId());
         return ApiV1Result.ok(Map.of("url", url));
     }
     @PostMapping(value = "/mine/import-sillytavern-png", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

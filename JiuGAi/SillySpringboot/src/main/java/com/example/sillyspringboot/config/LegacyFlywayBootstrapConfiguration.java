@@ -33,7 +33,7 @@ public class LegacyFlywayBootstrapConfiguration {
 
             FluentConfiguration configuration = Flyway.configure()
                     .dataSource(dataSource)
-                    .locations("classpath:db/migration")
+                    .locations(properties.getLocations().toArray(String[]::new))
                     .baselineOnMigrate(true)
                     .cleanDisabled(true);
 

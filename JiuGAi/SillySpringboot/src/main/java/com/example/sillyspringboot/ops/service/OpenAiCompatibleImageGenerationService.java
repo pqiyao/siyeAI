@@ -1,5 +1,6 @@
 package com.example.sillyspringboot.ops.service;
 
+import com.example.sillyspringboot.ai.service.AiProviderCallException;
 import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.character.entity.AppCharacter;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
@@ -8,6 +9,9 @@ import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
+import com.example.sillyspringboot.shared.net.BoundedHttpBodyHandlers;
+import com.example.sillyspringboot.shared.net.MediaPayloadValidator;
+import com.example.sillyspringboot.shared.net.OutboundUrlGuard;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -15,7 +19,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -39,6 +42,8 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(8);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(90);
     private static final Duration PROMPT_ENHANCE_TIMEOUT = Duration.ofSeconds(18);
+    private static final int MAX_PROVIDER_JSON_BYTES = 32 * 1024 * 1024;
+    private static final int MAX_PROVIDER_IMAGE_BYTES = 24 * 1024 * 1024;
 
     private final H5EntitlementService entitlementService;
     private final H5UserAiProviderService userAiProviderService;
@@ -69,7 +74,6 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         return "openai_compatible";
     }
 
-    @Transactional
     @Override
     public Map<String, Object> generate(String clientUid, Map<String, Object> payload) {
         String safeClientUid = safe(clientUid);
@@ -84,8 +88,6 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         String referencePolicy = normalizeReferencePolicy(payload == null ? null : payload.get("referencePolicy"));
         String requestOrigin = safe(payload == null ? null : payload.get("_requestOrigin"));
 
-        entitlementService.guardImageCharacterAccess(safeClientUid, characterId);
-        H5EntitlementService.AccessTicket accessTicket = entitlementService.guardImage(safeClientUid, count, characterId);
         AppUser user = entitlementService.resolveUser(safeClientUid);
         UserModelOverride override = userAiProviderService.resolveActiveOverrideForUser(user.getId());
         if (override == null) {
@@ -142,8 +144,6 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
                 referencePolicy,
                 referenceWarning
         );
-        entitlementService.recordSuccessfulImage(accessTicket, count);
-
         Map<String, Object> image = new LinkedHashMap<>();
         image.put("url", imageResult.dataUrl());
         image.put("prompt", effectivePrompt);
@@ -169,14 +169,27 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         return data;
     }
 
-    @Transactional
     public Map<String, Object> generateManaged(
             String clientUid,
             Map<String, Object> payload,
-            String managedProviderSource,
-            String managedImageModelName,
-            String managedApiKey,
-            String managedCustomUrl
+            String providerSourceValue,
+            String imageModelNameValue,
+            String apiKeyValue,
+            String customUrlValue
+    ) {
+        return generateManaged(clientUid, payload, providerSourceValue, imageModelNameValue,
+                apiKeyValue, customUrlValue, 8, 90);
+    }
+
+    public Map<String, Object> generateManaged(
+            String clientUid,
+            Map<String, Object> payload,
+            String providerSourceValue,
+            String imageModelNameValue,
+            String apiKeyValue,
+            String customUrlValue,
+            int connectTimeoutSeconds,
+            int requestTimeoutSeconds
     ) {
         String safeClientUid = safe(clientUid);
         String prompt = trim(payload == null ? null : payload.get("prompt"), 4000);
@@ -190,14 +203,10 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         String referencePolicy = normalizeReferencePolicy(payload == null ? null : payload.get("referencePolicy"));
         String requestOrigin = safe(payload == null ? null : payload.get("_requestOrigin"));
 
-        entitlementService.guardImageCharacterAccess(safeClientUid, characterId);
-        H5EntitlementService.AccessTicket accessTicket = entitlementService.guardImage(safeClientUid, count, characterId);
-        AppUser user = entitlementService.resolveUser(safeClientUid);
-
-        String providerSource = safe(managedProviderSource);
-        String modelName = safe(managedImageModelName);
-        String apiKey = safe(managedApiKey);
-        String customUrl = safe(managedCustomUrl);
+        String providerSource = safe(providerSourceValue);
+        String modelName = safe(imageModelNameValue);
+        String apiKey = safe(apiKeyValue);
+        String customUrl = safe(customUrlValue);
         if (!StringUtils.hasText(providerSource) || !StringUtils.hasText(modelName) || !StringUtils.hasText(apiKey)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "生图服务配置不完整，请联系管理员检查平台、模型和 API Key");
         }
@@ -243,13 +252,22 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
                     count,
                     referenceImage,
                     referencePolicy,
-                    referenceWarning
+                    referenceWarning,
+                    providerTimeouts(connectTimeoutSeconds, requestTimeoutSeconds)
             );
         } catch (BusinessException ex) {
-            throw new BusinessException(ex.getErrorCode(), managedProviderErrorMessage(ex.getMessage()), ex);
+            String message = managedProviderErrorMessage(ex.getMessage());
+            if (ex instanceof AiProviderCallException providerError) {
+                throw new AiProviderCallException(
+                        providerError.getErrorCode(),
+                        message,
+                        providerError.getHttpStatus(),
+                        providerError.isRetryable(),
+                        providerError
+                );
+            }
+            throw new BusinessException(ex.getErrorCode(), message, ex);
         }
-        entitlementService.recordSuccessfulImage(accessTicket, count);
-
         Map<String, Object> image = new LinkedHashMap<>();
         image.put("url", imageResult.dataUrl());
         image.put("prompt", prompt);
@@ -260,7 +278,7 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("mode", "provider");
         data.put("usedCount", 0);
-        data.put("remainingCount", entitlementService.currentRemainingImageQuota(user.getId()));
+        data.put("remainingCount", 0);
         data.put("providerSource", "managed");
         data.put("modelName", "managed-image-engine");
         data.put("promptEnhanced", false);
@@ -356,7 +374,7 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(writeJson(body), StandardCharsets.UTF_8))
                     .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = httpClient.send(request, BoundedHttpBodyHandlers.ofString(MAX_PROVIDER_JSON_BYTES, StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 throw providerError(response.body(), providerSource, response.statusCode());
             }
@@ -562,20 +580,37 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             String referencePolicy,
             String initialWarning
     ) {
+        return requestImagePromptAware(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio,
+                count, referenceImage, referencePolicy, initialWarning, providerTimeouts(8, 90));
+    }
+
+    private ProviderImageResult requestImagePromptAware(
+            String providerSource,
+            String baseUrl,
+            String apiKey,
+            String modelName,
+            String prompt,
+            String aspectRatio,
+            int count,
+            ReferenceImage referenceImage,
+            String referencePolicy,
+            String initialWarning,
+            ProviderTimeouts timeouts
+    ) {
         if (!shouldAttemptReferenceImage(referencePolicy) || referenceImage == null) {
             if ("siliconflow".equals(providerSource)) {
-                return requestSiliconFlowTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count)
+                return requestSiliconFlowTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, timeouts)
                         .withWarning(initialWarning);
             }
             if ("openrouter".equals(providerSource)) {
-                return requestOpenRouterTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio)
+                return requestOpenRouterTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, timeouts)
                         .withWarning(initialWarning);
             }
-            return requestTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count)
+            return requestTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, timeouts)
                     .withWarning(initialWarning);
         }
         try {
-            return requestImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, referenceImage)
+            return requestImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, referenceImage, timeouts)
                     .withReferenceApplied(true)
                     .withWarning(initialWarning);
         } catch (BusinessException ex) {
@@ -585,14 +620,14 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             String fallbackWarning = weakConsistencyWarning("当前模型不支持参考图");
             String finalWarning = firstNonBlank(initialWarning, fallbackWarning);
             if ("siliconflow".equals(providerSource)) {
-                return requestSiliconFlowTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count)
+                return requestSiliconFlowTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, timeouts)
                         .withWarning(finalWarning);
             }
             if ("openrouter".equals(providerSource)) {
-                return requestOpenRouterTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio)
+                return requestOpenRouterTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, timeouts)
                         .withWarning(finalWarning);
             }
-            return requestTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count)
+            return requestTextToImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, timeouts)
                     .withWarning(finalWarning);
         }
     }
@@ -604,7 +639,8 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             String modelName,
             String prompt,
             String aspectRatio,
-            int count
+            int count,
+            ProviderTimeouts timeouts
     ) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", modelName);
@@ -617,7 +653,7 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         HttpRequest request;
         try {
             request = HttpRequest.newBuilder(URI.create(baseUrl + "/images/generations"))
-                    .timeout(REQUEST_TIMEOUT)
+                    .timeout(timeouts.requestTimeout())
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(writeJson(body), StandardCharsets.UTF_8))
@@ -627,7 +663,7 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         }
 
         try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = timeouts.httpClient().send(request, BoundedHttpBodyHandlers.ofString(MAX_PROVIDER_JSON_BYTES, StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 throw providerError(response.body(), providerSource, response.statusCode());
             }
@@ -658,7 +694,8 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             String apiKey,
             String modelName,
             String prompt,
-            String aspectRatio
+            String aspectRatio,
+            ProviderTimeouts timeouts
     ) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", modelName);
@@ -678,14 +715,14 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         textPart.put("text", prompt);
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + "/chat/completions"))
-                .timeout(REQUEST_TIMEOUT)
+                .timeout(timeouts.requestTimeout())
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
                 .POST(HttpRequest.BodyPublishers.ofString(writeJson(body), StandardCharsets.UTF_8));
         builder.header("X-Title", "Clover Tavern");
 
         try {
-            HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = timeouts.httpClient().send(builder.build(), BoundedHttpBodyHandlers.ofString(MAX_PROVIDER_JSON_BYTES, StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 throw providerError(response.body(), providerSource, response.statusCode());
             }
@@ -718,19 +755,20 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             String prompt,
             String aspectRatio,
             int count,
-            ReferenceImage referenceImage
+            ReferenceImage referenceImage,
+            ProviderTimeouts timeouts
     ) {
         if (referenceImage == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "本次生图需要参考图");
         }
         if ("siliconflow".equals(providerSource)) {
-            return requestSiliconFlowImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, referenceImage);
+            return requestSiliconFlowImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, referenceImage, timeouts);
         }
         if ("openrouter".equals(providerSource)) {
-            return requestOpenRouterImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, referenceImage);
+            return requestOpenRouterImage(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, referenceImage, timeouts);
         }
         try {
-            return requestImageEdit(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, referenceImage);
+            return requestImageEdit(providerSource, baseUrl, apiKey, modelName, prompt, aspectRatio, count, referenceImage, timeouts);
         } catch (BusinessException ex) {
             if (shouldFailAsUnsupportedReferenceEdit(ex)) {
                 throw new BusinessException(
@@ -750,7 +788,8 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             String prompt,
             String aspectRatio,
             int count,
-            ReferenceImage referenceImage
+            ReferenceImage referenceImage,
+            ProviderTimeouts timeouts
     ) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", modelName);
@@ -764,7 +803,7 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         HttpRequest request;
         try {
             request = HttpRequest.newBuilder(URI.create(baseUrl + "/images/generations"))
-                    .timeout(REQUEST_TIMEOUT)
+                    .timeout(timeouts.requestTimeout())
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(writeJson(body), StandardCharsets.UTF_8))
@@ -774,7 +813,7 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         }
 
         try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = timeouts.httpClient().send(request, BoundedHttpBodyHandlers.ofString(MAX_PROVIDER_JSON_BYTES, StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 throw providerError(response.body(), providerSource, response.statusCode());
             }
@@ -806,7 +845,8 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             String modelName,
             String prompt,
             String aspectRatio,
-            ReferenceImage referenceImage
+            ReferenceImage referenceImage,
+            ProviderTimeouts timeouts
     ) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", modelName);
@@ -829,14 +869,14 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         imagePart.putObject("image_url").put("url", encodeReferenceImageAsDataUrl(referenceImage));
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + "/chat/completions"))
-                .timeout(REQUEST_TIMEOUT)
+                .timeout(timeouts.requestTimeout())
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
                 .POST(HttpRequest.BodyPublishers.ofString(writeJson(body), StandardCharsets.UTF_8));
         builder.header("X-Title", "Clover Tavern");
 
         try {
-            HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = timeouts.httpClient().send(builder.build(), BoundedHttpBodyHandlers.ofString(MAX_PROVIDER_JSON_BYTES, StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 throw providerError(response.body(), providerSource, response.statusCode());
             }
@@ -868,7 +908,8 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             String modelName,
             String prompt,
             String aspectRatio,
-            int count
+            int count,
+            ProviderTimeouts timeouts
     ) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", modelName);
@@ -880,7 +921,7 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         HttpRequest request;
         try {
             request = HttpRequest.newBuilder(URI.create(baseUrl + "/images/generations"))
-                    .timeout(REQUEST_TIMEOUT)
+                    .timeout(timeouts.requestTimeout())
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + apiKey)
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body), StandardCharsets.UTF_8))
@@ -890,7 +931,7 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         }
 
         try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = timeouts.httpClient().send(request, BoundedHttpBodyHandlers.ofString(MAX_PROVIDER_JSON_BYTES, StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 throw providerError(response.body(), providerSource, response.statusCode());
             }
@@ -923,18 +964,19 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             String prompt,
             String aspectRatio,
             int count,
-            ReferenceImage referenceImage
+            ReferenceImage referenceImage,
+            ProviderTimeouts timeouts
     ) {
         String boundary = "----SillyBoundary" + System.currentTimeMillis();
         byte[] bodyBytes = buildMultipartEditBody(boundary, modelName, prompt, aspectRatio, count, referenceImage);
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/images/edits"))
-                .timeout(REQUEST_TIMEOUT)
+                .timeout(timeouts.requestTimeout())
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
                 .build();
         try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = timeouts.httpClient().send(request, BoundedHttpBodyHandlers.ofString(MAX_PROVIDER_JSON_BYTES, StandardCharsets.UTF_8));
             if (response.statusCode() / 100 != 2) {
                 throw providerError(response.body(), providerSource, response.statusCode());
             }
@@ -1012,7 +1054,16 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
                 text(imageNode.get("base64"))
         );
         if (StringUtils.hasText(b64)) {
-            return "data:image/png;base64," + b64.trim();
+            try {
+                byte[] bytes = Base64.getDecoder().decode(b64.trim());
+                if (bytes.length > MAX_PROVIDER_IMAGE_BYTES) {
+                    throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生图平台返回的图片过大");
+                }
+                String mimeType = MediaPayloadValidator.requireImage(bytes, "");
+                return "data:" + mimeType + ";base64," + Base64.getEncoder().encodeToString(bytes);
+            } catch (IllegalArgumentException ex) {
+                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生图平台返回的图片数据无效");
+            }
         }
         String url = firstNonBlank(
                 text(imageNode.get("url")),
@@ -1024,17 +1075,19 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             return "";
         }
         if (url.startsWith("data:")) {
-            return url;
+            return validateProviderImageDataUrl(url);
         }
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+        URI imageUri = OutboundUrlGuard.requirePublicHttpUrl(url, "生图平台返回了不安全的图片地址");
+        HttpRequest request = HttpRequest.newBuilder(imageUri)
                 .timeout(REQUEST_TIMEOUT)
                 .GET()
                 .build();
-        HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        HttpResponse<byte[]> response = httpClient.send(request, BoundedHttpBodyHandlers.ofByteArray(MAX_PROVIDER_IMAGE_BYTES));
         if (response.statusCode() / 100 != 2 || response.body() == null || response.body().length == 0) {
             throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生图平台返回了无法读取的图片地址");
         }
-        String mimeType = firstNonBlank(response.headers().firstValue("Content-Type").orElse(""), "image/png");
+        String mimeType = MediaPayloadValidator.requireImage(
+                response.body(), response.headers().firstValue("Content-Type").orElse(""));
         return "data:" + mimeType + ";base64," + Base64.getEncoder().encodeToString(response.body());
     }
 
@@ -1085,7 +1138,7 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
                 || lower.contains("unsupported region")) {
             message = "\u5f53\u524d\u751f\u56fe\u6a21\u578b\u5728\u4f60\u6240\u5728\u5730\u533a\u4e0d\u53ef\u7528\uff0c\u8bf7\u5207\u6362\u5176\u4ed6\u751f\u56fe\u6a21\u578b";
         }
-        return new BusinessException(ErrorCode.UPSTREAM_ERROR, message);
+        return AiProviderCallException.http(statusCode, message, null);
     }
 
     private ReferenceImage fetchReferenceImage(String referenceImageUrl, String requestOrigin) {
@@ -1103,15 +1156,17 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "角色参考图地址无效，请使用本站角色卡图片");
         }
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(safeUrl))
+            URI safeUri = OutboundUrlGuard.requirePublicHttpUrl(safeUrl, "角色参考图地址不安全");
+            HttpRequest request = HttpRequest.newBuilder(safeUri)
                     .timeout(REQUEST_TIMEOUT)
                     .GET()
                     .build();
-            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> response = httpClient.send(request, BoundedHttpBodyHandlers.ofByteArray(MAX_PROVIDER_IMAGE_BYTES));
             if (response.statusCode() / 100 != 2 || response.body() == null || response.body().length == 0) {
                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "角色参考图获取失败");
             }
-            String contentType = firstNonBlank(response.headers().firstValue("Content-Type").orElse(""), "image/png");
+            String contentType = MediaPayloadValidator.requireImage(
+                    response.body(), response.headers().firstValue("Content-Type").orElse(""));
             return new ReferenceImage(response.body(), contentType, guessFileNameByContentType(contentType));
         } catch (BusinessException ex) {
             throw ex;
@@ -1340,7 +1395,29 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         if (!StringUtils.hasText(safeBaseUrl)) {
             return safeBaseUrl;
         }
-        return safeBaseUrl;
+        return OutboundUrlGuard.requirePublicHttpUrl(
+                safeBaseUrl, "生图服务地址不安全，请使用可公开访问的 HTTP(S) 地址")
+                .toString()
+                .replaceAll("/+$", "");
+    }
+
+    private String validateProviderImageDataUrl(String dataUrl) {
+        String safeDataUrl = safe(dataUrl);
+        int comma = safeDataUrl.indexOf(',');
+        if (comma <= 5 || !safeDataUrl.substring(0, comma).toLowerCase().contains(";base64")) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生图平台返回的图片数据无效");
+        }
+        try {
+            byte[] bytes = Base64.getDecoder().decode(safeDataUrl.substring(comma + 1));
+            if (bytes.length > MAX_PROVIDER_IMAGE_BYTES) {
+                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生图平台返回的图片过大");
+            }
+            String declared = safeDataUrl.substring(5, comma).split(";", 2)[0];
+            String mimeType = MediaPayloadValidator.requireImage(bytes, declared);
+            return "data:" + mimeType + ";base64," + Base64.getEncoder().encodeToString(bytes);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生图平台返回的图片数据无效");
+        }
     }
 
     private static String normalizeReferencePolicy(Object rawPolicy) {
@@ -1473,6 +1550,18 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         if (text.contains("gif")) return "reference.gif";
         return "reference.png";
     }
+
+    private static ProviderTimeouts providerTimeouts(int connectTimeoutSeconds, int requestTimeoutSeconds) {
+        int connect = Math.max(1, Math.min(60, connectTimeoutSeconds <= 0 ? 8 : connectTimeoutSeconds));
+        int request = Math.max(5, Math.min(600, requestTimeoutSeconds <= 0 ? 90 : requestTimeoutSeconds));
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(connect))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+        return new ProviderTimeouts(client, Duration.ofSeconds(request));
+    }
+
+    private record ProviderTimeouts(HttpClient httpClient, Duration requestTimeout) {}
 
     private record ProviderImageResult(String dataUrl, int width, int height, boolean referenceApplied, String warning) {
         private ProviderImageResult(String dataUrl, int width, int height) {

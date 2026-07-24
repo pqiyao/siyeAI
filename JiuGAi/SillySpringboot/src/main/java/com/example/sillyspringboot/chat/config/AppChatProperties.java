@@ -54,7 +54,7 @@ public class AppChatProperties {
         private boolean frontendBridgeEnabled = false;
         private boolean fallbackToRuntime = true;
         private int worldbookProbeCacheSeconds = 300;
-        private String frontendBridgeToken = "dev-st-h5-bridge-token";
+        private String frontendBridgeToken = "";
         private int frontendBridgeRequestTimeoutSeconds = 600;
         private int frontendBridgeWorkerStaleSeconds = 30;
         private int frontendBridgeMaxQueueSize = 64;

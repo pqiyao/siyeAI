@@ -10,6 +10,7 @@ import com.example.sillyspringboot.conversation.service.ConversationMemorySaniti
 import com.example.sillyspringboot.conversation.service.ConversationMemoryWorldbookSyncService;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
 import com.example.sillyspringboot.integration.sillytavern.dto.StWorldbookSaveRequest;
+import com.example.sillyspringboot.integration.sillytavern.dto.StWorldbookOptionDto;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -18,8 +19,12 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 public class ConversationMemoryWorldbookSyncServiceTest {
@@ -81,6 +86,145 @@ public class ConversationMemoryWorldbookSyncServiceTest {
                 ConversationMemoryWorldbookSyncService.SYNC_SUCCESS,
                 null
         );
+    }
+
+    @Test
+    void syncWorldbook_shouldPersistFailedStateWhenDeletingEmptyWorldbookFails() {
+        long conversationId = 124L;
+        StAdapter stAdapter = mock(StAdapter.class);
+        AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        AppConversationMemoryEntryMapper entryMapper = mock(AppConversationMemoryEntryMapper.class);
+        MemoryLlmProperties properties = properties();
+        ConversationMemoryWorldbookSyncService service = new ConversationMemoryWorldbookSyncService(
+                stAdapter,
+                conversationMapper,
+                memoryMapper,
+                entryMapper,
+                new ConversationMemorySanitizer(properties),
+                properties
+        );
+
+        when(conversationMapper.findById(conversationId)).thenReturn(conversation(conversationId, 77L, 88L));
+        when(entryMapper.listEnabledByConversationId(conversationId)).thenReturn(List.of());
+        when(entryMapper.countAllByConversationId(conversationId)).thenReturn(2);
+        doThrow(new RuntimeException("st delete unavailable")).when(stAdapter).deleteWorldbook(org.mockito.ArgumentMatchers.anyString());
+
+        assertThatThrownBy(() -> service.syncWorldbook(conversationId))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("st delete unavailable");
+
+        verify(memoryMapper).updateSyncStatus(
+                org.mockito.ArgumentMatchers.eq(conversationId),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(2),
+                org.mockito.ArgumentMatchers.eq(0),
+                org.mockito.ArgumentMatchers.eq(ConversationMemoryWorldbookSyncService.SYNC_FAILED),
+                org.mockito.ArgumentMatchers.eq("st delete unavailable")
+        );
+    }
+
+    @Test
+    void syncWorldbook_shouldPersistTheNumberActuallyWrittenAfterDefensiveLimit() {
+        long conversationId = 127L;
+        StAdapter stAdapter = mock(StAdapter.class);
+        AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        AppConversationMemoryEntryMapper entryMapper = mock(AppConversationMemoryEntryMapper.class);
+        MemoryLlmProperties properties = properties();
+        properties.setMaxEnabledEntries(2);
+        ConversationMemoryWorldbookSyncService service = new ConversationMemoryWorldbookSyncService(
+                stAdapter,
+                conversationMapper,
+                memoryMapper,
+                entryMapper,
+                new ConversationMemorySanitizer(properties),
+                properties
+        );
+        when(conversationMapper.findById(conversationId)).thenReturn(conversation(conversationId, 77L, 88L));
+        when(entryMapper.listEnabledByConversationId(conversationId)).thenReturn(List.of(
+                entry(conversationId, "one", "identity", "One", "One", "[]", 300, false),
+                entry(conversationId, "two", "relationship", "Two", "Two", "[]", 200, false),
+                entry(conversationId, "three", "event", "Three", "Three", "[]", 100, false)
+        ));
+        when(entryMapper.countAllByConversationId(conversationId)).thenReturn(3);
+
+        service.syncWorldbook(conversationId);
+
+        verify(memoryMapper).updateSyncStatus(
+                org.mockito.ArgumentMatchers.eq(conversationId),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(3),
+                org.mockito.ArgumentMatchers.eq(2),
+                org.mockito.ArgumentMatchers.eq(ConversationMemoryWorldbookSyncService.SYNC_SUCCESS),
+                org.mockito.ArgumentMatchers.isNull()
+        );
+    }
+
+    @Test
+    void deleteWorldbookByName_shouldRejectWorldbookFromAnotherConversation() {
+        long conversationId = 125L;
+        StAdapter stAdapter = mock(StAdapter.class);
+        AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        AppConversationMemoryEntryMapper entryMapper = mock(AppConversationMemoryEntryMapper.class);
+        MemoryLlmProperties properties = properties();
+        ConversationMemoryWorldbookSyncService service = new ConversationMemoryWorldbookSyncService(
+                stAdapter,
+                conversationMapper,
+                memoryMapper,
+                entryMapper,
+                new ConversationMemorySanitizer(properties),
+                properties
+        );
+
+        assertThatThrownBy(() -> service.deleteWorldbookByName(
+                conversationId,
+                "jg_memory_conv_999_b1_deadbeef00"
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not belong");
+
+        verifyNoInteractions(stAdapter);
+    }
+
+    @Test
+    void deleteWorldbooksByName_shouldFailWhenExistingWorldbookDeleteIsNotConfirmed() {
+        long conversationId = 126L;
+        String deletedWorld = "jg_memory_conv_126_b1_aaaaaaaaaa";
+        String failedWorld = "jg_memory_conv_126_b2_bbbbbbbbbb";
+        String alreadyMissingWorld = "jg_memory_conv_126_b3_cccccccccc";
+        StAdapter stAdapter = mock(StAdapter.class);
+        AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        AppConversationMemoryEntryMapper entryMapper = mock(AppConversationMemoryEntryMapper.class);
+        MemoryLlmProperties properties = properties();
+        ConversationMemoryWorldbookSyncService service = new ConversationMemoryWorldbookSyncService(
+                stAdapter,
+                conversationMapper,
+                memoryMapper,
+                entryMapper,
+                new ConversationMemorySanitizer(properties),
+                properties
+        );
+
+        when(stAdapter.listWorldbooks()).thenReturn(List.of(
+                new StWorldbookOptionDto(deletedWorld, deletedWorld),
+                new StWorldbookOptionDto(failedWorld, failedWorld),
+                new StWorldbookOptionDto("unrelated_world", "unrelated_world")
+        ));
+        when(stAdapter.deleteWorldbook(deletedWorld)).thenReturn(true);
+        when(stAdapter.deleteWorldbook(failedWorld)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.deleteWorldbooksByName(
+                conversationId,
+                List.of(deletedWorld, failedWorld, alreadyMissingWorld)
+        )).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(failedWorld);
+
+        verify(stAdapter).listWorldbooks();
+        verify(stAdapter).deleteWorldbook(deletedWorld);
+        verify(stAdapter).deleteWorldbook(failedWorld);
+        verifyNoMoreInteractions(stAdapter);
     }
 
     private static AppConversation conversation(long conversationId, long userId, long characterId) {

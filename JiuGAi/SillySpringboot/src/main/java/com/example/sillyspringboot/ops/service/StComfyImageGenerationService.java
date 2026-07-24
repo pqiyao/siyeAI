@@ -1,6 +1,5 @@
 package com.example.sillyspringboot.ops.service;
 
-import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.character.entity.AppCharacter;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.compat.h5.service.H5StAssetUrls;
@@ -9,10 +8,12 @@ import com.example.sillyspringboot.integration.sillytavern.StUnavailableExceptio
 import com.example.sillyspringboot.ops.dto.AppImageGenerationSettings;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
+import com.example.sillyspringboot.shared.net.BoundedHttpBodyHandlers;
+import com.example.sillyspringboot.shared.net.MediaPayloadValidator;
+import com.example.sillyspringboot.shared.net.OutboundUrlGuard;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -35,11 +36,10 @@ import java.util.regex.Pattern;
 public class StComfyImageGenerationService implements ImageGenerationEngine {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(8);
+    private static final int MAX_REFERENCE_IMAGE_BYTES = 24 * 1024 * 1024;
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("%[a-zA-Z0-9_]+%");
 
     private final AppImageGenerationSettingsService settingsService;
-    private final H5EntitlementService entitlementService;
-    private final ImageGenerationConcurrencyGate concurrencyGate;
     private final AppCharacterMapper characterMapper;
     private final H5StAssetUrls stAssetUrls;
     private final StClient stClient;
@@ -48,16 +48,12 @@ public class StComfyImageGenerationService implements ImageGenerationEngine {
 
     public StComfyImageGenerationService(
             AppImageGenerationSettingsService settingsService,
-            H5EntitlementService entitlementService,
-            ImageGenerationConcurrencyGate concurrencyGate,
             AppCharacterMapper characterMapper,
             H5StAssetUrls stAssetUrls,
             StClient stClient,
             ObjectMapper objectMapper
     ) {
         this.settingsService = settingsService;
-        this.entitlementService = entitlementService;
-        this.concurrencyGate = concurrencyGate;
         this.characterMapper = characterMapper;
         this.stAssetUrls = stAssetUrls;
         this.stClient = stClient;
@@ -73,7 +69,6 @@ public class StComfyImageGenerationService implements ImageGenerationEngine {
     }
 
     @Override
-    @Transactional
     public Map<String, Object> generate(String clientUid, Map<String, Object> payload) {
         String safeClientUid = safe(clientUid);
         String prompt = trim(payload == null ? null : payload.get("prompt"), 4000);
@@ -84,51 +79,46 @@ public class StComfyImageGenerationService implements ImageGenerationEngine {
         long characterId = clampLong(payload == null ? null : payload.get("characterId"), 0L, 0L, Long.MAX_VALUE);
         String referenceImageUrl = safe(payload == null ? null : payload.get("referenceImageUrl"));
         String referencePolicy = normalizeReferencePolicy(payload == null ? null : payload.get("referencePolicy"));
+        String negativePrompt = trim(payload == null ? null : payload.get("negativePrompt"), 2000);
         String requestOrigin = safe(payload == null ? null : payload.get("_requestOrigin"));
         int[] dimensions = resolveDimensions(payload);
 
-        entitlementService.guardImageCharacterAccess(safeClientUid, characterId);
-        H5EntitlementService.AccessTicket accessTicket = entitlementService.guardImage(safeClientUid, count, characterId);
-        AppUser user = entitlementService.resolveUser(safeClientUid);
+        WorkflowBuild build = buildWorkflow(
+                safeClientUid,
+                prompt,
+                dimensions[0],
+                dimensions[1],
+                characterId,
+                referenceImageUrl,
+                referencePolicy,
+                negativePrompt,
+                requestOrigin
+        );
+        StComfyResult result = requestComfy(build.workflowPrompt());
+        String dataUrl = "data:image/" + result.format() + ";base64," + result.base64Data();
 
-        try (ImageGenerationConcurrencyGate.Lease ignored = concurrencyGate.acquire(user.getId())) {
-            WorkflowBuild build = buildWorkflow(
-                    safeClientUid,
-                    prompt,
-                    dimensions[0],
-                    dimensions[1],
-                    characterId,
-                    referenceImageUrl,
-                    referencePolicy,
-                    requestOrigin
-            );
-            StComfyResult result = requestComfy(build.workflowPrompt());
-            String dataUrl = "data:image/" + result.format() + ";base64," + result.base64Data();
-            entitlementService.recordSuccessfulImage(accessTicket, count);
+        Map<String, Object> image = new LinkedHashMap<>();
+        image.put("url", dataUrl);
+        image.put("prompt", prompt);
+        image.put("rawPrompt", prompt);
+        image.put("width", dimensions[0]);
+        image.put("height", dimensions[1]);
 
-            Map<String, Object> image = new LinkedHashMap<>();
-            image.put("url", dataUrl);
-            image.put("prompt", prompt);
-            image.put("rawPrompt", prompt);
-            image.put("width", dimensions[0]);
-            image.put("height", dimensions[1]);
-
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("mode", "provider");
-            data.put("usedCount", 0);
-            data.put("remainingCount", entitlementService.currentRemainingImageQuota(user.getId()));
-            data.put("providerSource", "managed");
-            data.put("modelName", "managed-image-engine");
-            data.put("promptEnhanced", false);
-            data.put("referenceApplied", build.referenceApplied());
-            data.put("referencePolicy", referencePolicy);
-            data.put("images", List.of(image));
-            if (StringUtils.hasText(build.warning())) {
-                data.put("warning", build.warning());
-            }
-            data.put("message", "ok");
-            return data;
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("mode", "provider");
+        data.put("usedCount", 0);
+        data.put("remainingCount", 0);
+        data.put("providerSource", "managed");
+        data.put("modelName", "managed-image-engine");
+        data.put("promptEnhanced", false);
+        data.put("referenceApplied", build.referenceApplied());
+        data.put("referencePolicy", referencePolicy);
+        data.put("images", List.of(image));
+        if (StringUtils.hasText(build.warning())) {
+            data.put("warning", build.warning());
         }
+        data.put("message", "ok");
+        return data;
     }
 
     private WorkflowBuild buildWorkflow(
@@ -139,6 +129,7 @@ public class StComfyImageGenerationService implements ImageGenerationEngine {
             long characterId,
             String referenceImageUrl,
             String referencePolicy,
+            String negativePrompt,
             String requestOrigin
     ) {
         AppImageGenerationSettings cfg = settingsService.getSettings();
@@ -174,7 +165,7 @@ public class StComfyImageGenerationService implements ImageGenerationEngine {
 
         String workflow = template;
         workflow = replaceJson(workflow, "prompt", prompt);
-        workflow = replaceJson(workflow, "negative_prompt", cfg.getNegativePrompt());
+        workflow = replaceJson(workflow, "negative_prompt", firstNonBlank(negativePrompt, cfg.getNegativePrompt()));
         workflow = replaceJson(workflow, "width", width);
         workflow = replaceJson(workflow, "height", height);
         workflow = replaceJson(workflow, "seed", resolveSeed(cfg.getSeed()));
@@ -286,7 +277,6 @@ public class StComfyImageGenerationService implements ImageGenerationEngine {
         if (character == null || character.getDeletedAt() != null) {
             return null;
         }
-        entitlementService.guardImageCharacterAccess(clientUid, characterId);
         String[] candidates = new String[] {
                 absolutizeTrustedReferenceUrl(stAssetUrls.resolveWithPreset(character.getStAvatarUrl(), "detail"), requestOrigin),
                 absolutizeTrustedReferenceUrl(stAssetUrls.resolve(character.getStAvatarUrl()), requestOrigin),
@@ -342,15 +332,17 @@ public class StComfyImageGenerationService implements ImageGenerationEngine {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "角色参考图地址无效，请使用本站角色卡图片");
         }
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(safeUrl))
+            URI safeUri = OutboundUrlGuard.requirePublicHttpUrl(safeUrl, "角色参考图地址不安全");
+            HttpRequest request = HttpRequest.newBuilder(safeUri)
                     .timeout(settingsService.getSettings().getRequestTimeout())
                     .GET()
                     .build();
-            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> response = httpClient.send(request, BoundedHttpBodyHandlers.ofByteArray(MAX_REFERENCE_IMAGE_BYTES));
             if (response.statusCode() / 100 != 2 || response.body() == null || response.body().length == 0) {
                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "角色参考图获取失败");
             }
-            String contentType = firstNonBlank(response.headers().firstValue("Content-Type").orElse(""), "image/png");
+            String contentType = MediaPayloadValidator.requireImage(
+                    response.body(), response.headers().firstValue("Content-Type").orElse(""));
             return new ReferenceImage(response.body(), contentType);
         } catch (BusinessException ex) {
             throw ex;

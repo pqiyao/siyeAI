@@ -1,0 +1,390 @@
+package com.example.sillyspringboot.conversation.service;
+
+import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
+import com.example.sillyspringboot.conversation.dto.ConversationMemoryRefreshSnapshot;
+import com.example.sillyspringboot.conversation.dto.ExtractedMemoryEntry;
+import com.example.sillyspringboot.conversation.dto.StructuredMemoryExtraction;
+import com.example.sillyspringboot.conversation.entity.AppConversationBranch;
+import com.example.sillyspringboot.conversation.entity.AppConversationMemory;
+import com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntry;
+import com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapper;
+import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntryMapper;
+import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper;
+import com.example.sillyspringboot.shared.error.BusinessException;
+import com.example.sillyspringboot.shared.error.ErrorCode;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+/** Applies an already-produced memory result in one short, revision-fenced transaction. */
+@Service
+public class ConversationMemoryApplyService {
+
+    public enum ApplyStatus {
+        APPLIED,
+        STALE
+    }
+
+    private final AppConversationBranchMapper branchMapper;
+    private final AppConversationMemoryMapper memoryMapper;
+    private final AppConversationMemoryEntryMapper entryMapper;
+    private final AppMessageMapper messageMapper;
+    private final ConversationMemorySanitizer sanitizer;
+    private final ConversationMemoryCapacityService capacityService;
+
+    public ConversationMemoryApplyService(
+            AppConversationBranchMapper branchMapper,
+            AppConversationMemoryMapper memoryMapper,
+            AppConversationMemoryEntryMapper entryMapper,
+            AppMessageMapper messageMapper,
+            ConversationMemorySanitizer sanitizer,
+            ConversationMemoryCapacityService capacityService
+    ) {
+        this.branchMapper = branchMapper;
+        this.memoryMapper = memoryMapper;
+        this.entryMapper = entryMapper;
+        this.messageMapper = messageMapper;
+        this.sanitizer = sanitizer;
+        this.capacityService = capacityService;
+    }
+
+    @Transactional
+    public ApplyStatus applyStructured(
+            ConversationMemoryRefreshSnapshot snapshot,
+            StructuredMemoryExtraction extraction
+    ) {
+        LockedState locked = lockAndValidate(snapshot);
+        if (locked == null) {
+            return ApplyStatus.STALE;
+        }
+
+        List<AppConversationMemoryEntry> existingEntries =
+                entryMapper.listAllIncludingDeletedForUpdate(snapshot.conversationId(), snapshot.branchId());
+        Set<String> disabledKeys = new LinkedHashSet<>();
+        for (String key : sanitizer.sanitizeDisableKeys(extraction.disableEntryKeys())) {
+            if (disabledKeys.add(key)) {
+                entryMapper.disableByKeyForBranch(snapshot.conversationId(), snapshot.branchId(), key);
+            }
+        }
+
+        if (extraction.entries() != null) {
+            for (ExtractedMemoryEntry extracted : extraction.entries()) {
+                for (String key : sanitizer.sanitizeReplaceKeys(extracted)) {
+                    if (disabledKeys.add(key)) {
+                        entryMapper.disableByKeyForBranch(snapshot.conversationId(), snapshot.branchId(), key);
+                    }
+                }
+                AppConversationMemoryEntry entity = sanitizer.toEntity(
+                        snapshot.conversationId(),
+                        extracted,
+                        snapshot.firstMessageId(),
+                        snapshot.lastMessageId()
+                );
+                if (entity == null) {
+                    continue;
+                }
+                entity.setBranchId(snapshot.branchId());
+                if (!isBlockedByManualSuppression(entity, extracted, existingEntries)) {
+                    entryMapper.upsert(entity);
+                }
+            }
+        }
+
+        capacityService.enforceAfterRefresh(snapshot.conversationId(), snapshot.branchId());
+        List<AppConversationMemoryEntry> enabledEntries =
+                entryMapper.listEnabledByConversationBranchId(snapshot.conversationId(), snapshot.branchId());
+        int enabledCount = enabledEntries == null ? 0 : enabledEntries.size();
+        int entryCount = entryMapper.countAllByConversationBranchId(snapshot.conversationId(), snapshot.branchId());
+        boolean hasManualSuppression = existingEntries != null && existingEntries.stream()
+                .anyMatch(entry -> entry != null && (entry.isManualDeleted() || entry.isManualDisabled()));
+        String summary = hasManualSuppression
+                ? buildEnabledSummaryPreview(enabledEntries)
+                : nullToEmpty(extraction.summaryPreview());
+        int updated = memoryMapper.updateRefreshStateWithRevision(
+                snapshot.conversationId(),
+                snapshot.branchId(),
+                summary,
+                enabledCount,
+                entryCount,
+                enabledCount,
+                snapshot.lastMessageId(),
+                snapshot.visibleMessageCount(),
+                syncStatus(enabledCount),
+                locked.memory().getManualRevision(),
+                locked.memory().getMemoryRevision(),
+                snapshot.sourceRevision()
+        );
+        if (updated != 1) {
+            throw new IllegalStateException("memory revision changed while branch row was locked");
+        }
+        return ApplyStatus.APPLIED;
+    }
+
+    @Transactional
+    public ApplyStatus applyRollup(
+            ConversationMemoryRefreshSnapshot snapshot,
+            String summaryPreview,
+            int factsCount
+    ) {
+        LockedState locked = lockAndValidate(snapshot);
+        if (locked == null) {
+            return ApplyStatus.STALE;
+        }
+        int entryCount = entryMapper.countAllByConversationBranchId(snapshot.conversationId(), snapshot.branchId());
+        int enabledCount = entryMapper.countEnabledByConversationBranchId(snapshot.conversationId(), snapshot.branchId());
+        String currentSyncStatus = locked.memory().getSyncStatus();
+        String rollupSyncStatus = currentSyncStatus == null || currentSyncStatus.isBlank()
+                ? syncStatus(enabledCount)
+                : currentSyncStatus;
+        int updated = memoryMapper.updateRefreshStateWithRevision(
+                snapshot.conversationId(),
+                snapshot.branchId(),
+                summaryPreview,
+                Math.max(0, factsCount),
+                entryCount,
+                enabledCount,
+                snapshot.lastMessageId(),
+                snapshot.visibleMessageCount(),
+                rollupSyncStatus,
+                locked.memory().getManualRevision(),
+                locked.memory().getMemoryRevision(),
+                snapshot.sourceRevision()
+        );
+        if (updated != 1) {
+            throw new IllegalStateException("memory revision changed while branch row was locked");
+        }
+        return ApplyStatus.APPLIED;
+    }
+
+    @Transactional
+    public void setMemoryEntryEnabled(long conversationId, long branchId, long entryId, boolean enabled) {
+        LockedState locked = lockCurrent(conversationId, branchId);
+        capacityService.setManualEnabledWithCapacity(entryId, conversationId, branchId, enabled);
+        updateManualState(locked.memory());
+    }
+
+    @Transactional
+    public void deleteMemoryEntry(long conversationId, long branchId, long entryId) {
+        LockedState locked = lockCurrent(conversationId, branchId);
+        int deleted = entryMapper.softDeleteManualById(entryId, conversationId, branchId);
+        if (deleted != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "记忆条目不存在");
+        }
+        updateManualState(locked.memory());
+    }
+
+    @Transactional
+    public boolean invalidateAfterHistoryChange(long conversationId, long branchId, int minimumVisibleMessages) {
+        LockedState locked = lockCurrent(conversationId, branchId);
+        entryMapper.softDeleteGeneratedByConversationBranchId(conversationId, branchId);
+        List<AppConversationMemoryEntry> enabledEntries =
+                entryMapper.listEnabledByConversationBranchId(conversationId, branchId);
+        int enabledCount = enabledEntries == null ? 0 : enabledEntries.size();
+        int entryCount = entryMapper.countAllByConversationBranchId(conversationId, branchId);
+        int updated = memoryMapper.updateAfterHistoryInvalidation(
+                conversationId,
+                branchId,
+                buildEnabledSummaryPreview(enabledEntries),
+                enabledCount,
+                entryCount,
+                enabledCount,
+                syncStatus(enabledCount),
+                locked.memory().getMemoryRevision()
+        );
+        if (updated != 1) {
+            throw new IllegalStateException("memory revision changed while branch row was locked");
+        }
+        return minimumVisibleMessages <= 1 || countVisibleSources(conversationId, branchId) >= minimumVisibleMessages;
+    }
+
+    private LockedState lockAndValidate(ConversationMemoryRefreshSnapshot snapshot) {
+        LockedState locked = lockCurrent(snapshot.conversationId(), snapshot.branchId());
+        if (locked.branch().getMemorySourceRevision() != snapshot.sourceRevision()
+                || locked.memory().getManualRevision() != snapshot.manualRevision()
+                || locked.memory().getMemoryRevision() != snapshot.baseMemoryRevision()) {
+            return null;
+        }
+        return locked;
+    }
+
+    private LockedState lockCurrent(long conversationId, long branchId) {
+        AppConversationBranch branch = branchMapper.findByIdForConversationForUpdate(conversationId, branchId);
+        if (branch == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "conversation branch not found");
+        }
+        memoryMapper.ensureForBranch(conversationId, branchId);
+        AppConversationMemory memory = memoryMapper.findByConversationBranchIdForUpdate(conversationId, branchId);
+        if (memory == null) {
+            throw new IllegalStateException("conversation memory state was not created");
+        }
+        return new LockedState(branch, memory);
+    }
+
+    private void updateManualState(AppConversationMemory memory) {
+        long conversationId = memory.getConversationId();
+        long branchId = memory.getBranchId();
+        List<AppConversationMemoryEntry> enabledEntries =
+                entryMapper.listEnabledByConversationBranchId(conversationId, branchId);
+        int enabledCount = enabledEntries == null ? 0 : enabledEntries.size();
+        int entryCount = entryMapper.countAllByConversationBranchId(conversationId, branchId);
+        int updated = memoryMapper.updateAfterManualMutation(
+                conversationId,
+                branchId,
+                buildEnabledSummaryPreview(enabledEntries),
+                enabledCount,
+                entryCount,
+                enabledCount,
+                syncStatus(enabledCount),
+                memory.getManualRevision(),
+                memory.getMemoryRevision()
+        );
+        if (updated != 1) {
+            throw new IllegalStateException("memory revision changed while branch row was locked");
+        }
+    }
+
+    private int countVisibleSources(long conversationId, long branchId) {
+        return messageMapper.countMemorySourceByConversationBranchId(conversationId, branchId);
+    }
+
+    private static String syncStatus(int enabledCount) {
+        return enabledCount > 0 ? "PENDING" : ConversationMemoryWorldbookSyncService.SYNC_SKIPPED;
+    }
+
+    private static String buildEnabledSummaryPreview(List<AppConversationMemoryEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return "";
+        }
+        StringBuilder preview = new StringBuilder();
+        for (AppConversationMemoryEntry entry : entries) {
+            if (entry == null || !entry.isEnabled()) {
+                continue;
+            }
+            String content = nullToEmpty(entry.getContent()).replaceAll("\\s+", " ").trim();
+            if (content.isBlank()) {
+                continue;
+            }
+            if (!preview.isEmpty()) {
+                preview.append("；");
+            }
+            int remaining = 420 - preview.length();
+            if (remaining <= 0) {
+                break;
+            }
+            preview.append(content, 0, Math.min(content.length(), remaining));
+        }
+        return preview.toString();
+    }
+
+    private boolean isBlockedByManualSuppression(
+            AppConversationMemoryEntry candidate,
+            ExtractedMemoryEntry extracted,
+            List<AppConversationMemoryEntry> existingEntries
+    ) {
+        if (candidate == null || existingEntries == null || existingEntries.isEmpty()) {
+            return false;
+        }
+        String candidateKey = nullToEmpty(candidate.getEntryKey()).trim();
+        String candidateContent = fingerprint(candidate.getContent());
+        for (AppConversationMemoryEntry existing : existingEntries) {
+            if (existing == null || (!existing.isManualDeleted() && !existing.isManualDisabled())) {
+                continue;
+            }
+            String existingKey = nullToEmpty(existing.getEntryKey()).trim();
+            if (!candidateKey.isBlank() && candidateKey.equalsIgnoreCase(existingKey)) {
+                return true;
+            }
+            if (!candidateContent.isBlank() && candidateContent.equals(fingerprint(existing.getContent()))) {
+                return true;
+            }
+            if (!declaresReplacement(extracted, existingKey)
+                    && sameType(candidate, existing)
+                    && isSemanticallySimilar(candidate, existing)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSemanticallySimilar(AppConversationMemoryEntry candidate, AppConversationMemoryEntry suppressed) {
+        Set<String> leftKeywords = normalizedKeywords(candidate.getKeywordsJson());
+        Set<String> rightKeywords = normalizedKeywords(suppressed.getKeywordsJson());
+        int overlap = 0;
+        for (String keyword : leftKeywords) {
+            if (rightKeywords.contains(keyword)) {
+                overlap++;
+            }
+        }
+        double contentSimilarity = bigramDice(fingerprint(candidate.getContent()), fingerprint(suppressed.getContent()));
+        return overlap >= 2 || (overlap >= 1 && contentSimilarity >= 0.45d) || contentSimilarity >= 0.72d;
+    }
+
+    private Set<String> normalizedKeywords(String json) {
+        Set<String> out = new LinkedHashSet<>();
+        for (String keyword : sanitizer.readKeywords(json)) {
+            String normalized = fingerprint(keyword);
+            if (!normalized.isBlank()) {
+                out.add(normalized);
+            }
+        }
+        return out;
+    }
+
+    private static boolean declaresReplacement(ExtractedMemoryEntry extracted, String key) {
+        return extracted != null && key != null && !key.isBlank() && extracted.replaces() != null
+                && extracted.replaces().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(String::trim)
+                .anyMatch(key::equalsIgnoreCase);
+    }
+
+    private static boolean sameType(AppConversationMemoryEntry left, AppConversationMemoryEntry right) {
+        return nullToEmpty(left.getMemoryType()).equalsIgnoreCase(nullToEmpty(right.getMemoryType()));
+    }
+
+    private static double bigramDice(String left, String right) {
+        if (left.isBlank() || right.isBlank()) {
+            return 0.0d;
+        }
+        if (left.equals(right)) {
+            return 1.0d;
+        }
+        Set<String> leftBigrams = bigrams(left);
+        Set<String> rightBigrams = bigrams(right);
+        int overlap = 0;
+        for (String bigram : leftBigrams) {
+            if (rightBigrams.contains(bigram)) {
+                overlap++;
+            }
+        }
+        return leftBigrams.isEmpty() || rightBigrams.isEmpty()
+                ? 0.0d
+                : (2.0d * overlap) / (leftBigrams.size() + rightBigrams.size());
+    }
+
+    private static Set<String> bigrams(String value) {
+        Set<String> out = new LinkedHashSet<>();
+        if (value.length() == 1) {
+            out.add(value);
+        } else {
+            for (int i = 0; i < value.length() - 1; i++) {
+                out.add(value.substring(i, i + 2));
+            }
+        }
+        return out;
+    }
+
+    private static String fingerprint(String value) {
+        return nullToEmpty(value).toLowerCase().replaceAll("[\\p{P}\\p{S}\\s]+", "").trim();
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private record LockedState(AppConversationBranch branch, AppConversationMemory memory) {
+    }
+}

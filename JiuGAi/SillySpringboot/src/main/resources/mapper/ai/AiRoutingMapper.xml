@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ai.mapper.AiRoutingMapper">
+
+    <resultMap id="AccountMap" type="com.example.sillyspringboot.ai.entity.AiProviderAccount">
+        <id column="id" property="id"/>
+        <result column="provider_key" property="providerKey"/>
+        <result column="display_name" property="displayName"/>
+        <result column="vendor" property="vendor"/>
+        <result column="base_url" property="baseUrl"/>
+        <result column="api_key_cipher" property="apiKeyCipher"/>
+        <result column="enabled" property="enabled"/>
+        <result column="connect_timeout_seconds" property="connectTimeoutSeconds"/>
+        <result column="request_timeout_seconds" property="requestTimeoutSeconds"/>
+        <result column="version_no" property="versionNo"/>
+        <result column="note" property="note"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="DeploymentMap" type="com.example.sillyspringboot.ai.entity.AiProviderDeployment">
+        <id column="id" property="id"/>
+        <result column="account_id" property="accountId"/>
+        <result column="capability" property="capability"/>
+        <result column="protocol_type" property="protocolType"/>
+        <result column="model_name" property="modelName"/>
+        <result column="voice_name" property="voiceName"/>
+        <result column="enabled" property="enabled"/>
+        <result column="failure_threshold" property="failureThreshold"/>
+        <result column="cooldown_seconds" property="cooldownSeconds"/>
+        <result column="consecutive_failures" property="consecutiveFailures"/>
+        <result column="circuit_open_until" property="circuitOpenUntil"/>
+        <result column="last_health_status" property="lastHealthStatus"/>
+        <result column="last_error" property="lastError"/>
+        <result column="last_used_at" property="lastUsedAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="RouteMap" type="com.example.sillyspringboot.ai.entity.AiRoute">
+        <id column="id" property="id"/>
+        <result column="route_key" property="routeKey"/>
+        <result column="display_name" property="displayName"/>
+        <result column="capability" property="capability"/>
+        <result column="enabled" property="enabled"/>
+        <result column="note" property="note"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="ResolvedMap" type="com.example.sillyspringboot.ai.entity.AiResolvedDeployment">
+        <id column="deployment_id" property="deploymentId"/>
+        <result column="account_id" property="accountId"/>
+        <result column="provider_key" property="providerKey"/>
+        <result column="display_name" property="displayName"/>
+        <result column="vendor" property="vendor"/>
+        <result column="base_url" property="baseUrl"/>
+        <result column="api_key_cipher" property="apiKeyCipher"/>
+        <result column="connect_timeout_seconds" property="connectTimeoutSeconds"/>
+        <result column="request_timeout_seconds" property="requestTimeoutSeconds"/>
+        <result column="capability" property="capability"/>
+        <result column="protocol_type" property="protocolType"/>
+        <result column="model_name" property="modelName"/>
+        <result column="voice_name" property="voiceName"/>
+        <result column="failure_threshold" property="failureThreshold"/>
+        <result column="cooldown_seconds" property="cooldownSeconds"/>
+        <result column="consecutive_failures" property="consecutiveFailures"/>
+        <result column="circuit_open_until" property="circuitOpenUntil"/>
+        <result column="sort_order" property="sortOrder"/>
+    </resultMap>
+
+    <sql id="AccountColumns">
+        id, provider_key, display_name, vendor, base_url, api_key_cipher, enabled,
+        connect_timeout_seconds, request_timeout_seconds, version_no, note, created_at, updated_at
+    </sql>
+
+    <sql id="DeploymentColumns">
+        id, account_id, capability, protocol_type, model_name, voice_name, enabled,
+        failure_threshold, cooldown_seconds, consecutive_failures, circuit_open_until,
+        last_health_status, last_error, last_used_at, created_at, updated_at
+    </sql>
+
+    <select id="listAccounts" resultMap="AccountMap">
+        SELECT <include refid="AccountColumns"/> FROM app_ai_provider_account ORDER BY enabled DESC, id ASC
+    </select>
+    <select id="findAccountById" resultMap="AccountMap">
+        SELECT <include refid="AccountColumns"/> FROM app_ai_provider_account WHERE id = #{id}
+    </select>
+    <select id="findAccountByKey" resultMap="AccountMap">
+        SELECT <include refid="AccountColumns"/> FROM app_ai_provider_account WHERE provider_key = #{providerKey}
+    </select>
+    <insert id="insertAccount" parameterType="com.example.sillyspringboot.ai.entity.AiProviderAccount" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_ai_provider_account (
+            provider_key, display_name, vendor, base_url, api_key_cipher, enabled,
+            connect_timeout_seconds, request_timeout_seconds, note
+        ) VALUES (
+            #{providerKey}, #{displayName}, #{vendor}, #{baseUrl}, #{apiKeyCipher}, #{enabled},
+            #{connectTimeoutSeconds}, #{requestTimeoutSeconds}, #{note}
+        )
+    </insert>
+    <update id="updateAccount" parameterType="com.example.sillyspringboot.ai.entity.AiProviderAccount">
+        UPDATE app_ai_provider_account
+        SET provider_key = #{providerKey}, display_name = #{displayName}, vendor = #{vendor},
+            base_url = #{baseUrl}, api_key_cipher = #{apiKeyCipher}, enabled = #{enabled},
+            connect_timeout_seconds = #{connectTimeoutSeconds}, request_timeout_seconds = #{requestTimeoutSeconds},
+            note = #{note}, version_no = version_no + 1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND version_no = #{versionNo}
+    </update>
+    <delete id="deleteAccount">DELETE FROM app_ai_provider_account WHERE id = #{id}</delete>
+    <select id="countDeploymentsForAccount" resultType="int">
+        SELECT COUNT(*) FROM app_ai_provider_deployment WHERE account_id = #{accountId}
+    </select>
+
+    <select id="listDeployments" resultMap="DeploymentMap">
+        SELECT <include refid="DeploymentColumns"/> FROM app_ai_provider_deployment
+        ORDER BY capability ASC, account_id ASC, id ASC
+    </select>
+    <select id="listDeploymentsByAccountId" resultMap="DeploymentMap">
+        SELECT <include refid="DeploymentColumns"/> FROM app_ai_provider_deployment
+        WHERE account_id = #{accountId} ORDER BY capability ASC, id ASC
+    </select>
+    <select id="findDeploymentById" resultMap="DeploymentMap">
+        SELECT <include refid="DeploymentColumns"/> FROM app_ai_provider_deployment WHERE id = #{id}
+    </select>
+    <select id="findDeploymentByIdForUpdate" resultMap="DeploymentMap">
+        SELECT <include refid="DeploymentColumns"/> FROM app_ai_provider_deployment WHERE id = #{id} FOR UPDATE
+    </select>
+    <insert id="insertDeployment" parameterType="com.example.sillyspringboot.ai.entity.AiProviderDeployment" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_ai_provider_deployment (
+            account_id, capability, protocol_type, model_name, voice_name, enabled,
+            failure_threshold, cooldown_seconds, consecutive_failures, last_health_status, last_error
+        ) VALUES (
+            #{accountId}, #{capability}, #{protocolType}, #{modelName}, #{voiceName}, #{enabled},
+            #{failureThreshold}, #{cooldownSeconds}, 0, 'unknown', ''
+        )
+    </insert>
+    <update id="updateDeployment" parameterType="com.example.sillyspringboot.ai.entity.AiProviderDeployment">
+        UPDATE app_ai_provider_deployment
+        SET account_id = #{accountId}, capability = #{capability}, protocol_type = #{protocolType},
+            model_name = #{modelName}, voice_name = #{voiceName}, enabled = #{enabled},
+            failure_threshold = #{failureThreshold}, cooldown_seconds = #{cooldownSeconds},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+    <select id="countDuplicateDeployment" resultType="int">
+        SELECT COUNT(*) FROM app_ai_provider_deployment
+        WHERE account_id = #{accountId}
+          AND capability = #{capability}
+          AND model_name = #{modelName}
+          AND voice_name = #{voiceName}
+          <if test="excludeId != null">AND id != #{excludeId}</if>
+    </select>
+    <delete id="deleteDeployment">DELETE FROM app_ai_provider_deployment WHERE id = #{id}</delete>
+    <select id="countRouteMembersForDeployment" resultType="int">
+        SELECT COUNT(*) FROM app_ai_route_member WHERE deployment_id = #{deploymentId}
+    </select>
+    <update id="markDeploymentSuccess">
+        UPDATE app_ai_provider_deployment
+        SET consecutive_failures = 0, circuit_open_until = NULL, last_health_status = 'healthy',
+            last_error = '', last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+    <update id="resetDeploymentHealth">
+        UPDATE app_ai_provider_deployment
+        SET consecutive_failures = 0, circuit_open_until = NULL, last_health_status = 'unknown',
+            last_error = '', last_used_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+    <update id="resetDeploymentHealthByAccountId">
+        UPDATE app_ai_provider_deployment
+        SET consecutive_failures = 0, circuit_open_until = NULL, last_health_status = 'unknown',
+            last_error = '', last_used_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE account_id = #{accountId}
+    </update>
+    <update id="markDeploymentStatus">
+        UPDATE app_ai_provider_deployment
+        SET circuit_open_until = NULL, last_health_status = #{status}, last_error = #{lastError},
+            last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+    <update id="markDeploymentFailure">
+        UPDATE app_ai_provider_deployment
+        SET consecutive_failures = #{consecutiveFailures}, circuit_open_until = #{circuitOpenUntil},
+            last_health_status = 'failing', last_error = #{lastError},
+            last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+    <update id="tryAcquireHalfOpenProbe">
+        UPDATE app_ai_provider_deployment
+        SET circuit_open_until = #{leaseUntil}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND consecutive_failures &gt;= failure_threshold
+          AND circuit_open_until IS NOT NULL
+          AND circuit_open_until &lt;= #{now}
+    </update>
+
+    <select id="listRoutes" resultMap="RouteMap">
+        SELECT id, route_key, display_name, capability, enabled, note, created_at, updated_at
+        FROM app_ai_route ORDER BY capability ASC, route_key ASC
+    </select>
+    <select id="findRouteById" resultMap="RouteMap">
+        SELECT id, route_key, display_name, capability, enabled, note, created_at, updated_at
+        FROM app_ai_route WHERE id = #{id}
+    </select>
+    <select id="findRouteByKey" resultMap="RouteMap">
+        SELECT id, route_key, display_name, capability, enabled, note, created_at, updated_at
+        FROM app_ai_route WHERE route_key = #{routeKey}
+    </select>
+    <insert id="insertRoute" parameterType="com.example.sillyspringboot.ai.entity.AiRoute" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_ai_route (route_key, display_name, capability, enabled, note)
+        VALUES (#{routeKey}, #{displayName}, #{capability}, #{enabled}, #{note})
+    </insert>
+    <update id="updateRoute" parameterType="com.example.sillyspringboot.ai.entity.AiRoute">
+        UPDATE app_ai_route
+        SET route_key = #{routeKey}, display_name = #{displayName}, capability = #{capability},
+            enabled = #{enabled}, note = #{note}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+    <delete id="deleteRoute">DELETE FROM app_ai_route WHERE id = #{id}</delete>
+    <select id="listRouteMembers" resultType="com.example.sillyspringboot.ai.entity.AiRouteMember">
+        SELECT id, route_id, deployment_id, sort_order FROM app_ai_route_member
+        WHERE route_id = #{routeId} ORDER BY sort_order ASC
+    </select>
+    <delete id="deleteRouteMembers">DELETE FROM app_ai_route_member WHERE route_id = #{routeId}</delete>
+    <insert id="insertRouteMember" parameterType="com.example.sillyspringboot.ai.entity.AiRouteMember" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_ai_route_member (route_id, deployment_id, sort_order)
+        VALUES (#{routeId}, #{deploymentId}, #{sortOrder})
+    </insert>
+    <select id="resolveRoute" resultMap="ResolvedMap">
+        SELECT d.id AS deployment_id, a.id AS account_id, a.provider_key, a.display_name,
+               a.vendor, a.base_url, a.api_key_cipher, a.connect_timeout_seconds,
+               a.request_timeout_seconds, d.capability, d.protocol_type,
+               d.model_name, d.voice_name, d.failure_threshold, d.cooldown_seconds,
+               d.consecutive_failures, d.circuit_open_until, m.sort_order
+        FROM app_ai_route r
+        JOIN app_ai_route_member m ON m.route_id = r.id
+        JOIN app_ai_provider_deployment d ON d.id = m.deployment_id
+        JOIN app_ai_provider_account a ON a.id = d.account_id
+        WHERE r.route_key = #{routeKey}
+          AND r.enabled = 1
+          AND d.enabled = 1
+          AND a.enabled = 1
+        ORDER BY m.sort_order ASC, m.id ASC
+    </select>
+</mapper>

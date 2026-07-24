@@ -8,6 +8,7 @@
         <id column="id" property="id"/>
         <result column="user_id" property="userId"/>
         <result column="character_id" property="characterId"/>
+        <result column="active_branch_id" property="activeBranchId"/>
         <result column="title" property="title"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
@@ -28,21 +29,21 @@
     </insert>
 
     <select id="findById" resultMap="AppConversationResultMap">
-        SELECT id, user_id, character_id, title, created_at, updated_at
+        SELECT id, user_id, character_id, active_branch_id, title, created_at, updated_at
         FROM app_conversation
         WHERE id = #{conversationId}
         LIMIT 1
     </select>
 
     <select id="findByIdForUser" resultMap="AppConversationResultMap">
-        SELECT id, user_id, character_id, title, created_at, updated_at
+        SELECT id, user_id, character_id, active_branch_id, title, created_at, updated_at
         FROM app_conversation
         WHERE id = #{conversationId}
           AND user_id = #{userId}
     </select>
 
     <select id="listByUser" resultMap="AppConversationResultMap">
-        SELECT id, user_id, character_id, title, created_at, updated_at
+        SELECT id, user_id, character_id, active_branch_id, title, created_at, updated_at
         FROM app_conversation
         WHERE user_id = #{userId}
         ORDER BY updated_at DESC
@@ -62,14 +63,14 @@
             m.created_at      AS lastMessageAt
         FROM app_conversation c
         JOIN app_character ch ON ch.id = c.character_id
-        LEFT JOIN (
-            SELECT conversation_id, MAX(id) AS last_msg_id
-            FROM app_message
-            WHERE status IN ('SUCCESS', 'STOPPED')
-              AND deleted_at IS NULL
-            GROUP BY conversation_id
-        ) lm ON lm.conversation_id = c.id
-        LEFT JOIN app_message m ON m.id = lm.last_msg_id
+        LEFT JOIN app_message m ON m.id = (
+            SELECT MAX(mm.id)
+            FROM app_message mm
+            WHERE mm.conversation_id = c.id
+              AND (c.active_branch_id IS NULL OR mm.branch_id = c.active_branch_id)
+              AND mm.status IN ('SUCCESS', 'STOPPED')
+              AND mm.deleted_at IS NULL
+        )
         WHERE c.user_id = #{userId}
           AND (
               (ch.private_card = 1 AND ch.owner_user_id = #{userId})
@@ -80,7 +81,7 @@
                   AND COALESCE(NULLIF(ch.review_status, ''), 'APPROVED') = 'APPROVED'
               )
           )
-          AND lm.last_msg_id IS NOT NULL
+          AND m.id IS NOT NULL
         ORDER BY c.updated_at DESC
         LIMIT #{limit}
     </select>
@@ -99,14 +100,14 @@
             m.created_at      AS lastMessageAt
         FROM app_conversation c
         JOIN app_character ch ON ch.id = c.character_id
-        LEFT JOIN (
-            SELECT conversation_id, MAX(id) AS last_msg_id
-            FROM app_message
-            WHERE status IN ('SUCCESS', 'STOPPED')
-              AND deleted_at IS NULL
-            GROUP BY conversation_id
-        ) lm ON lm.conversation_id = c.id
-        LEFT JOIN app_message m ON m.id = lm.last_msg_id
+        LEFT JOIN app_message m ON m.id = (
+            SELECT MAX(mm.id)
+            FROM app_message mm
+            WHERE mm.conversation_id = c.id
+              AND (c.active_branch_id IS NULL OR mm.branch_id = c.active_branch_id)
+              AND mm.status IN ('SUCCESS', 'STOPPED')
+              AND mm.deleted_at IS NULL
+        )
         LEFT JOIN app_conversation_archive a
             ON a.user_id = c.user_id AND a.conversation_id = c.id
         WHERE c.user_id = #{userId}
@@ -120,7 +121,7 @@
               )
           )
           AND a.id IS NULL
-          AND lm.last_msg_id IS NOT NULL
+          AND m.id IS NOT NULL
         ORDER BY c.updated_at DESC
         LIMIT #{limit}
     </select>
@@ -153,6 +154,13 @@
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{conversationId}
           AND (title IS NULL OR title = '')
+    </update>
+
+    <update id="setActiveBranchId">
+        UPDATE app_conversation
+        SET active_branch_id = #{branchId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{conversationId}
     </update>
 
     <select id="countActiveForUser" resultType="int">

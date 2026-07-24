@@ -14,7 +14,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/admin/jiugai/upload")
-@AdminPermitted({"content:character:edit", "content:illustration:edit"})
+@AdminPermitted({"content:character:edit", "content:illustration:edit", "system:inbox-ad:edit"})
 public class AdminJiugaiUploadController {
 
     private final H5UploadService uploadService;
@@ -28,7 +28,7 @@ public class AdminJiugaiUploadController {
         if (file == null || file.isEmpty()) {
             return AdminAjaxResult.error("文件不能为空");
         }
-        String url = uploadService.saveAndGetUrl(file);
+        String url = uploadService.saveUnownedAndGetUrl(file);
         Map<String, Object> r = AdminAjaxResult.ok("ok");
         r.put("fileName", url);
         return r;

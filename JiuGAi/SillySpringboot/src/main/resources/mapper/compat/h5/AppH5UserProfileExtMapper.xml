@@ -16,10 +16,12 @@
         <result column="daily_chat_quota" property="dailyChatQuota"/>
         <result column="chat_quota_override" property="chatQuotaOverride"/>
         <result column="daily_chat_used" property="dailyChatUsed"/>
+        <result column="daily_chat_bonus" property="dailyChatBonus"/>
         <result column="daily_byok_chat_used" property="dailyByokChatUsed"/>
         <result column="daily_image_quota" property="dailyImageQuota"/>
         <result column="image_quota_override" property="imageQuotaOverride"/>
         <result column="daily_image_used" property="dailyImageUsed"/>
+        <result column="daily_image_bonus" property="dailyImageBonus"/>
         <result column="usage_reset_date" property="usageResetDate"/>
         <result column="character_create_allowed" property="characterCreateAllowed"/>
         <result column="need_edit" property="needEdit"/>
@@ -43,17 +45,33 @@
         LIMIT 1
     </select>
 
+    <select id="findByUserIdForUpdate" resultMap="ProfileExtResultMap">
+        SELECT *
+        FROM app_h5_user_profile_ext
+        WHERE user_id = #{userId}
+        LIMIT 1
+        FOR UPDATE
+    </select>
+
+    <insert id="insertDefaultIfAbsent">
+        INSERT INTO app_h5_user_profile_ext (user_id, updated_at)
+        SELECT id, CURRENT_TIMESTAMP
+        FROM app_user
+        WHERE id = #{userId}
+        ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)
+    </insert>
+
     <insert id="upsert" parameterType="com.example.sillyspringboot.compat.h5.entity.AppH5UserProfileExt">
         INSERT INTO app_h5_user_profile_ext (
             user_id, nickname, avatar, bio, vip_type, vip_expires_at, score, gold_coin,
-            daily_chat_quota, chat_quota_override, daily_chat_used, daily_byok_chat_used,
-            daily_image_quota, image_quota_override, daily_image_used, usage_reset_date,
+            daily_chat_quota, chat_quota_override, daily_chat_used, daily_chat_bonus, daily_byok_chat_used,
+            daily_image_quota, image_quota_override, daily_image_used, daily_image_bonus, usage_reset_date,
             character_create_allowed, need_edit, status,
             gender, birthday, height, weight, country, characters, relation, occupation, label, updated_at
         ) VALUES (
             #{userId}, #{nickname}, #{avatar}, #{bio}, #{vipType}, #{vipExpiresAt}, #{score}, #{goldCoin},
-            #{dailyChatQuota}, #{chatQuotaOverride}, #{dailyChatUsed}, #{dailyByokChatUsed},
-            #{dailyImageQuota}, #{imageQuotaOverride}, #{dailyImageUsed}, #{usageResetDate},
+            #{dailyChatQuota}, #{chatQuotaOverride}, #{dailyChatUsed}, COALESCE(#{dailyChatBonus}, 0), #{dailyByokChatUsed},
+            #{dailyImageQuota}, #{imageQuotaOverride}, #{dailyImageUsed}, COALESCE(#{dailyImageBonus}, 0), #{usageResetDate},
             COALESCE(#{characterCreateAllowed}, 0), #{needEdit}, #{status},
             #{gender}, #{birthday}, #{height}, #{weight}, #{country}, #{characters}, #{relation}, #{occupation}, #{label}, CURRENT_TIMESTAMP
         )
@@ -61,17 +79,15 @@
             nickname = VALUES(nickname),
             avatar = VALUES(avatar),
             bio = VALUES(bio),
-            vip_type = VALUES(vip_type),
-            vip_expires_at = VALUES(vip_expires_at),
-            score = VALUES(score),
-            gold_coin = VALUES(gold_coin),
             daily_chat_quota = VALUES(daily_chat_quota),
             chat_quota_override = VALUES(chat_quota_override),
             daily_chat_used = VALUES(daily_chat_used),
+            daily_chat_bonus = VALUES(daily_chat_bonus),
             daily_byok_chat_used = VALUES(daily_byok_chat_used),
             daily_image_quota = VALUES(daily_image_quota),
             image_quota_override = VALUES(image_quota_override),
             daily_image_used = VALUES(daily_image_used),
+            daily_image_bonus = VALUES(daily_image_bonus),
             usage_reset_date = VALUES(usage_reset_date),
             character_create_allowed = VALUES(character_create_allowed),
             need_edit = VALUES(need_edit),
@@ -87,6 +103,34 @@
             label = VALUES(label),
             updated_at = CURRENT_TIMESTAMP
     </insert>
+
+    <update id="setWalletBalances">
+        UPDATE app_h5_user_profile_ext
+        SET score = #{score},
+            gold_coin = #{goldCoin},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+    </update>
+
+    <update id="setMembership">
+        UPDATE app_h5_user_profile_ext
+        SET vip_type = #{vipType},
+            vip_expires_at = #{vipExpiresAt},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+    </update>
+
+    <update id="updateMembershipAndEffectiveQuotas">
+        UPDATE app_h5_user_profile_ext
+        SET vip_type = #{vipType},
+            vip_expires_at = #{vipExpiresAt},
+            daily_chat_quota = #{dailyChatQuota},
+            chat_quota_override = #{chatQuotaOverride},
+            daily_image_quota = #{dailyImageQuota},
+            image_quota_override = #{imageQuotaOverride},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+    </update>
 
     <insert id="upsertCharacterCreateAllowedForUsers">
         INSERT INTO app_h5_user_profile_ext (
@@ -119,5 +163,31 @@
               OR COALESCE(daily_chat_quota, 0) != #{guestChatQuota}
               OR COALESCE(daily_image_quota, 0) != #{guestImageQuota}
           )
+    </update>
+
+    <update id="deductWallet">
+        UPDATE app_h5_user_profile_ext
+        SET score = score - #{scoreCost},
+            gold_coin = gold_coin - #{goldCost},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+          AND COALESCE(score, 0) &gt;= #{scoreCost}
+          AND COALESCE(gold_coin, 0) &gt;= #{goldCost}
+    </update>
+
+    <update id="creditWallet">
+        UPDATE app_h5_user_profile_ext
+        SET score = COALESCE(score, 0) + #{scoreAmount},
+            gold_coin = COALESCE(gold_coin, 0) + #{goldAmount},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
+    </update>
+
+    <update id="addDailyBonus">
+        UPDATE app_h5_user_profile_ext
+        SET daily_chat_bonus = COALESCE(daily_chat_bonus, 0) + #{chatBonus},
+            daily_image_bonus = COALESCE(daily_image_bonus, 0) + #{imageBonus},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId}
     </update>
 </mapper>

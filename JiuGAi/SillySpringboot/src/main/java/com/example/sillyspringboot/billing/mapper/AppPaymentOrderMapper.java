@@ -16,7 +16,12 @@ public interface AppPaymentOrderMapper {
 
     List<AppPaymentOrder> listByUserId(@Param("userId") long userId, @Param("limit") int limit);
 
-    void markPaid(@Param("id") long id);
+    int markPaid(
+            @Param("id") long id,
+            @Param("providerTradeNo") String providerTradeNo,
+            @Param("paidAmountCents") Integer paidAmountCents,
+            @Param("notifyPayloadHash") String notifyPayloadHash
+    );
 
     long countAdminList(@Param("keyword") String keyword, @Param("status") String status);
 

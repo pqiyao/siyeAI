@@ -7,6 +7,7 @@
     <resultMap id="EntryMap" type="com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntry">
         <id column="id" property="id"/>
         <result column="conversation_id" property="conversationId"/>
+        <result column="branch_id" property="branchId"/>
         <result column="entry_key" property="entryKey"/>
         <result column="memory_type" property="memoryType"/>
         <result column="title" property="title"/>
@@ -18,6 +19,11 @@
         <result column="constant_injection" property="constantInjection"/>
         <result column="selective" property="selective"/>
         <result column="enabled" property="enabled"/>
+        <result column="manual_disabled" property="manualDisabled"/>
+        <result column="manual_deleted" property="manualDeleted"/>
+        <result column="manual_pinned" property="manualPinned"/>
+        <result column="retired_reason" property="retiredReason"/>
+        <result column="retired_at" property="retiredAt"/>
         <result column="confidence" property="confidence"/>
         <result column="source_message_from_id" property="sourceMessageFromId"/>
         <result column="source_message_to_id" property="sourceMessageToId"/>
@@ -33,6 +39,20 @@
         WHERE conversation_id = #{conversationId}
           AND enabled = 1
           AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
+        ORDER BY priority DESC, id ASC
+    </select>
+
+    <select id="listEnabledByConversationBranchId" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND enabled = 1
+          AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
         ORDER BY priority DESC, id ASC
     </select>
 
@@ -41,21 +61,110 @@
         FROM app_conversation_memory_entry
         WHERE conversation_id = #{conversationId}
           AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
         ORDER BY enabled DESC, priority DESC, id ASC
+    </select>
+
+    <select id="listAllByConversationBranchId" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
+        ORDER BY enabled DESC, priority DESC, id ASC
+    </select>
+
+    <select id="listPanelByConversationBranchId" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND manual_deleted = FALSE
+          AND (
+              (deleted_at IS NULL AND retired_reason IS NULL AND retired_at IS NULL)
+              OR (
+                  deleted_at IS NOT NULL
+                  AND retired_at IS NOT NULL
+                  AND retired_reason IN ('CAPACITY', 'DUPLICATE', 'SUPERSEDED')
+              )
+          )
+        ORDER BY
+            CASE WHEN retired_at IS NULL THEN 0 ELSE 1 END ASC,
+            enabled DESC,
+            priority DESC,
+            id ASC
+    </select>
+
+    <select id="listManualDeletedByConversationId" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND manual_deleted = TRUE
+          AND deleted_at IS NOT NULL
+        ORDER BY id ASC
+    </select>
+
+    <select id="listManualDeletedByConversationBranchId" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND manual_deleted = TRUE
+          AND deleted_at IS NOT NULL
+        ORDER BY id ASC
+    </select>
+
+    <select id="listCapacityEntriesForUpdate" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+        ORDER BY id ASC
+        FOR UPDATE
+    </select>
+
+    <select id="listAllIncludingDeletedForUpdate" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+        ORDER BY id ASC
+        FOR UPDATE
+    </select>
+
+    <select id="findByIdForConversationBranch" resultMap="EntryMap">
+        SELECT *
+        FROM app_conversation_memory_entry
+        WHERE id = #{id}
+          AND conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND manual_deleted = FALSE
+          AND (
+              (deleted_at IS NULL AND retired_reason IS NULL AND retired_at IS NULL)
+              OR (
+                  deleted_at IS NOT NULL
+                  AND retired_at IS NOT NULL
+                  AND retired_reason IN ('CAPACITY', 'DUPLICATE', 'SUPERSEDED')
+              )
+          )
+        LIMIT 1
     </select>
 
     <insert id="upsert" parameterType="com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntry"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO app_conversation_memory_entry (
-            conversation_id, entry_key, memory_type, title, content,
+            conversation_id, branch_id, entry_key, memory_type, title, content,
             keywords_json, secondary_keywords_json, priority, position,
-            constant_injection, selective, enabled, confidence,
-            source_message_from_id, source_message_to_id, deleted_at
+            constant_injection, selective, enabled, manual_disabled, manual_deleted, manual_pinned,
+            retired_reason, retired_at, confidence, source_message_from_id, source_message_to_id, deleted_at
         ) VALUES (
-            #{conversationId}, #{entryKey}, #{memoryType}, #{title}, #{content},
+            #{conversationId}, #{branchId}, #{entryKey}, #{memoryType}, #{title}, #{content},
             #{keywordsJson}, #{secondaryKeywordsJson}, #{priority}, #{position},
-            #{constantInjection}, #{selective}, #{enabled}, #{confidence},
-            #{sourceMessageFromId}, #{sourceMessageToId}, NULL
+            #{constantInjection}, #{selective}, #{enabled}, #{manualDisabled}, #{manualDeleted}, #{manualPinned},
+            NULL, NULL, #{confidence}, #{sourceMessageFromId}, #{sourceMessageToId}, NULL
         )
         ON DUPLICATE KEY UPDATE
             memory_type = VALUES(memory_type),
@@ -67,19 +176,37 @@
             position = VALUES(position),
             constant_injection = VALUES(constant_injection),
             selective = VALUES(selective),
-            enabled = VALUES(enabled),
+            enabled = CASE
+                WHEN manual_deleted OR manual_disabled THEN FALSE
+                WHEN manual_pinned THEN TRUE
+                ELSE VALUES(enabled)
+            END,
             confidence = VALUES(confidence),
             source_message_from_id = VALUES(source_message_from_id),
             source_message_to_id = VALUES(source_message_to_id),
-            deleted_at = NULL,
+            retired_reason = CASE WHEN manual_deleted THEN retired_reason ELSE NULL END,
+            retired_at = CASE WHEN manual_deleted THEN retired_at ELSE NULL END,
+            deleted_at = CASE WHEN manual_deleted THEN deleted_at ELSE NULL END,
             updated_at = CURRENT_TIMESTAMP
     </insert>
 
     <update id="disableByKey">
         UPDATE app_conversation_memory_entry
         SET enabled = 0,
+            manual_pinned = 0,
             updated_at = CURRENT_TIMESTAMP
         WHERE conversation_id = #{conversationId}
+          AND entry_key = #{entryKey}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="disableByKeyForBranch">
+        UPDATE app_conversation_memory_entry
+        SET enabled = 0,
+            manual_pinned = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
           AND entry_key = #{entryKey}
           AND deleted_at IS NULL
     </update>
@@ -87,9 +214,125 @@
     <update id="disableById">
         UPDATE app_conversation_memory_entry
         SET enabled = 0,
+            manual_pinned = 0,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
           AND deleted_at IS NULL
+    </update>
+
+    <update id="setManualEnabledById">
+        UPDATE app_conversation_memory_entry
+        SET enabled = #{enabled},
+            manual_disabled = #{manualDisabled},
+            manual_pinned = CASE WHEN #{enabled} THEN TRUE ELSE FALSE END,
+            retired_reason = NULL,
+            retired_at = NULL,
+            deleted_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND manual_deleted = FALSE
+          AND (
+              (deleted_at IS NULL AND retired_reason IS NULL AND retired_at IS NULL)
+              OR (
+                  deleted_at IS NOT NULL
+                  AND retired_at IS NOT NULL
+                  AND retired_reason IN ('CAPACITY', 'DUPLICATE', 'SUPERSEDED')
+              )
+          )
+    </update>
+
+    <update id="retireAutomaticById">
+        UPDATE app_conversation_memory_entry
+        SET enabled = FALSE,
+            manual_disabled = FALSE,
+            retired_reason = #{retiredReason},
+            retired_at = CURRENT_TIMESTAMP,
+            deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND manual_disabled = FALSE
+          AND manual_deleted = FALSE
+          AND manual_pinned = FALSE
+          AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
+    </update>
+
+    <update id="setConstantInjectionById">
+        UPDATE app_conversation_memory_entry
+        SET constant_injection = #{constantInjection},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND enabled = TRUE
+          AND deleted_at IS NULL
+    </update>
+
+    <delete id="deleteAutomaticRetiredByIds">
+        DELETE FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND manual_disabled = FALSE
+          AND manual_deleted = FALSE
+          AND manual_pinned = FALSE
+          AND retired_at IS NOT NULL
+          AND deleted_at IS NOT NULL
+          AND retired_reason IN ('CAPACITY', 'DUPLICATE', 'SUPERSEDED')
+          AND id IN
+          <foreach collection="ids" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+    </delete>
+
+    <update id="softDeleteManualById">
+        UPDATE app_conversation_memory_entry
+        SET enabled = 0,
+            manual_disabled = 0,
+            manual_deleted = 1,
+            manual_pinned = 0,
+            retired_reason = NULL,
+            retired_at = NULL,
+            deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND manual_deleted = FALSE
+          AND (
+              (deleted_at IS NULL AND retired_reason IS NULL AND retired_at IS NULL)
+              OR (
+                  deleted_at IS NOT NULL
+                  AND retired_at IS NOT NULL
+                  AND retired_reason IN ('CAPACITY', 'DUPLICATE', 'SUPERSEDED')
+              )
+          )
+    </update>
+
+    <update id="softDeleteGeneratedByConversationBranchId">
+        UPDATE app_conversation_memory_entry
+        SET enabled = 0,
+            manual_pinned = 0,
+            retired_reason = 'HISTORY_CHANGED',
+            retired_at = CURRENT_TIMESTAMP,
+            deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND manual_disabled = 0
+          AND manual_deleted = 0
+          AND (
+              deleted_at IS NULL
+              OR (
+                  deleted_at IS NOT NULL
+                  AND retired_at IS NOT NULL
+                  AND retired_reason IN ('CAPACITY', 'DUPLICATE', 'SUPERSEDED')
+              )
+          )
     </update>
 
     <update id="softDeleteByConversationId">
@@ -99,6 +342,8 @@
             updated_at = CURRENT_TIMESTAMP
         WHERE conversation_id = #{conversationId}
           AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
     </update>
 
     <select id="countAllByConversationId" resultType="int">
@@ -106,6 +351,18 @@
         FROM app_conversation_memory_entry
         WHERE conversation_id = #{conversationId}
           AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
+    </select>
+
+    <select id="countAllByConversationBranchId" resultType="int">
+        SELECT COUNT(1)
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
     </select>
 
     <select id="countEnabledByConversationId" resultType="int">
@@ -114,5 +371,18 @@
         WHERE conversation_id = #{conversationId}
           AND enabled = 1
           AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
+    </select>
+
+    <select id="countEnabledByConversationBranchId" resultType="int">
+        SELECT COUNT(1)
+        FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND enabled = 1
+          AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
     </select>
 </mapper>

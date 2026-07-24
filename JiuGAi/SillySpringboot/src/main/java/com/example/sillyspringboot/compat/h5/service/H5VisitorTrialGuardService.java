@@ -14,34 +14,27 @@ public class H5VisitorTrialGuardService {
     }
 
     public void guardAnonymousChatAttempt(String clientUid) {
-        if (!isAnonymousRequest(clientUid)) {
+        if (!isAnonymousRequest()) {
             return;
         }
         throw new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录后继续聊天");
     }
 
     public void guardAnonymousCharacterCreation(String clientUid) {
-        if (!isAnonymousRequest(clientUid)) {
+        if (!isAnonymousRequest()) {
             return;
         }
         throw new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录后再创建角色");
     }
 
     public void guardAnonymousConversationCreation(String clientUid, String token, String idempotencyKey) {
-        if (!isAnonymousRequest(clientUid)) {
+        if (!isAnonymousRequest()) {
             return;
         }
         throw new BusinessException(ErrorCode.UNAUTHORIZED, "请先登录后继续聊天");
     }
 
-    public static boolean isAnonymousClientUid(String clientUid) {
-        return clientUid == null || clientUid.isBlank() || !clientUid.trim().startsWith("h5u_");
-    }
-
-    private boolean isAnonymousRequest(String clientUid) {
-        if (h5Auth.hasAuthenticatedRequestUser()) {
-            return false;
-        }
-        return isAnonymousClientUid(clientUid);
+    private boolean isAnonymousRequest() {
+        return !h5Auth.hasAuthenticatedRequestUser();
     }
 }

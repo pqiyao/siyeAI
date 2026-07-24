@@ -314,10 +314,11 @@ public class H5UserAiProviderService {
         boolean enabledGlobal = settings.isUserByokEnabled();
         boolean canUse = enabledGlobal && currentVipLevel >= settings.getUserByokVipMinLevel();
         boolean imageEnabledGlobal = settings.isImageGenerationEnabled();
-        boolean imageCanUse = imageEnabledGlobal && canUse;
         boolean voiceEnabledGlobal = settings.isVoiceFeatureEnabled();
-        boolean voiceCanUse = voiceEnabledGlobal && canUse;
         String mode = normalizeMode(row == null ? null : row.getProviderMode());
+        boolean customMode = "custom".equals(mode);
+        boolean imageCanUse = imageEnabledGlobal && (!customMode || canUse);
+        boolean voiceCanUse = voiceEnabledGlobal && (!customMode || canUse);
         String providerSource = normalizeSourceOrDefault(row == null ? null : row.getProviderSource(), "siliconflow");
         boolean ttsUseSeparateConfig = hasSeparateTtsConfig(row);
         String ttsProviderSource = ttsUseSeparateConfig
@@ -712,6 +713,17 @@ public class H5UserAiProviderService {
     }
 
     @Transactional(readOnly = true)
+    public boolean isCustomModeSelectedForUser(long userId) {
+        AppH5UserAiProvider row = mapper.findByUserId(userId);
+        return row != null && "custom".equals(normalizeMode(row.getProviderMode()));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isCustomModeSelectedForClientUid(String clientUid) {
+        return isCustomModeSelectedForUser(resolveUser(clientUid).getId());
+    }
+
+    @Transactional(readOnly = true)
     public UserTtsSettings resolveActiveTtsSettingsForUser(long userId) {
         AppFeatureSettings settings = featureSettingsService.getSettings();
         if (!settings.isUserByokEnabled()) {
@@ -777,7 +789,7 @@ public class H5UserAiProviderService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "模型不能为空");
         }
         if (option.customUrlRequired()) {
-            normalizeBaseUrl(customUrl);
+            normalizeCustomOpenAiBaseUrl(customUrl);
         }
         if (!StringUtils.hasText(apiKey)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请填写 API Key");
@@ -793,7 +805,7 @@ public class H5UserAiProviderService {
         }
         ProviderOption option = requireProviderOption(providerSource);
         if (option.customUrlRequired()) {
-            normalizeBaseUrl(customUrl);
+            normalizeCustomOpenAiBaseUrl(customUrl);
         }
         if (!StringUtils.hasText(apiKey)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请填写 TTS API Key");
@@ -809,7 +821,7 @@ public class H5UserAiProviderService {
         }
         ProviderOption option = requireProviderOption(providerSource);
         if (option.customUrlRequired()) {
-            normalizeBaseUrl(customUrl);
+            normalizeCustomOpenAiBaseUrl(customUrl);
         }
         if (!StringUtils.hasText(apiKey)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请填写生图 API Key");
@@ -828,7 +840,7 @@ public class H5UserAiProviderService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "模型不能为空");
         }
         if (option.customUrlRequired()) {
-            normalizeBaseUrl(customUrl);
+            normalizeCustomOpenAiBaseUrl(customUrl);
         }
         if (!StringUtils.hasText(apiKey)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请填写 API Key");
@@ -844,7 +856,7 @@ public class H5UserAiProviderService {
         }
         ProviderOption option = requireProviderOption(providerSource);
         if (option.customUrlRequired()) {
-            normalizeBaseUrl(customUrl);
+            normalizeCustomOpenAiBaseUrl(customUrl);
         }
         if (!StringUtils.hasText(apiKey)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请填写 TTS API Key");
@@ -860,7 +872,7 @@ public class H5UserAiProviderService {
         }
         ProviderOption option = requireProviderOption(providerSource);
         if (option.customUrlRequired()) {
-            normalizeBaseUrl(customUrl);
+            normalizeCustomOpenAiBaseUrl(customUrl);
         }
         if (!StringUtils.hasText(apiKey)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请填写生图 API Key");
@@ -876,7 +888,7 @@ public class H5UserAiProviderService {
         }
         ProviderOption option = requireProviderOption(providerSource);
         if (option.customUrlRequired()) {
-            normalizeBaseUrl(customUrl);
+            normalizeCustomOpenAiBaseUrl(customUrl);
         }
         if (!StringUtils.hasText(apiKey)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "\u8bf7\u586b\u5199 API Key");
@@ -927,6 +939,20 @@ public class H5UserAiProviderService {
             HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             long latencyMs = elapsedMs(startNanos);
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                if (!isOpenAiCompatibleChatResponse(response.body())) {
+                    String detail = extractProviderErrorMessage(response.body());
+                    String message = StringUtils.hasText(detail)
+                            ? "接口返回成功状态，但响应不是 OpenAI Chat Completions 格式：" + detail
+                            : "接口返回成功状态，但没有返回 OpenAI choices，请确认填写的是 /v1 基础地址";
+                    return new UserAiProviderTestResult(
+                            false,
+                            message,
+                            providerSource,
+                            modelName,
+                            latencyMs,
+                            baseUrl
+                    );
+                }
                 return new UserAiProviderTestResult(
                         true,
                         "连接成功，Key 与模型可用",
@@ -1547,7 +1573,7 @@ public class H5UserAiProviderService {
     private static String resolveProviderBaseUrl(String providerSource, String customUrl) {
         ProviderOption option = requireProviderOption(providerSource);
         if (option.customUrlRequired()) {
-            return normalizeBaseUrl(customUrl);
+            return normalizeCustomOpenAiBaseUrl(customUrl);
         }
         return normalizeBaseUrl(option.defaultBaseUrl());
     }
@@ -1570,7 +1596,28 @@ public class H5UserAiProviderService {
 
     private static String normalizeCustomUrlForStorage(String providerSource, String customUrl) {
         ProviderOption option = requireProviderOption(providerSource);
-        return option.customUrlRequired() ? normalizeBaseUrl(customUrl) : "";
+        return option.customUrlRequired() ? normalizeCustomOpenAiBaseUrl(customUrl) : "";
+    }
+
+    static String normalizeCustomOpenAiBaseUrl(String raw) {
+        String value = normalizeBaseUrl(raw);
+        String lower = value.toLowerCase();
+        if (lower.endsWith("/v1")) {
+            return value;
+        }
+        return value + "/v1";
+    }
+
+    private boolean isOpenAiCompatibleChatResponse(String body) {
+        if (!StringUtils.hasText(body)) {
+            return false;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            return root.path("choices").isArray() && !root.path("choices").isEmpty();
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     private static String normalizeBaseUrl(String raw) {
@@ -1688,12 +1735,14 @@ public class H5UserAiProviderService {
         }
         if ("custom".equals(currentSource)) {
             String currentUrl;
+            String storedUrl;
             try {
-                currentUrl = normalizeBaseUrl(customUrl);
+                currentUrl = normalizeCustomOpenAiBaseUrl(customUrl);
+                storedUrl = normalizeCustomOpenAiBaseUrl(storedCustomUrl(row, keyScope));
             } catch (BusinessException ex) {
                 return false;
             }
-            return currentUrl.equals(safe(storedCustomUrl(row, keyScope)));
+            return currentUrl.equals(storedUrl);
         }
         return true;
     }
@@ -1820,12 +1869,14 @@ public class H5UserAiProviderService {
         }
         if ("custom".equals(currentSource)) {
             String currentUrl;
+            String storedUrl;
             try {
-                currentUrl = normalizeBaseUrl(customUrl);
+                currentUrl = normalizeCustomOpenAiBaseUrl(customUrl);
+                storedUrl = normalizeCustomOpenAiBaseUrl(storedEffectiveCustomUrl(row, keyScope));
             } catch (BusinessException ex) {
                 return false;
             }
-            return currentUrl.equals(safe(storedEffectiveCustomUrl(row, keyScope)));
+            return currentUrl.equals(storedUrl);
         }
         return true;
     }

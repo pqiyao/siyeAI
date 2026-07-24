@@ -22,6 +22,8 @@ import com.example.sillyspringboot.conversation.entity.AppConversationStBinding;
 import com.example.sillyspringboot.conversation.mapper.AppConversationStBindingMapper;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryAttachService;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryAutoRefreshService;
+import com.example.sillyspringboot.conversation.service.ConversationBranchService;
+import com.example.sillyspringboot.conversation.entity.AppConversationBranch;
 import com.example.sillyspringboot.chat.entity.AppMessage;
 import com.example.sillyspringboot.chat.mapper.AppGenerationTaskMapper;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
@@ -66,6 +68,10 @@ public class AppChatService {
     private static final int ATTACHMENT_HINT_LIMIT = 48;
     private static final String ATTACHMENT_MODE_EXPRESSION = "expression";
     private static final String ATTACHMENT_MODE_PHOTO = "photo";
+    private static final String REPLY_SPLIT_NONE = "none";
+    private static final String REPLY_SPLIT_BUBBLE = "bubble";
+    private static final String REPLY_SPLIT_PARAGRAPH_LEGACY = "paragraph";
+    private static final String REPLY_SPLIT_SPEECH_LEGACY = "speech";
     private static final String PHOTO_ROLEPLAY_SYSTEM_PROMPT = """
             The user has shared an image, and a short machine-generated summary of that image will appear in the next user message.
             Treat that summary only as auxiliary scene context.
@@ -129,6 +135,7 @@ public class AppChatService {
     private final ChatImageContentService chatImageContentService;
     private final ConversationMemoryAttachService memoryAttachService;
     private final ConversationMemoryAutoRefreshService memoryAutoRefreshService;
+    private final ConversationBranchService branchService;
     private final StWorldbookCatalogService worldbookCatalogService;
     private final ChatPresetService chatPresetService;
     private final AppChatCompatibilityService compatibilityService;
@@ -154,6 +161,7 @@ public class AppChatService {
             ChatImageContentService chatImageContentService,
             ConversationMemoryAttachService memoryAttachService,
             ConversationMemoryAutoRefreshService memoryAutoRefreshService,
+            ConversationBranchService branchService,
             StWorldbookCatalogService worldbookCatalogService,
             ChatPresetService chatPresetService,
             AppChatCompatibilityService compatibilityService,
@@ -177,6 +185,7 @@ public class AppChatService {
         this.chatImageContentService = chatImageContentService;
         this.memoryAttachService = memoryAttachService;
         this.memoryAutoRefreshService = memoryAutoRefreshService;
+        this.branchService = branchService;
         this.worldbookCatalogService = worldbookCatalogService;
         this.chatPresetService = chatPresetService;
         this.compatibilityService = compatibilityService;
@@ -210,11 +219,22 @@ public class AppChatService {
         if (conversation == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
         }
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(conversation);
         AppConversationStBinding binding = bindingMapper.findByConversationId(conversationId);
         if (binding == null) {
             return List.of();
         }
-        return worldNamesForGeneration(conversationId, binding, conversation.getCharacterId());
+        return worldNamesForGeneration(conversationId, activeBranch.getId(), binding, conversation.getCharacterId());
+    }
+
+    public long requireActiveBranchId(long conversationId, String token) {
+        AppUser user = tokenService.validateAndLoadUser(token);
+        AppConversation conversation = conversationMapper.findByIdForUser(conversationId, user.getId());
+        if (conversation == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        }
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(conversation);
+        return activeBranch.getId();
     }
 
     public String resolveRuntimePresetBundleForGeneration(long conversationId, String token) {
@@ -234,8 +254,12 @@ public class AppChatService {
         return runtimeRegistry.register(conversationId, control);
     }
 
-    public void unregisterControl(long conversationId) {
-        runtimeRegistry.unregister(conversationId);
+    public boolean bindControlTask(long conversationId, long taskId, StStreamControl control) {
+        return runtimeRegistry.bindTask(conversationId, taskId, control);
+    }
+
+    public void unregisterControl(long conversationId, StStreamControl control) {
+        runtimeRegistry.unregister(conversationId, control);
     }
 
     public boolean stop(long conversationId, String token) {
@@ -276,29 +300,38 @@ public class AppChatService {
         if (conversation == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
         }
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(conversation);
         RoleplayBundle bundle = resolveRoleplayBundle(conversation.getCharacterId(), userId);
-        List<String> openingVariants = openingVariants(bundle);
-        String opening = openingVariants.isEmpty() ? "" : openingVariants.get(0);
-        if (opening.isBlank()) {
+        List<String> rawOpeningVariants = openingVariants(bundle);
+        String rawOpening = rawOpeningVariants.isEmpty() ? "" : rawOpeningVariants.get(0);
+        if (rawOpening.isBlank()) {
             return false;
         }
+        List<AssistantOutputNormalization> normalizedOpenings = rawOpeningVariants.stream()
+                .map(value -> normalizeAssistantOutput(conversationId, value, token))
+                .toList();
+        List<String> openingVariants = normalizedOpenings.stream()
+                .map(AssistantOutputNormalization::content)
+                .toList();
+        AssistantOutputNormalization openingNormalization = normalizedOpenings.get(0);
+        String opening = openingNormalization.content();
 
-        List<AppMessage> existing = messageMapper.listByConversationAsc(conversationId, 32);
+        List<AppMessage> existing = messageMapper.listByConversationBranchAsc(conversationId, activeBranch.getId(), 32);
         if (existing != null && !existing.isEmpty()) {
             List<AppMessage> visible = existing.stream()
                     .filter(AppChatService::includeVisibleMessage)
                     .toList();
             if (!visible.isEmpty()) {
-                boolean singleOpening = visible.size() == 1 && isAssistantOpeningCandidate(visible.get(0));
-                if (repairBogusOpeningMessageIfNeeded(conversationId, visible, bundle, opening)) {
-                    if (singleOpening) {
-                        AppMessage repaired = messageMapper.findById(visible.get(0).getId());
+                AppMessage openingMessage = findOpeningAssistantMessage(visible);
+                if (repairBogusOpeningMessageIfNeeded(conversationId, activeBranch.getId(), visible, bundle, opening)) {
+                    if (openingMessage != null) {
+                        AppMessage repaired = messageMapper.findById(openingMessage.getId());
                         ensureOpeningSwipeVariantsForExisting(repaired, openingVariants);
                     }
                     return true;
                 }
-                if (singleOpening) {
-                    ensureOpeningSwipeVariantsForExisting(visible.get(0), openingVariants);
+                if (openingMessage != null) {
+                    ensureOpeningSwipeVariantsForExisting(openingMessage, openingVariants);
                 }
                 return false;
             }
@@ -307,6 +340,7 @@ public class AppChatService {
         AppMessage openingMessage = new AppMessage();
         openingMessage.setUserId(userId);
         openingMessage.setConversationId(conversationId);
+        openingMessage.setBranchId(activeBranch.getId());
         openingMessage.setRole("assistant");
         openingMessage.setClientMessageId("opening_" + System.currentTimeMillis());
         openingMessage.setContent(opening);
@@ -320,7 +354,13 @@ public class AppChatService {
             messageMapper.updateVariantMeta(openingId, openingRef, 0, traceIdSafe());
             insertOpeningSwipeVariants(openingMessage, openingVariants, openingRef);
             try {
-                syncAssistantReplyToSt(conversationId, openingRef, opening, token);
+                syncAssistantReplyToSt(
+                        conversationId,
+                        openingRef,
+                        opening,
+                        token,
+                        openingNormalization.finalized()
+                );
             } catch (Exception ex) {
                 log.warn("opening sync to ST skipped conversationId={} messageId={} cause={}",
                         conversationId, openingId, rootCauseMessage(ex));
@@ -334,8 +374,17 @@ public class AppChatService {
             conversationMapper.setTitleToCharacterNameIfNull(conversationId);
         }
         chatAuditService.touchAfterAssistantContentUpdate(openingMessage.getId());
-        snapshotService.saveSnapshotFromDb(conversationId, 800);
+        snapshotService.saveSnapshotFromDb(conversationId, activeBranch.getId(), 800);
         return true;
+    }
+
+    public List<String> listOpeningVariants(long conversationId, String token) {
+        long userId = tokenService.validateAndLoadUser(token).getId();
+        AppConversation conversation = conversationMapper.findByIdForUser(conversationId, userId);
+        if (conversation == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        }
+        return openingVariants(resolveRoleplayBundle(conversation.getCharacterId(), userId));
     }
 
     public void streamGenerate(AppChatStreamRequest req, String token, Consumer<ChatGenerateChunk> onChunk, StStreamControl control) {
@@ -349,17 +398,19 @@ public class AppChatService {
         if (c == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
         }
+        long activeBranchId = resolveRuntimeBranchId(c, stMessageRef);
 
         RoleplayBundle bundle = resolveRoleplayBundle(c.getCharacterId(), userId);
         AppConversationStBinding binding = bindingMapper.findByConversationId(req.getConversationId());
         if (binding == null || !StringUtils.hasText(binding.getStAvatarUrl()) || !StringUtils.hasText(binding.getStChatFileName())) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "ST binding missing (avatar_url/file_name)");
         }
+        snapshotService.saveSnapshotFromDb(req.getConversationId(), activeBranchId, 800, stMessageRef);
         UserModelOverride userModelOverride = resolveUserModelOverride(userId);
         String userName = displayNameForSt(user, userId, binding);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
-        List<String> worldNames = worldNamesForGeneration(req.getConversationId(), binding, c.getCharacterId());
-        String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId());
+        List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
+        String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
         String runtimePresetBundle = runtimePresetBundleForGeneration(binding);
         AppChatCompatibilityService.Decision compatibilityDecision =
                 recordCompatibilityDecision(req.getConversationId(), bundle, binding, worldNames, runtimePresetBundle);
@@ -388,7 +439,8 @@ public class AppChatService {
         );
         String tailSystemPrompt = combineSystemPrompts(
                 tailMemoryPrompt,
-                buildExpressionTailPrompt(attachmentMode, expressionHints, avoidExpressionHints)
+                buildExpressionTailPrompt(attachmentMode, expressionHints, avoidExpressionHints),
+                buildReplySplitTailPrompt(req.getReplySplitMode())
         );
         boolean forwardInlineImages = useInlineImages && !ATTACHMENT_MODE_PHOTO.equals(attachmentMode);
         boolean needsPromptMessages = forwardInlineImages;
@@ -450,21 +502,27 @@ public class AppChatService {
         long userId = user.getId();
         AppConversation c = conversationMapper.findByIdForUser(req.getConversationId(), userId);
         if (c == null) throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        long activeBranchId = resolveRuntimeBranchId(c, req.getTargetMessageId());
 
         RoleplayBundle bundle = resolveRoleplayBundle(c.getCharacterId(), userId);
         AppConversationStBinding binding = bindingMapper.findByConversationId(req.getConversationId());
         if (binding == null || !StringUtils.hasText(binding.getStAvatarUrl()) || !StringUtils.hasText(binding.getStChatFileName())) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "ST binding missing (avatar_url/file_name)");
         }
+        snapshotService.saveSnapshotFromDb(req.getConversationId(), activeBranchId, 800);
         UserModelOverride userModelOverride = resolveUserModelOverride(userId);
         String userName = displayNameForSt(user, userId, binding);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
-        List<String> worldNames = worldNamesForGeneration(req.getConversationId(), binding, c.getCharacterId());
-        String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId());
+        List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
+        String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
         String runtimePresetBundle = runtimePresetBundleForGeneration(binding);
         AppChatCompatibilityService.Decision compatibilityDecision =
                 recordCompatibilityDecision(req.getConversationId(), bundle, binding, worldNames, runtimePresetBundle);
         List<ChatMessage> promptMessages = List.of();
+        String tailSystemPrompt = combineSystemPrompts(
+                tailMemoryPrompt,
+                buildReplySplitTailPrompt(req.getReplySplitMode())
+        );
         ChatGenerateRequest stReq = new ChatGenerateRequest(
                 req.getConversationId(),
                 null,
@@ -481,7 +539,7 @@ public class AppChatService {
                 "",
                 worldNames,
                 userModelOverride,
-                tailMemoryPrompt,
+                tailSystemPrompt,
                 runtimePresetBundle
         );
         if (tryFrontendBridge(
@@ -489,7 +547,7 @@ public class AppChatService {
                 compatibilityDecision,
                 userModelOverride,
                 false,
-                tailMemoryPrompt,
+                tailSystemPrompt,
                 onChunk,
                 control
         )) {
@@ -507,6 +565,7 @@ public class AppChatService {
         }
 
         // A：商用安全约束——仅允许 regenerate 会话最后一条 assistant
+        long activeBranchId = resolveRuntimeBranchId(c, req.getTargetMessageId());
         long targetId;
         try {
             String raw = req.getTargetMessageId() == null ? "" : req.getTargetMessageId().trim();
@@ -515,7 +574,11 @@ public class AppChatService {
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "targetMessageId invalid");
         }
-        AppMessage lastAssistant = findLastVisibleAssistant(req.getConversationId());
+        Long targetBranchId = branchIdFromMessageId(req.getConversationId(), targetId);
+        if (targetBranchId != null && targetBranchId > 0) {
+            activeBranchId = targetBranchId;
+        }
+        AppMessage lastAssistant = findLastVisibleAssistant(req.getConversationId(), activeBranchId);
         if (lastAssistant == null || lastAssistant.getId() == null || lastAssistant.getId().longValue() != targetId) {
             throw new BusinessException(ErrorCode.CONFLICT, "当前仅支持重写最后一条回复");
         }
@@ -528,13 +591,17 @@ public class AppChatService {
         UserModelOverride userModelOverride = resolveUserModelOverride(userId);
         String userName = displayNameForSt(user, userId, binding);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
-        List<String> worldNames = worldNamesForGeneration(req.getConversationId(), binding, c.getCharacterId());
-        String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId());
+        List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
+        String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
         String runtimePresetBundle = runtimePresetBundleForGeneration(binding);
         AppChatCompatibilityService.Decision compatibilityDecision =
                 recordCompatibilityDecision(req.getConversationId(), bundle, binding, worldNames, runtimePresetBundle);
         List<ChatMessage> promptMessages = List.of();
-        snapshotService.saveSnapshotFromDb(req.getConversationId(), 800);
+        snapshotService.saveSnapshotFromDb(req.getConversationId(), activeBranchId, 800);
+        String tailSystemPrompt = combineSystemPrompts(
+                tailMemoryPrompt,
+                buildReplySplitTailPrompt(req.getReplySplitMode())
+        );
         ChatGenerateRequest stReq = new ChatGenerateRequest(
                 req.getConversationId(),
                 null,
@@ -551,7 +618,7 @@ public class AppChatService {
                 "root:" + targetId,
                 worldNames,
                 userModelOverride,
-                tailMemoryPrompt,
+                tailSystemPrompt,
                 runtimePresetBundle
         );
         if (tryFrontendBridge(
@@ -559,7 +626,7 @@ public class AppChatService {
                 compatibilityDecision,
                 userModelOverride,
                 false,
-                tailMemoryPrompt,
+                tailSystemPrompt,
                 onChunk,
                 control
         )) {
@@ -575,6 +642,8 @@ public class AppChatService {
         if (conversation == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
         }
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(conversation);
+        long activeBranchId = activeBranch.getId();
 
         RoleplayBundle bundle = resolveRoleplayBundle(conversation.getCharacterId(), userId);
         AppConversationStBinding binding = bindingMapper.findByConversationId(conversationId);
@@ -584,7 +653,8 @@ public class AppChatService {
 
         String userName = displayNameForSt(user, userId, binding);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
-        List<String> worldNames = worldNamesForGeneration(conversationId, binding, conversation.getCharacterId());
+        snapshotService.saveSnapshotFromDb(conversationId, activeBranchId, 800);
+        List<String> worldNames = worldNamesForGeneration(conversationId, activeBranchId, binding, conversation.getCharacterId());
         String runtimePresetBundle = runtimePresetBundleForGeneration(binding);
         List<Map<String, String>> runtimeMessages = stAdapter.buildRuntimeMessages(
                 binding.getStAvatarUrl(),
@@ -600,7 +670,7 @@ public class AppChatService {
         }
 
         try {
-            String tailMemoryPrompt = tailMemoryPromptForGeneration(conversationId);
+            String tailMemoryPrompt = tailMemoryPromptForGeneration(conversationId, activeBranchId);
             List<ChatMessage> promptMessages = buildReplySuggestionMessages(
                     runtimeMessages,
                     currentDraft,
@@ -937,16 +1007,47 @@ public class AppChatService {
         return buildExpressionHintSystemPrompt(safeHints, normalizeExpressionHints(avoidExpressionHints));
     }
 
-    private static String combineSystemPrompts(String first, String second) {
-        String a = nz(first);
-        String b = nz(second);
-        if (a.isBlank()) {
-            return b;
+    private static String buildReplySplitTailPrompt(String replySplitMode) {
+        String mode = normalizeReplySplitMode(replySplitMode);
+        if (REPLY_SPLIT_BUBBLE.equals(mode)) {
+            return """
+                    Reply formatting requirement:
+                    - When the reply contains multiple semantic or roleplay beats, separate them with natural blank-line paragraph boundaries.
+                    - Usually keep each paragraph to 1-2 related sentences; do not split every short sentence mechanically.
+                    - Keep dialogue, its immediately related action, and meaningfully connected narration together when that reads more naturally.
+                    - Keep the result as one assistant message. Do not create multiple chat messages.
+                    - The client may display those paragraphs as several visual bubbles, but they remain one logical assistant reply.
+                    - Do not change character behavior, story facts, memory, or roleplay continuity just to satisfy formatting.
+                    """;
         }
-        if (b.isBlank()) {
-            return a;
+        return "";
+    }
+
+    private static String normalizeReplySplitMode(String replySplitMode) {
+        if (!StringUtils.hasText(replySplitMode)) {
+            return REPLY_SPLIT_NONE;
         }
-        return a + "\n\n" + b;
+        String mode = replySplitMode.trim().toLowerCase(Locale.ROOT);
+        if (REPLY_SPLIT_BUBBLE.equals(mode)
+                || REPLY_SPLIT_PARAGRAPH_LEGACY.equals(mode)
+                || REPLY_SPLIT_SPEECH_LEGACY.equals(mode)) {
+            return REPLY_SPLIT_BUBBLE;
+        }
+        return REPLY_SPLIT_NONE;
+    }
+
+    private static String combineSystemPrompts(String... prompts) {
+        if (prompts == null || prompts.length == 0) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        for (String prompt : prompts) {
+            String part = nz(prompt);
+            if (!part.isBlank()) {
+                parts.add(part);
+            }
+        }
+        return String.join("\n\n", parts);
     }
 
     private String buildPhotoRoleplayUserMessage(
@@ -1226,18 +1327,99 @@ public class AppChatService {
     /**
      * 方案一（StepA）：生成成功后将 assistant 最终回复写回 ST chat，保证 ST 为运行时事实源。
      */
-    public void syncAssistantReplyToSt(long conversationId, String stMessageRef, String assistantContent, String token) {
-        if (assistantContent == null || assistantContent.isBlank()) return;
+    public boolean syncAssistantReplyToSt(long conversationId, String stMessageRef, String assistantContent, String token) {
+        return syncAssistantReplyToSt(conversationId, stMessageRef, assistantContent, token, null);
+    }
+
+    public boolean syncAssistantReplyToSt(
+            long conversationId,
+            String stMessageRef,
+            String assistantContent,
+            String token,
+            boolean outputRegexApplied
+    ) {
+        return syncAssistantReplyToSt(
+                conversationId,
+                stMessageRef,
+                assistantContent,
+                token,
+                Boolean.valueOf(outputRegexApplied)
+        );
+    }
+
+    private boolean syncAssistantReplyToSt(
+            long conversationId,
+            String stMessageRef,
+            String assistantContent,
+            String token,
+            Boolean outputRegexApplied
+    ) {
+        if (assistantContent == null) return false;
+        if (assistantContent.isBlank() && !Boolean.TRUE.equals(outputRegexApplied)) return false;
+        ChatGenerateRequest req = resolveAssistantRuntimeRequest(conversationId, stMessageRef, token);
+        if (req == null) return false;
+        if (outputRegexApplied == null) {
+            stAdapter.appendAssistantMessage(req, assistantContent);
+        } else {
+            stAdapter.appendAssistantMessage(req, assistantContent, outputRegexApplied);
+        }
+        return true;
+    }
+
+    public record AssistantOutputNormalization(String content, boolean finalized) {
+        public static AssistantOutputNormalization passthrough(String content) {
+            return new AssistantOutputNormalization(content == null ? "" : content.trim(), false);
+        }
+    }
+
+    public AssistantOutputNormalization normalizeAssistantOutput(
+            long conversationId,
+            String assistantContent,
+            String token
+    ) {
+        String raw = assistantContent == null ? "" : assistantContent.trim();
+        if (raw.isBlank()) {
+            return AssistantOutputNormalization.passthrough(raw);
+        }
+        try {
+            ChatGenerateRequest request = resolveAssistantRuntimeRequest(conversationId, "", token);
+            if (request == null) {
+                return new AssistantOutputNormalization(raw, true);
+            }
+            String normalized = stAdapter.applyAssistantOutputRegex(request, raw);
+            if (normalized == null) {
+                log.warn("assistant output regex returned null conversationId={}", conversationId);
+                return new AssistantOutputNormalization(raw, true);
+            }
+            // Canonicalize surrounding whitespace once here; all downstream stores receive this value unchanged.
+            return new AssistantOutputNormalization(normalized.trim(), true);
+        } catch (Exception ex) {
+            log.warn("assistant output regex fallback conversationId={} cause={}",
+                    conversationId, rootCauseMessage(ex));
+            return new AssistantOutputNormalization(raw, true);
+        }
+    }
+
+    private ChatGenerateRequest resolveAssistantRuntimeRequest(
+            long conversationId,
+            String stMessageRef,
+            String token
+    ) {
         AppUser user = tokenService.validateAndLoadUser(token);
         long userId = user.getId();
         AppConversation c = conversationMapper.findByIdForUser(conversationId, userId);
-        if (c == null) return;
+        if (c == null) return null;
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(c);
+        Long targetBranchId = branchIdFromMessageRef(conversationId, stMessageRef);
+        if (targetBranchId != null && targetBranchId > 0 && targetBranchId.longValue() != activeBranch.getId()) {
+            return null;
+        }
         RoleplayBundle bundle = resolveRoleplayBundle(c.getCharacterId(), userId);
         AppConversationStBinding binding = bindingMapper.findByConversationId(conversationId);
         if (binding == null || !StringUtils.hasText(binding.getStAvatarUrl()) || !StringUtils.hasText(binding.getStChatFileName())) {
-            return;
+            return null;
         }
-        ChatGenerateRequest req = new ChatGenerateRequest(
+        return new ChatGenerateRequest(
                 conversationId,
                 null,
                 List.of(),
@@ -1251,13 +1433,18 @@ public class AppChatService {
                 binding.getStAvatarUrl(),
                 binding.getStChatFileName(),
                 stMessageRef == null ? "" : stMessageRef,
-                parseWorldNames(binding, c.getCharacterId()),
+                worldNamesForGeneration(conversationId, activeBranch.getId(), binding, c.getCharacterId()),
                 null
         );
-        stAdapter.appendAssistantMessage(req, assistantContent);
     }
 
-    private void syncContinuationReplyToSt(long conversationId, long anchorAssistantId, String continuationContent, String token) {
+    private void syncContinuationReplyToSt(
+            long conversationId,
+            long anchorAssistantId,
+            String continuationContent,
+            String token,
+            boolean outputRegexApplied
+    ) {
         if (continuationContent == null || continuationContent.isBlank()) return;
         AppUser user = tokenService.validateAndLoadUser(token);
         long userId = user.getId();
@@ -1267,6 +1454,8 @@ public class AppChatService {
         AppMessage anchor = messageMapper.findById(anchorAssistantId);
         if (anchor == null || anchor.getConversationId() == null || anchor.getConversationId() != conversationId) return;
         if (!"assistant".equalsIgnoreCase(anchor.getRole())) return;
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(c);
+        if (anchor.getBranchId() == null || anchor.getBranchId().longValue() != activeBranch.getId()) return;
 
         RoleplayBundle bundle = resolveRoleplayBundle(c.getCharacterId(), userId);
         AppConversationStBinding binding = bindingMapper.findByConversationId(conversationId);
@@ -1294,10 +1483,10 @@ public class AppChatService {
                 binding.getStAvatarUrl(),
                 binding.getStChatFileName(),
                 stRef,
-                parseWorldNames(binding, c.getCharacterId()),
+                worldNamesForGeneration(conversationId, activeBranch.getId(), binding, c.getCharacterId()),
                 null
         );
-        stAdapter.replaceLastAssistantMessage(req, mergedContent);
+        stAdapter.replaceLastAssistantMessage(req, mergedContent, outputRegexApplied);
     }
 
     private static String mergeContinuationForSt(String baseContent, String continuationContent) {
@@ -1313,17 +1502,30 @@ public class AppChatService {
      * 先做商用安全：仅允许同步“会话最后一条 assistant”。
      */
     public void syncSwipeSelectionToSt(long conversationId, long assistantMessageId, String token) {
+        // Swipe variants stored in app_message have already crossed the output-regex boundary.
+        syncSwipeSelectionToSt(conversationId, assistantMessageId, token, true);
+    }
+
+    private void syncSwipeSelectionToSt(
+            long conversationId,
+            long assistantMessageId,
+            String token,
+            boolean outputRegexApplied
+    ) {
         AppUser user = tokenService.validateAndLoadUser(token);
         long userId = user.getId();
         AppConversation c = conversationMapper.findByIdForUser(conversationId, userId);
         if (c == null) return;
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(c);
+        long activeBranchId = activeBranch.getId();
 
         AppMessage target = messageMapper.findById(assistantMessageId);
         if (target == null || target.getConversationId() == null || target.getConversationId() != conversationId) return;
         if (!"assistant".equalsIgnoreCase(target.getRole())) return;
+        if (target.getBranchId() == null || target.getBranchId().longValue() != activeBranchId) return;
 
         // 仅允许最后一条 assistant（商用强约束，避免误改历史造成上下文错乱）
-        AppMessage lastAssistant = findLastVisibleAssistant(conversationId);
+        AppMessage lastAssistant = findLastVisibleAssistant(conversationId, activeBranchId);
         if (lastAssistant == null || lastAssistant.getId() == null || lastAssistant.getId().longValue() != assistantMessageId) {
             throw new BusinessException(ErrorCode.CONFLICT, "只能对最后一条回复进行 swipe/同步");
         }
@@ -1349,10 +1551,10 @@ public class AppChatService {
                 binding.getStAvatarUrl(),
                 binding.getStChatFileName(),
                 ref,
-                parseWorldNames(binding, c.getCharacterId()),
+                worldNamesForGeneration(conversationId, activeBranchId, binding, c.getCharacterId()),
                 null
         );
-        stAdapter.replaceLastAssistantMessage(stReq, target.getContent());
+        stAdapter.replaceLastAssistantMessage(stReq, target.getContent(), outputRegexApplied);
     }
 
     private UserModelOverride resolveUserModelOverride(long userId) {
@@ -1360,14 +1562,31 @@ public class AppChatService {
     }
 
     private void triggerMemoryRefreshAfterCommit(long conversationId) {
+        triggerMemoryRefreshAfterCommit(conversationId, null);
+    }
+
+    private void triggerMemoryRefreshAfterCommit(long conversationId, Long branchId) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            memoryAutoRefreshService.maybeTriggerAfterGenerationSuccess(conversationId);
+            memoryAutoRefreshService.maybeTriggerAfterGenerationSuccess(conversationId, branchId);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                memoryAutoRefreshService.maybeTriggerAfterGenerationSuccess(conversationId);
+                memoryAutoRefreshService.maybeTriggerAfterGenerationSuccess(conversationId, branchId);
+            }
+        });
+    }
+
+    private static void runAfterCommit(Runnable action) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                action.run();
             }
         });
     }
@@ -1375,12 +1594,18 @@ public class AppChatService {
     private final com.fasterxml.jackson.databind.ObjectMapper worldMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     private List<String> worldNamesForGeneration(long conversationId, AppConversationStBinding binding, long characterId) {
+        return worldNamesForGeneration(conversationId, null, binding, characterId);
+    }
+
+    private List<String> worldNamesForGeneration(long conversationId, Long branchId, AppConversationStBinding binding, long characterId) {
         List<String> baseWorldNames = parseWorldNames(binding, characterId);
         if (memoryAttachService == null) {
             return baseWorldNames;
         }
         try {
-            return memoryAttachService.attachMemoryWorldbookIfAvailable(conversationId, baseWorldNames);
+            return branchId == null || branchId <= 0
+                    ? memoryAttachService.attachMemoryWorldbookIfAvailable(conversationId, baseWorldNames)
+                    : memoryAttachService.attachMemoryWorldbookIfAvailable(conversationId, branchId, baseWorldNames);
         } catch (Exception ex) {
             log.warn("conversation memory worldbook attach skipped conversationId={} cause={}",
                     conversationId, rootCauseMessage(ex));
@@ -1389,8 +1614,17 @@ public class AppChatService {
     }
 
     private String tailMemoryPromptForGeneration(long conversationId) {
+        return tailMemoryPromptForGeneration(conversationId, null);
+    }
+
+    private String tailMemoryPromptForGeneration(long conversationId, Long branchId) {
         try {
-            return memoryAttachService == null ? "" : memoryAttachService.buildTailMemoryPromptFallbackIfWorldbookUnavailable(conversationId);
+            if (memoryAttachService == null) {
+                return "";
+            }
+            return branchId == null || branchId <= 0
+                    ? memoryAttachService.buildTailMemoryPromptFallbackIfWorldbookUnavailable(conversationId)
+                    : memoryAttachService.buildTailMemoryPromptFallbackIfWorldbookUnavailable(conversationId, branchId);
         } catch (Exception ex) {
             log.warn("conversation memory tail prompt skipped conversationId={} cause={}",
                     conversationId, rootCauseMessage(ex));
@@ -1616,8 +1850,70 @@ public class AppChatService {
         }
     }
 
+    private long resolveRuntimeBranchId(AppConversation conversation, String messageRefOrId) {
+        Long branchId = branchIdFromMessageRef(conversation.getId(), messageRefOrId);
+        if (branchId != null && branchId > 0) {
+            return branchId;
+        }
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(conversation);
+        return activeBranch.getId();
+    }
+
+    private Long branchIdFromMessageRef(long conversationId, String messageRefOrId) {
+        String raw = messageRefOrId == null ? "" : messageRefOrId.trim();
+        if (raw.isBlank()) {
+            return null;
+        }
+        if (raw.startsWith("root:")) {
+            raw = raw.substring("root:".length());
+        } else if (raw.startsWith("db_")) {
+            raw = raw.substring(3);
+        } else if (raw.startsWith("client:")) {
+            return null;
+        }
+        try {
+            long messageId = Long.parseLong(raw);
+            return branchIdFromMessageId(conversationId, messageId);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Long branchIdFromMessageId(long conversationId, long messageId) {
+        if (messageId <= 0) {
+            return null;
+        }
+        AppMessage message = messageMapper.findById(messageId);
+        if (message == null
+                || message.getConversationId() == null
+                || message.getConversationId().longValue() != conversationId
+                || message.getBranchId() == null
+                || message.getBranchId() <= 0) {
+            return null;
+        }
+        return message.getBranchId();
+    }
+
     private AppMessage findLastVisibleAssistant(long conversationId) {
-        List<AppMessage> rows = messageMapper.listByConversation(conversationId, 2000);
+        Long branchId = null;
+        try {
+            AppConversation conversation = conversationMapper.findById(conversationId);
+            if (conversation != null) {
+                AppConversationBranch branch = branchService.requireActiveBranch(conversation);
+                branchId = branch == null ? null : branch.getId();
+            }
+        } catch (Exception ignored) {
+        }
+        return branchId == null || branchId <= 0
+                ? findLastVisibleAssistantFromRows(messageMapper.listByConversation(conversationId, 2000))
+                : findLastVisibleAssistant(conversationId, branchId);
+    }
+
+    private AppMessage findLastVisibleAssistant(long conversationId, long branchId) {
+        return findLastVisibleAssistantFromRows(messageMapper.listByConversationBranch(conversationId, branchId, 2000));
+    }
+
+    private AppMessage findLastVisibleAssistantFromRows(List<AppMessage> rows) {
         for (AppMessage m : rows) {
             if (m == null || m.getId() == null) continue;
             if (!includeVisibleMessage(m)) continue;
@@ -1657,6 +1953,8 @@ public class AppChatService {
         long userId = tokenService.validateAndLoadUser(token).getId();
         AppConversation c = conversationMapper.findByIdForUser(conversationId, userId);
         if (c == null) throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(c);
+        long activeBranchId = activeBranch.getId();
 
         long mid;
         try {
@@ -1668,16 +1966,19 @@ public class AppChatService {
         if (target == null || target.getConversationId() == null || target.getConversationId() != conversationId) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
         }
+        if (target.getBranchId() == null || target.getBranchId().longValue() != activeBranchId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
+        }
         if (!"assistant".equalsIgnoreCase(target.getRole())) {
             throw new BusinessException(ErrorCode.CONFLICT, "only assistant messages support swipe");
         }
 
         String stRef = ensureSwipeRootRef(target, traceIdSafe());
-        List<AppMessage> rows = messageMapper.listByStMessageRef(stRef);
+        List<AppMessage> rows = messageMapper.listByStMessageRefAndBranch(stRef, activeBranchId);
         return rows.stream()
                 .filter(m -> "SUCCESS".equalsIgnoreCase(m.getStatus()))
                 .filter(m -> m.getSwipeIndex() != null)
-                .filter(m -> m.getContent() != null && !m.getContent().isBlank())
+                .filter(m -> m.getContent() != null)
                 .map(m -> new SwipeVariant(
                         String.valueOf(mid),
                         m.getSwipeIndex(),
@@ -1687,10 +1988,32 @@ public class AppChatService {
                 .toList();
     }
 
+    public String getAssistantMessageContent(long conversationId, long messageId, String token) {
+        long userId = tokenService.validateAndLoadUser(token).getId();
+        AppConversation conversation = conversationMapper.findByIdForUser(conversationId, userId);
+        if (conversation == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        }
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(conversation);
+        AppMessage message = messageMapper.findById(messageId);
+        if (message == null
+                || message.getConversationId() == null
+                || message.getConversationId() != conversationId
+                || message.getBranchId() == null
+                || message.getBranchId().longValue() != activeBranch.getId()
+                || !"assistant".equalsIgnoreCase(message.getRole())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "assistant message not found");
+        }
+        return message.getContent() == null ? "" : message.getContent();
+    }
+
+    @Transactional
     public SwipeVariant switchSwipe(long conversationId, String messageId, int variantIndex, String token) {
         long userId = tokenService.validateAndLoadUser(token).getId();
         AppConversation c = conversationMapper.findByIdForUser(conversationId, userId);
         if (c == null) throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(c);
+        long activeBranchId = activeBranch.getId();
 
         long mid;
         try {
@@ -1702,26 +2025,34 @@ public class AppChatService {
         if (target == null || target.getConversationId() == null || target.getConversationId() != conversationId) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
         }
+        if (target.getBranchId() == null || target.getBranchId().longValue() != activeBranchId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
+        }
         if (!"assistant".equalsIgnoreCase(target.getRole())) {
             throw new BusinessException(ErrorCode.CONFLICT, "only assistant messages support swipe");
         }
 
         String stRef = ensureSwipeRootRef(target, traceIdSafe());
         persistDisplayedSwipeVariant(target);
-        AppMessage chosen = messageMapper.findByStMessageRefAndSwipeIndex(stRef, variantIndex);
+        AppMessage chosen = messageMapper.findByStMessageRefAndSwipeIndexAndBranch(stRef, variantIndex, activeBranchId);
         if (chosen == null && target.getSwipeIndex() != null && target.getSwipeIndex() == variantIndex) {
             chosen = target;
         }
-        if (chosen == null || chosen.getContent() == null || chosen.getContent().isBlank()) {
+        if (chosen == null || chosen.getContent() == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "swipe variant not found");
         }
 
+        Integer previousSwipeIndex = target.getSwipeIndex();
         messageMapper.updateStatusAndContent(mid, "SUCCESS", chosen.getContent(), null, traceIdSafe());
         messageMapper.updateVariantMeta(mid, stRef, variantIndex, traceIdSafe());
-        snapshotService.saveSnapshotFromDb(conversationId, 800);
+        snapshotService.saveSnapshotFromDb(conversationId, activeBranchId, 800);
         try {
             syncSwipeSelectionToSt(conversationId, mid, token);
         } catch (Exception ignored) {
+        }
+        if (previousSwipeIndex == null || previousSwipeIndex != variantIndex) {
+            branchService.incrementMemorySourceRevision(conversationId, activeBranchId);
+            memoryAutoRefreshService.triggerAfterHistoryChange(conversationId, activeBranchId);
         }
         return new SwipeVariant(String.valueOf(mid), variantIndex, chosen.getContent(), Instant.now());
     }
@@ -1731,10 +2062,12 @@ public class AppChatService {
      * @param conversationId 濞村吋淇洪惁?
      * @param targetMessageId 閻炴凹鍋婇崳鎼佹偨閻旂儤鐣?assistant 婵炴垵鐗婃导?id
      * @param generatedMessageId 闁哄牜鍓氶濂告偨閻旂鐏囬柛鎰懃閸欏棝鎯?assistant 婵炴垵鐗婃导?id闁挎稑鐗忛弫杈┾偓瀛ゃ値鍚€闂佺偓宕橀惌楣冨礆濞戞绱﹂柨?     */
+    @Transactional
     public SwipeVariant promoteRegenerateVariant(long conversationId, long targetMessageId, long generatedMessageId, String token) {
-        return promoteRegenerateVariant(conversationId, targetMessageId, generatedMessageId, token, true);
+        return promoteRegenerateVariant(conversationId, targetMessageId, generatedMessageId, token, true, false);
     }
 
+    @Transactional
     public SwipeVariant promoteRegenerateVariant(
             long conversationId,
             long targetMessageId,
@@ -1742,12 +2075,36 @@ public class AppChatService {
             String token,
             boolean syncRuntimeStateToSt
     ) {
+        return promoteRegenerateVariant(
+                conversationId,
+                targetMessageId,
+                generatedMessageId,
+                token,
+                syncRuntimeStateToSt,
+                false
+        );
+    }
+
+    @Transactional
+    public SwipeVariant promoteRegenerateVariant(
+            long conversationId,
+            long targetMessageId,
+            long generatedMessageId,
+            String token,
+            boolean syncRuntimeStateToSt,
+            boolean outputRegexApplied
+    ) {
         long userId = tokenService.validateAndLoadUser(token).getId();
         AppConversation c = conversationMapper.findByIdForUser(conversationId, userId);
         if (c == null) throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(c);
+        long activeBranchId = activeBranch.getId();
 
         AppMessage target = messageMapper.findById(targetMessageId);
         if (target == null || target.getConversationId() == null || target.getConversationId() != conversationId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "target message not found");
+        }
+        if (target.getBranchId() == null || target.getBranchId().longValue() != activeBranchId) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "target message not found");
         }
         if (!"assistant".equalsIgnoreCase(target.getRole())) {
@@ -1757,13 +2114,17 @@ public class AppChatService {
         if (generated == null || generated.getConversationId() == null || generated.getConversationId() != conversationId) {
             throw new BusinessException(ErrorCode.CONFLICT, "generated message not found");
         }
-        if (generated.getContent() == null || generated.getContent().isBlank()) {
+        if (generated.getBranchId() == null || generated.getBranchId().longValue() != activeBranchId) {
+            throw new BusinessException(ErrorCode.CONFLICT, "generated message not found");
+        }
+        if (generated.getContent() == null
+                || (generated.getContent().isBlank() && !outputRegexApplied)) {
             throw new BusinessException(ErrorCode.CONFLICT, "generated message is empty");
         }
 
         String stRef = ensureSwipeRootRef(target, traceIdSafe());
         persistDisplayedSwipeVariant(target);
-        Integer max = messageMapper.findMaxSwipeIndex(stRef);
+        Integer max = messageMapper.findMaxSwipeIndexAndBranch(stRef, activeBranchId);
         int next = (max == null ? 0 : max) + 1;
 
         messageMapper.updateContinuationMeta(
@@ -1775,13 +2136,24 @@ public class AppChatService {
         messageMapper.updateVariantMeta(generatedMessageId, stRef, next, traceIdSafe());
         messageMapper.updateStatusAndContent(targetMessageId, "SUCCESS", generated.getContent(), null, traceIdSafe());
         messageMapper.updateVariantMeta(targetMessageId, stRef, next, traceIdSafe());
+        branchService.incrementMemorySourceRevision(conversationId, activeBranchId);
         if (syncRuntimeStateToSt) {
-            snapshotService.saveSnapshotFromDb(conversationId, 800);
-            try {
-                syncSwipeSelectionToSt(conversationId, targetMessageId, token);
-            } catch (Exception ignored) {
-            }
+            runAfterCommit(() -> {
+                try {
+                    snapshotService.saveSnapshotFromDb(conversationId, activeBranchId, 800);
+                } catch (Exception ex) {
+                    log.warn("regenerate snapshot sync failed conversationId={} branchId={}",
+                            conversationId, activeBranchId, ex);
+                }
+                try {
+                    syncSwipeSelectionToSt(conversationId, targetMessageId, token, outputRegexApplied);
+                } catch (Exception ex) {
+                    log.warn("regenerate swipe sync failed conversationId={} messageId={}",
+                            conversationId, targetMessageId, ex);
+                }
+            });
         }
+        memoryAutoRefreshService.triggerAfterHistoryChange(conversationId, activeBranchId);
         return new SwipeVariant(String.valueOf(targetMessageId), next, generated.getContent(), Instant.now());
     }
 
@@ -1807,10 +2179,12 @@ public class AppChatService {
                 taskId,
                 suffixContent,
                 token,
-                true
+                true,
+                false
         );
     }
 
+    @Transactional
     public void finalizeContinueAsMessage(
             long conversationId,
             long anchorAssistantId,
@@ -1820,12 +2194,66 @@ public class AppChatService {
             String token,
             boolean syncRuntimeStateToSt
     ) {
+        finalizeContinueAsMessage(
+                conversationId,
+                anchorAssistantId,
+                provisionalAssistantId,
+                taskId,
+                suffixContent,
+                token,
+                syncRuntimeStateToSt,
+                false,
+                false
+        );
+    }
+
+    @Transactional
+    public void finalizeContinueAsMessage(
+            long conversationId,
+            long anchorAssistantId,
+            long provisionalAssistantId,
+            long taskId,
+            String suffixContent,
+            String token,
+            boolean syncRuntimeStateToSt,
+            boolean outputRegexApplied
+    ) {
+        finalizeContinueAsMessage(
+                conversationId,
+                anchorAssistantId,
+                provisionalAssistantId,
+                taskId,
+                suffixContent,
+                token,
+                syncRuntimeStateToSt,
+                outputRegexApplied,
+                false
+        );
+    }
+
+    @Transactional
+    public void finalizeContinueAsMessage(
+            long conversationId,
+            long anchorAssistantId,
+            long provisionalAssistantId,
+            long taskId,
+            String suffixContent,
+            String token,
+            boolean syncRuntimeStateToSt,
+            boolean outputRegexApplied,
+            boolean cancelled
+    ) {
         long userId = tokenService.validateAndLoadUser(token).getId();
         AppConversation c = conversationMapper.findByIdForUser(conversationId, userId);
         if (c == null) throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(c);
+        long activeBranchId = activeBranch.getId();
 
         AppMessage anchor = messageMapper.findById(anchorAssistantId);
         if (anchor == null || anchor.getConversationId() == null || anchor.getConversationId() != conversationId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "continue anchor not found");
+        }
+        if (anchor.getBranchId() == null || anchor.getBranchId().longValue() != activeBranchId) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "continue anchor not found");
         }
         if (!"assistant".equalsIgnoreCase(anchor.getRole())) {
@@ -1835,29 +2263,48 @@ public class AppChatService {
         if (provisional == null || provisional.getConversationId() == null || provisional.getConversationId() != conversationId) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "provisional message not found");
         }
+        if (provisional.getBranchId() == null || provisional.getBranchId().longValue() != activeBranchId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "provisional message not found");
+        }
 
         String rawContent = suffixContent == null ? "" : suffixContent;
         String content = rawContent.trim();
         messageMapper.updateContinuationMeta(provisionalAssistantId, "CONTINUATION", anchorAssistantId, traceIdSafe());
-        if (content.isBlank()) {
-            messageMapper.updateStatusAndContent(provisionalAssistantId, "STOPPED", "", null, traceIdSafe());
-        } else {
-            String ref = "root:" + provisionalAssistantId;
-            messageMapper.updateStatusAndContent(provisionalAssistantId, "SUCCESS", content, null, traceIdSafe());
-            messageMapper.updateVariantMeta(provisionalAssistantId, ref, 0, traceIdSafe());
-            if (syncRuntimeStateToSt) {
-                try {
-                    syncContinuationReplyToSt(conversationId, anchorAssistantId, rawContent, token);
-                } catch (Exception ignored) {
-                }
-            }
-        }
-        taskMapper.updateStatus(taskId, "SUCCESS", null, null, traceIdSafe(), null);
+        String finalStatus = cancelled ? "STOPPED" : "SUCCESS";
+        String ref = "root:" + provisionalAssistantId;
+        messageMapper.updateStatusAndContent(provisionalAssistantId, finalStatus, content, null, traceIdSafe());
+        messageMapper.updateVariantMeta(provisionalAssistantId, ref, 0, traceIdSafe());
+        taskMapper.updateStatus(taskId, cancelled ? "STOPPED" : "SUCCESS", null, null, traceIdSafe(), null);
         if (syncRuntimeStateToSt) {
-            snapshotService.saveSnapshotFromDb(conversationId, 800);
+            runAfterCommit(() -> {
+                if (!content.isBlank()) {
+                    try {
+                        syncContinuationReplyToSt(
+                                conversationId,
+                                anchorAssistantId,
+                                rawContent,
+                                token,
+                                outputRegexApplied
+                        );
+                    } catch (Exception ex) {
+                        log.warn("continuation ST sync failed conversationId={} anchorMessageId={}",
+                                conversationId, anchorAssistantId, ex);
+                    }
+                }
+                try {
+                    snapshotService.saveSnapshotFromDb(conversationId, activeBranchId, 800);
+                } catch (Exception ex) {
+                    log.warn("continuation snapshot sync failed conversationId={} branchId={}",
+                            conversationId, activeBranchId, ex);
+                }
+            });
         }
         chatAuditService.touchAfterAssistantContentUpdate(provisionalAssistantId);
-        triggerMemoryRefreshAfterCommit(conversationId);
+        triggerMemoryRefreshAfterCommit(conversationId, activeBranchId);
+    }
+
+    public void markMemorySourceChanged(long conversationId, long branchId) {
+        branchService.incrementMemorySourceRevision(conversationId, branchId);
     }
 
     @Transactional
@@ -1865,8 +2312,12 @@ public class AppChatService {
         long userId = tokenService.validateAndLoadUser(token).getId();
         AppConversation c = conversationMapper.findByIdForUser(conversationId, userId);
         if (c == null) throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(c);
         AppMessage prov = messageMapper.findById(provisionalAssistantId);
         if (prov == null || prov.getConversationId() == null || prov.getConversationId() != conversationId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "provisional message not found");
+        }
+        if (prov.getBranchId() == null || prov.getBranchId().longValue() != activeBranch.getId()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "provisional message not found");
         }
         taskMapper.updateStatus(taskId, "STOPPED", null, null, traceIdSafe(), null);
@@ -2012,7 +2463,8 @@ public class AppChatService {
         }
         long userId = root.getUserId() == null ? 0L : root.getUserId();
         long conversationId = root.getConversationId() == null ? 0L : root.getConversationId();
-        if (userId <= 0 || conversationId <= 0) {
+        long branchId = root.getBranchId() == null ? 0L : root.getBranchId();
+        if (userId <= 0 || conversationId <= 0 || branchId <= 0) {
             return;
         }
         for (int i = 1; i < variants.size(); i++) {
@@ -2023,6 +2475,8 @@ public class AppChatService {
             AppMessage row = new AppMessage();
             row.setUserId(userId);
             row.setConversationId(conversationId);
+            row.setBranchId(branchId);
+            row.setParentMessageId(root.getId());
             row.setRole("assistant");
             row.setClientMessageId("opening_" + root.getId() + "_idx_" + i);
             row.setContent(variant);
@@ -2049,7 +2503,11 @@ public class AppChatService {
         }
         String ref = root.getStMessageRef();
         String expectedRef = "root:" + root.getId();
-        if (ref == null || ref.isBlank() || !ref.equals(expectedRef) || root.getSwipeIndex() == null) {
+        if (ref == null
+                || ref.isBlank()
+                || !ref.equals(expectedRef)
+                || root.getSwipeIndex() == null
+                || root.getSwipeIndex() != activeIndex) {
             ref = expectedRef;
             messageMapper.updateVariantMeta(root.getId(), ref, activeIndex, traceIdSafe());
             root.setStMessageRef(ref);
@@ -2059,13 +2517,17 @@ public class AppChatService {
             if (i == activeIndex) {
                 continue;
             }
-            AppMessage existing = messageMapper.findByStMessageRefAndSwipeIndex(ref, i);
+            AppMessage existing = root.getBranchId() == null
+                    ? messageMapper.findByStMessageRefAndSwipeIndex(ref, i)
+                    : messageMapper.findByStMessageRefAndSwipeIndexAndBranch(ref, i, root.getBranchId());
             if (existing != null) {
                 continue;
             }
             AppMessage row = new AppMessage();
             row.setUserId(root.getUserId());
             row.setConversationId(root.getConversationId());
+            row.setBranchId(root.getBranchId());
+            row.setParentMessageId(root.getId());
             row.setRole("assistant");
             row.setClientMessageId("opening_" + root.getId() + "_idx_" + i);
             row.setContent(variants.get(i));
@@ -2082,12 +2544,30 @@ public class AppChatService {
         return row != null && "assistant".equalsIgnoreCase(row.getRole());
     }
 
+    private static AppMessage findOpeningAssistantMessage(List<AppMessage> visibleMessages) {
+        if (visibleMessages == null || visibleMessages.isEmpty()) {
+            return null;
+        }
+        for (AppMessage row : visibleMessages) {
+            String clientMessageId = row == null || row.getClientMessageId() == null
+                    ? ""
+                    : row.getClientMessageId();
+            if (isAssistantOpeningCandidate(row) && clientMessageId.startsWith("opening_")) {
+                return row;
+            }
+        }
+        return visibleMessages.size() == 1 && isAssistantOpeningCandidate(visibleMessages.get(0))
+                ? visibleMessages.get(0)
+                : null;
+    }
+
     private static String normalizeOpeningVariant(String value) {
         return nz(value).replace("\r\n", "\n").replace('\r', '\n').strip();
     }
 
     private boolean repairBogusOpeningMessageIfNeeded(
             long conversationId,
+            long branchId,
             List<AppMessage> visibleMessages,
             RoleplayBundle bundle,
             String opening
@@ -2114,7 +2594,7 @@ public class AppChatService {
                 only.getErrorCode(),
                 traceIdSafe());
         chatAuditService.touchAfterAssistantContentUpdate(only.getId());
-        snapshotService.saveSnapshotFromDb(conversationId, 800);
+        snapshotService.saveSnapshotFromDb(conversationId, branchId, 800);
         return true;
     }
 
@@ -2357,11 +2837,16 @@ public class AppChatService {
         }
         String ref = ensureSwipeRootRef(target, traceIdSafe());
         int currentIndex = target.getSwipeIndex() == null ? 0 : target.getSwipeIndex();
-        AppMessage existing = messageMapper.findByStMessageRefAndSwipeIndex(ref, currentIndex);
+        Long branchId = target.getBranchId();
+        AppMessage existing = branchId == null || branchId <= 0
+                ? messageMapper.findByStMessageRefAndSwipeIndex(ref, currentIndex)
+                : messageMapper.findByStMessageRefAndSwipeIndexAndBranch(ref, currentIndex, branchId);
         if (existing == null || existing.getId() == null || existing.getId().equals(target.getId())) {
             AppMessage clone = new AppMessage();
             clone.setUserId(target.getUserId());
             clone.setConversationId(target.getConversationId());
+            clone.setBranchId(target.getBranchId());
+            clone.setParentMessageId(target.getParentMessageId());
             clone.setRole(target.getRole());
             clone.setMessageKind(target.getMessageKind());
             clone.setContinueFromMessageId(target.getContinueFromMessageId());
@@ -2390,7 +2875,7 @@ public class AppChatService {
     }
 
     static boolean includeVisibleMessage(AppMessage m) {
-        if (m == null || m.getContent() == null || m.getContent().isBlank()) {
+        if (m == null || m.getContent() == null) {
             return false;
         }
         String status = m.getStatus() == null ? "" : m.getStatus();
@@ -2398,12 +2883,15 @@ public class AppChatService {
             return false;
         }
         if ("user".equalsIgnoreCase(m.getRole())) {
-            return true;
+            return !m.getContent().isBlank();
         }
         if (!"assistant".equalsIgnoreCase(m.getRole())) {
             return false;
         }
         if (!"SUCCESS".equalsIgnoreCase(status) && !"STOPPED".equalsIgnoreCase(status)) {
+            return false;
+        }
+        if (m.getContent().isBlank() && !"SUCCESS".equalsIgnoreCase(status)) {
             return false;
         }
         String ref = m.getStMessageRef();

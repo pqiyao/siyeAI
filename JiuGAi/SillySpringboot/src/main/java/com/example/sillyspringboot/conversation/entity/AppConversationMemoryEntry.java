@@ -7,6 +7,7 @@ public class AppConversationMemoryEntry {
 
     private Long id;
     private Long conversationId;
+    private Long branchId;
     private String entryKey;
     private String memoryType;
     private String title;
@@ -18,6 +19,11 @@ public class AppConversationMemoryEntry {
     private boolean constantInjection;
     private boolean selective;
     private boolean enabled;
+    private boolean manualDisabled;
+    private boolean manualDeleted;
+    private boolean manualPinned;
+    private String retiredReason;
+    private LocalDateTime retiredAt;
     private BigDecimal confidence;
     private Long sourceMessageFromId;
     private Long sourceMessageToId;
@@ -40,6 +46,14 @@ public class AppConversationMemoryEntry {
 
     public void setConversationId(Long conversationId) {
         this.conversationId = conversationId;
+    }
+
+    public Long getBranchId() {
+        return branchId;
+    }
+
+    public void setBranchId(Long branchId) {
+        this.branchId = branchId;
     }
 
     public String getEntryKey() {
@@ -128,6 +142,46 @@ public class AppConversationMemoryEntry {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isManualDisabled() {
+        return manualDisabled;
+    }
+
+    public void setManualDisabled(boolean manualDisabled) {
+        this.manualDisabled = manualDisabled;
+    }
+
+    public boolean isManualDeleted() {
+        return manualDeleted;
+    }
+
+    public void setManualDeleted(boolean manualDeleted) {
+        this.manualDeleted = manualDeleted;
+    }
+
+    public boolean isManualPinned() {
+        return manualPinned;
+    }
+
+    public void setManualPinned(boolean manualPinned) {
+        this.manualPinned = manualPinned;
+    }
+
+    public String getRetiredReason() {
+        return retiredReason;
+    }
+
+    public void setRetiredReason(String retiredReason) {
+        this.retiredReason = retiredReason;
+    }
+
+    public LocalDateTime getRetiredAt() {
+        return retiredAt;
+    }
+
+    public void setRetiredAt(LocalDateTime retiredAt) {
+        this.retiredAt = retiredAt;
     }
 
     public BigDecimal getConfidence() {

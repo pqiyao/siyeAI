@@ -94,11 +94,20 @@ public class AppAuthService {
 
     @Transactional
     public AppAuthSessionResponse registerWithH5Account(H5AccountRegisterRequest request) {
-        return registerWithH5Account(request, null);
+        return registerNewH5Account(request);
     }
 
+    /**
+     * Legacy signature retained for binary/source compatibility. A clientUid is not an
+     * authentication credential and therefore must never select or upgrade an existing user.
+     */
+    @Deprecated
     @Transactional
-    public AppAuthSessionResponse registerWithH5Account(H5AccountRegisterRequest request, String clientUid) {
+    public AppAuthSessionResponse registerWithH5Account(H5AccountRegisterRequest request, String ignoredClientUid) {
+        return registerNewH5Account(request);
+    }
+
+    private AppAuthSessionResponse registerNewH5Account(H5AccountRegisterRequest request) {
         featureSettingsService.ensureRegisterEnabled();
         String account = validateAccount(request.getAccount());
         String normalizedAccountKey = normalizeAccountKey(account);
@@ -107,29 +116,12 @@ public class AppAuthService {
             throw new BusinessException(ErrorCode.CONFLICT, "账号已存在");
         }
 
-        AppUser user = resolveGuestUpgradeTarget(clientUid);
-        if (user == null) {
-            user = new AppUser();
-            user.setTelegramUserId(null);
-            user.setUsername(account);
-            user.setFirstName(account);
-            appUserMapper.insert(user);
-        } else {
-            boolean updateUser = false;
-            if (shouldReplaceUsername(user.getUsername())) {
-                user.setUsername(account);
-                updateUser = true;
-            }
-            if (shouldReplaceFirstName(user.getFirstName())) {
-                user.setFirstName(account);
-                updateUser = true;
-            }
-            if (updateUser) {
-                appUserMapper.updateById(user);
-            }
-        }
+        AppUser user = new AppUser();
+        user.setTelegramUserId(null);
+        user.setUsername(account);
+        user.setFirstName(account);
+        appUserMapper.insert(user);
         insertH5Identity(user.getId(), normalizedAccountKey, passwordEncoder.encode(request.getPassword()));
-        bindH5ClientUidToUser(clientUid, user.getId());
         return issueSession(user);
     }
 
@@ -309,40 +301,6 @@ public class AppAuthService {
                 firstNonBlank(ext == null ? null : ext.getAvatar(), user.getPhotoUrl(), ""),
                 user.getTelegramUserId() != null
         );
-    }
-
-    private AppUser resolveGuestUpgradeTarget(String clientUid) {
-        String normalized = clientUid == null ? "" : clientUid.trim();
-        if (normalized.isBlank() || normalized.startsWith("h5u_")) {
-            return null;
-        }
-        AppH5ClientUid mapping = h5ClientUidMapper.findByClientUid(normalized);
-        if (mapping == null || mapping.getUserId() == null) {
-            return null;
-        }
-        AppUser user = appUserMapper.findById(mapping.getUserId());
-        if (user == null) {
-            return null;
-        }
-        if (identityMapper.findByUserIdAndType(user.getId(), IDENTITY_H5_ACCOUNT) != null) {
-            return null;
-        }
-        return user;
-    }
-
-    private static boolean shouldReplaceUsername(String value) {
-        if (!hasText(value)) {
-            return true;
-        }
-        return value.trim().toLowerCase(Locale.ROOT).startsWith("h5_");
-    }
-
-    private static boolean shouldReplaceFirstName(String value) {
-        if (!hasText(value)) {
-            return true;
-        }
-        String trimmed = value.trim();
-        return "H5".equalsIgnoreCase(trimmed) || trimmed.toLowerCase(Locale.ROOT).startsWith("h5_");
     }
 
     private static String validateAccount(String raw) {

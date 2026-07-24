@@ -39,6 +39,7 @@ public class AppConversationMemoryEntryMapperTest {
                 CREATE TABLE app_conversation_memory_entry (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     conversation_id BIGINT NOT NULL,
+                    branch_id BIGINT NOT NULL DEFAULT 0,
                     entry_key VARCHAR(128) NOT NULL,
                     memory_type VARCHAR(32) NOT NULL,
                     title VARCHAR(255) NULL,
@@ -50,6 +51,11 @@ public class AppConversationMemoryEntryMapperTest {
                     constant_injection BOOLEAN NOT NULL DEFAULT FALSE,
                     selective BOOLEAN NOT NULL DEFAULT FALSE,
                     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    manual_disabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    manual_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+                    manual_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+                    retired_reason VARCHAR(32) NULL,
+                    retired_at TIMESTAMP NULL,
                     confidence DECIMAL(5,2) NULL,
                     source_message_from_id BIGINT NULL,
                     source_message_to_id BIGINT NULL,
@@ -58,7 +64,7 @@ public class AppConversationMemoryEntryMapperTest {
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     deleted_at TIMESTAMP NULL DEFAULT NULL,
                     CONSTRAINT fk_memory_entry_conv FOREIGN KEY (conversation_id) REFERENCES app_conversation(id),
-                    CONSTRAINT uk_memory_entry_key UNIQUE (conversation_id, entry_key)
+                    CONSTRAINT uk_memory_entry_key UNIQUE (conversation_id, branch_id, entry_key)
                 )
                 """);
 
@@ -121,6 +127,66 @@ public class AppConversationMemoryEntryMapperTest {
         assertThat(entryMapper.countAllByConversationId(otherConversationId)).isEqualTo(1);
     }
 
+    @Test
+    void memoryEntryMapper_shouldPreserveManualDisableAcrossUpsert() {
+        long conversationId = 1001L;
+        AppConversationMemoryEntry entry = entry(conversationId, "identity_call", "identity",
+                "Call name", "Call me Ayao.", "[\"Ayao\"]", 200);
+        entryMapper.upsert(entry);
+        AppConversationMemoryEntry stored = entryMapper.listAllByConversationId(conversationId).get(0);
+
+        assertThat(entryMapper.findByIdForConversationBranch(stored.getId(), conversationId, 1L)).isNull();
+        assertThat(entryMapper.setManualEnabledById(stored.getId(), conversationId, 0L, false, true)).isEqualTo(1);
+        AppConversationMemoryEntry regenerated = entry(conversationId, "identity_call", "identity",
+                "Call name", "Call me Ayao again.", "[\"Ayao\"]", 200);
+        entryMapper.upsert(regenerated);
+
+        AppConversationMemoryEntry after = entryMapper.listAllByConversationId(conversationId).get(0);
+        assertThat(after.getContent()).contains("again");
+        assertThat(after.isEnabled()).isFalse();
+        assertThat(after.isManualDisabled()).isTrue();
+
+        assertThat(entryMapper.setManualEnabledById(stored.getId(), conversationId, 0L, true, false)).isEqualTo(1);
+        assertThat(entryMapper.listEnabledByConversationId(conversationId))
+                .extracting(AppConversationMemoryEntry::getEntryKey)
+                .containsExactly("identity_call");
+    }
+
+    @Test
+    void memoryEntryMapper_shouldKeepManualDeleteTombstoneAcrossUpsert() {
+        long conversationId = 1001L;
+        AppConversationMemoryEntry entry = entry(conversationId, "private_fact", "identity",
+                "Private fact", "User shared a private fact.", "[\"private\"]", 200);
+        entryMapper.upsert(entry);
+        AppConversationMemoryEntry stored = entryMapper.listAllByConversationId(conversationId).get(0);
+
+        assertThat(entryMapper.softDeleteManualById(stored.getId(), conversationId, 0L)).isEqualTo(1);
+        assertThat(entryMapper.listAllByConversationId(conversationId)).isEmpty();
+        assertThat(entryMapper.countEnabledByConversationId(conversationId)).isZero();
+
+        List<AppConversationMemoryEntry> refreshEntries = entryMapper.listManualDeletedByConversationId(conversationId);
+        assertThat(refreshEntries)
+                .singleElement()
+                .satisfies(tombstone -> {
+                    assertThat(tombstone.isManualDeleted()).isTrue();
+                    assertThat(tombstone.isEnabled()).isFalse();
+                    assertThat(tombstone.getDeletedAt()).isNotNull();
+                });
+
+        AppConversationMemoryEntry regenerated = entry(conversationId, "private_fact", "identity",
+                "Private fact", "User shared the private fact again.", "[\"private\"]", 200);
+        entryMapper.upsert(regenerated);
+
+        assertThat(entryMapper.listAllByConversationId(conversationId)).isEmpty();
+        assertThat(entryMapper.listManualDeletedByConversationId(conversationId))
+                .singleElement()
+                .satisfies(tombstone -> {
+                    assertThat(tombstone.isManualDeleted()).isTrue();
+                    assertThat(tombstone.isEnabled()).isFalse();
+                    assertThat(tombstone.getDeletedAt()).isNotNull();
+                });
+    }
+
     private AppConversationMemoryEntry entry(
             long conversationId,
             String entryKey,
@@ -132,6 +198,7 @@ public class AppConversationMemoryEntryMapperTest {
     ) {
         AppConversationMemoryEntry entry = new AppConversationMemoryEntry();
         entry.setConversationId(conversationId);
+        entry.setBranchId(0L);
         entry.setEntryKey(entryKey);
         entry.setMemoryType(memoryType);
         entry.setTitle(title);
@@ -142,6 +209,9 @@ public class AppConversationMemoryEntryMapperTest {
         entry.setConstantInjection(true);
         entry.setSelective(false);
         entry.setEnabled(true);
+        entry.setManualDisabled(false);
+        entry.setManualDeleted(false);
+        entry.setManualPinned(false);
         entry.setConfidence(new BigDecimal("0.95"));
         return entry;
     }

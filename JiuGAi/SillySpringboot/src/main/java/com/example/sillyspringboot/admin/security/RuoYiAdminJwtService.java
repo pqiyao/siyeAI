@@ -41,11 +41,10 @@ public class RuoYiAdminJwtService {
     }
 
     private SecretKey signingKey() {
-        byte[] bytes = props.getJwtSecret().getBytes(StandardCharsets.UTF_8);
+        String secret = props.getJwtSecret();
+        byte[] bytes = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < 32) {
-            byte[] padded = new byte[32];
-            System.arraycopy(bytes, 0, padded, 0, Math.min(bytes.length, 32));
-            bytes = padded;
+            throw new IllegalStateException("Admin JWT secret must contain at least 32 UTF-8 bytes");
         }
         return Keys.hmacShaKeyFor(bytes);
     }

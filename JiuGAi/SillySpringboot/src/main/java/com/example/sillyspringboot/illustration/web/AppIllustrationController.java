@@ -98,8 +98,10 @@ public class AppIllustrationController {
             @RequestParam(required = false) String token,
             @RequestHeader(value = "Authorization", required = false) String authorization
     ) {
-        String imageUrl = uploadService.saveImageAndGetUrl(file);
         AppUser user = resolveOptionalUser(token, authorization);
+        String imageUrl = user == null
+                ? uploadService.saveUnownedImageAndGetUrl(file)
+                : uploadService.saveOwnedImageAndGetUrl(file, user.getId());
         Map<String, Object> data = illustrationWorkService.submitUserWork(
                 user == null ? null : user.getId(),
                 title,

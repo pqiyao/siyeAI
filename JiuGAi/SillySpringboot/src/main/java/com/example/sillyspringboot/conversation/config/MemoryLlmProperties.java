@@ -24,9 +24,21 @@ public class MemoryLlmProperties {
 
     private int autoMinVisibleMessages = 6;
 
+    private int autoRefreshWorkerThreads = 2;
+
+    private int autoRefreshQueueCapacity = 64;
+
+    private int autoRefreshLeaseSeconds = 900;
+
+    private int manualRefreshCooldownSeconds = 60;
+
+    private int manualRefreshLeaseSeconds = 300;
+
     private int maxEnabledEntries = 80;
 
     private int maxConstantEntries = 12;
+
+    private int maxArchivedEntries = 40;
 
     private int maxEntryContentChars = 300;
 
@@ -88,6 +100,46 @@ public class MemoryLlmProperties {
         this.autoMinVisibleMessages = autoMinVisibleMessages;
     }
 
+    public int getAutoRefreshWorkerThreads() {
+        return autoRefreshWorkerThreads;
+    }
+
+    public void setAutoRefreshWorkerThreads(int autoRefreshWorkerThreads) {
+        this.autoRefreshWorkerThreads = autoRefreshWorkerThreads;
+    }
+
+    public int getAutoRefreshQueueCapacity() {
+        return autoRefreshQueueCapacity;
+    }
+
+    public void setAutoRefreshQueueCapacity(int autoRefreshQueueCapacity) {
+        this.autoRefreshQueueCapacity = autoRefreshQueueCapacity;
+    }
+
+    public int getAutoRefreshLeaseSeconds() {
+        return autoRefreshLeaseSeconds;
+    }
+
+    public void setAutoRefreshLeaseSeconds(int autoRefreshLeaseSeconds) {
+        this.autoRefreshLeaseSeconds = autoRefreshLeaseSeconds;
+    }
+
+    public int getManualRefreshCooldownSeconds() {
+        return manualRefreshCooldownSeconds;
+    }
+
+    public void setManualRefreshCooldownSeconds(int manualRefreshCooldownSeconds) {
+        this.manualRefreshCooldownSeconds = manualRefreshCooldownSeconds;
+    }
+
+    public int getManualRefreshLeaseSeconds() {
+        return manualRefreshLeaseSeconds;
+    }
+
+    public void setManualRefreshLeaseSeconds(int manualRefreshLeaseSeconds) {
+        this.manualRefreshLeaseSeconds = manualRefreshLeaseSeconds;
+    }
+
     public int getMaxEnabledEntries() {
         return maxEnabledEntries;
     }
@@ -102,6 +154,14 @@ public class MemoryLlmProperties {
 
     public void setMaxConstantEntries(int maxConstantEntries) {
         this.maxConstantEntries = maxConstantEntries;
+    }
+
+    public int getMaxArchivedEntries() {
+        return maxArchivedEntries;
+    }
+
+    public void setMaxArchivedEntries(int maxArchivedEntries) {
+        this.maxArchivedEntries = maxArchivedEntries;
     }
 
     public int getMaxEntryContentChars() {

@@ -83,13 +83,13 @@ public class WechatH5StorePaymentProvider implements StorePaymentProvider {
     ) {
         AppPaymentChannelConfig config = channelConfigService.getRequired(CHANNEL_CODE);
         if (!Boolean.TRUE.equals(config.getEnabled())) {
-            return unavailablePayload(config, "微信 H5 通道尚未开启，请联系客服。");
+            return unavailablePayload(config, "微信 H5 通道尚未开启，请联系客服");
         }
         if (!credentialsReady()) {
-            return unavailablePayload(config, "微信商户参数未配置完成，请先在后台补齐配置。");
+            return unavailablePayload(config, "微信商户参数未配置完成，请先在后台补齐配置");
         }
         if (context == null || context.getClientIp().isBlank()) {
-            return unavailablePayload(config, "微信 H5 支付需要识别用户来源 IP，请在公网环境下发起支付。");
+            return unavailablePayload(config, "微信 H5 支付需要识别用户来IP，请在公网环境下发起支付");
         }
 
         try {
@@ -112,13 +112,13 @@ public class WechatH5StorePaymentProvider implements StorePaymentProvider {
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                return unavailablePayload(config, "微信 H5 下单失败：" + extractWechatError(response.body()));
+                return unavailablePayload(config, "微信 H5 下单失败 + extractWechatError(response.body())");
             }
 
             Map<String, Object> body = objectMapper.readValue(response.body(), MAP_TYPE);
             String paymentUrl = stringValue(body.get("h5_url"));
             if (paymentUrl.isBlank()) {
-                return unavailablePayload(config, "微信 H5 下单成功，但未返回支付链接。");
+                return unavailablePayload(config, "微信 H5 下单成功，但未返回支付链接");
             }
 
             Map<String, Object> data = new LinkedHashMap<>();
@@ -127,7 +127,7 @@ public class WechatH5StorePaymentProvider implements StorePaymentProvider {
             data.put("ready", true);
             data.put("manualSettlement", false);
             data.put("action", "open_external_url");
-            data.put("message", "已生成微信支付链接，请继续完成支付。");
+            data.put("message", "已生成微信支付链接，请继续完成支付");
             data.put("paymentUrl", paymentUrl);
             data.put("orderNo", order.getOrderNo());
             data.put("productCode", order.getProductCode());
@@ -135,7 +135,7 @@ public class WechatH5StorePaymentProvider implements StorePaymentProvider {
             return data;
         } catch (IOException | InterruptedException ex) {
             Thread.currentThread().interrupt();
-            return unavailablePayload(config, "微信支付请求失败，请稍后重试。");
+            return unavailablePayload(config, "微信支付请求失败，请稍后重试");
         }
     }
 
@@ -198,10 +198,10 @@ public class WechatH5StorePaymentProvider implements StorePaymentProvider {
 
     private String channelDescription(AppPaymentChannelConfig config, boolean credentialsReady) {
         if (!Boolean.TRUE.equals(config.getEnabled())) {
-            return "后台已预留微信 H5 通道，当前未对用户开放。";
+            return "后台已预留微H5 通道，当前未对用户开放";
         }
         if (!credentialsReady) {
-            return "微信 H5 通道已开启，但商户参数或证书尚未补齐。";
+            return "微信 H5 通道已开启，但商户参数或证书尚未补齐";
         }
         return blank(config.getDescription());
     }

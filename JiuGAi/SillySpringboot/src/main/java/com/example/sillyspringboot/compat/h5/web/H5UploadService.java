@@ -1,5 +1,6 @@
 package com.example.sillyspringboot.compat.h5.web;
 
+import com.example.sillyspringboot.compat.h5.service.H5UploadAssetOwnershipService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,12 +19,25 @@ import java.util.UUID;
 public class H5UploadService {
 
     private final Path uploadRoot;
+    private final H5UploadAssetOwnershipService ownershipService;
 
-    public H5UploadService(@Value("${app.upload.dir:${user.dir}/data/uploads}") String uploadDir) {
+    public H5UploadService(
+            @Value("${app.upload.dir:${user.dir}/data/uploads}") String uploadDir,
+            H5UploadAssetOwnershipService ownershipService
+    ) {
         this.uploadRoot = Path.of(uploadDir).toAbsolutePath().normalize();
+        this.ownershipService = ownershipService;
     }
 
-    public String saveAndGetUrl(MultipartFile file) {
+    public String saveUnownedAndGetUrl(MultipartFile file) {
+        return saveAndGetUrl(file, null);
+    }
+
+    public String saveOwnedAndGetUrl(MultipartFile file, long ownerUserId) {
+        return saveAndGetUrl(file, ownerUserId);
+    }
+
+    private String saveAndGetUrl(MultipartFile file, Long ownerUserId) {
         Path folder = ensureUploadFolder();
         String ext = guessExt(
                 file == null ? null : file.getOriginalFilename(),
@@ -33,13 +47,32 @@ public class H5UploadService {
         Path target = folder.resolve(name);
         try (InputStream in = file.getInputStream()) {
             Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
-            return "/uploads/h5/" + name;
+            String url = "/uploads/h5/" + name;
+            if (ownerUserId != null) {
+                ownershipService.registerOwnedAsset(ownerUserId, url, name);
+            }
+            return url;
         } catch (Exception e) {
+            try {
+                Files.deleteIfExists(target);
+            } catch (Exception cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "上传失败");
         }
     }
 
-    public String saveImageAndGetUrl(MultipartFile file) {
+    public String saveUnownedImageAndGetUrl(MultipartFile file) {
+        validateImage(file);
+        return saveUnownedAndGetUrl(file);
+    }
+
+    public String saveOwnedImageAndGetUrl(MultipartFile file, long ownerUserId) {
+        validateImage(file);
+        return saveOwnedAndGetUrl(file, ownerUserId);
+    }
+
+    private static void validateImage(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "图片不能为空");
         }
@@ -51,10 +84,9 @@ public class H5UploadService {
         if (!contentType.isBlank() && !contentType.startsWith("image/")) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "仅支持图片上传");
         }
-        return saveAndGetUrl(file);
     }
 
-    public String saveAudioAndGetUrl(MultipartFile file) {
+    public String saveUnownedAudioAndGetUrl(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "语音文件不能为空");
         }
@@ -69,7 +101,7 @@ public class H5UploadService {
         if (ext.isBlank() || !isAudioExt(ext)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "仅支持常见音频上传");
         }
-        return saveAndGetUrl(file);
+        return saveUnownedAndGetUrl(file);
     }
 
     public byte[] readUploadedFileBytes(String url) {

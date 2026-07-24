@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.checkin.mapper.AppCheckinClaimMapper">
+
+    <resultMap id="ClaimMap" type="com.example.sillyspringboot.ops.checkin.entity.AppCheckinClaim">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="activity_id" property="activityId"/>
+        <result column="biz_date" property="bizDate"/>
+        <result column="streak_day" property="streakDay"/>
+        <result column="reward_score" property="rewardScore"/>
+        <result column="reward_gold" property="rewardGold"/>
+        <result column="reward_chat_bonus" property="rewardChatBonus"/>
+        <result column="reward_image_bonus" property="rewardImageBonus"/>
+        <result column="reward_json" property="rewardJson"/>
+        <result column="ledger_idempotency_key" property="ledgerIdempotencyKey"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_checkin_claim (
+            user_id, activity_id, biz_date, streak_day,
+            reward_score, reward_gold, reward_chat_bonus, reward_image_bonus,
+            reward_json, ledger_idempotency_key, created_at
+        ) VALUES (
+            #{userId}, #{activityId}, #{bizDate}, #{streakDay},
+            #{rewardScore}, #{rewardGold}, #{rewardChatBonus}, #{rewardImageBonus},
+            #{rewardJson}, #{ledgerIdempotencyKey}, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <select id="findByUserActivityDate" resultMap="ClaimMap">
+        SELECT * FROM app_checkin_claim
+        WHERE user_id = #{userId}
+          AND activity_id = #{activityId}
+          AND biz_date = #{bizDate}
+        LIMIT 1
+    </select>
+
+    <select id="listByUserActivityDateRange" resultMap="ClaimMap">
+        SELECT * FROM app_checkin_claim
+        WHERE user_id = #{userId}
+          AND activity_id = #{activityId}
+          AND biz_date &gt;= #{fromDate}
+          AND biz_date &lt;= #{toDate}
+        ORDER BY biz_date ASC
+    </select>
+
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(1) FROM app_checkin_claim
+        WHERE 1 = 1
+        <if test="activityId != null">
+            AND activity_id = #{activityId}
+        </if>
+        <if test="bizDate != null">
+            AND biz_date = #{bizDate}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND CAST(user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+    </select>
+
+    <select id="listAdminPage" resultMap="ClaimMap">
+        SELECT * FROM app_checkin_claim
+        WHERE 1 = 1
+        <if test="activityId != null">
+            AND activity_id = #{activityId}
+        </if>
+        <if test="bizDate != null">
+            AND biz_date = #{bizDate}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND CAST(user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        ORDER BY id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+</mapper>

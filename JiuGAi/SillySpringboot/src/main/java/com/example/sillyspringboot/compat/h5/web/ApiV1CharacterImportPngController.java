@@ -2,6 +2,7 @@ package com.example.sillyspringboot.compat.h5.web;
 
 import com.example.sillyspringboot.character.service.CharacterCatalogService;
 import com.example.sillyspringboot.character.service.EmbeddedLorebookSyncService;
+import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.compat.h5.service.H5VisitorDeviceService;
 import com.example.sillyspringboot.compat.h5.service.H5VisitorTrialGuardService;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
@@ -32,17 +33,20 @@ public class ApiV1CharacterImportPngController {
 
     private final StAdapter stAdapter;
     private final CharacterCatalogService catalog;
+    private final H5ClientUidAuthService h5Auth;
     private final H5VisitorTrialGuardService visitorTrialGuardService;
     private final EmbeddedLorebookSyncService embeddedLorebookSyncService;
 
     public ApiV1CharacterImportPngController(
             StAdapter stAdapter,
             CharacterCatalogService catalog,
+            H5ClientUidAuthService h5Auth,
             H5VisitorTrialGuardService visitorTrialGuardService,
             EmbeddedLorebookSyncService embeddedLorebookSyncService
     ) {
         this.stAdapter = stAdapter;
         this.catalog = catalog;
+        this.h5Auth = h5Auth;
         this.visitorTrialGuardService = visitorTrialGuardService;
         this.embeddedLorebookSyncService = embeddedLorebookSyncService;
     }
@@ -53,7 +57,9 @@ public class ApiV1CharacterImportPngController {
             HttpServletRequest request
     ) {
         try {
-            visitorTrialGuardService.guardAnonymousCharacterCreation(H5VisitorDeviceService.resolveClientUid(request));
+            String clientUid = H5VisitorDeviceService.resolveClientUid(request);
+            visitorTrialGuardService.guardAnonymousCharacterCreation(clientUid);
+            h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
             if (file == null || file.isEmpty()) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED, "文件不能为空");
             }

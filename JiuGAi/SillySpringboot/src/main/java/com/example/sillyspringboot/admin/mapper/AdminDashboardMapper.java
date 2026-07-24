@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDateTime;
 
 @Mapper
 public interface AdminDashboardMapper {
@@ -36,4 +37,18 @@ public interface AdminDashboardMapper {
     List<Map<String, Object>> topActiveUsers(@Param("limit") int limit);
 
     List<Map<String, Object>> hotCharacters(@Param("limit") int limit);
+
+    Map<String, Object> generationOpsSummary(@Param("startAt") LocalDateTime startAt);
+
+    List<Map<String, Object>> generationLatencyTrend(@Param("startAt") LocalDateTime startAt);
+
+    List<Map<String, Object>> generationProviderStats(@Param("startAt") LocalDateTime startAt);
+
+    List<Map<String, Object>> generationModelStats(@Param("startAt") LocalDateTime startAt);
+
+    List<Map<String, Object>> generationCharacterStats(@Param("startAt") LocalDateTime startAt);
+
+    List<Map<String, Object>> generationErrorStats(@Param("startAt") LocalDateTime startAt);
+
+    List<Map<String, Object>> generationRouteHealth(@Param("startAt") LocalDateTime startAt);
 }

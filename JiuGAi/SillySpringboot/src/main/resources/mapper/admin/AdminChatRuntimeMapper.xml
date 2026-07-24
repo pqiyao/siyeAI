@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AdminChatRuntimeMapper">
+    <sql id="where"><where>
+        t.deleted_at IS NULL
+        <if test="status != null and status != ''">AND t.status = #{status}</if>
+        <if test="keyword != null and keyword != ''">AND (CAST(t.id AS CHAR) LIKE CONCAT('%',#{keyword},'%') OR CAST(t.user_id AS CHAR) LIKE CONCAT('%',#{keyword},'%') OR CAST(t.conversation_id AS CHAR) LIKE CONCAT('%',#{keyword},'%') OR t.trace_id LIKE CONCAT('%',#{keyword},'%'))</if>
+    </where></sql>
+    <select id="count" resultType="long">SELECT COUNT(*) FROM app_generation_task t <include refid="where"/></select>
+    <select id="list" resultType="map">
+        SELECT t.id, t.user_id AS userId, t.conversation_id AS conversationId, c.character_id AS characterId,
+               t.client_message_id AS clientMessageId, t.request_type AS requestType, COALESCE(t.channel,'') AS channel,
+               COALESCE(t.model,'') AS model, t.status, t.trace_id AS traceId,
+               DATE_FORMAT(t.queued_at,'%Y-%m-%d %H:%i:%s') AS queuedAt,
+               DATE_FORMAT(t.started_at,'%Y-%m-%d %H:%i:%s') AS startedAt,
+               DATE_FORMAT(t.finished_at,'%Y-%m-%d %H:%i:%s') AS finishedAt,
+               COALESCE(t.duration_ms,0) AS durationMs, COALESCE(t.error_message,t.error_code,'') AS errorMessage
+        FROM app_generation_task t LEFT JOIN app_conversation c ON c.id=t.conversation_id
+        <include refid="where"/> ORDER BY CASE WHEN t.status='GENERATING' THEN 0 WHEN t.status='QUEUED' THEN 1 ELSE 2 END, t.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <select id="summary" resultType="map">
+        SELECT SUM(CASE WHEN status='QUEUED' THEN 1 ELSE 0 END) AS queued,
+               SUM(CASE WHEN status='GENERATING' THEN 1 ELSE 0 END) AS generating,
+               SUM(CASE WHEN status='FAILED' AND queued_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 HOUR) THEN 1 ELSE 0 END) AS failedHour,
+               SUM(CASE WHEN error_code LIKE '%TIMEOUT%' AND queued_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 HOUR) THEN 1 ELSE 0 END) AS timeoutHour
+        FROM app_generation_task WHERE deleted_at IS NULL
+    </select>
+    <select id="findTaskStatuses" resultType="map">
+        SELECT id, status
+        FROM app_generation_task
+        WHERE deleted_at IS NULL
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+    <delete id="deleteAttemptsByTaskIds">
+        DELETE FROM app_generation_attempt
+        WHERE generation_task_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+    <delete id="deleteStatEventsByTaskIds">
+        DELETE FROM app_generation_stat_event
+        WHERE task_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+    <delete id="hardDeleteTasks">
+        DELETE FROM app_generation_task
+        WHERE deleted_at IS NULL
+          AND status IN ('SUCCESS', 'FAILED', 'STOPPED')
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+</mapper>

@@ -54,6 +54,15 @@ public class AppFeatureSettingsService {
             settings.setVoiceFeatureEnabled(
                     boolVal(body.get("voiceFeatureEnabled"), settings.isVoiceFeatureEnabled())
             );
+            settings.setIllustrationEntryEnabled(
+                    boolVal(body.get("illustrationEntryEnabled"), settings.isIllustrationEntryEnabled())
+            );
+            settings.setRechargeEntryVisible(
+                    boolVal(body.get("rechargeEntryVisible"), settings.isRechargeEntryVisible())
+            );
+            settings.setCheckinEntryVisible(
+                    boolVal(body.get("checkinEntryVisible"), settings.isCheckinEntryVisible())
+            );
             settings.setUserByokVipMinLevel(
                     boundedIntVal(body.get("userByokVipMinLevel"), settings.getUserByokVipMinLevel(), 0, 2)
             );
@@ -82,6 +91,9 @@ public class AppFeatureSettingsService {
         data.put("userByokEnabled", settings.isUserByokEnabled());
         data.put("imageGenerationEnabled", settings.isImageGenerationEnabled());
         data.put("voiceFeatureEnabled", settings.isVoiceFeatureEnabled());
+        data.put("illustrationEntryEnabled", settings.isIllustrationEntryEnabled());
+        data.put("rechargeEntryVisible", settings.isRechargeEntryVisible());
+        data.put("checkinEntryVisible", settings.isCheckinEntryVisible());
         data.put("userByokVipMinLevel", settings.getUserByokVipMinLevel());
         data.put("anonymousTrialChatLimit", settings.getAnonymousTrialChatLimit());
         data.put("anonymousTrialConversationLimit", settings.getAnonymousTrialConversationLimit());

@@ -1,10 +1,10 @@
 package com.example.sillyspringboot.compat.h5.service;
 
 import com.example.sillyspringboot.auth.entity.AppUser;
-import com.example.sillyspringboot.compat.h5.entity.AppH5ClientUid;
 import com.example.sillyspringboot.compat.h5.entity.AppH5VisitorDevice;
-import com.example.sillyspringboot.compat.h5.mapper.AppH5ClientUidMapper;
 import com.example.sillyspringboot.compat.h5.mapper.AppH5VisitorDeviceMapper;
+import com.example.sillyspringboot.compat.h5.mapper.AppH5SecurityEventMapper;
+import com.example.sillyspringboot.config.ClientIpResolver;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,29 +23,34 @@ public class H5VisitorDeviceService {
     public static final String REQUEST_ATTR_DEVICE_ID = "h5.deviceId";
 
     private final AppH5VisitorDeviceMapper visitorDeviceMapper;
-    private final AppH5ClientUidMapper clientUidMapper;
     private final H5ClientUidAuthService h5Auth;
+    private final AppH5SecurityEventMapper securityEvents;
+    private final ClientIpResolver clientIpResolver;
 
     public H5VisitorDeviceService(
             AppH5VisitorDeviceMapper visitorDeviceMapper,
-            AppH5ClientUidMapper clientUidMapper,
-            H5ClientUidAuthService h5Auth
+            H5ClientUidAuthService h5Auth,
+            AppH5SecurityEventMapper securityEvents,
+            ClientIpResolver clientIpResolver
     ) {
         this.visitorDeviceMapper = visitorDeviceMapper;
-        this.clientUidMapper = clientUidMapper;
         this.h5Auth = h5Auth;
+        this.securityEvents = securityEvents;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @Transactional
     public DeviceTouchContext resolveOrIssue(HttpServletRequest request) {
-        RequestSnapshot snapshot = RequestSnapshot.from(request, clientUidMapper, h5Auth);
+        RequestSnapshot snapshot = RequestSnapshot.from(request, h5Auth, clientIpResolver);
         String presentedToken = normalizeToken(resolveDeviceToken(request));
         if (!presentedToken.isEmpty()) {
             AppH5VisitorDevice existed = visitorDeviceMapper.findByDeviceToken(presentedToken);
             if (existed != null) {
+                recordChanges(existed, snapshot);
                 visitorDeviceMapper.touch(
                         existed.getId(),
                         snapshot.clientUid(),
+                        snapshot.userId(),
                         snapshot.userId(),
                         snapshot.ip(),
                         snapshot.uaHash(),
@@ -53,14 +58,27 @@ public class H5VisitorDeviceService {
                 );
                 return new DeviceTouchContext(existed.getId(), existed.getDeviceToken(), false);
             }
+
+            // Unknown client-provided tokens are persisted only after a real app token has
+            // authenticated the request. Anonymous callers cannot create arbitrary rows.
+            if (snapshot.userId() != null) {
+                return insertDevice(presentedToken, snapshot);
+            }
         }
 
+        // The client stores this response token and presents it on a later request. The
+        // anonymous bootstrap request itself remains on the stable network rate-limit key.
+        return new DeviceTouchContext(null, generateDeviceToken(), false);
+    }
+
+    private DeviceTouchContext insertDevice(String deviceToken, RequestSnapshot snapshot) {
         AppH5VisitorDevice row = new AppH5VisitorDevice();
-        row.setDeviceToken(generateDeviceToken());
+        row.setDeviceToken(deviceToken);
         row.setFirstClientUid(snapshot.clientUid());
         row.setLatestClientUid(snapshot.clientUid());
         row.setFirstUserId(snapshot.userId());
         row.setLatestUserId(snapshot.userId());
+        row.setTrustedUserId(snapshot.userId());
         row.setFirstIp(snapshot.ip());
         row.setLatestIp(snapshot.ip());
         row.setUaHash(snapshot.uaHash());
@@ -69,7 +87,35 @@ public class H5VisitorDeviceService {
         row.setAnonymousConversationCreateCount(0);
         row.setAnonymousCharacterCreateCount(0);
         visitorDeviceMapper.insert(row);
-        return new DeviceTouchContext(row.getId(), row.getDeviceToken(), true);
+        AppH5VisitorDevice persisted = visitorDeviceMapper.findByDeviceToken(deviceToken);
+        if (persisted == null || persisted.getId() == null) {
+            throw new IllegalStateException("device binding insert did not produce a persisted row");
+        }
+        if (!snapshot.userId().equals(persisted.getTrustedUserId())) {
+            visitorDeviceMapper.touch(
+                    persisted.getId(),
+                    snapshot.clientUid(),
+                    snapshot.userId(),
+                    snapshot.userId(),
+                    snapshot.ip(),
+                    snapshot.uaHash(),
+                    snapshot.userAgent()
+            );
+        }
+        if (securityEvents != null) securityEvents.insert(persisted.getId(), "DEVICE_BOUND", snapshot.clientUid(), snapshot.userId(), snapshot.ip(), snapshot.uaHash(), "device", "authenticated device bound");
+        return new DeviceTouchContext(persisted.getId(), persisted.getDeviceToken(), true);
+    }
+
+    private void recordChanges(AppH5VisitorDevice previous, RequestSnapshot next) {
+        if (securityEvents == null) return;
+        if (changed(previous.getLatestClientUid(), next.clientUid())) securityEvents.insert(previous.getId(), "CLIENT_UID_CHANGED", next.clientUid(), next.userId(), next.ip(), next.uaHash(), "identity", previous.getLatestClientUid());
+        if (next.userId() != null && previous.getLatestUserId() != null && !next.userId().equals(previous.getLatestUserId())) securityEvents.insert(previous.getId(), "USER_CHANGED", next.clientUid(), next.userId(), next.ip(), next.uaHash(), "identity", "from user " + previous.getLatestUserId());
+        if (changed(previous.getLatestIp(), next.ip())) securityEvents.insert(previous.getId(), "IP_CHANGED", next.clientUid(), next.userId(), next.ip(), next.uaHash(), "network", "ip changed");
+    }
+
+    private static boolean changed(String before, String after) {
+        String a = trimToEmpty(before), b = trimToEmpty(after);
+        return !a.isEmpty() && !b.isEmpty() && !a.equals(b);
     }
 
     public static String resolveClientUid(HttpServletRequest request) {
@@ -93,31 +139,6 @@ public class H5VisitorDeviceService {
             return text.trim();
         }
         return normalizeToken(request.getHeader(DEVICE_TOKEN_HEADER));
-    }
-
-    public static String resolveClientIp(HttpServletRequest request) {
-        if (request == null) {
-            return "";
-        }
-        String[] candidates = new String[]{
-                request.getHeader("X-Forwarded-For"),
-                request.getHeader("X-Real-IP"),
-                request.getRemoteAddr()
-        };
-        for (String candidate : candidates) {
-            String normalized = trimToEmpty(candidate);
-            if (normalized.isEmpty()) {
-                continue;
-            }
-            int commaIndex = normalized.indexOf(',');
-            if (commaIndex >= 0) {
-                normalized = normalized.substring(0, commaIndex).trim();
-            }
-            if (!normalized.isEmpty()) {
-                return clip(normalized, 64);
-            }
-        }
-        return "";
     }
 
     public static String hashUserAgent(String userAgent) {
@@ -178,41 +199,22 @@ public class H5VisitorDeviceService {
     private record RequestSnapshot(String clientUid, Long userId, String ip, String uaHash, String userAgent) {
         static RequestSnapshot from(
                 HttpServletRequest request,
-                AppH5ClientUidMapper clientUidMapper,
-                H5ClientUidAuthService h5Auth
+                H5ClientUidAuthService h5Auth,
+                ClientIpResolver clientIpResolver
         ) {
             String clientUid = resolveClientUid(request);
             return new RequestSnapshot(
                     clientUid,
-                    resolveUserIdSnapshot(request, clientUid, clientUidMapper, h5Auth),
-                    resolveClientIp(request),
+                    resolveAuthenticatedUserId(h5Auth),
+                    clientIpResolver.resolve(request),
                     hashUserAgent(request == null ? null : request.getHeader("User-Agent")),
                     clip(trimToEmpty(request == null ? null : request.getHeader("User-Agent")), 255)
             );
         }
 
-        private static Long resolveUserIdSnapshot(
-                HttpServletRequest request,
-                String clientUid,
-                AppH5ClientUidMapper clientUidMapper,
-                H5ClientUidAuthService h5Auth
-        ) {
+        private static Long resolveAuthenticatedUserId(H5ClientUidAuthService h5Auth) {
             AppUser authenticatedUser = h5Auth == null ? null : h5Auth.resolveAuthenticatedRequestUser();
-            if (authenticatedUser != null) {
-                return authenticatedUser.getId();
-            }
-            if (clientUid == null || clientUid.isBlank()) {
-                return null;
-            }
-            String normalized = clientUid.trim();
-            if (normalized.startsWith("h5u_")) {
-                return null;
-            }
-            if (clientUidMapper == null) {
-                return null;
-            }
-            AppH5ClientUid mapping = clientUidMapper.findByClientUid(normalized);
-            return mapping == null ? null : mapping.getUserId();
+            return authenticatedUser == null ? null : authenticatedUser.getId();
         }
     }
 }

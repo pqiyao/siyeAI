@@ -15,7 +15,7 @@ public class AppAuthProperties {
     @NotBlank
     private String secret = "dev-change-me";
 
-    private long tokenTtlSeconds = 2592000; // 30 days
+    private long tokenTtlSeconds = 604800; // 7 days
 
     public String getSecret() {
         return secret;

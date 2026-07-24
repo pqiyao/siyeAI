@@ -46,6 +46,10 @@
           AND deleted_at IS NULL
     </select>
 
+    <select id="findById" resultMap="AppGenerationTaskResultMap">
+        SELECT * FROM app_generation_task WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
     <update id="updateStatus">
         UPDATE app_generation_task
         SET status = #{status},
@@ -59,7 +63,9 @@
             END,
             duration_ms = CASE
                 WHEN #{status} IN ('SUCCESS', 'FAILED', 'STOPPED')
-                    THEN TIMESTAMPDIFF(MICROSECOND, COALESCE(started_at, queued_at), CURRENT_TIMESTAMP) DIV 1000
+                    THEN FLOOR(
+                        TIMESTAMPDIFF(MICROSECOND, COALESCE(started_at, queued_at), CURRENT_TIMESTAMP) / 1000
+                    )
                 ELSE duration_ms
             END,
             http_status = CASE
@@ -78,6 +84,8 @@
             END,
             trace_id = COALESCE(#{traceId}, trace_id)
         WHERE id = #{id}
+          AND status NOT IN ('SUCCESS', 'FAILED', 'STOPPED')
+          AND deleted_at IS NULL
     </update>
 
     <select id="countActiveByConversationId" resultType="int">
@@ -92,7 +100,9 @@
         UPDATE app_generation_task
         SET status = 'FAILED',
             finished_at = CURRENT_TIMESTAMP,
-            duration_ms = TIMESTAMPDIFF(MICROSECOND, COALESCE(started_at, queued_at), CURRENT_TIMESTAMP) DIV 1000,
+            duration_ms = FLOOR(
+                TIMESTAMPDIFF(MICROSECOND, COALESCE(started_at, queued_at), CURRENT_TIMESTAMP) / 1000
+            ),
             http_status = COALESCE(http_status, 499),
             error_code = 'STALE_GENERATION',
             error_message = 'stale active generation was cleared',
@@ -102,6 +112,26 @@
           AND deleted_at IS NULL
           AND COALESCE(started_at, queued_at) &lt; #{cutoff}
     </update>
+
+    <select id="listStaleActiveBefore" resultMap="AppGenerationTaskResultMap">
+        SELECT *
+        FROM app_generation_task
+        WHERE status IN ('QUEUED', 'GENERATING')
+          AND deleted_at IS NULL
+          AND COALESCE(started_at, queued_at) &lt; #{cutoff}
+        ORDER BY COALESCE(started_at, queued_at) ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listStaleActiveByConversationId" resultMap="AppGenerationTaskResultMap">
+        SELECT *
+        FROM app_generation_task
+        WHERE conversation_id = #{conversationId}
+          AND status IN ('QUEUED', 'GENERATING')
+          AND deleted_at IS NULL
+          AND COALESCE(started_at, queued_at) &lt; #{cutoff}
+        ORDER BY COALESCE(started_at, queued_at) ASC, id ASC
+    </select>
 
     <delete id="deleteByConversationId">
         DELETE FROM app_generation_task

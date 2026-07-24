@@ -6,16 +6,18 @@ import com.example.sillyspringboot.ops.entity.AppRuntimeSetting;
 import com.example.sillyspringboot.ops.mapper.AppRuntimeSettingMapper;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
-import com.example.sillyspringboot.shared.crypto.SensitiveTextCrypto;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class AppImageGenerationSettingsService {
@@ -25,16 +27,13 @@ public class AppImageGenerationSettingsService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AppRuntimeSettingMapper runtimeSettingMapper;
     private final AppImageGenerationProperties properties;
-    private final SensitiveTextCrypto sensitiveTextCrypto;
 
     public AppImageGenerationSettingsService(
             AppRuntimeSettingMapper runtimeSettingMapper,
-            AppImageGenerationProperties properties,
-            SensitiveTextCrypto sensitiveTextCrypto
+            AppImageGenerationProperties properties
     ) {
         this.runtimeSettingMapper = runtimeSettingMapper;
         this.properties = properties;
-        this.sensitiveTextCrypto = sensitiveTextCrypto;
     }
 
     @Transactional(readOnly = true)
@@ -56,18 +55,15 @@ public class AppImageGenerationSettingsService {
     public AppImageGenerationSettings saveSettings(Map<String, Object> body) {
         AppImageGenerationSettings settings = getSettings();
         if (body != null) {
-            settings.setEngine(normalizeEngine(str(body.get("engine"), settings.getEngine())));
+            if (body.containsKey("comfyFallbackEnabled")) {
+                settings.setEngine(boolVal(body.get("comfyFallbackEnabled"), false)
+                        ? "st_comfy" : "user_openai_compatible");
+            } else if (body.containsKey("engine")) {
+                settings.setEngine(normalizeEngine(str(body.get("engine"), settings.getEngine())));
+            }
             settings.setGlobalConcurrentLimit(intVal(body.get("globalConcurrentLimit"), settings.getGlobalConcurrentLimit(), 1, 64));
             settings.setPerUserConcurrentLimit(intVal(body.get("perUserConcurrentLimit"), settings.getPerUserConcurrentLimit(), 1, 8));
             settings.setCounterTtlSeconds(intVal(body.get("counterTtlSeconds"), settings.getCounterTtlSeconds(), 10, 7200));
-            settings.setManagedProviderSource(str(body.get("managedProviderSource"), settings.getManagedProviderSource()));
-            settings.setManagedImageModelName(str(body.get("managedImageModelName"), settings.getManagedImageModelName()));
-            settings.setManagedCustomUrl(str(body.get("managedCustomUrl"), settings.getManagedCustomUrl()));
-            if (Boolean.TRUE.equals(body.get("managedApiKeyClear"))) {
-                settings.setManagedApiKeyCipher("");
-            } else if (body.containsKey("managedApiKey") && StringUtils.hasText(str(body.get("managedApiKey"), ""))) {
-                settings.setManagedApiKeyCipher(sensitiveTextCrypto.encrypt(str(body.get("managedApiKey"), "")));
-            }
             settings.setComfyUrl(str(body.get("comfyUrl"), settings.getComfyUrl()));
             settings.setWorkflow(str(body.get("workflow"), settings.getWorkflow()));
             settings.setReferenceWorkflow(str(body.get("referenceWorkflow"), settings.getReferenceWorkflow()));
@@ -80,6 +76,12 @@ public class AppImageGenerationSettingsService {
             settings.setSeed(longVal(body.get("seed"), settings.getSeed(), -1L, Long.MAX_VALUE));
             settings.setDenoise(doubleVal(body.get("denoise"), settings.getDenoise(), 0.0d, 1.0d));
             settings.setRequestTimeoutSeconds(longVal(body.get("requestTimeoutSeconds"), settings.getRequestTimeoutSeconds(), 1L, 600L));
+            settings.setDefaultConsistencyMode(str(body.get("defaultConsistencyMode"), settings.getDefaultConsistencyMode()));
+            settings.setAllowedConsistencyModes(stringList(body.get("allowedConsistencyModes"), settings.getAllowedConsistencyModes()));
+            settings.setDefaultReferenceSourceMode(str(body.get("defaultReferenceSourceMode"), settings.getDefaultReferenceSourceMode()));
+            settings.setAllowedReferenceSourceModes(stringList(body.get("allowedReferenceSourceModes"), settings.getAllowedReferenceSourceModes()));
+            settings.setReferenceImagesEnabled(boolVal(body.get("referenceImagesEnabled"), settings.isReferenceImagesEnabled()));
+            settings.setRecentSceneContextEnabled(boolVal(body.get("recentSceneContextEnabled"), settings.isRecentSceneContextEnabled()));
         }
         settings = sanitize(settings, defaultsFromProperties());
         runtimeSettingMapper.upsert(SETTING_KEY, writeJson(settings));
@@ -90,16 +92,10 @@ public class AppImageGenerationSettingsService {
         AppImageGenerationSettings safe = sanitize(settings, defaultsFromProperties());
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("engine", safe.getEngine());
+        data.put("comfyFallbackEnabled", "st_comfy".equals(safe.getEngine()));
         data.put("globalConcurrentLimit", safe.getGlobalConcurrentLimit());
         data.put("perUserConcurrentLimit", safe.getPerUserConcurrentLimit());
         data.put("counterTtlSeconds", safe.getCounterTtlSeconds());
-        String managedApiKey = decryptManagedApiKey(safe);
-        data.put("managedProviderSource", safe.getManagedProviderSource());
-        data.put("managedImageModelName", safe.getManagedImageModelName());
-        data.put("managedApiKey", "");
-        data.put("managedApiKeyConfigured", StringUtils.hasText(managedApiKey));
-        data.put("managedApiKeyMask", maskSecret(managedApiKey));
-        data.put("managedCustomUrl", safe.getManagedCustomUrl());
         data.put("comfyUrl", safe.getComfyUrl());
         data.put("workflow", safe.getWorkflow());
         data.put("referenceWorkflow", safe.getReferenceWorkflow());
@@ -112,21 +108,22 @@ public class AppImageGenerationSettingsService {
         data.put("seed", safe.getSeed());
         data.put("denoise", safe.getDenoise());
         data.put("requestTimeoutSeconds", Math.max(1L, safe.getRequestTimeoutSeconds()));
+        data.put("defaultConsistencyMode", safe.getDefaultConsistencyMode());
+        data.put("allowedConsistencyModes", safe.getAllowedConsistencyModes());
+        data.put("defaultReferenceSourceMode", safe.getDefaultReferenceSourceMode());
+        data.put("allowedReferenceSourceModes", safe.getAllowedReferenceSourceModes());
+        data.put("referenceImagesEnabled", safe.isReferenceImagesEnabled());
+        data.put("recentSceneContextEnabled", safe.isRecentSceneContextEnabled());
         return data;
     }
 
     private AppImageGenerationSettings defaultsFromProperties() {
         AppImageGenerationProperties.StComfy comfy = properties.getStComfy();
-        AppImageGenerationProperties.ManagedOpenAiCompatible managed = properties.getManagedOpenAiCompatible();
         AppImageGenerationSettings settings = new AppImageGenerationSettings();
         settings.setEngine(normalizeEngine(properties.getEngine()));
         settings.setGlobalConcurrentLimit(properties.getGlobalConcurrentLimit());
         settings.setPerUserConcurrentLimit(properties.getPerUserConcurrentLimit());
         settings.setCounterTtlSeconds(properties.getCounterTtlSeconds());
-        settings.setManagedProviderSource(managed.getProviderSource());
-        settings.setManagedImageModelName(managed.getImageModelName());
-        settings.setManagedApiKeyCipher(encryptQuietly(managed.getApiKey()));
-        settings.setManagedCustomUrl(managed.getCustomUrl());
         settings.setComfyUrl(comfy.getComfyUrl());
         settings.setWorkflow(comfy.getWorkflow());
         settings.setReferenceWorkflow(comfy.getReferenceWorkflow());
@@ -149,10 +146,6 @@ public class AppImageGenerationSettingsService {
         safe.setGlobalConcurrentLimit(clamp(safe.getGlobalConcurrentLimit(), 1, 64, fallback.getGlobalConcurrentLimit()));
         safe.setPerUserConcurrentLimit(clamp(safe.getPerUserConcurrentLimit(), 1, 8, fallback.getPerUserConcurrentLimit()));
         safe.setCounterTtlSeconds(clamp(safe.getCounterTtlSeconds(), 10, 7200, fallback.getCounterTtlSeconds()));
-        safe.setManagedProviderSource(firstNonBlank(safe.getManagedProviderSource(), fallback.getManagedProviderSource(), "siliconflow"));
-        safe.setManagedImageModelName(firstNonBlank(safe.getManagedImageModelName(), fallback.getManagedImageModelName(), ""));
-        safe.setManagedApiKeyCipher(firstNonBlank(safe.getManagedApiKeyCipher(), fallback.getManagedApiKeyCipher(), ""));
-        safe.setManagedCustomUrl(firstNonBlank(safe.getManagedCustomUrl(), fallback.getManagedCustomUrl(), ""));
         safe.setComfyUrl(firstNonBlank(safe.getComfyUrl(), fallback.getComfyUrl(), "http://127.0.0.1:8188"));
         safe.setWorkflow(firstNonBlank(safe.getWorkflow(), fallback.getWorkflow(), "Default_Comfy_Workflow.json"));
         safe.setReferenceWorkflow(firstNonBlank(safe.getReferenceWorkflow(), fallback.getReferenceWorkflow(), "Char_Avatar_Comfy_Workflow.json"));
@@ -163,18 +156,23 @@ public class AppImageGenerationSettingsService {
         safe.setScale(clampDouble(safe.getScale(), 1.0d, 30.0d, fallback.getScale()));
         safe.setDenoise(clampDouble(safe.getDenoise(), 0.0d, 1.0d, fallback.getDenoise()));
         safe.setRequestTimeoutSeconds(Math.max(1L, safe.getRequestTimeoutSeconds() > 0 ? safe.getRequestTimeoutSeconds() : fallback.getRequestTimeoutSeconds()));
+        List<String> consistencyModes = normalizeValues(
+                safe.getAllowedConsistencyModes(),
+                Set.of("free", "balanced", "strong"),
+                List.of("free", "balanced", "strong")
+        );
+        safe.setAllowedConsistencyModes(consistencyModes);
+        String defaultMode = normalizeChoice(safe.getDefaultConsistencyMode(), consistencyModes, "balanced");
+        safe.setDefaultConsistencyMode(defaultMode);
+        List<String> referenceSources = normalizeValues(
+                safe.getAllowedReferenceSourceModes(),
+                Set.of("latest_generated_first", "avatar_only"),
+                List.of("latest_generated_first", "avatar_only")
+        );
+        safe.setAllowedReferenceSourceModes(referenceSources);
+        safe.setDefaultReferenceSourceMode(normalizeChoice(
+                safe.getDefaultReferenceSourceMode(), referenceSources, "latest_generated_first"));
         return safe;
-    }
-
-    public String decryptManagedApiKey(AppImageGenerationSettings settings) {
-        if (settings == null || !StringUtils.hasText(settings.getManagedApiKeyCipher())) {
-            return "";
-        }
-        try {
-            return sensitiveTextCrypto.decrypt(settings.getManagedApiKeyCipher());
-        } catch (Exception ignored) {
-            return "";
-        }
     }
 
     private String writeJson(AppImageGenerationSettings settings) {
@@ -220,6 +218,57 @@ public class AppImageGenerationSettingsService {
     private static String str(Object value, String fallback) {
         String text = value == null ? "" : String.valueOf(value).trim();
         return StringUtils.hasText(text) ? text : fallback;
+    }
+
+    private static boolean boolVal(Object value, boolean fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return Boolean.parseBoolean(String.valueOf(value).trim());
+    }
+
+    private static List<String> stringList(Object value, List<String> fallback) {
+        if (value instanceof Iterable<?> values) {
+            List<String> result = new ArrayList<>();
+            for (Object item : values) {
+                String text = item == null ? "" : String.valueOf(item).trim();
+                if (!text.isBlank()) {
+                    result.add(text);
+                }
+            }
+            return result;
+        }
+        return fallback == null ? List.of() : new ArrayList<>(fallback);
+    }
+
+    private static List<String> normalizeValues(List<String> values, Set<String> supported, List<String> fallback) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        if (values != null) {
+            for (String item : values) {
+                String value = item == null ? "" : item.trim().toLowerCase();
+                if (supported.contains(value)) {
+                    result.add(value);
+                }
+            }
+        }
+        if (result.isEmpty()) {
+            result.addAll(fallback);
+        }
+        return new ArrayList<>(result);
+    }
+
+    private static String normalizeChoice(String value, List<String> allowed, String fallback) {
+        String normalized = value == null ? "" : value.trim().toLowerCase();
+        if (allowed.contains(normalized)) {
+            return normalized;
+        }
+        if (allowed.contains(fallback)) {
+            return fallback;
+        }
+        return allowed.get(0);
     }
 
     private static int intVal(Object value, int fallback, int min, int max) {
@@ -277,23 +326,4 @@ public class AppImageGenerationSettingsService {
         return "";
     }
 
-    private String encryptQuietly(String plainText) {
-        if (!StringUtils.hasText(plainText)) {
-            return "";
-        }
-        try {
-            return sensitiveTextCrypto.encrypt(plainText);
-        } catch (Exception ignored) {
-            return "";
-        }
-    }
-
-    private static String maskSecret(String secret) {
-        String value = secret == null ? "" : secret.trim();
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        int keep = Math.min(4, value.length());
-        return "****" + value.substring(value.length() - keep);
-    }
 }

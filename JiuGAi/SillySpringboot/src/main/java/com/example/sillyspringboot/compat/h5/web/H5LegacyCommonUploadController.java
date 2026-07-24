@@ -1,5 +1,6 @@
 package com.example.sillyspringboot.compat.h5.web;
 
+import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.compat.h5.service.H5LegacyUserCompatibilityService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,8 +34,8 @@ public class H5LegacyCommonUploadController {
             @RequestParam(name = "token", required = false) String token
     ) {
         try {
-            legacyUserService.requireUserByToken(token);
-            String url = uploadService.saveImageAndGetUrl(file);
+            AppUser user = legacyUserService.requireUserByToken(token);
+            String url = uploadService.saveOwnedImageAndGetUrl(file, user.getId());
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("url", url);
             return legacyResult(1, "ok", data);

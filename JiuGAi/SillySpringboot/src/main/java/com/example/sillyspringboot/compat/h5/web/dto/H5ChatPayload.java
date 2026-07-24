@@ -14,10 +14,14 @@ public class H5ChatPayload {
     private String ttsModelName;
     private String ttsVoiceName;
     private String ttsVoiceTemplateCode;
+    private String ttsRequestId;
+    private Integer ttsSegmentIndex;
+    private Integer ttsSegmentCount;
     private String voiceUrl;
     private Integer voiceDurationMs;
     private String attachmentMode;
     private String attachmentHint;
+    private String replySplitMode;
 
     /**
      * 可选：续写/重生时锚定的 AI 消息（H5 传 {@code db_123} 或 {@code 123}）。
@@ -121,6 +125,30 @@ public class H5ChatPayload {
         this.ttsVoiceTemplateCode = ttsVoiceTemplateCode;
     }
 
+    public String getTtsRequestId() {
+        return ttsRequestId;
+    }
+
+    public void setTtsRequestId(String ttsRequestId) {
+        this.ttsRequestId = ttsRequestId;
+    }
+
+    public Integer getTtsSegmentIndex() {
+        return ttsSegmentIndex;
+    }
+
+    public void setTtsSegmentIndex(Integer ttsSegmentIndex) {
+        this.ttsSegmentIndex = ttsSegmentIndex;
+    }
+
+    public Integer getTtsSegmentCount() {
+        return ttsSegmentCount;
+    }
+
+    public void setTtsSegmentCount(Integer ttsSegmentCount) {
+        this.ttsSegmentCount = ttsSegmentCount;
+    }
+
     public String getVoiceUrl() {
         return voiceUrl;
     }
@@ -151,6 +179,14 @@ public class H5ChatPayload {
 
     public void setAttachmentHint(String attachmentHint) {
         this.attachmentHint = attachmentHint;
+    }
+
+    public String getReplySplitMode() {
+        return replySplitMode;
+    }
+
+    public void setReplySplitMode(String replySplitMode) {
+        this.replySplitMode = replySplitMode;
     }
 }
 

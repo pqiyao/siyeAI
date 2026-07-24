@@ -167,13 +167,24 @@ public class DefaultStAdapter implements StAdapter {
 
     @Override
     public void appendAssistantMessage(ChatGenerateRequest request, String assistantContent) {
+        appendAssistantMessage(request, assistantContent, false);
+    }
+
+    @Override
+    public void appendAssistantMessage(
+            ChatGenerateRequest request,
+            String assistantContent,
+            boolean outputRegexApplied
+    ) {
         String avatarUrl = request == null ? "" : request.stAvatarUrl();
         String fileName = request == null ? "" : request.stChatFileName();
         if (avatarUrl == null || avatarUrl.isBlank() || fileName == null || fileName.isBlank()) {
             throw new StUnsupportedFeatureException();
         }
-        String mes = assistantContent == null ? "" : assistantContent.trim();
-        if (mes.isBlank()) {
+        String mes = assistantContent == null
+                ? ""
+                : (outputRegexApplied ? assistantContent : assistantContent.trim());
+        if (mes.isBlank() && !outputRegexApplied) {
             return;
         }
         stClient.runtimeChatAppend(
@@ -183,26 +194,59 @@ public class DefaultStAdapter implements StAdapter {
                 request.charName(),
                 false,
                 request.stMessageRef(),
-                mes
+                mes,
+                outputRegexApplied
         );
     }
 
     @Override
-    public void replaceLastAssistantMessage(ChatGenerateRequest request, String assistantContent) {
+    public String applyAssistantOutputRegex(ChatGenerateRequest request, String assistantContent) {
         String avatarUrl = request == null ? "" : request.stAvatarUrl();
         String fileName = request == null ? "" : request.stChatFileName();
         if (avatarUrl == null || avatarUrl.isBlank() || fileName == null || fileName.isBlank()) {
             throw new StUnsupportedFeatureException();
         }
         String mes = assistantContent == null ? "" : assistantContent.trim();
-        if (mes.isBlank()) return;
+        if (mes.isBlank()) {
+            return mes;
+        }
+        return stClient.runtimeChatApplyOutputRegex(
+                avatarUrl,
+                fileName,
+                request.userName(),
+                request.charName(),
+                mes
+        );
+    }
+
+    @Override
+    public void replaceLastAssistantMessage(ChatGenerateRequest request, String assistantContent) {
+        replaceLastAssistantMessage(request, assistantContent, false);
+    }
+
+    @Override
+    public void replaceLastAssistantMessage(
+            ChatGenerateRequest request,
+            String assistantContent,
+            boolean outputRegexApplied
+    ) {
+        String avatarUrl = request == null ? "" : request.stAvatarUrl();
+        String fileName = request == null ? "" : request.stChatFileName();
+        if (avatarUrl == null || avatarUrl.isBlank() || fileName == null || fileName.isBlank()) {
+            throw new StUnsupportedFeatureException();
+        }
+        String mes = assistantContent == null
+                ? ""
+                : (outputRegexApplied ? assistantContent : assistantContent.trim());
+        if (mes.isBlank() && !outputRegexApplied) return;
         stClient.runtimeChatReplaceLastAssistant(
                 avatarUrl,
                 fileName,
                 request.userName(),
                 request.charName(),
                 request.stMessageRef(),
-                mes
+                mes,
+                outputRegexApplied
         );
     }
 

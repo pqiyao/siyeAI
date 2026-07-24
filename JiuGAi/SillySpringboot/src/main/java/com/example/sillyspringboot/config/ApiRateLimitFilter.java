@@ -1,6 +1,7 @@
 package com.example.sillyspringboot.config;
 
 import com.example.sillyspringboot.compat.h5.service.H5VisitorDeviceService;
+import com.example.sillyspringboot.compat.h5.mapper.AppH5SecurityEventMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -9,20 +10,28 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.time.Duration;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private final ApiRateLimitProperties properties;
-    private final StringRedisTemplate redisTemplate;
-    private final Map<String, WindowCounter> localCounters = new ConcurrentHashMap<>();
+    private final ApiRateLimitCounterStore counterStore;
+    private final AppH5SecurityEventMapper securityEvents;
+    private final ClientIpResolver clientIpResolver;
 
-    public ApiRateLimitFilter(ApiRateLimitProperties properties, StringRedisTemplate redisTemplate) {
+    public ApiRateLimitFilter(
+            ApiRateLimitProperties properties,
+            ApiRateLimitCounterStore counterStore,
+            AppH5SecurityEventMapper securityEvents,
+            ClientIpResolver clientIpResolver
+    ) {
         this.properties = properties;
-        this.redisTemplate = redisTemplate;
+        this.counterStore = counterStore;
+        this.securityEvents = securityEvents;
+        this.clientIpResolver = clientIpResolver;
+    }
+
+    ApiRateLimitFilter(ApiRateLimitProperties properties, StringRedisTemplate redisTemplate) {
+        this(properties, new ApiRateLimitCounterStore(redisTemplate), null, new ClientIpResolver(properties));
     }
 
     @Override
@@ -31,64 +40,73 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
             return true;
         }
         String path = request.getRequestURI();
-        if (path == null || !path.startsWith("/api/v1/")) {
+        if (!isProtectedApiPath(path)) {
             return true;
         }
         return "/api/v1/app/runtime/status".equals(path);
     }
 
+    private static boolean isProtectedApiPath(String path) {
+        return path != null && (
+                path.startsWith("/api/v1/")
+                        || path.startsWith("/api/app/")
+                        || path.startsWith("/api/index/")
+                        || path.startsWith("/api/common/")
+                        || path.startsWith("/api/user/")
+        );
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        String subject = resolveSubject(request);
-        String counterKey = request.getMethod() + ":" + subject;
-        int used = redisTemplate != null
-                ? incrementRedisCounter(counterKey)
-                : incrementLocalCounter(counterKey);
+        String method = request.getMethod();
+        String resolvedIp = clientIpResolver.resolve(request);
+        String ip = safeSegment(resolvedIp);
+        int ipUsed = incrementCounter(method + ":ip:" + ip);
+        int clientUsed = incrementCounter(method + ":client:" + resolveClientSubject(request, ip));
 
-        if (used > properties.getMaxRequestsPerWindow()) {
+        if (ipUsed > properties.getMaxRequestsPerIpWindow()
+                || clientUsed > properties.getMaxRequestsPerWindow()) {
+            if (securityEvents != null && shouldRecordLimitEvent(request, resolvedIp)) {
+                securityEvents.insert(null, "RATE_LIMIT_HIT", H5VisitorDeviceService.resolveClientUid(request), null,
+                        resolvedIp, H5VisitorDeviceService.hashUserAgent(request.getHeader("User-Agent")),
+                        request.getRequestURI(), networkLimitDetail(request, ipUsed, clientUsed));
+            }
             writeTooManyRequests(response);
             return;
         }
         filterChain.doFilter(request, response);
     }
 
-    private int incrementRedisCounter(String counterKey) {
-        String key = "api:rate-limit:" + counterKey;
-        Long current = redisTemplate.opsForValue().increment(key);
-        if (current != null && current == 1L) {
-            redisTemplate.expire(key, Duration.ofSeconds(properties.getWindowSeconds()));
-        }
-        return current == null ? 1 : current.intValue();
+    private boolean shouldRecordLimitEvent(HttpServletRequest request, String resolvedIp) {
+        String eventKey = "security-event:network:"
+                + safeSegment(resolvedIp) + ':'
+                + safeSegment(request.getMethod()) + ':'
+                + safeSegment(request.getRequestURI());
+        return counterStore.increment(eventKey, properties.getSecurityEventDedupSeconds()) == 1;
     }
 
-    private int incrementLocalCounter(String counterKey) {
-        long now = System.currentTimeMillis();
-        long ttl = properties.getWindowSeconds() * 1000L;
-        WindowCounter counter = localCounters.compute(counterKey, (key, old) -> {
-            if (old == null || now >= old.expiresAt) {
-                return new WindowCounter(now + ttl, new AtomicInteger(1));
-            }
-            old.count.incrementAndGet();
-            return old;
-        });
-        return counter.count.get();
+    private int incrementCounter(String counterKey) {
+        return counterStore.increment(counterKey, properties.getWindowSeconds());
     }
 
-    private String resolveSubject(HttpServletRequest request) {
-        String deviceToken = H5VisitorDeviceService.resolveDeviceToken(request);
-        if (!deviceToken.isEmpty()) {
-            return "device:" + deviceToken;
-        }
-        String clientUid = H5VisitorDeviceService.resolveClientUid(request);
-        if (!clientUid.isEmpty()) {
-            return "client:" + clientUid
-                    + "|ip:" + safeSegment(H5VisitorDeviceService.resolveClientIp(request))
-                    + "|ua:" + safeSegment(H5VisitorDeviceService.hashUserAgent(request.getHeader("User-Agent")));
-        }
-        String ip = safeSegment(H5VisitorDeviceService.resolveClientIp(request));
+    private String resolveClientSubject(HttpServletRequest request, String ip) {
         String uaHash = safeSegment(H5VisitorDeviceService.hashUserAgent(request.getHeader("User-Agent")));
         return "ip:" + ip + "|ua:" + uaHash;
+    }
+
+    private String networkLimitDetail(HttpServletRequest request, int ipUsed, int clientUsed) {
+        StringBuilder scopes = new StringBuilder();
+        if (ipUsed > properties.getMaxRequestsPerIpWindow()) {
+            scopes.append("ip");
+        }
+        if (clientUsed > properties.getMaxRequestsPerWindow()) {
+            if (!scopes.isEmpty()) {
+                scopes.append(',');
+            }
+            scopes.append("ip+ua");
+        }
+        return "scope=" + scopes + ";method=" + request.getMethod();
     }
 
     private void writeTooManyRequests(HttpServletResponse response) throws IOException {
@@ -106,6 +124,4 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         String normalized = trimToEmpty(value);
         return normalized.isEmpty() ? "unknown" : normalized;
     }
-
-    private record WindowCounter(long expiresAt, AtomicInteger count) {}
 }

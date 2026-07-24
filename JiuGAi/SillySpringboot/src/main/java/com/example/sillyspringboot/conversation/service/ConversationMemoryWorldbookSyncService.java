@@ -8,6 +8,7 @@ import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntr
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
 import com.example.sillyspringboot.integration.sillytavern.dto.StWorldbookSaveRequest;
+import com.example.sillyspringboot.integration.sillytavern.dto.StWorldbookOptionDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -15,9 +16,12 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class ConversationMemoryWorldbookSyncService {
@@ -52,54 +56,159 @@ public class ConversationMemoryWorldbookSyncService {
     }
 
     public String resolveWorldName(long conversationId) {
+        return resolveWorldName(conversationId, null);
+    }
+
+    public String resolveWorldName(long conversationId, Long branchId) {
         AppConversation conversation = conversationMapper.findById(conversationId);
         Long userId = conversation == null ? null : conversation.getUserId();
         Long characterId = conversation == null ? null : conversation.getCharacterId();
-        return buildWorldName(conversationId, userId, characterId);
+        return buildWorldName(conversationId, branchId, userId, characterId);
     }
 
     public String syncWorldbook(long conversationId) {
-        String worldName = resolveWorldName(conversationId);
-        List<AppConversationMemoryEntry> enabled = entryMapper.listEnabledByConversationId(conversationId);
-        int entryCount = entryMapper.countAllByConversationId(conversationId);
+        return syncWorldbook(conversationId, null);
+    }
+
+    public String syncWorldbook(long conversationId, Long branchId) {
+        String worldName = resolveWorldName(conversationId, branchId);
+        List<AppConversationMemoryEntry> enabled = hasBranch(branchId)
+                ? entryMapper.listEnabledByConversationBranchId(conversationId, branchId)
+                : entryMapper.listEnabledByConversationId(conversationId);
+        int entryCount = hasBranch(branchId)
+                ? entryMapper.countAllByConversationBranchId(conversationId, branchId)
+                : entryMapper.countAllByConversationId(conversationId);
         int enabledCount = enabled == null ? 0 : enabled.size();
         if (enabledCount <= 0) {
-            deleteWorldbook(conversationId);
-            memoryMapper.updateSyncStatus(conversationId, worldName, entryCount, 0, SYNC_SKIPPED, null);
-            return worldName;
+            try {
+                stAdapter.deleteWorldbook(worldName);
+                updateSyncStatus(conversationId, branchId, worldName, entryCount, 0, SYNC_SKIPPED, null);
+                return worldName;
+            } catch (Exception e) {
+                String err = trimTo(rootCauseMessage(e), 512);
+                updateSyncStatus(conversationId, branchId, worldName, entryCount, 0, SYNC_FAILED, err);
+                log.warn("memory worldbook delete failed conversationId={} branchId={} worldName={} cause={}",
+                        conversationId, branchId, worldName, err);
+                throw e;
+            }
         }
 
         List<AppConversationMemoryEntry> selected = limitEntries(enabled);
-        Map<String, Object> data = buildWorldbookData(conversationId, worldName, selected);
+        int syncedEntryCount = selected.size();
+        Map<String, Object> data = buildWorldbookData(conversationId, branchId, worldName, selected);
         try {
             stAdapter.saveWorldbook(new StWorldbookSaveRequest(worldName, data));
-            memoryMapper.updateSyncStatus(conversationId, worldName, entryCount, enabledCount, SYNC_SUCCESS, null);
+            updateSyncStatus(conversationId, branchId, worldName, entryCount, syncedEntryCount, SYNC_SUCCESS, null);
             return worldName;
         } catch (Exception e) {
             String err = trimTo(rootCauseMessage(e), 512);
-            memoryMapper.updateSyncStatus(conversationId, worldName, entryCount, enabledCount, SYNC_FAILED, err);
-            log.warn("memory worldbook sync failed conversationId={} worldName={} cause={}", conversationId, worldName, err);
+            updateSyncStatus(conversationId, branchId, worldName, entryCount, syncedEntryCount, SYNC_FAILED, err);
+            log.warn("memory worldbook sync failed conversationId={} branchId={} worldName={} cause={}",
+                    conversationId, branchId, worldName, err);
             throw e;
         }
     }
 
     public void deleteWorldbook(long conversationId) {
-        String worldName = resolveWorldName(conversationId);
+        deleteWorldbook(conversationId, null);
+    }
+
+    public void deleteWorldbook(long conversationId, Long branchId) {
+        String worldName = resolveWorldName(conversationId, branchId);
+        deleteWorldbookByName(conversationId, worldName);
+    }
+
+    public void deleteWorldbookByName(long conversationId, String worldName) {
+        String safeWorldName = worldName == null ? "" : worldName.trim();
+        validateWorldName(conversationId, safeWorldName);
         try {
-            stAdapter.deleteWorldbook(worldName);
+            stAdapter.deleteWorldbook(safeWorldName);
         } catch (Exception e) {
             log.warn("memory worldbook delete failed conversationId={} worldName={} cause={}",
-                    conversationId, worldName, rootCauseMessage(e));
+                    conversationId, safeWorldName, rootCauseMessage(e));
+            throw e;
         }
     }
 
-    private Map<String, Object> buildWorldbookData(long conversationId, String worldName, List<AppConversationMemoryEntry> entries) {
+    public void deleteWorldbooksByName(long conversationId, Collection<String> worldNames) {
+        Set<String> candidates = new LinkedHashSet<>();
+        if (worldNames != null) {
+            for (String worldName : worldNames) {
+                String safeWorldName = worldName == null ? "" : worldName.trim();
+                validateWorldName(conversationId, safeWorldName);
+                candidates.add(safeWorldName);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return;
+        }
+
+        List<StWorldbookOptionDto> options = stAdapter.listWorldbooks();
+        Set<String> existing = new LinkedHashSet<>();
+        if (options != null) {
+            for (StWorldbookOptionDto option : options) {
+                if (option == null) {
+                    continue;
+                }
+                addNonBlank(existing, option.fileId());
+                addNonBlank(existing, option.name());
+            }
+        }
+
+        for (String worldName : candidates) {
+            if (!existing.contains(worldName)) {
+                continue;
+            }
+            try {
+                boolean deleted = stAdapter.deleteWorldbook(worldName);
+                if (!deleted) {
+                    throw new IllegalStateException("SillyTavern did not confirm worldbook deletion: " + worldName);
+                }
+            } catch (Exception e) {
+                log.warn("memory worldbook delete failed conversationId={} worldName={} cause={}",
+                        conversationId, worldName, rootCauseMessage(e));
+                throw e;
+            }
+        }
+    }
+
+    private static void validateWorldName(long conversationId, String worldName) {
+        String expectedPrefix = "jg_memory_conv_" + conversationId + "_";
+        if (worldName == null || worldName.isBlank() || !worldName.startsWith(expectedPrefix)) {
+            throw new IllegalArgumentException("memory worldbook does not belong to conversation " + conversationId);
+        }
+    }
+
+    private static void addNonBlank(Set<String> values, String value) {
+        if (value != null && !value.isBlank()) {
+            values.add(value.trim());
+        }
+    }
+
+    private void updateSyncStatus(
+            long conversationId,
+            Long branchId,
+            String worldName,
+            int entryCount,
+            int enabledCount,
+            String syncStatus,
+            String syncError
+    ) {
+        if (hasBranch(branchId)) {
+            memoryMapper.updateSyncStatusForBranch(conversationId, branchId, worldName, entryCount, enabledCount, syncStatus, syncError);
+        } else {
+            memoryMapper.updateSyncStatus(conversationId, worldName, entryCount, enabledCount, syncStatus, syncError);
+        }
+    }
+
+    private Map<String, Object> buildWorldbookData(long conversationId, Long branchId, String worldName, List<AppConversationMemoryEntry> entries) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("name", worldName);
         data.put("extensions", Map.of(
                 "source", "SillySpringboot",
                 "kind", "conversation_memory",
                 "conversationId", conversationId,
+                "branchId", branchId == null ? 0 : branchId,
                 "version", 1
         ));
         Map<String, Object> outEntries = new LinkedHashMap<>();
@@ -160,9 +269,17 @@ public class ConversationMemoryWorldbookSyncService {
         return "Long-term memory: " + content + " Please use this memory naturally; do not repeat it mechanically.";
     }
 
-    private static String buildWorldName(long conversationId, Long userId, Long characterId) {
-        String seed = conversationId + ":" + (userId == null ? 0 : userId) + ":" + (characterId == null ? 0 : characterId);
+    private static String buildWorldName(long conversationId, Long branchId, Long userId, Long characterId) {
+        long branch = branchId == null ? 0L : branchId;
+        String seed = conversationId + ":" + branch + ":" + (userId == null ? 0 : userId) + ":" + (characterId == null ? 0 : characterId);
+        if (branch > 0) {
+            return "jg_memory_conv_" + conversationId + "_b" + branch + "_" + shortHash(seed, 10);
+        }
         return "jg_memory_conv_" + conversationId + "_" + shortHash(seed, 10);
+    }
+
+    private static boolean hasBranch(Long branchId) {
+        return branchId != null && branchId > 0;
     }
 
     private static String shortHash(String seed, int chars) {

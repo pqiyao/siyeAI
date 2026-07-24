@@ -1,5 +1,13 @@
 app:
   environment: test
+  api-rate-limit:
+    trusted-proxy-cidrs:
+      - 127.0.0.1/32
+      - ::1/128
+  flyway:
+    locations:
+      - classpath:db/migration-common
+      - classpath:db/migration-h2
 
 spring:
   autoconfigure:
@@ -14,7 +22,9 @@ spring:
 
   flyway:
     enabled: true
-    locations: classpath:db/migration
+    locations:
+      - classpath:db/migration-common
+      - classpath:db/migration-h2
 
   main:
     banner-mode: "off"

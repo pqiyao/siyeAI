@@ -9,6 +9,8 @@ import com.example.sillyspringboot.compat.h5.mapper.AppConversationArchiveMapper
 import com.example.sillyspringboot.conversation.entity.AppConversation;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryAutoRefreshService;
+import com.example.sillyspringboot.conversation.service.ConversationBranchService;
+import com.example.sillyspringboot.conversation.entity.AppConversationBranch;
 import com.example.sillyspringboot.integration.sillytavern.OpenRouterGenerationSettingsService;
 import com.example.sillyspringboot.ops.service.OperationalStatsService;
 import com.example.sillyspringboot.shared.error.BusinessException;
@@ -32,6 +34,7 @@ public class ChatAuditService {
     private final OpenRouterGenerationSettingsService generationSettingsService;
     private final OperationalStatsService operationalStatsService;
     private final ConversationMemoryAutoRefreshService memoryAutoRefreshService;
+    private final ConversationBranchService branchService;
 
     public ChatAuditService(
             AppConversationMapper conversationMapper,
@@ -41,7 +44,8 @@ public class ChatAuditService {
             AppConversationArchiveMapper conversationArchiveMapper,
             OpenRouterGenerationSettingsService generationSettingsService,
             OperationalStatsService operationalStatsService,
-            ConversationMemoryAutoRefreshService memoryAutoRefreshService
+            ConversationMemoryAutoRefreshService memoryAutoRefreshService,
+            ConversationBranchService branchService
     ) {
         this.conversationMapper = conversationMapper;
         this.messageMapper = messageMapper;
@@ -51,6 +55,7 @@ public class ChatAuditService {
         this.generationSettingsService = generationSettingsService;
         this.operationalStatsService = operationalStatsService;
         this.memoryAutoRefreshService = memoryAutoRefreshService;
+        this.branchService = branchService;
     }
 
     @Transactional
@@ -127,6 +132,8 @@ public class ChatAuditService {
         if (conversation == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
         }
+        AppConversationBranch activeBranch = branchService.requireActiveBranch(conversation);
+        Long previousMessageId = messageMapper.findLatestIdByConversationBranch(conversationId, activeBranch.getId());
 
         boolean hasUserMessage = userMessage != null && !userMessage.isBlank();
         conversationMapper.touchUpdatedAt(conversationId);
@@ -139,6 +146,8 @@ public class ChatAuditService {
             userMsg = new AppMessage();
             userMsg.setUserId(userId);
             userMsg.setConversationId(conversationId);
+            userMsg.setBranchId(activeBranch.getId());
+            userMsg.setParentMessageId(previousMessageId);
             userMsg.setRole("user");
             userMsg.setClientMessageId(clientMessageId);
             userMsg.setContent(hasUserMessage ? userMessage : "");
@@ -148,11 +157,15 @@ public class ChatAuditService {
             userMsg.setTraceId(traceId);
             messageMapper.insert(userMsg);
             messageMapper.incrementTotalMessageCounter();
+            branchService.incrementMemorySourceRevision(conversationId, activeBranch.getId());
+            previousMessageId = userMsg.getId();
         }
 
         AppMessage assistantMsg = new AppMessage();
         assistantMsg.setUserId(userId);
         assistantMsg.setConversationId(conversationId);
+        assistantMsg.setBranchId(activeBranch.getId());
+        assistantMsg.setParentMessageId(previousMessageId);
         assistantMsg.setRole("assistant");
         assistantMsg.setClientMessageId(clientMessageId);
         assistantMsg.setContent(null);
@@ -189,28 +202,54 @@ public class ChatAuditService {
 
     @Transactional
     public void onGenerating(long assistantMessageId, long taskId, String traceId) {
-        taskMapper.updateStatus(taskId, "GENERATING", null, null, traceId, null);
+        if (taskMapper.updateStatus(taskId, "GENERATING", null, null, traceId, null) <= 0) {
+            return;
+        }
         operationalStatsService.recordGenerationTaskStatus(taskId, "GENERATING");
         messageMapper.updateStatusAndContent(assistantMessageId, "GENERATING", null, null, traceId);
     }
 
+    /**
+     * Persists canonical content while the task is still non-terminal. Mutation workflows such as
+     * regenerate must not mark SUCCESS until the target/swipe promotion has actually completed.
+     */
+    @Transactional
+    public void stageFinalAssistantContent(long assistantMessageId, String finalAssistantText, String traceId) {
+        messageMapper.updateStatusAndContent(
+                assistantMessageId,
+                "GENERATING",
+                finalAssistantText,
+                null,
+                traceId
+        );
+    }
+
     @Transactional
     public void onSuccess(long assistantMessageId, long taskId, String finalAssistantText, String traceId) {
-        taskMapper.updateStatus(taskId, "SUCCESS", null, null, traceId, null);
+        if (taskMapper.updateStatus(taskId, "SUCCESS", null, null, traceId, null) <= 0) {
+            return;
+        }
         operationalStatsService.recordGenerationTaskStatus(taskId, "SUCCESS");
         messageMapper.updateStatusAndContent(assistantMessageId, "SUCCESS", finalAssistantText, null, traceId);
-        Long conversationId = touchConversationByAssistantMessageId(assistantMessageId);
-        if (conversationId != null) {
-            triggerMemoryRefreshAfterCommit(conversationId);
+        AppMessage message = touchConversationByAssistantMessageId(assistantMessageId);
+        if (message != null && message.getConversationId() != null) {
+            incrementRevisionForVisibleAssistant(message);
+            triggerMemoryRefreshAfterCommit(message.getConversationId(), message.getBranchId());
         }
     }
 
     @Transactional
     public void onStopped(long assistantMessageId, long taskId, String partialAssistantText, String traceId) {
-        taskMapper.updateStatus(taskId, "STOPPED", null, null, traceId, null);
+        if (taskMapper.updateStatus(taskId, "STOPPED", null, null, traceId, null) <= 0) {
+            return;
+        }
         operationalStatsService.recordGenerationTaskStatus(taskId, "STOPPED");
         messageMapper.updateStatusAndContent(assistantMessageId, "STOPPED", partialAssistantText, null, traceId);
-        touchConversationByAssistantMessageId(assistantMessageId);
+        AppMessage message = touchConversationByAssistantMessageId(assistantMessageId);
+        if (message != null && message.getConversationId() != null) {
+            incrementRevisionForVisibleAssistant(message);
+            triggerMemoryRefreshAfterCommit(message.getConversationId(), message.getBranchId());
+        }
     }
 
     @Transactional
@@ -250,7 +289,23 @@ public class ChatAuditService {
 
     @Transactional
     public void touchAfterAssistantContentUpdate(long assistantMessageId) {
-        touchConversationByAssistantMessageId(assistantMessageId);
+        AppMessage message = touchConversationByAssistantMessageId(assistantMessageId);
+        incrementRevisionForVisibleAssistant(message);
+    }
+
+    private void incrementRevisionForVisibleAssistant(AppMessage message) {
+        if (message == null
+                || message.getConversationId() == null
+                || message.getBranchId() == null
+                || message.getBranchId() <= 0
+                || message.getContent() == null
+                || message.getContent().isBlank()) {
+            return;
+        }
+        String status = message.getStatus() == null ? "" : message.getStatus();
+        if ("SUCCESS".equalsIgnoreCase(status) || "STOPPED".equalsIgnoreCase(status)) {
+            branchService.incrementMemorySourceRevision(message.getConversationId(), message.getBranchId());
+        }
     }
 
     private static String buildTitle(String userMessage) {
@@ -259,7 +314,7 @@ public class ChatAuditService {
         return normalized.length() <= max ? normalized : normalized.substring(0, max);
     }
 
-    private Long touchConversationByAssistantMessageId(long assistantMessageId) {
+    private AppMessage touchConversationByAssistantMessageId(long assistantMessageId) {
         AppMessage message = messageMapper.findById(assistantMessageId);
         if (message == null || message.getConversationId() == null) {
             return null;
@@ -270,18 +325,24 @@ public class ChatAuditService {
         if (message.getUserId() != null) {
             conversationArchiveMapper.deleteByUserAndConversation(message.getUserId(), conversationId);
         }
-        return conversationId;
+        if (message.getBranchId() != null && message.getBranchId() > 0) {
+            try {
+                branchService.touchBranch(message.getBranchId());
+            } catch (Exception ignored) {
+            }
+        }
+        return message;
     }
 
-    private void triggerMemoryRefreshAfterCommit(long conversationId) {
+    private void triggerMemoryRefreshAfterCommit(long conversationId, Long branchId) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            memoryAutoRefreshService.maybeTriggerAfterGenerationSuccess(conversationId);
+            memoryAutoRefreshService.maybeTriggerAfterGenerationSuccess(conversationId, branchId);
             return;
         }
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                memoryAutoRefreshService.maybeTriggerAfterGenerationSuccess(conversationId);
+                memoryAutoRefreshService.maybeTriggerAfterGenerationSuccess(conversationId, branchId);
             }
         });
     }
@@ -327,7 +388,9 @@ public class ChatAuditService {
         String errorCode = failure == null ? ErrorCode.INTERNAL_ERROR.name() : failure.errorCode();
         String errorMessage = failure == null ? ErrorCode.INTERNAL_ERROR.name() : failure.errorMessage();
         Integer httpStatus = failure == null ? 500 : failure.httpStatus();
-        taskMapper.updateStatus(taskId, "FAILED", errorCode, errorMessage, traceId, httpStatus);
+        if (taskMapper.updateStatus(taskId, "FAILED", errorCode, errorMessage, traceId, httpStatus) <= 0) {
+            return;
+        }
         operationalStatsService.recordGenerationTaskStatus(taskId, "FAILED");
         messageMapper.updateStatusAndContent(assistantMessageId, "FAILED", null, errorCode, traceId);
         touchConversationByAssistantMessageId(assistantMessageId);

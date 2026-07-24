@@ -14,6 +14,7 @@ public interface AppH5VisitorDeviceMapper {
             @Param("id") long id,
             @Param("latestClientUid") String latestClientUid,
             @Param("latestUserId") Long latestUserId,
+            @Param("trustedUserId") Long trustedUserId,
             @Param("latestIp") String latestIp,
             @Param("uaHash") String uaHash,
             @Param("userAgent") String userAgent

@@ -7,6 +7,7 @@ import com.example.sillyspringboot.chat.service.ChatSnapshotService;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.conversation.dto.ConversationDetailDto;
 import com.example.sillyspringboot.conversation.service.AppConversationService;
+import com.example.sillyspringboot.conversation.service.ConversationMemoryAutoRefreshService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,6 +30,7 @@ public class ApiV1TavernMessageOpsController {
     private final AppMessageMapper messageMapper;
     private final com.example.sillyspringboot.chat.service.AppChatService chatService;
     private final ChatSnapshotService snapshotService;
+    private final ConversationMemoryAutoRefreshService memoryAutoRefreshService;
 
     public ApiV1TavernMessageOpsController(
             H5ClientUidAuthService h5Auth,
@@ -36,7 +38,8 @@ public class ApiV1TavernMessageOpsController {
             AppConversationService conversationService,
             AppMessageMapper messageMapper,
             com.example.sillyspringboot.chat.service.AppChatService chatService,
-            ChatSnapshotService snapshotService
+            ChatSnapshotService snapshotService,
+            ConversationMemoryAutoRefreshService memoryAutoRefreshService
     ) {
         this.h5Auth = h5Auth;
         this.tokenService = tokenService;
@@ -44,9 +47,11 @@ public class ApiV1TavernMessageOpsController {
         this.messageMapper = messageMapper;
         this.chatService = chatService;
         this.snapshotService = snapshotService;
+        this.memoryAutoRefreshService = memoryAutoRefreshService;
     }
 
     @PostMapping("/swipe")
+    @Transactional
     public ApiV1Result<Map<String, Object>> swipe(@RequestBody Map<String, Object> payload) {
         long characterId = requireLong(payload, "characterId");
         String clientUid = requireString(payload, "clientUid");
@@ -55,6 +60,7 @@ public class ApiV1TavernMessageOpsController {
 
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
+        long activeBranchId = chatService.requireActiveBranchId(conversationId, token);
         long userId = tokenService.validateAndLoadUser(token).getId();
         if (userId <= 0) throw new BusinessException(ErrorCode.UNAUTHORIZED, "unauthorized");
 
@@ -63,8 +69,14 @@ public class ApiV1TavernMessageOpsController {
         if (m == null || m.getConversationId() == null || m.getConversationId().longValue() != conversationId) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
         }
+        if (m.getBranchId() == null || m.getBranchId().longValue() != activeBranchId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
+        }
         if (!"assistant".equalsIgnoreCase(m.getRole())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "only assistant messages support swipe");
+        }
+        if (isOpeningMessage(m)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "select an opening branch instead");
         }
 
         String stRef = m.getStMessageRef();
@@ -83,7 +95,8 @@ public class ApiV1TavernMessageOpsController {
         if (logicalTarget >= currentState.swipes().size()) logicalTarget = currentState.swipes().size() - 1;
         int target = currentState.logicalIndexes().get(logicalTarget);
 
-        AppMessage targetVariant = messageMapper.findByStMessageRefAndSwipeIndex(stRef, target);
+        Integer previousSwipeIndex = m.getSwipeIndex();
+        AppMessage targetVariant = messageMapper.findByStMessageRefAndSwipeIndexAndBranch(stRef, target, activeBranchId);
         if (targetVariant != null) {
             messageMapper.updateStatusAndContent(
                     m.getId(),
@@ -101,6 +114,10 @@ public class ApiV1TavernMessageOpsController {
             chatService.syncSwipeSelectionToSt(conversationId, m.getId(), token);
         } catch (Exception ignored) {
         }
+        if (targetVariant != null && (previousSwipeIndex == null || previousSwipeIndex != target)) {
+            chatService.markMemorySourceChanged(conversationId, activeBranchId);
+            memoryAutoRefreshService.triggerAfterHistoryChange(conversationId, activeBranchId);
+        }
 
         H5SwipeStateSupport.SwipeState updatedState = H5SwipeStateSupport.build(m, messageMapper);
         return ApiV1Result.ok(toH5Row(m, updatedState.swipeIndex(), updatedState.swipes()));
@@ -115,10 +132,14 @@ public class ApiV1TavernMessageOpsController {
 
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
+        long activeBranchId = chatService.requireActiveBranchId(conversationId, token);
 
         long mid = parseDbMessageId(messageId);
         AppMessage m = messageMapper.findById(mid);
         if (m == null || m.getConversationId() == null || m.getConversationId().longValue() != conversationId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
+        }
+        if (m.getBranchId() == null || m.getBranchId().longValue() != activeBranchId) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
         }
         String role = m.getRole() == null ? "" : m.getRole();
@@ -127,6 +148,8 @@ public class ApiV1TavernMessageOpsController {
         }
 
         rewindConversationFromMessage(conversationId, m.getId(), false, null);
+        chatService.markMemorySourceChanged(conversationId, activeBranchId);
+        memoryAutoRefreshService.triggerAfterHistoryChange(conversationId, activeBranchId);
         return ApiV1Result.ok(true);
     }
 
@@ -140,10 +163,14 @@ public class ApiV1TavernMessageOpsController {
 
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
+        long activeBranchId = chatService.requireActiveBranchId(conversationId, token);
 
         long mid = parseDbMessageId(messageId);
         AppMessage m = messageMapper.findById(mid);
         if (m == null || m.getConversationId() == null || m.getConversationId().longValue() != conversationId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
+        }
+        if (m.getBranchId() == null || m.getBranchId().longValue() != activeBranchId) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
         }
         if (!"user".equalsIgnoreCase(m.getRole())) {
@@ -151,6 +178,8 @@ public class ApiV1TavernMessageOpsController {
         }
 
         rewindConversationFromMessage(conversationId, m.getId(), true, newText);
+        chatService.markMemorySourceChanged(conversationId, activeBranchId);
+        memoryAutoRefreshService.triggerAfterHistoryChange(conversationId, activeBranchId);
         return ApiV1Result.ok(true);
     }
 
@@ -173,13 +202,18 @@ public class ApiV1TavernMessageOpsController {
                     target.getTraceId()
             );
         }
-        messageMapper.softDeleteBranchFromId(
+        long branchId = target.getBranchId() == null ? 0L : target.getBranchId();
+        if (branchId <= 0) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "message not found");
+        }
+        messageMapper.softDeleteBranchFromIdInBranch(
                 conversationId,
+                branchId,
                 targetMessageId,
                 !preserveTarget,
                 target.getTraceId() == null ? "rewind" : target.getTraceId()
         );
-        snapshotService.saveSnapshotFromDb(conversationId, 800);
+        snapshotService.saveSnapshotFromDb(conversationId, branchId, 800);
     }
 
     private static String activeStatus(AppMessage row) {
@@ -201,8 +235,10 @@ public class ApiV1TavernMessageOpsController {
     private static Map<String, Object> toH5Row(AppMessage m, int swipeIndex, List<String> swipes) {
         Map<String, Object> out = new HashMap<>();
         out.put("id", "db_" + m.getId());
+        out.put("branchId", m.getBranchId());
         out.put("role", "assistant".equalsIgnoreCase(m.getRole()) ? "char" : "user");
         out.put("text", m.getContent() == null ? "" : m.getContent());
+        out.put("openingMessage", isOpeningMessage(m));
         out.put("messageKind", normalizeMessageKind(m.getMessageKind()));
         if (m.getContinueFromMessageId() != null && m.getContinueFromMessageId() > 0) {
             out.put("continueFromMessageId", "db_" + m.getContinueFromMessageId());
@@ -215,6 +251,14 @@ public class ApiV1TavernMessageOpsController {
     private static String normalizeMessageKind(String value) {
         String kind = value == null ? "" : value.trim().toUpperCase();
         return "CONTINUATION".equals(kind) ? "CONTINUATION" : "NORMAL";
+    }
+
+    private static boolean isOpeningMessage(AppMessage message) {
+        String clientMessageId = message == null || message.getClientMessageId() == null
+                ? ""
+                : message.getClientMessageId();
+        return "assistant".equalsIgnoreCase(message == null ? "" : message.getRole())
+                && clientMessageId.startsWith("opening_");
     }
 
     private static long parseDbMessageId(String messageId) {

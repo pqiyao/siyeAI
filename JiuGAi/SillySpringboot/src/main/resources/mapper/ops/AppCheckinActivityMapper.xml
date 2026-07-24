@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.checkin.mapper.AppCheckinActivityMapper">
+
+    <resultMap id="ActivityMap" type="com.example.sillyspringboot.ops.checkin.entity.AppCheckinActivity">
+        <id column="id" property="id"/>
+        <result column="code" property="code"/>
+        <result column="name" property="name"/>
+        <result column="enabled" property="enabled"/>
+        <result column="start_at" property="startAt"/>
+        <result column="end_at" property="endAt"/>
+        <result column="audience" property="audience"/>
+        <result column="reward_score" property="rewardScore"/>
+        <result column="reward_gold" property="rewardGold"/>
+        <result column="reward_chat_bonus" property="rewardChatBonus"/>
+        <result column="reward_image_bonus" property="rewardImageBonus"/>
+        <result column="streak_rules_json" property="streakRulesJson"/>
+        <result column="timezone" property="timezone"/>
+        <result column="note" property="note"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <select id="findByCode" resultMap="ActivityMap">
+        SELECT * FROM app_checkin_activity WHERE code = #{code} LIMIT 1
+    </select>
+
+    <select id="findById" resultMap="ActivityMap">
+        SELECT * FROM app_checkin_activity WHERE id = #{id} LIMIT 1
+    </select>
+
+    <insert id="insertFull" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_checkin_activity (
+            code, name, enabled, start_at, end_at, audience,
+            reward_score, reward_gold, reward_chat_bonus, reward_image_bonus,
+            streak_rules_json, timezone, note, updated_at, created_at
+        ) VALUES (
+            #{code}, #{name}, #{enabled}, #{startAt}, #{endAt}, #{audience},
+            #{rewardScore}, #{rewardGold}, #{rewardChatBonus}, #{rewardImageBonus},
+            #{streakRulesJson}, #{timezone}, #{note}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="updateFull">
+        UPDATE app_checkin_activity
+        SET name = #{name},
+            enabled = #{enabled},
+            start_at = #{startAt},
+            end_at = #{endAt},
+            audience = #{audience},
+            reward_score = #{rewardScore},
+            reward_gold = #{rewardGold},
+            reward_chat_bonus = #{rewardChatBonus},
+            reward_image_bonus = #{rewardImageBonus},
+            streak_rules_json = #{streakRulesJson},
+            timezone = #{timezone},
+            note = #{note},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+</mapper>

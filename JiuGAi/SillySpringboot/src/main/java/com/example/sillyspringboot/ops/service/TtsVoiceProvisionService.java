@@ -6,6 +6,9 @@ import com.example.sillyspringboot.ops.entity.AppUserTtsVoiceInstance;
 import com.example.sillyspringboot.ops.mapper.AppUserTtsVoiceInstanceMapper;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
+import com.example.sillyspringboot.shared.net.BoundedHttpBodyHandlers;
+import com.example.sillyspringboot.shared.net.MediaPayloadValidator;
+import com.example.sillyspringboot.shared.net.OutboundUrlGuard;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpHeaders;
@@ -34,6 +37,7 @@ public class TtsVoiceProvisionService {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final int MAX_REFERENCE_AUDIO_BYTES = 8 * 1024 * 1024;
+    private static final int MAX_VOICE_API_RESPONSE_BYTES = 2 * 1024 * 1024;
 
     public record TtsRuntimeContext(
             boolean customModeActive,
@@ -198,8 +202,16 @@ public class TtsVoiceProvisionService {
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.APPLICATION_JSON)
                     .body(payload)
-                    .retrieve()
-                    .body(String.class);
+                    .exchange((request, response) -> {
+                        byte[] body = BoundedHttpBodyHandlers.readBytes(
+                                response.getBody(), MAX_VOICE_API_RESPONSE_BYTES);
+                        String responseText = new String(body, StandardCharsets.UTF_8);
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new BusinessException(
+                                    ErrorCode.UPSTREAM_ERROR, providerErrorMessage(responseText));
+                        }
+                        return responseText;
+                    });
             return extractVoiceUri(raw);
         } catch (RestClientResponseException ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, providerErrorMessage(ex.getResponseBodyAsString()));
@@ -209,10 +221,12 @@ public class TtsVoiceProvisionService {
     }
 
     private RestClient buildRestClient(String baseUrl, String apiKey) {
+        String safeBaseUrl = OutboundUrlGuard.requirePublicHttpUrl(
+                baseUrl, "音色服务地址不安全，请使用可公开访问的 HTTP(S) 地址").toString();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(this.httpClient);
         factory.setReadTimeout(Duration.ofSeconds(90));
         return RestClient.builder()
-                .baseUrl(baseUrl)
+                .baseUrl(safeBaseUrl)
                 .requestFactory(factory)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
@@ -282,24 +296,29 @@ public class TtsVoiceProvisionService {
         if (url.startsWith("/uploads/h5/")) {
             byte[] bytes = uploadService.readUploadedFileBytes(url);
             validateReferenceAudioSize(bytes);
-            return new ReferenceAudio(bytes, uploadService.detectUploadedFileContentType(url));
+            String mimeType = MediaPayloadValidator.requireAudio(
+                    bytes, uploadService.detectUploadedFileContentType(url));
+            return new ReferenceAudio(bytes, mimeType);
         }
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "参考音频地址不可用");
         }
         try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+            URI safeUri = OutboundUrlGuard.requirePublicHttpUrl(url, "参考音频地址不安全");
+            HttpRequest request = HttpRequest.newBuilder(safeUri)
                     .GET()
                     .timeout(Duration.ofSeconds(30))
                     .build();
-            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> response = httpClient.send(
+                    request, BoundedHttpBodyHandlers.ofByteArray(MAX_REFERENCE_AUDIO_BYTES));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "参考音频下载失败");
             }
             byte[] bytes = response.body() == null ? new byte[0] : response.body();
             validateReferenceAudioSize(bytes);
-            String contentType = response.headers().firstValue("Content-Type").orElse("");
-            return new ReferenceAudio(bytes, StringUtils.hasText(contentType) ? contentType : "audio/mpeg");
+            String contentType = MediaPayloadValidator.requireAudio(
+                    bytes, response.headers().firstValue("Content-Type").orElse(""));
+            return new ReferenceAudio(bytes, contentType);
         } catch (BusinessException ex) {
             throw ex;
         } catch (Exception ex) {

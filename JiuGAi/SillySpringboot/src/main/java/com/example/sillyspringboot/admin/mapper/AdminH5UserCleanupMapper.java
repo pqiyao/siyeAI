@@ -13,7 +13,7 @@ public interface AdminH5UserCleanupMapper {
 
     List<Map<String, Object>> listOwnedCharacterCleanupRows(@Param("userId") long userId);
 
-    List<String> listUserAssetUrls(@Param("userId") long userId);
+    List<String> listOwnedUploadRelativePaths(@Param("userId") long userId);
 
     int deleteSupportTicketMessagesByUser(@Param("userId") long userId);
 
@@ -41,6 +41,8 @@ public interface AdminH5UserCleanupMapper {
 
     int deleteConversationArchivesByUser(@Param("userId") long userId);
 
+    int deleteConversationMemoryEntriesByUser(@Param("userId") long userId);
+
     int deleteConversationMemoriesByUser(@Param("userId") long userId);
 
     int deleteConversationIdempotencyByUser(@Param("userId") long userId);
@@ -49,9 +51,15 @@ public interface AdminH5UserCleanupMapper {
 
     int deleteGenerationTasksByUser(@Param("userId") long userId);
 
+    int deleteConversationBranchesByUser(@Param("userId") long userId);
+
     int deleteConversationsByUser(@Param("userId") long userId);
 
+    int deletePasswordResetTokensByUser(@Param("userId") long userId);
+
     int deleteUserSessions(@Param("userId") long userId);
+
+    int anonymizeH5SecurityEventsByUser(@Param("userId") long userId);
 
     int deleteVisitorDevicesByUser(@Param("userId") long userId);
 
@@ -67,9 +75,13 @@ public interface AdminH5UserCleanupMapper {
 
     int deleteH5ProfileExt(@Param("userId") long userId);
 
+    int deleteOwnedUploadAssetsByUser(@Param("userId") long userId);
+
     int deleteCharacterReviewLogsByOwner(@Param("userId") long userId);
 
     int deleteLorebookEntriesForOwnedCharacters(@Param("userId") long userId);
+
+    int deleteChatPreferencesRelatedToUser(@Param("userId") long userId);
 
     int deleteOwnedCharacters(@Param("userId") long userId);
 

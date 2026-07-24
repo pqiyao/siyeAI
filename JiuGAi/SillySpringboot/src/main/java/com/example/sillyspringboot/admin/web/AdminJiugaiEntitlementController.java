@@ -3,7 +3,6 @@ package com.example.sillyspringboot.admin.web;
 import com.example.sillyspringboot.admin.security.AdminPermitted;
 import com.example.sillyspringboot.admin.web.support.AdminAjaxResult;
 import com.example.sillyspringboot.ops.dto.EntitlementPolicy;
-import com.example.sillyspringboot.ops.service.AppImageGenerationSettingsService;
 import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.ops.service.EntitlementAuditLogService;
 import com.example.sillyspringboot.ops.service.EntitlementPolicyService;
@@ -23,18 +22,15 @@ public class AdminJiugaiEntitlementController {
     private final EntitlementPolicyService entitlementPolicyService;
     private final EntitlementAuditLogService auditLogService;
     private final AppFeatureSettingsService featureSettingsService;
-    private final AppImageGenerationSettingsService imageGenerationSettingsService;
 
     public AdminJiugaiEntitlementController(
             EntitlementPolicyService entitlementPolicyService,
             EntitlementAuditLogService auditLogService,
-            AppFeatureSettingsService featureSettingsService,
-            AppImageGenerationSettingsService imageGenerationSettingsService
+            AppFeatureSettingsService featureSettingsService
     ) {
         this.entitlementPolicyService = entitlementPolicyService;
         this.auditLogService = auditLogService;
         this.featureSettingsService = featureSettingsService;
-        this.imageGenerationSettingsService = imageGenerationSettingsService;
     }
 
     @GetMapping
@@ -75,21 +71,4 @@ public class AdminJiugaiEntitlementController {
         return result;
     }
 
-    @GetMapping("/image-generation-settings")
-    public Map<String, Object> imageGenerationSettings() {
-        Map<String, Object> result = AdminAjaxResult.ok();
-        result.put("data", imageGenerationSettingsService.toMap(imageGenerationSettingsService.getSettings()));
-        return result;
-    }
-
-    @PutMapping("/image-generation-settings")
-    @AdminPermitted("commerce:entitlement:edit")
-    public Map<String, Object> updateImageGenerationSettings(@RequestBody(required = false) Map<String, Object> body) {
-        Map<String, Object> before = imageGenerationSettingsService.toMap(imageGenerationSettingsService.getSettings());
-        Map<String, Object> after = imageGenerationSettingsService.toMap(imageGenerationSettingsService.saveSettings(body));
-        auditLogService.recordPolicyUpdate(before, after, "admin");
-        Map<String, Object> result = AdminAjaxResult.ok("保存成功");
-        result.put("data", after);
-        return result;
-    }
 }

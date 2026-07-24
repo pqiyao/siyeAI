@@ -1,0 +1,50 @@
+CREATE TABLE app_generation_task_daily_stat (
+    stat_day DATE NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    channel VARCHAR(32) NOT NULL DEFAULT '',
+    model VARCHAR(160) NOT NULL DEFAULT '',
+    task_count BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (stat_day, status, channel, model),
+    KEY idx_generation_task_daily_status (status, stat_day)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE app_generation_attempt_daily_stat (
+    stat_day DATE NOT NULL,
+    provider_key VARCHAR(80) NOT NULL,
+    route_key VARCHAR(80) NOT NULL,
+    model VARCHAR(255) NOT NULL DEFAULT '',
+    character_id BIGINT NOT NULL DEFAULT 0,
+    status VARCHAR(24) NOT NULL,
+    error_code VARCHAR(80) NOT NULL DEFAULT '',
+    http_status INT NOT NULL DEFAULT 0,
+    byok TINYINT(1) NOT NULL DEFAULT 0,
+    was_fallback TINYINT(1) NOT NULL DEFAULT 0,
+    attempt_count BIGINT NOT NULL DEFAULT 0,
+    duration_sum_ms BIGINT NOT NULL DEFAULT 0,
+    duration_sample_count BIGINT NOT NULL DEFAULT 0,
+    ttft_sum_ms BIGINT NOT NULL DEFAULT 0,
+    ttft_sample_count BIGINT NOT NULL DEFAULT 0,
+    prompt_tokens BIGINT NOT NULL DEFAULT 0,
+    completion_tokens BIGINT NOT NULL DEFAULT 0,
+    estimated_token_attempts BIGINT NOT NULL DEFAULT 0,
+    total_cost_usd DECIMAL(24, 10) NOT NULL DEFAULT 0,
+    priced_attempts BIGINT NOT NULL DEFAULT 0,
+    unpriced_attempts BIGINT NOT NULL DEFAULT 0,
+    estimated_cost_attempts BIGINT NOT NULL DEFAULT 0,
+    partial_cost_attempts BIGINT NOT NULL DEFAULT 0,
+    first_started_at DATETIME(6) NOT NULL,
+    last_finished_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (
+        stat_day, provider_key, route_key, model, character_id,
+        status, error_code, http_status, byok, was_fallback
+    ),
+    KEY idx_generation_attempt_daily_provider (provider_key, stat_day),
+    KEY idx_generation_attempt_daily_model (model, stat_day),
+    KEY idx_generation_attempt_daily_character (character_id, stat_day),
+    KEY idx_generation_attempt_daily_route (route_key, stat_day),
+    KEY idx_generation_attempt_daily_error (error_code, stat_day)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

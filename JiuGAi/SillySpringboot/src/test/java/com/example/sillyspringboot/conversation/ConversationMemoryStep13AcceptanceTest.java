@@ -11,6 +11,7 @@ import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntr
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper;
 import com.example.sillyspringboot.conversation.service.AppConversationMemoryService;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryLlmService;
+import com.example.sillyspringboot.conversation.service.ConversationMemoryCapacityService;
 import com.example.sillyspringboot.conversation.service.ConversationMemorySanitizer;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryWorldbookSyncService;
 import org.junit.jupiter.api.Test;
@@ -308,10 +309,11 @@ class ConversationMemoryStep13AcceptanceTest {
                 llmService,
                 new ConversationMemorySanitizer(properties),
                 syncService,
+                mock(ConversationMemoryCapacityService.class),
                 properties
         );
         when(entryMapper.listAllByConversationId(conversationId)).thenReturn(List.of());
-        when(messageMapper.listRecentByConversationAsc(eq(conversationId), eq(properties.getMaxMessages())))
+        when(messageMapper.listRecentMemorySourceByConversationAsc(eq(conversationId), eq(properties.getMaxMessages())))
                 .thenReturn(List.of(
                         message(1L, "user", "User says something memorable.", "SUCCESS"),
                         message(2L, "assistant", "Assistant replies.", "SUCCESS")

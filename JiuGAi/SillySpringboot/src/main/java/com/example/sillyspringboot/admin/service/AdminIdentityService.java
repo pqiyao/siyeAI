@@ -516,7 +516,7 @@ public class AdminIdentityService implements ApplicationRunner {
                 existing.setPermissionsJson(
                         SUPER_ADMIN_ROLE.equals(roleKey)
                                 ? writeJson(List.of(AdminPermissionCatalog.ALL_PERMISSION))
-                                : existing.getPermissionsJson()
+                                : writeJson(mergeBuiltInRolePermissions(existing.getPermissionsJson(), entry.getValue()))
                 );
                 existing.setEnabled(existing.getEnabled() == null ? true : existing.getEnabled());
                 existing.setBuiltIn(true);
@@ -538,12 +538,13 @@ public class AdminIdentityService implements ApplicationRunner {
         if (normalized == null || encodedPassword == null || encodedPassword.isBlank()) {
             return;
         }
+        String passwordHash = resolveConfiguredPasswordHash(encodedPassword);
         AppAdminAccount existing = accountMapper.findByUsername(normalized);
         if (existing == null) {
             AppAdminAccount row = new AppAdminAccount();
             row.setUsername(normalized);
             row.setNickName(nickName == null || nickName.isBlank() ? normalized : nickName.trim());
-            row.setEncodedPassword(encodedPassword.trim());
+            row.setEncodedPassword(passwordHash);
             row.setStatus(STATUS_ACTIVE);
             row.setBuiltIn(true);
             row.setMustResetPassword(false);
@@ -561,7 +562,6 @@ public class AdminIdentityService implements ApplicationRunner {
         existing.setStatus(STATUS_ACTIVE);
         existing.setUpdatedBy("system");
         accountMapper.updateProfile(existing);
-        accountMapper.updatePassword(existing.getId(), encodedPassword.trim(), false, "system");
         List<Long> roleIds = resolveRoleIdsByKeys(configuredRoleKeys);
         if (roleIds.isEmpty() && accountRoleMapper.listRoleIdsByAccountId(existing.getId()).isEmpty()) {
             roleIds = resolveRoleIdsByKeys(List.of(SUPER_ADMIN_ROLE));
@@ -569,6 +569,14 @@ public class AdminIdentityService implements ApplicationRunner {
         if (!roleIds.isEmpty()) {
             replaceAccountRoles(existing.getId(), roleIds);
         }
+    }
+
+    private String resolveConfiguredPasswordHash(String configuredPassword) {
+        String value = configuredPassword.trim();
+        if (value.startsWith("{")) {
+            return value;
+        }
+        return passwordEncoder.encode(value);
     }
 
     private Map<String, Object> toRoleSummary(AppAdminRole role) {
@@ -961,6 +969,23 @@ public class AdminIdentityService implements ApplicationRunner {
             }
         }
         return List.copyOf(normalized);
+    }
+
+    /** 内置角色仅补齐模板新增权限，不删除运营已手工配置的项。 */
+    private List<String> mergeBuiltInRolePermissions(String existingJson, Collection<String> template) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>(readPermissions(existingJson));
+        if (template != null) {
+            for (String item : template) {
+                if (item == null || item.isBlank()) {
+                    continue;
+                }
+                String permission = item.trim();
+                if (permissionCatalog.isValidPermission(permission)) {
+                    merged.add(permission);
+                }
+            }
+        }
+        return List.copyOf(merged);
     }
 
     private List<Long> normalizeRoleIds(Collection<Long> roleIds) {

@@ -27,7 +27,7 @@ public class ConversationMemoryLlmServiceTest {
     @Test
     void structuredExtract_shouldReturnIdentityConstantEntryForUserCallName() {
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
-        when(messageMapper.listRecentByConversationAsc(eq(101L), any(Integer.class)))
+        when(messageMapper.listRecentMemorySourceByConversationAsc(eq(101L), any(Integer.class)))
                 .thenReturn(List.of(user("以后叫我哥哥")));
 
         StClient stClient = mock(StClient.class);
@@ -84,7 +84,7 @@ public class ConversationMemoryLlmServiceTest {
     @Test
     void structuredExtract_shouldNotCreateEntriesForFillerOnlyTranscript() {
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
-        when(messageMapper.listRecentByConversationAsc(eq(102L), any(Integer.class)))
+        when(messageMapper.listRecentMemorySourceByConversationAsc(eq(102L), any(Integer.class)))
                 .thenReturn(List.of(user("哈哈"), assistant("嗯嗯")));
 
         StClient stClient = mock(StClient.class);

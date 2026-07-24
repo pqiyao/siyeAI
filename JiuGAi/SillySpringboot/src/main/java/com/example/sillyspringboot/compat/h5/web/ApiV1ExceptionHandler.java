@@ -4,6 +4,7 @@ import com.example.sillyspringboot.shared.error.BusinessException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -21,7 +22,16 @@ public class ApiV1ExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public Object handleBusiness(BusinessException exception, HttpServletRequest request) {
-        return buildFailureResponse(request, exception == null ? null : exception.getMessage());
+        HttpStatus status = exception == null ? HttpStatus.INTERNAL_SERVER_ERROR : switch (exception.getErrorCode()) {
+            case CONFLICT -> HttpStatus.CONFLICT;
+            case NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
+            case FORBIDDEN -> HttpStatus.FORBIDDEN;
+            case RATE_LIMITED, SERVICE_BUSY -> HttpStatus.TOO_MANY_REQUESTS;
+            case UPSTREAM_ERROR -> HttpStatus.BAD_GATEWAY;
+            default -> HttpStatus.BAD_REQUEST;
+        };
+        return buildFailureResponse(request, exception == null ? null : exception.getMessage(), status);
     }
 
     @ExceptionHandler(Exception.class)
@@ -30,17 +40,17 @@ public class ApiV1ExceptionHandler {
                 request == null ? "" : request.getMethod(),
                 request == null ? "" : request.getRequestURI(),
                 exception);
-        return buildFailureResponse(request, "服务暂时不可用，请稍后重试");
+        return buildFailureResponse(request, "服务暂时不可用，请稍后重试", HttpStatus.INTERNAL_SERVER_ERROR);
     }
 
-    private Object buildFailureResponse(HttpServletRequest request, String message) {
+    private Object buildFailureResponse(HttpServletRequest request, String message, HttpStatus status) {
         String safeMessage = safeMessage(message);
         if (acceptsEventStream(request)) {
             return ResponseEntity.ok()
                     .contentType(MediaType.TEXT_EVENT_STREAM)
                     .body(toSseErrorPayload(safeMessage));
         }
-        return ApiV1Result.fail(safeMessage);
+        return ResponseEntity.status(status).body(ApiV1Result.fail(safeMessage));
     }
 
     private static boolean acceptsEventStream(HttpServletRequest request) {

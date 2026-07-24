@@ -3,9 +3,11 @@ package com.example.sillyspringboot.admin.service;
 import com.example.sillyspringboot.admin.mapper.AdminDashboardMapper;
 import com.example.sillyspringboot.compat.h5.entity.AppNotice;
 import com.example.sillyspringboot.compat.h5.mapper.AppNoticeMapper;
+import com.example.sillyspringboot.ops.generation.service.GenerationModelPricingService;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.HashMap;
@@ -23,17 +25,20 @@ public class AdminDashboardService {
     private final AppNoticeMapper noticeMapper;
     private final AdminJiugaiCharacterService characterService;
     private final AdminUserDisplayService userDisplayService;
+    private final GenerationModelPricingService generationModelPricingService;
 
     public AdminDashboardService(
             AdminDashboardMapper dashboardMapper,
             AppNoticeMapper noticeMapper,
             AdminJiugaiCharacterService characterService,
-            AdminUserDisplayService userDisplayService
+            AdminUserDisplayService userDisplayService,
+            GenerationModelPricingService generationModelPricingService
     ) {
         this.dashboardMapper = dashboardMapper;
         this.noticeMapper = noticeMapper;
         this.characterService = characterService;
         this.userDisplayService = userDisplayService;
+        this.generationModelPricingService = generationModelPricingService;
     }
 
     public Map<String, Object> overview(String trendRange) {
@@ -64,7 +69,28 @@ public class AdminDashboardService {
         data.put("hotCharacters", dashboardMapper.hotCharacters(8));
         data.put("latestNotices", noticeRows);
         data.put("userCreatedStats", characterService.userCreatedStats(8));
+        data.put("generationOps", generationOps(trendDays));
         return data;
+    }
+
+    private Map<String, Object> generationOps(Integer trendDays) {
+        LocalDateTime startAt = trendDays == null ? null : LocalDate.now()
+                .minusDays(Math.max(1, trendDays) - 1L)
+                .atStartOfDay();
+        Map<String, Object> generationOps = new LinkedHashMap<>();
+        Map<String, Object> summary = dashboardMapper.generationOpsSummary(startAt);
+        generationOps.put("summary", summary == null ? Map.of() : summary);
+        generationOps.put(
+                "latencyTrend",
+                normalizeGenerationLatencyTrend(dashboardMapper.generationLatencyTrend(startAt), trendDays)
+        );
+        generationOps.put("providerStats", safeRows(dashboardMapper.generationProviderStats(startAt)));
+        generationOps.put("modelStats", safeRows(dashboardMapper.generationModelStats(startAt)));
+        generationOps.put("characterStats", safeRows(dashboardMapper.generationCharacterStats(startAt)));
+        generationOps.put("errorStats", safeRows(dashboardMapper.generationErrorStats(startAt)));
+        generationOps.put("routeHealth", safeRows(dashboardMapper.generationRouteHealth(startAt)));
+        generationOps.put("pricing", generationModelPricingService.listAll());
+        return generationOps;
     }
 
     private List<Map<String, Object>> decorateTopUsers(List<Map<String, Object>> rows) {
@@ -123,6 +149,71 @@ public class AdminDashboardService {
             normalized.add(out);
         }
         return normalized;
+    }
+
+    private static List<Map<String, Object>> normalizeGenerationLatencyTrend(
+            List<Map<String, Object>> rows,
+            Integer trendDays
+    ) {
+        List<Map<String, Object>> decoratedRows = decorateLatencyRows(rows);
+        if (trendDays == null) {
+            return decoratedRows;
+        }
+        Map<String, Map<String, Object>> byDay = new HashMap<>();
+        if (!decoratedRows.isEmpty()) {
+            for (Map<String, Object> row : decoratedRows) {
+                String dayKey = text(firstValue(row, "dayKey", "day_key", "DAYKEY", "DAY_KEY"));
+                if (!dayKey.isBlank()) {
+                    byDay.put(dayKey, row);
+                }
+            }
+        }
+        LocalDate start = LocalDate.now().minusDays(Math.max(1, trendDays) - 1L);
+        List<Map<String, Object>> normalized = new java.util.ArrayList<>();
+        for (int i = 0; i < Math.max(1, trendDays); i++) {
+            LocalDate day = start.plusDays(i);
+            String dayKey = DAY_KEY_FMT.format(day);
+            Map<String, Object> existing = byDay.get(dayKey);
+            if (existing != null) {
+                normalized.add(existing);
+                continue;
+            }
+            Map<String, Object> empty = new LinkedHashMap<>();
+            empty.put("dayKey", dayKey);
+            empty.put("date", DAY_LABEL_FMT.format(day));
+            empty.put("attempts", 0L);
+            empty.put("successCount", 0L);
+            empty.put("failureCount", 0L);
+            empty.put("avgDurationMs", 0L);
+            empty.put("avgTtftMs", 0L);
+            empty.put("totalTokens", 0L);
+            empty.put("totalCostUsd", 0);
+            normalized.add(empty);
+        }
+        return normalized;
+    }
+
+    private static List<Map<String, Object>> decorateLatencyRows(List<Map<String, Object>> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> decorated = new java.util.ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            String dayKey = text(firstValue(row, "dayKey", "day_key", "DAYKEY", "DAY_KEY"));
+            Map<String, Object> out = new LinkedHashMap<>(row);
+            out.put("dayKey", dayKey);
+            try {
+                out.put("date", DAY_LABEL_FMT.format(LocalDate.parse(dayKey)));
+            } catch (Exception ignored) {
+                out.put("date", dayKey);
+            }
+            decorated.add(out);
+        }
+        return decorated;
+    }
+
+    private static List<Map<String, Object>> safeRows(List<Map<String, Object>> rows) {
+        return rows == null ? List.of() : rows;
     }
 
     private static Object firstValue(Map<String, Object> row, String... keys) {

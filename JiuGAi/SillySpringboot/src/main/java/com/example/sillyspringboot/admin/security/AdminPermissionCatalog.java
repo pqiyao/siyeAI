@@ -33,7 +33,9 @@ public class AdminPermissionCatalog {
                         item("system:admin-role:delete", "\u5220\u9664\u7ba1\u7406\u5458\u89d2\u8272", "admin-role", "\u7ba1\u7406\u5458\u89d2\u8272", "delete", "\u5220\u9664", RiskLevel.CRITICAL, roles("super-admin", "admin")),
                         item("system:permission-log:view", "\u67e5\u770b\u6743\u9650\u53d8\u66f4\u65e5\u5fd7", "permission-log", "\u6743\u9650\u53d8\u66f4\u65e5\u5fd7", "view", "\u67e5\u770b", RiskLevel.HIGH, roles("super-admin", "admin", "ops")),
                         item("system:notice:view", "\u67e5\u770b\u7cfb\u7edf\u516c\u544a", "notice", "\u7cfb\u7edf\u516c\u544a", "view", "\u67e5\u770b", RiskLevel.LOW, roles("super-admin", "admin", "support", "content", "finance", "ops")),
-                        item("system:notice:edit", "\u7f16\u8f91\u7cfb\u7edf\u516c\u544a", "notice", "\u7cfb\u7edf\u516c\u544a", "edit", "\u7f16\u8f91", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops"))
+                        item("system:notice:edit", "\u7f16\u8f91\u7cfb\u7edf\u516c\u544a", "notice", "\u7cfb\u7edf\u516c\u544a", "edit", "\u7f16\u8f91", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops")),
+                        item("system:inbox-ad:view", "\u67e5\u770b\u4f1a\u8bdd\u5e7f\u544a", "inbox-ad", "\u4f1a\u8bdd\u5e7f\u544a", "view", "\u67e5\u770b", RiskLevel.LOW, roles("super-admin", "admin", "ops", "content")),
+                        item("system:inbox-ad:edit", "\u7f16\u8f91\u4f1a\u8bdd\u5e7f\u544a", "inbox-ad", "\u4f1a\u8bdd\u5e7f\u544a", "edit", "\u7f16\u8f91", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops"))
                 )),
                 group("support", "\u5ba2\u670d", "\u5ba2\u670d\u5de5\u5355\u5904\u7406\u548c\u7528\u6237\u95ee\u9898\u8ddf\u8fdb", 20, List.of(
                         item("support:ticket:list", "\u67e5\u770b\u5de5\u5355\u5217\u8868", "ticket", "\u5ba2\u670d\u5de5\u5355", "list", "\u5217\u8868", RiskLevel.LOW, roles("super-admin", "admin", "support")),
@@ -76,6 +78,9 @@ public class AdminPermissionCatalog {
                         item("commerce:product:edit", "\u7f16\u8f91\u5546\u54c1", "product", "\u5546\u54c1", "edit", "\u7f16\u8f91", RiskLevel.MEDIUM, roles("super-admin", "admin", "finance")),
                         item("commerce:payment:view", "\u67e5\u770b\u652f\u4ed8\u6e20\u9053", "payment", "\u652f\u4ed8\u6e20\u9053", "view", "\u67e5\u770b", RiskLevel.HIGH, roles("super-admin", "admin", "finance", "ops")),
                         item("commerce:payment:edit", "\u7f16\u8f91\u652f\u4ed8\u6e20\u9053", "payment", "\u652f\u4ed8\u6e20\u9053", "edit", "\u7f16\u8f91", RiskLevel.CRITICAL, roles("super-admin", "admin", "finance")),
+                        item("commerce:wallet:view", "\u67e5\u770b\u94b1\u5305\u6d41\u6c34", "wallet", "\u94b1\u5305\u6d41\u6c34", "view", "\u67e5\u770b", RiskLevel.MEDIUM, roles("super-admin", "admin", "finance")),
+                        item("commerce:checkin:view", "\u67e5\u770b\u6bcf\u65e5\u7b7e\u5230", "checkin", "\u6bcf\u65e5\u7b7e\u5230", "view", "\u67e5\u770b", RiskLevel.MEDIUM, roles("super-admin", "admin", "finance")),
+                        item("commerce:checkin:edit", "\u7f16\u8f91\u6bcf\u65e5\u7b7e\u5230", "checkin", "\u6bcf\u65e5\u7b7e\u5230", "edit", "\u7f16\u8f91", RiskLevel.HIGH, roles("super-admin", "admin", "finance")),
                         item("commerce:order:view", "\u67e5\u770b\u8ba2\u5355", "order", "\u8ba2\u5355", "view", "\u67e5\u770b", RiskLevel.MEDIUM, roles("super-admin", "admin", "finance")),
                         item("commerce:order:edit", "\u64cd\u4f5c\u8ba2\u5355", "order", "\u8ba2\u5355", "edit", "\u64cd\u4f5c", RiskLevel.HIGH, roles("super-admin", "admin", "finance"))
                 )),
@@ -83,8 +88,17 @@ public class AdminPermissionCatalog {
                         item("ops:openrouter:view", "\u67e5\u770b\u751f\u6210\u53c2\u6570", "openrouter", "\u6a21\u578b\u8def\u7531", "view", "\u67e5\u770b", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops")),
                         item("ops:openrouter:edit", "\u7f16\u8f91\u751f\u6210\u53c2\u6570", "openrouter", "\u6a21\u578b\u8def\u7531", "edit", "\u7f16\u8f91", RiskLevel.HIGH, roles("super-admin", "admin", "ops")),
                         item("ops:openrouter:delete", "\u5220\u9664\u6a21\u578b\u63d0\u4f9b\u5546\u6216\u8def\u7531", "openrouter", "\u6a21\u578b\u8def\u7531", "delete", "\u5220\u9664", RiskLevel.HIGH, roles("super-admin", "admin", "ops")),
+                        item("ops:media:view", "查看 AI 媒体中心", "media", "AI 媒体中心", "view", "查看", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops", "content")),
+                        item("ops:media:image:edit", "编辑聊天生图策略", "media-image", "聊天生图策略", "edit", "编辑", RiskLevel.HIGH, roles("super-admin", "admin", "ops")),
+                        item("ops:media:voice:edit", "编辑语音运行策略", "media-voice", "语音运行策略", "edit", "编辑", RiskLevel.HIGH, roles("super-admin", "admin", "ops")),
+                        item("content:voice-template:edit", "编辑角色音色模板", "voice-template", "角色音色模板", "edit", "编辑", RiskLevel.HIGH, roles("super-admin", "admin", "ops", "content")),
                         item("ops:ailog:view", "\u67e5\u770b AI \u65e5\u5fd7", "ai-log", "AI \u65e5\u5fd7", "view", "\u67e5\u770b", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops")),
                         item("ops:ailog:clean", "\u6e05\u7406 AI \u65e5\u5fd7", "ai-log", "AI \u65e5\u5fd7", "clean", "\u6e05\u7406", RiskLevel.HIGH, roles("super-admin", "admin", "ops"))
+                        ,item("ops:chat-runtime:view", "\u67e5\u770b\u804a\u5929\u8fd0\u884c\u4e2d\u5fc3", "chat-runtime", "\u804a\u5929\u8fd0\u884c\u4e2d\u5fc3", "view", "\u67e5\u770b", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops"))
+                        ,item("ops:chat-runtime:cancel", "\u53d6\u6d88\u804a\u5929\u4efb\u52a1", "chat-runtime", "\u804a\u5929\u8fd0\u884c\u4e2d\u5fc3", "cancel", "\u53d6\u6d88", RiskLevel.HIGH, roles("super-admin", "admin", "ops"))
+                        ,item("ops:chat-runtime:delete", "\u786c\u5220\u9664\u804a\u5929\u8fd0\u884c\u4efb\u52a1", "chat-runtime", "\u804a\u5929\u8fd0\u884c\u4e2d\u5fc3", "delete", "\u786c\u5220\u9664", RiskLevel.HIGH, roles("super-admin", "admin", "ops"))
+                        ,item("ops:visitor-risk:view", "\u67e5\u770b\u8bbf\u5ba2\u98ce\u9669", "visitor-risk", "\u8bbf\u5ba2\u98ce\u9669", "view", "\u67e5\u770b", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops"))
+                        ,item("ops:visitor-risk:delete", "\u786c\u5220\u9664\u8bbf\u5ba2\u8bbe\u5907\u4e0e\u98ce\u9669\u4e8b\u4ef6", "visitor-risk", "\u8bbf\u5ba2\u98ce\u9669", "delete", "\u786c\u5220\u9664", RiskLevel.CRITICAL, roles("super-admin", "admin"))
                 )),
                 group("conversation", "\u4f1a\u8bdd", "\u4f1a\u8bdd\u8fd0\u884c\u65f6\u7ed1\u5b9a\u548c\u4e16\u754c\u4e66\u5173\u8054", 60, List.of(
                         item("conversation:runtime:view", "\u67e5\u770b\u4f1a\u8bdd\u8fd0\u884c\u65f6\u7ed1\u5b9a", "runtime", "\u8fd0\u884c\u65f6\u7ed1\u5b9a", "view", "\u67e5\u770b", RiskLevel.MEDIUM, roles("super-admin", "admin", "support", "ops")),
@@ -149,9 +163,12 @@ public class AdminPermissionCatalog {
                         "content:illustration-notice:edit",
                         "content:lorebook:view",
                         "content:lorebook:edit",
-                        "content:chat-preset:view",
-                        "content:chat-preset:edit",
-                        "system:notice:view"
+                         "content:chat-preset:view",
+                         "content:chat-preset:edit",
+                         "ops:media:view",
+                         "content:voice-template:edit",
+                        "system:notice:view",
+                        "system:inbox-ad:view"
                 ),
                 false,
                 40
@@ -175,6 +192,9 @@ public class AdminPermissionCatalog {
                         "commerce:product:edit",
                         "commerce:payment:view",
                         "commerce:payment:edit",
+                        "commerce:wallet:view",
+                        "commerce:checkin:view",
+                        "commerce:checkin:edit",
                         "commerce:order:view",
                         "commerce:order:edit",
                         "system:notice:view"
@@ -189,10 +209,20 @@ public class AdminPermissionCatalog {
                 List.of(
                         "ops:openrouter:view",
                         "ops:openrouter:edit",
-                        "ops:openrouter:delete",
+                         "ops:openrouter:delete",
+                         "ops:media:view",
+                         "ops:media:image:edit",
+                         "ops:media:voice:edit",
+                         "content:voice-template:edit",
                         "ops:ailog:view",
                         "ops:ailog:clean",
+                        "ops:chat-runtime:view",
+                        "ops:chat-runtime:cancel",
+                        "ops:chat-runtime:delete",
+                        "ops:visitor-risk:view",
                         "system:notice:view",
+                        "system:inbox-ad:view",
+                        "system:inbox-ad:edit",
                         "conversation:runtime:view"
                 ),
                 false,

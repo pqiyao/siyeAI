@@ -27,6 +27,8 @@ public class AppChatStreamRequest {
 
     private List<String> avoidExpressionHints;
 
+    private String replySplitMode;
+
     /** 客户端消息 ID，用于 chunk 对齐和流式归属。 */
     @NotBlank
     private String clientMessageId;
@@ -109,6 +111,14 @@ public class AppChatStreamRequest {
 
     public void setAvoidExpressionHints(List<String> avoidExpressionHints) {
         this.avoidExpressionHints = avoidExpressionHints;
+    }
+
+    public String getReplySplitMode() {
+        return replySplitMode;
+    }
+
+    public void setReplySplitMode(String replySplitMode) {
+        this.replySplitMode = replySplitMode;
     }
 
     public String getClientMessageId() {

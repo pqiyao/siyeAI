@@ -20,7 +20,7 @@ final class PaymentPrivateKeySupport {
     static PrivateKey loadPrivateKey(String inlinePem, String filePath) {
         String pem = readPem(inlinePem, filePath);
         if (pem.isBlank()) {
-            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "支付私钥未配置");
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "支付私钥未配");
         }
         try {
             String sanitized = pem

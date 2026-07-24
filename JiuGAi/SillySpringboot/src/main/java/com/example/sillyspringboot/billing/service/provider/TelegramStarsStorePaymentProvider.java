@@ -72,7 +72,7 @@ public class TelegramStarsStorePaymentProvider implements StorePaymentProvider {
             data.put("ready", false);
             data.put("manualSettlement", false);
             data.put("action", "await_provider_config");
-            data.put("message", "Telegram Stars 通道尚未开启。");
+            data.put("message", "Telegram Stars 通道尚未开启");
             return data;
         }
 
@@ -120,19 +120,19 @@ public class TelegramStarsStorePaymentProvider implements StorePaymentProvider {
         data.put("nextSteps", List.of(
                 "后端调用 Telegram Bot API createInvoiceLink 生成 Stars 发票链接",
                 "前端收到 invoiceLink 后，优先使用 Telegram.WebApp.openInvoice 拉起支付",
-                "支付成功后通过 Telegram webhook 回调核销订单并发放权益"
+                "支付成功后通过 Telegram webhook 回调核销订单并发放权"
         ));
         return data;
     }
 
     private String channelDescription(AppPaymentChannelConfig config, boolean ready) {
         if (!Boolean.TRUE.equals(config.getEnabled())) {
-            return "后台已预留 Telegram Stars 通道，当前未对用户开放。";
+            return "后台已预Telegram Stars 通道，当前未对用户开放";
         }
         if (ready) {
             return blank(config.getDescription());
         }
-        return "Telegram Stars 通道已开启，但 Bot Token 或支付配置尚未补齐。";
+        return "Telegram Stars 通道已开启，Bot Token 或支付配置尚未补齐";
     }
 
     private String resolveAction(boolean enabled, boolean hasBotToken, boolean readyToOpen) {
@@ -147,18 +147,18 @@ public class TelegramStarsStorePaymentProvider implements StorePaymentProvider {
 
     private String resolveMessage(boolean enabled, boolean hasBotToken, boolean readyToOpen, String createError) {
         if (!enabled) {
-            return "Telegram Stars 尚未启用，请先打开支付配置。";
+            return "Telegram Stars 尚未启用，请先打开支付配置";
         }
         if (!hasBotToken) {
-            return "Telegram Bot Token 未配置，暂时无法生成 Stars 发票。";
+            return "Telegram Bot Token 未配置，暂时无法生成 Stars 发票";
         }
         if (readyToOpen) {
-            return "Telegram Stars 发票链接已生成，可直接拉起支付。";
+            return "Telegram Stars 发票链接已生成，可直接拉起支付";
         }
         if (!createError.isBlank()) {
             return createError;
         }
-        return "Telegram Stars 发票生成失败，请稍后重试。";
+        return "Telegram Stars 发票生成失败，请稍后重试";
     }
 
     private String invoiceTitle(AppStoreProduct product, AppPaymentOrder order) {
@@ -172,7 +172,7 @@ public class TelegramStarsStorePaymentProvider implements StorePaymentProvider {
             description = "开通会员、购买钻石或角色权益商品";
         }
         if (order.getOrderNo() != null && !order.getOrderNo().isBlank()) {
-            description += " · 订单号 " + order.getOrderNo();
+            description += " · 订单" + order.getOrderNo();
         }
         return description;
     }

@@ -1,5 +1,9 @@
 package com.example.sillyspringboot.integration.sillytavern;
 
+import com.example.sillyspringboot.ai.model.AiCapability;
+import com.example.sillyspringboot.ai.service.AiProviderCallException;
+import com.example.sillyspringboot.ai.service.AiProviderFailurePolicy;
+import com.example.sillyspringboot.ai.service.AiRoutingService;
 import com.example.sillyspringboot.integration.sillytavern.dto.ChatGenerateChunk;
 import com.example.sillyspringboot.integration.sillytavern.dto.ChatGenerateRequest;
 import com.example.sillyspringboot.integration.sillytavern.dto.ChatMessage;
@@ -11,6 +15,8 @@ import com.example.sillyspringboot.integration.sillytavern.dto.StChatSaveRequest
 import com.example.sillyspringboot.integration.sillytavern.dto.StWorldbookOptionDto;
 import com.example.sillyspringboot.integration.sillytavern.dto.OpenRouterGenerationAdminDto;
 import com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride;
+import com.example.sillyspringboot.ops.generation.model.GenerationAttemptEvent;
+import com.example.sillyspringboot.ops.generation.service.GenerationTelemetryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -39,6 +45,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -63,8 +70,10 @@ public final class StClient {
     private final SillyTavernProperties properties;
     private final OpenRouterGenerationSettingsService generationSettingsService;
     private final StModelRoutingService modelRoutingService;
+    private final AiRoutingService aiRoutingService;
     private final StGenerateBodyCapture generateBodyCapture;
     private final StRuntimeChatWriteCapture runtimeChatWriteCapture;
+    private final GenerationTelemetryService generationTelemetryService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Object csrfLock = new Object();
     private volatile String csrfTokenCache;
@@ -133,7 +142,9 @@ public final class StClient {
             String model,
             String reverseProxy,
             String proxyPassword,
-            String customUrl
+            String customUrl,
+            Long aiDeploymentId,
+            Integer requestTimeoutSeconds
     ) {
     }
 
@@ -144,11 +155,52 @@ public final class StClient {
             StGenerateBodyCapture generateBodyCapture,
             StRuntimeChatWriteCapture runtimeChatWriteCapture
     ) {
+        this(
+                properties,
+                generationSettingsService,
+                modelRoutingService,
+                generateBodyCapture,
+                runtimeChatWriteCapture,
+                null,
+                null
+        );
+    }
+
+    public StClient(
+            SillyTavernProperties properties,
+            OpenRouterGenerationSettingsService generationSettingsService,
+            StModelRoutingService modelRoutingService,
+            StGenerateBodyCapture generateBodyCapture,
+            StRuntimeChatWriteCapture runtimeChatWriteCapture,
+            GenerationTelemetryService generationTelemetryService
+    ) {
+        this(
+                properties,
+                generationSettingsService,
+                modelRoutingService,
+                generateBodyCapture,
+                runtimeChatWriteCapture,
+                generationTelemetryService,
+                null
+        );
+    }
+
+    public StClient(
+            SillyTavernProperties properties,
+            OpenRouterGenerationSettingsService generationSettingsService,
+            StModelRoutingService modelRoutingService,
+            StGenerateBodyCapture generateBodyCapture,
+            StRuntimeChatWriteCapture runtimeChatWriteCapture,
+            GenerationTelemetryService generationTelemetryService,
+            AiRoutingService aiRoutingService
+    ) {
         this.properties = properties;
         this.generationSettingsService = generationSettingsService;
         this.modelRoutingService = modelRoutingService;
+        this.aiRoutingService = aiRoutingService;
         this.generateBodyCapture = generateBodyCapture;
         this.runtimeChatWriteCapture = runtimeChatWriteCapture;
+        this.generationTelemetryService = generationTelemetryService;
         CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
         this.stHttpClient = HttpClient.newBuilder()
                 .connectTimeout(properties.getConnectTimeout())
@@ -635,13 +687,87 @@ public final class StClient {
      * 鐠囧瓨妲戦敍姘劃婢跺嫬鍘涢幐澶嗏偓娣enAI ChatCompletions 閸忕厧顔愯ぐ銏♀偓浣测偓婵囩€柅鐘侯嚞濮瑰倷缍嬮敍鍫滅矌 messages + stream閿涘绱?
      * 閸忚渹缍嬫稉?ST 閻楀牊婀伴惃鍕▕瀵倸鎮楃紒顓炲涧閸忎浇顔忛崷?StClient 鐏炲倸浠涢崗鐓庮啇鐠嬪啯鏆ｉ妴?     */
     public void streamChatCompletionsGenerate(ChatGenerateRequest request, Consumer<ChatGenerateChunk> onChunk, StStreamControl control) {
+        if (control.isCancelled()) {
+            return;
+        }
         URI url = properties.getBaseUrl().resolve(StApiPaths.CHAT_COMPLETIONS_GENERATE);
         StOaiRuntime oai = cachedStOaiRuntime();
         AtomicInteger idx = new AtomicInteger(0);
+        List<RuntimeProviderOverride> providerChain = resolveRuntimeProviderChain(request);
+        if (providerChain.isEmpty()) {
+            streamChatCompletionsGenerateAttempt(url, request, onChunk, control, oai, idx, null, 1);
+            return;
+        }
+        StUnavailableException last = null;
+        int attemptNo = 0;
+        for (RuntimeProviderOverride providerOverride : providerChain) {
+            attemptNo++;
+            if (control.isCancelled()) {
+                return;
+            }
+            try {
+                streamChatCompletionsGenerateAttempt(
+                        url, request, onChunk, control, oai, idx, providerOverride, attemptNo);
+                recordProviderSuccess(providerOverride);
+                return;
+            } catch (StUnavailableException ex) {
+                last = ex;
+                AiProviderCallException providerFailure = ex.getProviderFailure();
+                if (providerFailure != null && AiProviderFailurePolicy.shouldCountCircuitFailure(providerFailure)) {
+                    recordProviderFailure(providerOverride, providerFailure.getMessage());
+                } else if (providerFailure != null && !AiProviderFailurePolicy.shouldFallback(providerFailure)) {
+                    recordProviderConfigurationError(providerOverride, providerFailure.getMessage());
+                }
+                if (idx.get() > 0
+                        || providerOverride == null
+                        || providerFailure == null
+                        || !AiProviderFailurePolicy.shouldFallback(providerFailure)
+                        || attemptNo >= providerChain.size()) {
+                    break;
+                }
+                log.warn(
+                        "st direct generate fallback conversationId={} providerKey={} scene={} reason={}",
+                        request.conversationId(),
+                        providerOverride.providerKey(),
+                        providerOverride.sceneKey(),
+                        providerFailure.getMessage()
+                );
+            }
+        }
+        if (last != null) {
+            throw last;
+        }
+    }
+
+    private void streamChatCompletionsGenerateAttempt(
+            URI url,
+            ChatGenerateRequest request,
+            Consumer<ChatGenerateChunk> onChunk,
+            StStreamControl control,
+            StOaiRuntime oai,
+            AtomicInteger idx,
+            RuntimeProviderOverride providerOverride,
+            int attemptNo
+    ) {
+        AttemptTelemetry attempt = providerOverride == null
+                ? startDirectAttemptTelemetry(request, oai)
+                : startAttemptTelemetry(request, providerOverride, attemptNo);
+        Consumer<ChatGenerateChunk> observedOnChunk = chunk -> {
+            onChunk.accept(chunk);
+            attempt.observe(chunk);
+        };
+        Exception attemptFailure = null;
         try {
-            executeStreamChatCompletions(url, request, onChunk, control, oai, idx, true);
+            executeStreamChatCompletions(
+                    url, request, observedOnChunk, control, oai, idx, true, providerOverride, attempt);
         } catch (JsonProcessingException e) {
+            attemptFailure = e;
             throw new StUnavailableException(e);
+        } catch (RuntimeException e) {
+            attemptFailure = e;
+            throw e;
+        } finally {
+            finishAttemptTelemetry(attempt, control.isCancelled(), attemptFailure);
         }
     }
 
@@ -656,26 +782,33 @@ public final class StClient {
         AtomicInteger idx = new AtomicInteger(0);
         List<RuntimeProviderOverride> providerChain = resolveRuntimeProviderChain(request);
         if (providerChain.isEmpty()) {
-            streamRuntimeChatGenerateAttempt(url, request, onChunk, control, idx, null);
+            streamRuntimeChatGenerateAttempt(url, request, onChunk, control, idx, null, 1);
             return;
         }
         StUnavailableException last = null;
+        int attemptNo = 0;
         for (RuntimeProviderOverride providerOverride : providerChain) {
+            attemptNo++;
             if (control.isCancelled()) {
                 return;
             }
             try {
-                streamRuntimeChatGenerateAttempt(url, request, onChunk, control, idx, providerOverride);
-                if (providerOverride != null) {
-                    modelRoutingService.recordSuccess(providerOverride.providerKey());
-                }
+                streamRuntimeChatGenerateAttempt(url, request, onChunk, control, idx, providerOverride, attemptNo);
+                recordProviderSuccess(providerOverride);
                 return;
             } catch (StUnavailableException e) {
                 last = e;
-                if (providerOverride != null) {
-                    modelRoutingService.recordFailure(providerOverride.providerKey(), rootCauseMessage(e));
+                AiProviderCallException providerFailure = e.getProviderFailure();
+                if (providerFailure != null && AiProviderFailurePolicy.shouldCountCircuitFailure(providerFailure)) {
+                    recordProviderFailure(providerOverride, providerFailure.getMessage());
+                } else if (providerFailure != null && !AiProviderFailurePolicy.shouldFallback(providerFailure)) {
+                    recordProviderConfigurationError(providerOverride, providerFailure.getMessage());
                 }
-                if (idx.get() > 0 || providerOverride == null) {
+                if (idx.get() > 0
+                        || providerOverride == null
+                        || providerFailure == null
+                        || !AiProviderFailurePolicy.shouldFallback(providerFailure)
+                        || attemptNo >= providerChain.size()) {
                     break;
                 }
                 log.warn(
@@ -683,7 +816,7 @@ public final class StClient {
                         request.conversationId(),
                         providerOverride.providerKey(),
                         providerOverride.sceneKey(),
-                        rootCauseMessage(e)
+                        providerFailure.getMessage()
                 );
             }
         }
@@ -698,7 +831,8 @@ public final class StClient {
             Consumer<ChatGenerateChunk> onChunk,
             StStreamControl control,
             AtomicInteger idx,
-            RuntimeProviderOverride providerOverride
+            RuntimeProviderOverride providerOverride,
+            int attemptNo
     ) {
         final String body;
         try {
@@ -709,7 +843,7 @@ public final class StClient {
         if (generateBodyCapture != null) {
             generateBodyCapture.capture(request.conversationId(), request.mode(), url, body);
         }
-        HttpRequest httpRequest = buildChatCompletionsHttpRequest(url, body);
+        HttpRequest httpRequest = buildChatCompletionsHttpRequest(url, body, providerOverride);
         control.addOnCancel(() -> {
             try {
                 runtimeChatStop(request.stAvatarUrl(), request.stChatFileName());
@@ -720,28 +854,31 @@ public final class StClient {
             return;
         }
 
+        AttemptTelemetry attempt = startAttemptTelemetry(request, providerOverride, attemptNo);
+        Consumer<ChatGenerateChunk> observedOnChunk = chunk -> {
+            onChunk.accept(chunk);
+            attempt.observe(chunk);
+        };
+        Exception attemptFailure = null;
         try {
             CompletableFuture<HttpResponse<java.io.InputStream>> future =
                     stHttpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             control.addOnCancel(() -> future.cancel(true));
 
             HttpResponse<java.io.InputStream> resp = future.join();
+            attempt.setHttpStatus(resp.statusCode());
             if (resp.statusCode() >= 400) {
-                byte[] errBuf = resp.body().readAllBytes();
-                String err = new String(errBuf, StandardCharsets.UTF_8);
-                if (err.length() > 3000) {
-                    err = err.substring(0, 3000) + "...";
-                }
+                long responseBytes = discardResponseBody(resp.body());
                 log.warn(
-                        "st runtime generate http error conversationId={} mode={} providerKey={} status={} body={}",
+                        "st runtime generate http error conversationId={} mode={} providerKey={} routeKey={} status={} responseBytes={}",
                         request.conversationId(),
                         request.mode(),
-                        providerOverride == null ? "" : providerOverride.providerKey(),
+                        providerOverride == null ? "st_default" : providerOverride.providerKey(),
+                        providerOverride == null ? StModelRoutingService.DEFAULT_SCENE : providerOverride.sceneKey(),
                         resp.statusCode(),
-                        err
+                        responseBytes
                 );
-                throw new StUnavailableException(
-                        new IllegalStateException("st runtime generate http " + resp.statusCode() + ": " + err));
+                throw providerHttpFailure("st runtime generate", resp.statusCode(), responseBytes);
             }
 
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(resp.body(), StandardCharsets.UTF_8))) {
@@ -753,31 +890,21 @@ public final class StClient {
                 });
                 String line;
                 StringBuilder dataBuf = new StringBuilder();
+                boolean emittedContent = false;
                 while (!control.isCancelled() && (line = reader.readLine()) != null) {
                     if (line.isEmpty()) {
                         if (dataBuf.length() == 0) continue;
                         String data = dataBuf.toString().trim();
                         dataBuf.setLength(0);
                         if (data.isEmpty()) continue;
-                        if ("[DONE]".equals(data)) {
-                            onChunk.accept(new ChatGenerateChunk(request.conversationId(), request.clientMessageId(), idx.getAndIncrement(), "", true, null, null));
-                            return;
-                        }
-                        ParsedChunk parsed = parseChunk(data);
-                        if (parsed == null) continue;
-                        String sanitizedDelta = sanitizeAssistantDelta(parsed.delta());
-                        if (sanitizedDelta != null && !sanitizedDelta.isEmpty()) {
-                            onChunk.accept(new ChatGenerateChunk(
-                                    request.conversationId(),
-                                    request.clientMessageId(),
-                                    idx.getAndIncrement(),
-                                    sanitizedDelta,
-                                    false,
-                                    parsed.reasoning(),
-                                    null));
-                        }
-                        if (parsed.done()) {
-                            onChunk.accept(new ChatGenerateChunk(request.conversationId(), request.clientMessageId(), idx.getAndIncrement(), "", true, parsed.reasoning(), null));
+                        attempt.observeUsage(data, objectMapper);
+                        StreamChunkResult result = emitStreamData(data, request, observedOnChunk, idx);
+                        emittedContent = emittedContent || result.emittedContent();
+                        if (result.done()) {
+                            if (!emittedContent) {
+                                throw providerTransientFailure("st runtime generate empty response");
+                            }
+                            emitDoneChunk(request, observedOnChunk, idx, null);
                             return;
                         }
                         continue;
@@ -791,14 +918,39 @@ public final class StClient {
                             if (dataBuf.length() > 0) dataBuf.append('\n');
                             dataBuf.append(dataLine);
                         }
+                        continue;
                     }
+                    String trimmedLine = line.trim();
+                    if (trimmedLine.startsWith("{") || trimmedLine.startsWith("[")) {
+                        if (dataBuf.length() > 0) dataBuf.append('\n');
+                        dataBuf.append(trimmedLine);
+                    }
+                }
+                if (!control.isCancelled() && dataBuf.length() > 0) {
+                    String data = dataBuf.toString().trim();
+                    attempt.observeUsage(data, objectMapper);
+                    StreamChunkResult result = emitStreamData(data, request, observedOnChunk, idx);
+                    emittedContent = emittedContent || result.emittedContent();
+                    if (result.done()) {
+                        if (!emittedContent) {
+                            throw providerTransientFailure("st runtime generate empty response");
+                        }
+                        emitDoneChunk(request, observedOnChunk, idx, null);
+                        return;
+                    }
+                }
+                if (!control.isCancelled() && !emittedContent) {
+                    throw providerTransientFailure("st runtime generate empty response");
                 }
             }
         } catch (Exception e) {
+            attemptFailure = e;
             if (control.isCancelled()) {
                 return;
             }
-            throw e instanceof StUnavailableException se ? se : new StUnavailableException(e);
+            throw classifyChatAttemptFailure(e, "st runtime generate transport failure");
+        } finally {
+            finishAttemptTelemetry(attempt, control.isCancelled(), attemptFailure);
         }
     }
 
@@ -811,21 +963,113 @@ public final class StClient {
             return List.of(userOverride);
         }
         StModelRoutingService.ResolvedRoute route = modelRoutingService.resolveForScene(StModelRoutingService.DEFAULT_SCENE);
-        if (route == null || route.providers() == null || route.providers().isEmpty()) {
-            return List.of();
-        }
-        return route.providers().stream()
+        List<StModelRoutingService.ResolvedProvider> legacyProviders = route == null || route.providers() == null
+                ? List.of()
+                : route.providers();
+        List<RuntimeProviderOverride> legacyChain = legacyProviders.stream()
                 .map(item -> new RuntimeProviderOverride(
                         item.providerKey(),
                         item.displayName(),
-                        route.sceneKey(),
+                        route == null ? StModelRoutingService.DEFAULT_SCENE : route.sceneKey(),
                         item.stSource(),
                         item.modelName(),
                         item.reverseProxy(),
                         item.proxyPassword(),
-                        item.customUrl()
+                        item.customUrl(),
+                        null,
+                        null
                 ))
                 .toList();
+        if (aiRoutingService == null) {
+            return legacyChain;
+        }
+        try {
+            List<AiRoutingService.ResolvedProvider> v2Providers = aiRoutingService.resolve(AiCapability.CHAT);
+            aiRoutingService.shadowCompareChat(legacyProviders, v2Providers);
+            if (!aiRoutingService.shouldUseChatV2(request == null ? null : request.conversationId())) {
+                return legacyChain;
+            }
+            if (v2Providers.isEmpty()) {
+                if (aiRoutingService.isChatFullyRolledOut()) {
+                    throw new StUnavailableException(new IllegalStateException("CHAT V2 已全量启用，但没有可用路由节点"));
+                }
+                return legacyChain;
+            }
+            List<RuntimeProviderOverride> result = new java.util.ArrayList<>();
+            for (AiRoutingService.ResolvedProvider item : v2Providers) {
+                result.add(toV2RuntimeProviderOverride(item));
+            }
+            // During canary rollout the proven legacy chain remains the last pre-token recovery path.
+            if (!aiRoutingService.isChatFullyRolledOut()) {
+                result.addAll(legacyChain);
+            }
+            return List.copyOf(result);
+        } catch (RuntimeException ex) {
+            if (aiRoutingService.isChatFullyRolledOut()) {
+                throw ex;
+            }
+            log.warn("ai routing v2 resolution failed; using legacy chat route reason={}", rootCauseMessage(ex));
+            return legacyChain;
+        }
+    }
+
+    private static RuntimeProviderOverride toV2RuntimeProviderOverride(AiRoutingService.ResolvedProvider provider) {
+        String vendor = firstNonBlank(provider.vendor()).toLowerCase(java.util.Locale.ROOT);
+        boolean custom = "custom".equals(vendor);
+        return new RuntimeProviderOverride(
+                provider.providerKey(),
+                provider.displayName(),
+                AiCapability.CHAT.defaultRouteKey(),
+                custom ? "custom" : vendor,
+                provider.modelName(),
+                custom ? "" : provider.baseUrl(),
+                provider.apiKey(),
+                custom ? provider.baseUrl() : "",
+                provider.deploymentId(),
+                provider.requestTimeoutSeconds()
+        );
+    }
+
+    private void recordProviderSuccess(RuntimeProviderOverride provider) {
+        if (provider == null || "user_byok".equalsIgnoreCase(provider.providerKey())) {
+            return;
+        }
+        try {
+            if (provider.aiDeploymentId() != null && aiRoutingService != null) {
+                aiRoutingService.recordSuccess(provider.aiDeploymentId());
+            } else {
+                modelRoutingService.recordSuccess(provider.providerKey());
+            }
+        } catch (RuntimeException ex) {
+            log.warn("provider success telemetry failed providerKey={} reason={}", provider.providerKey(), rootCauseMessage(ex));
+        }
+    }
+
+    private void recordProviderFailure(RuntimeProviderOverride provider, String message) {
+        if (provider == null || "user_byok".equalsIgnoreCase(provider.providerKey())) {
+            return;
+        }
+        try {
+            if (provider.aiDeploymentId() != null && aiRoutingService != null) {
+                aiRoutingService.recordFailure(provider.aiDeploymentId(), message);
+            } else {
+                modelRoutingService.recordFailure(provider.providerKey(), message);
+            }
+        } catch (RuntimeException ex) {
+            log.warn("provider failure telemetry failed providerKey={} reason={}", provider.providerKey(), rootCauseMessage(ex));
+        }
+    }
+
+    private void recordProviderConfigurationError(RuntimeProviderOverride provider, String message) {
+        if (provider == null || provider.aiDeploymentId() == null || aiRoutingService == null) {
+            return;
+        }
+        try {
+            aiRoutingService.recordConfigurationError(provider.aiDeploymentId(), message);
+        } catch (RuntimeException ex) {
+            log.warn("provider configuration telemetry failed providerKey={} reason={}",
+                    provider.providerKey(), rootCauseMessage(ex));
+        }
     }
 
     private RuntimeProviderOverride toUserRuntimeProviderOverride(UserModelOverride override, boolean preferVisionModel) {
@@ -853,7 +1097,9 @@ public final class StClient {
                 model,
                 reverseProxy,
                 apiKey,
-                customUrl
+                customUrl,
+                null,
+                null
         );
     }
 
@@ -876,6 +1122,70 @@ public final class StClient {
         };
     }
 
+    private AttemptTelemetry startAttemptTelemetry(
+            ChatGenerateRequest request,
+            RuntimeProviderOverride providerOverride,
+            int attemptNo
+    ) {
+        if (providerOverride == null) {
+            return new AttemptTelemetry(
+                    request,
+                    Math.max(1, attemptNo),
+                    "st_default",
+                    "st_default",
+                    firstNonBlank(properties.getChatCompletionSource()),
+                    firstNonBlank(properties.getDefaultModel()),
+                    false
+            );
+        }
+        return new AttemptTelemetry(
+                request,
+                Math.max(1, attemptNo),
+                firstNonBlank(providerOverride.providerKey(), "st_default"),
+                firstNonBlank(providerOverride.sceneKey(), "st_default"),
+                firstNonBlank(providerOverride.chatCompletionSource()),
+                firstNonBlank(providerOverride.model()),
+                "user_byok".equalsIgnoreCase(providerOverride.providerKey())
+        );
+    }
+
+    private AttemptTelemetry startDirectAttemptTelemetry(ChatGenerateRequest request, StOaiRuntime oai) {
+        RuntimeProviderOverride providerOverride = null;
+        try {
+            List<RuntimeProviderOverride> chain = resolveRuntimeProviderChain(request);
+            providerOverride = chain.isEmpty() ? null : chain.get(0);
+        } catch (Throwable ignored) {
+            // Observability lookup must not become a prerequisite for generation.
+        }
+        if (providerOverride != null) {
+            return startAttemptTelemetry(request, providerOverride, 1);
+        }
+        return new AttemptTelemetry(
+                request,
+                1,
+                "st_default",
+                "st_default",
+                oai == null ? firstNonBlank(properties.getChatCompletionSource()) : firstNonBlank(oai.chatCompletionSource()),
+                oai == null ? firstNonBlank(properties.getDefaultModel()) : firstNonBlank(oai.model()),
+                false
+        );
+    }
+
+    private void finishAttemptTelemetry(AttemptTelemetry attempt, boolean cancelled, Exception failure) {
+        if (generationTelemetryService == null || attempt == null) {
+            return;
+        }
+        try {
+            generationTelemetryService.recordAsync(attempt.finish(cancelled, failure));
+        } catch (Throwable telemetryFailure) {
+            log.warn(
+                    "generation telemetry handoff skipped conversationId={} cause={}",
+                    attempt.conversationId(),
+                    telemetryFailure.getClass().getSimpleName()
+            );
+        }
+    }
+
     private static String rootCauseMessage(Throwable error) {
         Throwable cursor = error;
         while (cursor != null && cursor.getCause() != null && cursor.getCause() != cursor) {
@@ -886,6 +1196,30 @@ public final class StClient {
             message = error == null ? "" : error.toString();
         }
         return message == null ? "" : message.trim();
+    }
+
+    private static String telemetryErrorCode(Throwable error, Integer httpStatus) {
+        if (httpStatus != null && httpStatus >= 400) {
+            return "HTTP_" + httpStatus;
+        }
+        Throwable root = error;
+        while (root != null && root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String message = rootCauseMessage(error).toLowerCase(java.util.Locale.ROOT);
+        if (message.contains("without assistant content") || message.contains("no assistant content")) {
+            return "EMPTY_RESPONSE";
+        }
+        if (message.contains("upstream error")) {
+            return "UPSTREAM_ERROR";
+        }
+        if (message.contains("timeout") || root instanceof java.net.http.HttpTimeoutException) {
+            return "TIMEOUT";
+        }
+        if (root instanceof java.io.IOException) {
+            return "IO_ERROR";
+        }
+        return "ST_UNAVAILABLE";
     }
 
     public boolean runtimeChatStop(String avatarUrl, String fileName) {
@@ -967,13 +1301,15 @@ public final class StClient {
             StStreamControl control,
             StOaiRuntime oai,
             AtomicInteger idx,
-            boolean allowReasoningFallback
+            boolean allowReasoningFallback,
+            RuntimeProviderOverride providerOverride,
+            AttemptTelemetry attempt
     ) throws JsonProcessingException {
-        String body = buildStChatCompletionsBody(request, oai, allowReasoningFallback);
+        String body = buildStChatCompletionsBody(request, oai, allowReasoningFallback, providerOverride);
         if (generateBodyCapture != null) {
             generateBodyCapture.capture(request.conversationId(), request.mode(), url, body);
         }
-        HttpRequest httpRequest = buildChatCompletionsHttpRequest(url, body);
+        HttpRequest httpRequest = buildChatCompletionsHttpRequest(url, body, providerOverride);
 
         try {
             CompletableFuture<HttpResponse<java.io.InputStream>> future =
@@ -981,18 +1317,15 @@ public final class StClient {
             control.addOnCancel(() -> future.cancel(true));
 
             HttpResponse<java.io.InputStream> resp = future.join();
+            attempt.setHttpStatus(resp.statusCode());
             if (resp.statusCode() >= 400) {
-                byte[] errBuf = resp.body().readAllBytes();
-                String err = new String(errBuf, StandardCharsets.UTF_8);
-                if (err.length() > 3000) {
-                    err = err.substring(0, 3000) + "...";
-                }
+                long responseBytes = discardResponseBody(resp.body());
                 if (shouldRetryWithoutReasoning(resp.statusCode(), oai, allowReasoningFallback)) {
-                    executeStreamChatCompletions(url, request, onChunk, control, oai, idx, false);
+                    executeStreamChatCompletions(
+                            url, request, onChunk, control, oai, idx, false, providerOverride, attempt);
                     return;
                 }
-                throw new StUnavailableException(
-                        new IllegalStateException("st generate http " + resp.statusCode() + ": " + err));
+                throw providerHttpFailure("st generate", resp.statusCode(), responseBytes);
             }
 
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(resp.body(), StandardCharsets.UTF_8))) {
@@ -1004,31 +1337,20 @@ public final class StClient {
                 });
                 String line;
                 StringBuilder dataBuf = new StringBuilder();
+                boolean emittedContent = false;
                 while (!control.isCancelled() && (line = reader.readLine()) != null) {
                     if (line.isEmpty()) {
                         if (dataBuf.length() == 0) continue;
                         String data = dataBuf.toString().trim();
                         dataBuf.setLength(0);
                         if (data.isEmpty()) continue;
-                        if ("[DONE]".equals(data)) {
-                            onChunk.accept(new ChatGenerateChunk(request.conversationId(), request.clientMessageId(), idx.getAndIncrement(), "", true, null, null));
-                            return;
-                        }
-                        ParsedChunk parsed = parseChunk(data);
-                        if (parsed == null) continue;
-                        String sanitizedDelta = sanitizeAssistantDelta(parsed.delta());
-                        if (sanitizedDelta != null && !sanitizedDelta.isEmpty()) {
-                            onChunk.accept(new ChatGenerateChunk(
-                                    request.conversationId(),
-                                    request.clientMessageId(),
-                                    idx.getAndIncrement(),
-                                    sanitizedDelta,
-                                    false,
-                                    parsed.reasoning(),
-                                    null));
-                        }
-                        if (parsed.done()) {
-                            onChunk.accept(new ChatGenerateChunk(request.conversationId(), request.clientMessageId(), idx.getAndIncrement(), "", true, parsed.reasoning(), null));
+                        StreamChunkResult result = emitStreamData(data, request, onChunk, idx);
+                        emittedContent = emittedContent || result.emittedContent();
+                        if (result.done()) {
+                            if (!emittedContent) {
+                                throw providerTransientFailure("st generate empty response");
+                            }
+                            emitDoneChunk(request, onChunk, idx, null);
                             return;
                         }
                         continue;
@@ -1043,7 +1365,27 @@ public final class StClient {
                             if (dataBuf.length() > 0) dataBuf.append('\n');
                             dataBuf.append(dataLine);
                         }
+                        continue;
                     }
+                    String trimmedLine = line.trim();
+                    if (trimmedLine.startsWith("{") || trimmedLine.startsWith("[")) {
+                        if (dataBuf.length() > 0) dataBuf.append('\n');
+                        dataBuf.append(trimmedLine);
+                    }
+                }
+                if (!control.isCancelled() && dataBuf.length() > 0) {
+                    StreamChunkResult result = emitStreamData(dataBuf.toString().trim(), request, onChunk, idx);
+                    emittedContent = emittedContent || result.emittedContent();
+                    if (result.done()) {
+                        if (!emittedContent) {
+                            throw providerTransientFailure("st generate empty response");
+                        }
+                        emitDoneChunk(request, onChunk, idx, null);
+                        return;
+                    }
+                }
+                if (!control.isCancelled() && !emittedContent) {
+                    throw providerTransientFailure("st generate empty response");
                 }
             }
         } catch (Exception e) {
@@ -1051,14 +1393,23 @@ public final class StClient {
                 // 閸欐牗绉锋稉宥呯秼娴ｆ粓鏁婄拠顖欑瑐閹舵冻绱濋悽鍙樼瑐鐏炲倻濮搁幀浣规簚閺€鑸垫殐娑?STOPPED
                 return;
             }
-            throw new StUnavailableException(e);
+            throw classifyChatAttemptFailure(e, "st generate transport failure");
         }
     }
 
-    private HttpRequest buildChatCompletionsHttpRequest(URI url, String body) {
+    private HttpRequest buildChatCompletionsHttpRequest(
+            URI url,
+            String body,
+            RuntimeProviderOverride providerOverride
+    ) {
+        long timeoutMillis = properties.getReadTimeout().toMillis();
+        if (providerOverride != null && providerOverride.requestTimeoutSeconds() != null) {
+            timeoutMillis = Duration.ofSeconds(
+                    Math.max(5, Math.min(600, providerOverride.requestTimeoutSeconds()))).toMillis();
+        }
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(url)
-                .timeout(Duration.ofMillis(properties.getReadTimeout().toMillis()))
+                .timeout(Duration.ofMillis(timeoutMillis))
                 .header(HttpHeaders.ACCEPT, "text/event-stream")
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
@@ -1067,6 +1418,60 @@ public final class StClient {
         }
         applyCsrfHeader(builder);
         return builder.build();
+    }
+
+    private static long discardResponseBody(java.io.InputStream responseBody) throws java.io.IOException {
+        if (responseBody == null) {
+            return 0L;
+        }
+        try (java.io.InputStream input = responseBody) {
+            return input.transferTo(java.io.OutputStream.nullOutputStream());
+        }
+    }
+
+    private static String httpFailureMessage(String operation, int statusCode, long responseBytes) {
+        return operation + " http " + statusCode + " responseBytes=" + Math.max(0L, responseBytes);
+    }
+
+    private static StUnavailableException providerHttpFailure(String operation, int statusCode, long responseBytes) {
+        return StUnavailableException.providerFailure(AiProviderCallException.http(
+                statusCode,
+                httpFailureMessage(operation, statusCode, responseBytes),
+                null
+        ));
+    }
+
+    private static StUnavailableException providerTransientFailure(String message) {
+        return StUnavailableException.providerFailure(
+                AiProviderCallException.transientFailure(message, null)
+        );
+    }
+
+    private static StUnavailableException classifyChatAttemptFailure(Exception error, String transportMessage) {
+        if (error instanceof StUnavailableException unavailable) {
+            return unavailable;
+        }
+        if (hasTransportCause(error)) {
+            return StUnavailableException.providerFailure(
+                    AiProviderCallException.transientFailure(transportMessage, error)
+            );
+        }
+        return new StUnavailableException(error);
+    }
+
+    private static boolean hasTransportCause(Throwable error) {
+        Throwable cursor = error;
+        while (cursor != null) {
+            if (cursor instanceof java.io.IOException && !(cursor instanceof JsonProcessingException)) {
+                return true;
+            }
+            Throwable cause = cursor.getCause();
+            if (cause == null || cause == cursor) {
+                return false;
+            }
+            cursor = cause;
+        }
+        return false;
     }
 
     private static boolean shouldRetryWithoutReasoning(int statusCode, StOaiRuntime oai, boolean allowReasoningFallback) {
@@ -1147,16 +1552,29 @@ public final class StClient {
     }
 
     public void runtimeChatAppend(String avatarUrl, String fileName, String userName, String charName, boolean isUser, String messageRef, String mes) {
+        runtimeChatAppend(avatarUrl, fileName, userName, charName, isUser, messageRef, mes, false);
+    }
+
+    public void runtimeChatAppend(
+            String avatarUrl,
+            String fileName,
+            String userName,
+            String charName,
+            boolean isUser,
+            String messageRef,
+            String mes,
+            boolean outputRegexApplied
+    ) {
         try {
-            java.util.Map<String, Object> body = java.util.Map.of(
-                    "avatar_url", avatarUrl == null ? "" : avatarUrl,
-                    "file_name", fileName == null ? "" : fileName,
-                    "user_name", userName == null ? "" : userName,
-                    "char_name", charName == null ? "" : charName,
-                    "is_user", isUser,
-                    "message_ref", messageRef == null ? "" : messageRef,
-                    "mes", mes == null ? "" : mes
-            );
+            java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("avatar_url", avatarUrl == null ? "" : avatarUrl);
+            body.put("file_name", fileName == null ? "" : fileName);
+            body.put("user_name", userName == null ? "" : userName);
+            body.put("char_name", charName == null ? "" : charName);
+            body.put("is_user", isUser);
+            body.put("message_ref", messageRef == null ? "" : messageRef);
+            body.put("mes", mes == null ? "" : mes);
+            body.put("output_regex_applied", outputRegexApplied);
             runtimeChatWriteCapture.capture(0L, "append", properties.getBaseUrl().resolve(StApiPaths.RUNTIME_CHAT_APPEND), body);
             postSt(StApiPaths.RUNTIME_CHAT_APPEND)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -1211,6 +1629,9 @@ public final class StClient {
             if (StringUtils.hasText(providerOverride.sceneKey())) {
                 root.put("route_scene", providerOverride.sceneKey());
             }
+            if (providerOverride.requestTimeoutSeconds() != null && providerOverride.requestTimeoutSeconds() > 0) {
+                root.put("request_timeout_seconds", Math.max(5, Math.min(600, providerOverride.requestTimeoutSeconds())));
+            }
         }
         return objectMapper.writeValueAsString(root);
     }
@@ -1237,15 +1658,27 @@ public final class StClient {
     }
 
     public void runtimeChatReplaceLastAssistant(String avatarUrl, String fileName, String userName, String charName, String messageRef, String mes) {
+        runtimeChatReplaceLastAssistant(avatarUrl, fileName, userName, charName, messageRef, mes, false);
+    }
+
+    public void runtimeChatReplaceLastAssistant(
+            String avatarUrl,
+            String fileName,
+            String userName,
+            String charName,
+            String messageRef,
+            String mes,
+            boolean outputRegexApplied
+    ) {
         try {
-            java.util.Map<String, Object> body = java.util.Map.of(
-                    "avatar_url", avatarUrl == null ? "" : avatarUrl,
-                    "file_name", fileName == null ? "" : fileName,
-                    "user_name", userName == null ? "" : userName,
-                    "char_name", charName == null ? "" : charName,
-                    "message_ref", messageRef == null ? "" : messageRef,
-                    "mes", mes == null ? "" : mes
-            );
+            java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("avatar_url", avatarUrl == null ? "" : avatarUrl);
+            body.put("file_name", fileName == null ? "" : fileName);
+            body.put("user_name", userName == null ? "" : userName);
+            body.put("char_name", charName == null ? "" : charName);
+            body.put("message_ref", messageRef == null ? "" : messageRef);
+            body.put("mes", mes == null ? "" : mes);
+            body.put("output_regex_applied", outputRegexApplied);
             runtimeChatWriteCapture.capture(0L, "replace-last-assistant", properties.getBaseUrl().resolve(StApiPaths.RUNTIME_CHAT_REPLACE_LAST_ASSISTANT), body);
             postSt(StApiPaths.RUNTIME_CHAT_REPLACE_LAST_ASSISTANT)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -1374,6 +1807,44 @@ public final class StClient {
         } catch (RestClientResponseException e) {
             throw new StUnavailableException(e);
         } catch (RestClientException e) {
+            throw new StUnavailableException(e);
+        }
+    }
+
+    public String runtimeChatApplyOutputRegex(
+            String avatarUrl,
+            String fileName,
+            String userName,
+            String charName,
+            String mes
+    ) {
+        String raw = mes == null ? "" : mes.trim();
+        try {
+            java.util.Map<String, Object> body = java.util.Map.of(
+                    "avatar_url", avatarUrl == null ? "" : avatarUrl,
+                    "file_name", fileName == null ? "" : fileName,
+                    "user_name", userName == null ? "" : userName,
+                    "char_name", charName == null ? "" : charName,
+                    "mes", raw
+            );
+            String responseBody = postSt(StApiPaths.RUNTIME_CHAT_APPLY_OUTPUT_REGEX)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(String.class);
+            JsonNode response = responseBody == null || responseBody.isBlank()
+                    ? null
+                    : objectMapper.readTree(responseBody);
+            JsonNode mesNode = response == null ? null : response.get("mes");
+            if (mesNode == null || !mesNode.isTextual()) {
+                throw new StUnavailableException(
+                        new IllegalStateException("runtime output-regex response missing textual mes")
+                );
+            }
+            return mesNode.textValue();
+        } catch (RestClientResponseException e) {
+            throw new StUnavailableException(e);
+        } catch (RestClientException | JsonProcessingException e) {
             throw new StUnavailableException(e);
         }
     }
@@ -1899,10 +2370,10 @@ public final class StClient {
     private String buildStChatCompletionsBody(
             ChatGenerateRequest request,
             StOaiRuntime oai,
-            boolean includeReasoning
+            boolean includeReasoning,
+            RuntimeProviderOverride providerOverride
     ) throws JsonProcessingException {
         OpenRouterGenerationSettingsService.ResolvedSettings adminSettings = generationSettingsService.resolveForRuntime();
-        RuntimeProviderOverride providerOverride = resolveRuntimeProviderChain(request).stream().findFirst().orElse(null);
         ObjectNode root = objectMapper.createObjectNode();
         root.put("type", "normal");
         root.put("stream", true);
@@ -2321,50 +2792,113 @@ public final class StClient {
      * {"choices":[{"delta":{"content":"hi"}}]}
      * {"choices":[{"message":{"content":"hi"}}]}閿涘牆鐨弫鏉跨杽閻滃府绱?
      */
-    private ParsedChunk parseChunk(String data) {
+    private StreamChunkResult emitStreamData(
+            String data,
+            ChatGenerateRequest request,
+            Consumer<ChatGenerateChunk> onChunk,
+            AtomicInteger idx
+    ) {
+        if (!StringUtils.hasText(data)) {
+            return new StreamChunkResult(false, false);
+        }
+        if ("[DONE]".equals(data)) {
+            return new StreamChunkResult(false, true);
+        }
+        ParsedChunk parsed = parseChunk(data);
+        if (parsed == null) {
+            return new StreamChunkResult(false, false);
+        }
+        String sanitizedDelta = sanitizeAssistantDelta(parsed.delta());
+        boolean emittedContent = StringUtils.hasText(sanitizedDelta);
+        if (emittedContent) {
+            onChunk.accept(new ChatGenerateChunk(
+                    request.conversationId(),
+                    request.clientMessageId(),
+                    idx.getAndIncrement(),
+                    sanitizedDelta,
+                    false,
+                    parsed.reasoning(),
+                    null));
+        }
+        return new StreamChunkResult(emittedContent, parsed.done());
+    }
+
+    private static void emitDoneChunk(
+            ChatGenerateRequest request,
+            Consumer<ChatGenerateChunk> onChunk,
+            AtomicInteger idx,
+            String reasoning
+    ) {
+        onChunk.accept(new ChatGenerateChunk(
+                request.conversationId(), request.clientMessageId(), idx.getAndIncrement(), "", true, reasoning, null));
+    }
+
+    ParsedChunk parseChunk(String data) {
         if (!(data.startsWith("{") && data.endsWith("}"))) {
             return new ParsedChunk(data, false, null);
         }
         try {
             JsonNode root = objectMapper.readTree(data);
             if (root.has("error")) {
-                JsonNode err = root.get("error");
-                String msg =
-                        err.isTextual()
-                                ? err.asText()
-                                : firstNonBlank(
-                                        err.path("message").asText(""),
-                                        err.path("code").asText(""),
-                                        "upstream error");
-                throw new IllegalStateException(msg);
+                throw new IllegalStateException("upstream error");
             }
             JsonNode choices0 = root.path("choices").isArray() && root.path("choices").size() > 0 ? root.path("choices").get(0) : null;
-            if (choices0 == null) return null;
-            JsonNode delta = choices0.path("delta");
-            String content = delta.path("content").asText("");
+            if (choices0 != null) {
+                JsonNode delta = choices0.path("delta");
+                String content = extractContentText(delta.path("content"));
 
-            // reasoning 閸忕厧顔愰敍姘瑝閸氬奔绗傚〒绋垮讲閼崇晫鏁?reasoning / reasoning_content 鐎涙顔?
-            String reasoning = delta.path("reasoning").asText("");
-            if (reasoning.isEmpty()) {
-                reasoning = delta.path("reasoning_content").asText("");
-            }
-            if (reasoning.isEmpty()) {
-                reasoning = choices0.path("reasoning").asText("");
+                String reasoning = extractContentText(delta.path("reasoning"));
+                if (reasoning.isEmpty()) {
+                    reasoning = extractContentText(delta.path("reasoning_content"));
+                }
+                if (reasoning.isEmpty()) {
+                    reasoning = extractContentText(choices0.path("reasoning"));
+                }
+
+                String finish = choices0.path("finish_reason").asText("");
+                boolean done = !finish.isEmpty() && !"null".equalsIgnoreCase(finish);
+
+                String fallback = extractContentText(choices0.path("message").path("content"));
+                String deltaText = !content.isEmpty() ? content : fallback;
+                return new ParsedChunk(deltaText, done, reasoning.isEmpty() ? null : reasoning);
             }
 
-            boolean done = false;
-            String finish = choices0.path("finish_reason").asText("");
-            if (!finish.isEmpty() && !"null".equalsIgnoreCase(finish)) {
-                done = true;
+            JsonNode candidates = root.path("candidates");
+            if (candidates.isArray() && !candidates.isEmpty()) {
+                JsonNode candidate = candidates.get(0);
+                String content = extractContentText(candidate.path("content").path("parts"));
+                String finish = candidate.path("finishReason").asText(candidate.path("finish_reason").asText(""));
+                boolean done = !finish.isEmpty() && !"null".equalsIgnoreCase(finish);
+                return new ParsedChunk(content, done, null);
             }
 
-            JsonNode message = choices0.path("message");
-            String fallback = message.path("content").asText("");
-            String deltaText = !content.isEmpty() ? content : fallback;
-            return new ParsedChunk(deltaText, done, reasoning.isEmpty() ? null : reasoning);
-        } catch (Exception ignore) {
+            String outputText = extractContentText(root.path("output_text"));
+            return outputText.isEmpty() ? null : new ParsedChunk(outputText, true, null);
+        } catch (JsonProcessingException ignore) {
             return new ParsedChunk(data, false, null);
         }
+    }
+
+    private static String extractContentText(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        if (node.isTextual()) {
+            return node.asText("");
+        }
+        if (node.isArray()) {
+            StringBuilder text = new StringBuilder();
+            for (JsonNode item : node) {
+                String part = item.isTextual()
+                        ? item.asText("")
+                        : firstNonBlank(item.path("text").asText(""), item.path("content").asText(""));
+                if (StringUtils.hasText(part)) {
+                    text.append(part);
+                }
+            }
+            return text.toString();
+        }
+        return firstNonBlank(node.path("text").asText(""), node.path("content").asText(""));
     }
 
     private static String sanitizeAssistantDelta(String raw) {
@@ -2378,5 +2912,146 @@ public final class StClient {
         return text;
     }
 
-    private record ParsedChunk(String delta, boolean done, String reasoning) {}
+    record ParsedChunk(String delta, boolean done, String reasoning) {}
+
+    private record StreamChunkResult(boolean emittedContent, boolean done) {}
+
+    private static final class AttemptTelemetry {
+
+        private final Long conversationId;
+        private final String clientMessageId;
+        private final int attemptNo;
+        private final String providerKey;
+        private final String routeKey;
+        private final String providerSource;
+        private final String model;
+        private final boolean byok;
+        private final LocalDateTime startedAt = LocalDateTime.now();
+        private LocalDateTime firstTokenAt;
+        private long asciiCodePoints;
+        private long nonAsciiCodePoints;
+        private Integer promptTokens;
+        private Integer completionTokens;
+        private Integer httpStatus;
+
+        private AttemptTelemetry(
+                ChatGenerateRequest request,
+                int attemptNo,
+                String providerKey,
+                String routeKey,
+                String providerSource,
+                String model,
+                boolean byok
+        ) {
+            this.conversationId = request == null ? null : request.conversationId();
+            this.clientMessageId = request == null ? null : request.clientMessageId();
+            this.attemptNo = attemptNo;
+            this.providerKey = providerKey;
+            this.routeKey = routeKey;
+            this.providerSource = providerSource;
+            this.model = model;
+            this.byok = byok;
+        }
+
+        private Long conversationId() {
+            return conversationId;
+        }
+
+        private void setHttpStatus(int httpStatus) {
+            this.httpStatus = httpStatus;
+        }
+
+        private void observe(ChatGenerateChunk chunk) {
+            try {
+                String delta = chunk == null ? null : chunk.delta();
+                if (!StringUtils.hasText(delta)) {
+                    return;
+                }
+                if (firstTokenAt == null) {
+                    firstTokenAt = LocalDateTime.now();
+                }
+                delta.codePoints().forEach(codePoint -> {
+                    if (codePoint <= 0x7f) {
+                        asciiCodePoints++;
+                    } else {
+                        nonAsciiCodePoints++;
+                    }
+                });
+            } catch (Throwable ignored) {
+                // Telemetry is deliberately best effort and must never interrupt streaming.
+            }
+        }
+
+        private void observeUsage(String data, ObjectMapper objectMapper) {
+            try {
+                if (data == null || !data.startsWith("{") || objectMapper == null) {
+                    return;
+                }
+                JsonNode root = objectMapper.readTree(data);
+                JsonNode usage = root.path("usage");
+                if (usage.isObject()) {
+                    promptTokens = firstNonNegativeInt(usage, "prompt_tokens", "input_tokens");
+                    completionTokens = firstNonNegativeInt(usage, "completion_tokens", "output_tokens");
+                }
+                JsonNode googleUsage = root.path("usageMetadata");
+                if (googleUsage.isObject()) {
+                    Integer googlePrompt = firstNonNegativeInt(googleUsage, "promptTokenCount");
+                    Integer googleCompletion = firstNonNegativeInt(googleUsage, "candidatesTokenCount");
+                    promptTokens = googlePrompt == null ? promptTokens : googlePrompt;
+                    completionTokens = googleCompletion == null ? completionTokens : googleCompletion;
+                }
+            } catch (Throwable ignored) {
+                // Usage is optional; malformed metrics must not affect the response stream.
+            }
+        }
+
+        private GenerationAttemptEvent finish(boolean cancelled, Throwable failure) {
+            Integer completionValue = completionTokens == null ? estimatedCompletionTokens() : completionTokens;
+            boolean completionEstimated = completionTokens == null && completionValue != null;
+            String status = cancelled ? "CANCELLED" : (failure == null ? "SUCCESS" : "FAILED");
+            String errorCode = cancelled ? "CANCELLED" : (failure == null ? null : telemetryErrorCode(failure, httpStatus));
+            return new GenerationAttemptEvent(
+                    conversationId,
+                    clientMessageId,
+                    attemptNo,
+                    providerKey,
+                    routeKey,
+                    providerSource,
+                    model,
+                    byok,
+                    attemptNo > 1,
+                    startedAt,
+                    firstTokenAt,
+                    LocalDateTime.now(),
+                    httpStatus,
+                    status,
+                    errorCode,
+                    promptTokens,
+                    false,
+                    completionValue,
+                    completionEstimated
+            );
+        }
+
+        private static Integer firstNonNegativeInt(JsonNode node, String... fieldNames) {
+            if (node == null || fieldNames == null) {
+                return null;
+            }
+            for (String fieldName : fieldNames) {
+                JsonNode value = node.get(fieldName);
+                if (value != null && value.isNumber() && value.canConvertToInt() && value.asInt() >= 0) {
+                    return value.asInt();
+                }
+            }
+            return null;
+        }
+
+        private Integer estimatedCompletionTokens() {
+            if (asciiCodePoints <= 0 && nonAsciiCodePoints <= 0) {
+                return null;
+            }
+            long estimate = ((asciiCodePoints + 3L) / 4L) + nonAsciiCodePoints;
+            return estimate > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) Math.max(1L, estimate);
+        }
+    }
 }

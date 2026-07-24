@@ -12,6 +12,7 @@ import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntr
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper;
 import com.example.sillyspringboot.conversation.service.AppConversationMemoryService;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryLlmService;
+import com.example.sillyspringboot.conversation.service.ConversationMemoryCapacityService;
 import com.example.sillyspringboot.conversation.service.ConversationMemorySanitizer;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryWorldbookSyncService;
 import org.junit.jupiter.api.Test;
@@ -46,7 +47,7 @@ public class AppConversationMemoryServiceConflictTest {
 
         when(entryMapper.listAllByConversationId(conversationId))
                 .thenReturn(List.of(existingGegeEntry(conversationId)));
-        when(messageMapper.listRecentByConversationAsc(eq(conversationId), eq(properties.getMaxMessages())))
+        when(messageMapper.listRecentMemorySourceByConversationAsc(eq(conversationId), eq(properties.getMaxMessages())))
                 .thenReturn(List.of(
                         message(10L, "user", "以后叫我哥哥。", "SUCCESS"),
                         message(11L, "assistant", "好呀。", "SUCCESS"),
@@ -84,6 +85,7 @@ public class AppConversationMemoryServiceConflictTest {
                 llmService,
                 sanitizer,
                 syncService,
+                mock(ConversationMemoryCapacityService.class),
                 properties
         );
 
@@ -116,7 +118,7 @@ public class AppConversationMemoryServiceConflictTest {
                 eq(null)
         );
         verify(syncService).syncWorldbook(conversationId);
-        verify(llmService, never()).tryLlmRollup(conversationId);
+        verify(llmService, never()).tryLlmRollup(conversationId, null);
 
         assertThat(result.conversationId()).isEqualTo(conversationId);
         assertThat(result.summaryPreview()).isEqualTo("User wants the character to call him Ayao.");
@@ -141,7 +143,7 @@ public class AppConversationMemoryServiceConflictTest {
         ConversationMemorySanitizer sanitizer = new ConversationMemorySanitizer(properties);
 
         when(entryMapper.listAllByConversationId(conversationId)).thenReturn(List.of());
-        when(messageMapper.listRecentByConversationAsc(eq(conversationId), eq(properties.getMaxMessages())))
+        when(messageMapper.listRecentMemorySourceByConversationAsc(eq(conversationId), eq(properties.getMaxMessages())))
                 .thenReturn(List.of(message(20L, "user", "remember this", "SUCCESS")));
         when(llmService.tryStructuredMemoryExtract(eq(conversationId), anyList()))
                 .thenReturn(Optional.of(new StructuredMemoryExtraction(
@@ -176,6 +178,7 @@ public class AppConversationMemoryServiceConflictTest {
                 llmService,
                 sanitizer,
                 syncService,
+                mock(ConversationMemoryCapacityService.class),
                 properties
         );
 
@@ -185,6 +188,67 @@ public class AppConversationMemoryServiceConflictTest {
         assertThat(result.syncStatus()).isEqualTo("FAILED");
         assertThat(result.syncError()).isEqualTo("st offline");
         assertThat(result.memoryWorldName()).isEqualTo("jg_memory_conv_124_deadbeef00");
+    }
+
+    @Test
+    void refreshConversationMemory_shouldNotRecreateManuallyDisabledFactUnderAnotherKey() {
+        long conversationId = 125L;
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        AppConversationMemoryEntryMapper entryMapper = mock(AppConversationMemoryEntryMapper.class);
+        AppMessageMapper messageMapper = mock(AppMessageMapper.class);
+        ConversationMemoryLlmService llmService = mock(ConversationMemoryLlmService.class);
+        ConversationMemoryWorldbookSyncService syncService = mock(ConversationMemoryWorldbookSyncService.class);
+        MemoryLlmProperties properties = properties();
+        ConversationMemorySanitizer sanitizer = new ConversationMemorySanitizer(properties);
+        AppConversationMemoryEntry disabled = existingGegeEntry(conversationId);
+        disabled.setEnabled(false);
+        disabled.setManualDisabled(true);
+
+        when(entryMapper.listAllByConversationId(conversationId)).thenReturn(List.of(disabled));
+        when(messageMapper.listRecentMemorySourceByConversationAsc(conversationId, properties.getMaxMessages()))
+                .thenReturn(List.of(message(30L, "user", "还是叫我哥哥吧。", "SUCCESS")));
+        when(llmService.tryStructuredMemoryExtract(eq(conversationId), anyList()))
+                .thenReturn(Optional.of(new StructuredMemoryExtraction(
+                        "用户希望角色称呼他为哥哥。",
+                        List.of(new ExtractedMemoryEntry(
+                                "identity_user_brother_title",
+                                "identity",
+                                "用户称呼",
+                                "角色以后应当称用户为哥哥。",
+                                List.of("哥哥", "称呼"),
+                                List.of(),
+                                200,
+                                "before_char",
+                                true,
+                                false,
+                                true,
+                                new BigDecimal("0.96"),
+                                List.of()
+                        )),
+                        List.of()
+                )));
+        when(entryMapper.countAllByConversationId(conversationId)).thenReturn(1);
+        when(entryMapper.countEnabledByConversationId(conversationId)).thenReturn(0);
+        when(entryMapper.listEnabledByConversationId(conversationId)).thenReturn(List.of());
+        when(memoryMapper.findByConversationId(conversationId)).thenReturn(memoryState(conversationId));
+
+        AppConversationMemoryService service = new AppConversationMemoryService(
+                memoryMapper,
+                entryMapper,
+                messageMapper,
+                llmService,
+                sanitizer,
+                syncService,
+                mock(ConversationMemoryCapacityService.class),
+                properties
+        );
+
+        service.refreshConversationMemory(conversationId);
+
+        verify(entryMapper, never()).upsert(org.mockito.ArgumentMatchers.any(AppConversationMemoryEntry.class));
+        verify(memoryMapper).upsertRefreshState(
+                conversationId, "", 0, null, 1, 0, 30L, 1, "SKIPPED", null);
+        verify(syncService).syncWorldbook(conversationId);
     }
 
     private static AppConversationMemoryEntry existingGegeEntry(long conversationId) {

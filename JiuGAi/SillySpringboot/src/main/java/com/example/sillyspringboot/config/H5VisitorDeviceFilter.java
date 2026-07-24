@@ -23,7 +23,16 @@ public class H5VisitorDeviceFilter extends OncePerRequestFilter {
             return true;
         }
         String path = request.getRequestURI();
-        return path == null || !path.startsWith("/api/v1/");
+        return !isH5CompatibilityPath(path);
+    }
+
+    private static boolean isH5CompatibilityPath(String path) {
+        return path != null && (
+                path.startsWith("/api/v1/")
+                        || path.startsWith("/api/index/")
+                        || path.startsWith("/api/common/")
+                        || path.startsWith("/api/user/")
+        );
     }
 
     @Override
@@ -34,8 +43,9 @@ public class H5VisitorDeviceFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         H5VisitorDeviceService.DeviceTouchContext context = visitorDeviceService.resolveOrIssue(request);
         if (context != null && context.deviceToken() != null && !context.deviceToken().isBlank()) {
-            request.setAttribute(H5VisitorDeviceService.REQUEST_ATTR_DEVICE_TOKEN, context.deviceToken());
+            // Only persisted devices are trusted by downstream authentication and rate limiting.
             if (context.deviceId() != null) {
+                request.setAttribute(H5VisitorDeviceService.REQUEST_ATTR_DEVICE_TOKEN, context.deviceToken());
                 request.setAttribute(H5VisitorDeviceService.REQUEST_ATTR_DEVICE_ID, context.deviceId());
             }
             response.setHeader(H5VisitorDeviceService.DEVICE_TOKEN_HEADER, context.deviceToken());

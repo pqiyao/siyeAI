@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.generation.mapper.GenerationModelPricingMapper">
+
+    <resultMap id="PricingResultMap" type="com.example.sillyspringboot.ops.generation.entity.GenerationModelPricing">
+        <id column="id" property="id"/>
+        <result column="provider_key" property="providerKey"/>
+        <result column="model_pattern" property="modelPattern"/>
+        <result column="version" property="version"/>
+        <result column="currency" property="currency"/>
+        <result column="input_usd_per_million_tokens" property="inputUsdPerMillionTokens"/>
+        <result column="output_usd_per_million_tokens" property="outputUsdPerMillionTokens"/>
+        <result column="effective_from" property="effectiveFrom"/>
+        <result column="effective_to" property="effectiveTo"/>
+        <result column="enabled" property="enabled"/>
+        <result column="note" property="note"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="listAll" resultMap="PricingResultMap">
+        SELECT * FROM app_generation_model_pricing
+        ORDER BY enabled DESC, provider_key ASC, model_pattern ASC, effective_from DESC, id DESC
+    </select>
+
+    <select id="listEffective" resultMap="PricingResultMap">
+        SELECT *
+        FROM app_generation_model_pricing
+        WHERE enabled = TRUE
+          AND (provider_key = #{providerKey} OR provider_key = '*')
+          AND effective_from &lt;= #{effectiveAt}
+          AND (effective_to IS NULL OR effective_to &gt; #{effectiveAt})
+        ORDER BY
+          CASE WHEN provider_key = #{providerKey} THEN 0 ELSE 1 END,
+          effective_from DESC,
+          id DESC
+    </select>
+
+    <select id="findById" resultMap="PricingResultMap">
+        SELECT * FROM app_generation_model_pricing WHERE id = #{id}
+    </select>
+
+    <select id="findByIdentity" resultMap="PricingResultMap">
+        SELECT * FROM app_generation_model_pricing
+        WHERE provider_key = #{providerKey}
+          AND model_pattern = #{modelPattern}
+          AND version = #{version}
+          AND effective_from = #{effectiveFrom}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_generation_model_pricing (
+            provider_key, model_pattern, version, currency,
+            input_usd_per_million_tokens, output_usd_per_million_tokens,
+            effective_from, effective_to, enabled, note
+        ) VALUES (
+            #{providerKey}, #{modelPattern}, #{version}, #{currency},
+            #{inputUsdPerMillionTokens}, #{outputUsdPerMillionTokens},
+            #{effectiveFrom}, #{effectiveTo}, #{enabled}, #{note}
+        )
+    </insert>
+
+    <update id="updateById">
+        UPDATE app_generation_model_pricing
+        SET provider_key = #{providerKey},
+            model_pattern = #{modelPattern},
+            version = #{version},
+            currency = #{currency},
+            input_usd_per_million_tokens = #{inputUsdPerMillionTokens},
+            output_usd_per_million_tokens = #{outputUsdPerMillionTokens},
+            effective_from = #{effectiveFrom},
+            effective_to = #{effectiveTo},
+            enabled = #{enabled},
+            note = #{note},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM app_generation_model_pricing WHERE id = #{id}
+    </delete>
+</mapper>

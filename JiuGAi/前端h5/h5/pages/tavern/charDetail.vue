@@ -228,9 +228,9 @@ export default {
 					vibeDefault: '以情境互动为主',
 					summaryFallback:
 						'这是一张偏 {gameplay} 的角色卡，公开页只展示氛围摘要，完整设定会在进入私聊后逐步展开。当前内容 {vibe}。',
-					teaserPersona: '角色气质',
-					teaserScene: '主要场景',
-					teaserGameplay: '互动方式',
+					teaserPersona: '角色印象',
+					teaserScene: '故事舞台',
+					teaserRelationship: '互动关系',
 					teaserUnlock: '开启方式',
 					teaserUnlockValue: '进入私聊后逐步解锁完整设定',
 					characterClosed: '该角色暂未开放'
@@ -243,9 +243,9 @@ export default {
 					vibeDefault: '以情境互動為主',
 					summaryFallback:
 						'這是一張偏 {gameplay} 的角色卡，公開頁只展示氛圍摘要，完整設定會在進入私聊後逐步展開。當前內容 {vibe}。',
-					teaserPersona: '角色氣質',
-					teaserScene: '主要場景',
-					teaserGameplay: '互動方式',
+					teaserPersona: '角色印象',
+					teaserScene: '故事舞台',
+					teaserRelationship: '互動關係',
 					teaserUnlock: '開啟方式',
 					teaserUnlockValue: '進入私聊後逐步解鎖完整設定',
 					characterClosed: '該角色暫未開放'
@@ -258,9 +258,9 @@ export default {
 					vibeDefault: 'focused on contextual interaction',
 					summaryFallback:
 						'This is a {gameplay} card. The public page only shows a brief vibe summary, and the full setup unlocks gradually after private chat starts. Current focus: {vibe}.',
-					teaserPersona: 'Character Vibe',
-					teaserScene: 'Main Scene',
-					teaserGameplay: 'Interaction Style',
+					teaserPersona: 'Character Impression',
+					teaserScene: 'Story Setting',
+					teaserRelationship: 'Relationship',
 					teaserUnlock: 'Unlock Path',
 					teaserUnlockValue: 'Full setup unlocks gradually after private chat starts',
 					characterClosed: 'This character is not open yet'
@@ -273,9 +273,9 @@ export default {
 					vibeDefault: '상황형 상호작용에 초점',
 					summaryFallback:
 						'이 카드는 {gameplay} 중심의 캐릭터 카드입니다. 공개 페이지에서는 분위기 요약만 보여 주며, 전체 설정은 개인 채팅을 시작한 뒤 점차 열립니다. 현재 포인트: {vibe}.',
-					teaserPersona: '캐릭터 분위기',
-					teaserScene: '주요 장면',
-					teaserGameplay: '상호작용 방식',
+					teaserPersona: '캐릭터 인상',
+					teaserScene: '이야기 무대',
+					teaserRelationship: '상호 관계',
 					teaserUnlock: '열리는 방식',
 					teaserUnlockValue: '개인 채팅 진입 후 전체 설정이 단계적으로 열립니다',
 					characterClosed: '이 캐릭터는 아직 열려 있지 않습니다'
@@ -288,9 +288,9 @@ export default {
 					vibeDefault: 'シチュエーション重視のやり取り',
 					summaryFallback:
 						'これは {gameplay} 寄りのキャラクターカードです。公開ページでは雰囲気の要約のみを表示し、完全設定は個別チャット開始後に段階的に開放されます。現在の見どころ: {vibe}。',
-					teaserPersona: 'キャラの空気感',
-					teaserScene: '主なシーン',
-					teaserGameplay: 'やり取りの形',
+					teaserPersona: 'キャラクター印象',
+					teaserScene: '物語の舞台',
+					teaserRelationship: '関係性',
 					teaserUnlock: '解放方法',
 					teaserUnlockValue: '個別チャット開始後に完全設定が段階的に開放されます',
 					characterClosed: 'このキャラクターはまだ公開されていません'
@@ -419,9 +419,20 @@ export default {
 				.filter(Boolean)
 				.slice(0, 3);
 		},
+		publicProfile() {
+			const profile = this.char && this.char.public_profile;
+			return profile && typeof profile === 'object' ? profile : {};
+		},
 		detailOneLiner() {
 			if (!this.char) return '';
-			const preferred = [this.char.tagline, this.char.bio, this.char.description, this.char.persona, this.char.scenario];
+			const preferred = [
+				this.publicProfile.oneLiner,
+				this.char.tagline,
+				this.char.bio,
+				this.char.description,
+				this.publicProfile.personality,
+				this.publicProfile.scenario
+			];
 			for (let i = 0; i < preferred.length; i += 1) {
 				const normalized = this.normalizeText(preferred[i]);
 				if (normalized) return this.truncateText(normalized, 54);
@@ -430,12 +441,18 @@ export default {
 		},
 		openingPreview() {
 			if (!this.char) return '';
-			const preferred = [this.char.first_message, this.char.firstMessage, this.char.opening_preview, this.char.openingPreview];
+			const preferred = [
+				this.publicProfile.openingPreview,
+				this.char.first_message,
+				this.char.firstMessage,
+				this.char.opening_preview,
+				this.char.openingPreview
+			];
 			for (let i = 0; i < preferred.length; i += 1) {
 				const normalized = this.normalizeText(preferred[i]);
-				if (normalized) return this.truncateText(normalized, 96);
+				if (normalized) return normalized;
 			}
-			return this.detailLocalText.openingFallback;
+			return '';
 		},
 		quickMetaItems() {
 			if (!this.char) return [];
@@ -470,7 +487,14 @@ export default {
 		},
 		publicSummary() {
 			if (!this.char) return '';
-			const preferred = [this.char.bio, this.char.tagline, this.char.persona, this.char.scenario];
+			const preferred = [
+				this.publicProfile.summary,
+				this.char.public_summary,
+				this.char.bio,
+				this.char.tagline,
+				this.publicProfile.personality,
+				this.publicProfile.scenario
+			];
 			for (let i = 0; i < preferred.length; i += 1) {
 				const normalized = this.normalizeText(preferred[i]);
 				if (normalized) return this.truncateText(normalized, 180);
@@ -487,13 +511,13 @@ export default {
 		teaserPoints() {
 			if (!this.char) return [];
 			const list = [];
-			const persona = this.normalizeText(this.char.persona);
-			const scenario = this.normalizeText(this.char.scenario);
-			if (persona) list.push({ label: this.detailPatchText.teaserPersona, value: this.truncateText(persona, 30) });
-			if (scenario) list.push({ label: this.detailPatchText.teaserScene, value: this.truncateText(scenario, 30) });
-			if (this.char.gameplay_type) list.push({ label: this.detailPatchText.teaserGameplay, value: this.char.gameplay_type });
-			list.push({ label: this.detailPatchText.teaserUnlock, value: this.detailPatchText.teaserUnlockValue });
-			return list.slice(0, 4);
+			const persona = this.normalizeText(this.publicProfile.personality || this.char.persona);
+			const scenario = this.normalizeText(this.publicProfile.scenario || this.char.scenario);
+			const relationship = this.normalizeText(this.publicProfile.relationshipHook);
+			if (persona) list.push({ label: this.detailPatchText.teaserPersona, value: this.truncateText(persona, 720) });
+			if (scenario) list.push({ label: this.detailPatchText.teaserScene, value: this.truncateText(scenario, 760) });
+			if (relationship) list.push({ label: this.detailPatchText.teaserRelationship, value: this.truncateText(relationship, 360) });
+			return list;
 		}
 	},
 	onLoad(q) {
@@ -1269,14 +1293,11 @@ export default {
 }
 
 .opening-preview-text {
-	display: -webkit-box;
+	display: block;
 	margin-top: 14rpx;
 	font-size: 26rpx;
 	line-height: 1.76;
 	color: #eef2ff;
-	overflow: hidden;
-	-webkit-line-clamp: 4;
-	-webkit-box-orient: vertical;
 	word-break: break-word;
 }
 

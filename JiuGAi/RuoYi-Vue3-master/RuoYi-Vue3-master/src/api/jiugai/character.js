@@ -32,6 +32,13 @@ export function getCharacter(id) {
   })
 }
 
+export function recalculateCharacterPublicProfile(id) {
+  return sillyRequest({
+    url: '/admin/jiugai/character/' + id + '/recalculate-public-profile',
+    method: 'post'
+  })
+}
+
 export function listCharacterWorldbookOptions() {
   return sillyRequest({
     url: '/admin/jiugai/character/worldbooks/options',

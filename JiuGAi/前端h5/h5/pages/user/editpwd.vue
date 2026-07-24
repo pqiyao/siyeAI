@@ -97,7 +97,7 @@
 					.request(
 						'user/reset_pwd',
 						{
-							token: uni.getStorageSync('user').token,
+							token: this.util.getStoredToken(),
 							old_pwd: this.oldpwd,
 							new_pwd: this.newpwd
 						},

@@ -111,8 +111,9 @@ class WebSocketManager {
 		try {
 			const conversations = uni.getStorageSync('conversationsList') || [];
 			const userIds = conversations.map(item => item.userId).filter(Boolean);
+			const storedUser = uni.getStorageSync('user') || {};
 			const message = {
-				uid: uni.getStorageSync('user')?.user_id || '',
+				uid: storedUser.user_id || '',
 				user_ids: userIds.join()
 			};
 			console.log('发送心跳:', JSON.stringify(message));

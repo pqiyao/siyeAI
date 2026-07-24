@@ -1,50 +1,46 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
-		<view class="head-strip" :style="{ paddingTop: statusBarH + 12 + 'px' }">
+		<view class="head-strip" :style="{ paddingTop: statusBarH + 6 + 'px' }">
 			<view class="head-row">
-				<view>
-					<text class="head-title">{{ texts.mineTitle }}</text>
+				<view class="head-left">
+					<view class="head-title-row">
+						<text class="head-title">{{ texts.mineTitle }}</text>
+						<text class="head-count-chip">{{ cardCountText }}</text>
+					</view>
 					<text class="head-sub">{{ texts.privateOnlyIntro }}</text>
 				</view>
-				<view class="head-actions">
-					<view class="sort-chip" @tap="openSort">
-						<text class="sort-txt">{{ sortLabel }}</text>
-						<text class="sort-arrow">v</text>
+				<view
+					class="create-chip"
+					:class="{ 'chip--disabled': !featureConfig.userCharacterCreationEnabled }"
+					@tap="openCreate"
+				>
+					<text class="create-plus">+</text>
+					<text class="create-txt">{{ texts.createCard }}</text>
+				</view>
+			</view>
+
+			<view class="meta-bar">
+				<view class="meta-actions">
+					<view class="meta-link" @tap="openSort">
+						<text class="meta-link-txt">{{ sortLabel }}</text>
+						<text class="sort-arrow">▾</text>
 					</view>
 					<view
-						class="import-chip"
-						:class="{ 'chip--disabled': importing || !featureConfig.userCharacterCreationEnabled }"
+						class="meta-link"
+						:class="{ 'meta-link--disabled': importing || !featureConfig.userCharacterCreationEnabled }"
 						@tap="openImportPng"
 					>
-						<text class="import-txt">{{ importing ? importProgressLabel : texts.importCard }}</text>
-					</view>
-					<view class="create-chip" :class="{ 'chip--disabled': !featureConfig.userCharacterCreationEnabled }" @tap="openCreate">
-						<text class="create-plus">+</text>
-						<text class="create-txt">{{ texts.createCard }}</text>
+						<text class="meta-link-txt">{{ importing ? importProgressLabel : texts.importCard }}</text>
 					</view>
 				</view>
 			</view>
-		</view>
-
-		<view class="summary-card">
-			<view class="summary-main">
-				<text class="summary-num">{{ list.length }}</text>
-				<text class="summary-label">{{ texts.createdCount }}</text>
-			</view>
-			<text class="summary-tip">{{ texts.summaryTip }}</text>
-			<text v-if="!featureConfig.userCharacterCreationEnabled" class="summary-lock-tip">{{ texts.creationPaused }}</text>
+			<text v-if="!featureConfig.userCharacterCreationEnabled" class="lock-tip">{{ texts.creationPaused }}</text>
 		</view>
 
 		<view v-if="loading && !visibleList.length" class="mine-skeleton">
 			<view v-for="n in skeletonList" :key="'mine_skeleton_' + n" class="mine-skeleton-card">
 				<view class="mine-skeleton-visual"></view>
-				<view class="mine-skeleton-line mine-skeleton-line--title"></view>
-				<view class="mine-skeleton-line"></view>
-				<view class="mine-skeleton-actions">
-					<view class="mine-skeleton-btn"></view>
-					<view class="mine-skeleton-btn mine-skeleton-btn--ghost"></view>
-				</view>
 			</view>
 		</view>
 		<view v-else-if="errorMsg && !visibleList.length" class="state-box">
@@ -71,35 +67,30 @@
 					<view class="card-disc" @tap="openDetail(item)">
 						<view class="card-visual">
 							<image class="card-bg" :src="coverUrl(item)" mode="aspectFill" lazy-load></image>
-							<view class="card-float-top">
-								<text class="hdl">{{ displayHandle(item) }}</text>
-								<view class="like-badge">
-									<text class="heart">{{ texts.heart }}</text>
-									<text>{{ formatLikes(item.like_count) }}</text>
-								</view>
-							</view>
-							<view class="card-float-tags">
-								<text class="float-tag float-tag--private">{{ texts.onlyMe }}</text>
-								<text v-if="reviewStatusText(item)" class="float-tag" :class="reviewStatusClass(item)">{{ reviewStatusText(item) }}</text>
-							</view>
-						</view>
-						<view class="card-meta">
-							<view class="meta-title-row">
-								<text class="meta-title">{{ item.nickname || '-' }}</text>
-							</view>
-							<text class="meta-desc">{{ cardSubtitle(item) }}</text>
-							<text v-if="item.review_reason" class="meta-review">{{ item.review_reason }}</text>
-						</view>
-						<view class="card-actions">
+							<view class="card-shade" aria-hidden="true"></view>
 							<view
-								class="action-btn action-btn--ghost action-btn--danger"
-								:class="{ 'action-btn--disabled': deletingId === item.id }"
-								@tap.stop="confirmDelete(item)"
+								class="card-more"
+								@tap.stop="openCardMenu(item)"
 							>
-								{{ deletingId === item.id ? texts.deleting : texts.deleteCard }}
+								<text class="card-more-dot">···</text>
 							</view>
-							<view class="action-btn" @tap.stop="openEditor(item)">
-								{{ texts.editContent }}
+							<view class="card-visual-copy">
+								<text class="card-visual-title">{{ item.nickname || '-' }}</text>
+								<text class="card-visual-desc">{{ cardSubtitle(item) }}</text>
+								<text v-if="item.review_reason" class="card-visual-review">{{ item.review_reason }}</text>
+								<view v-if="reviewStatusText(item)" class="card-float-tags">
+									<text
+										class="float-tag"
+										:class="reviewStatusClass(item)"
+									>{{ reviewStatusText(item) }}</text>
+								</view>
+								<view class="card-inline-foot">
+									<text class="card-inline-handle">{{ displayHandle(item) }}</text>
+									<view class="card-inline-heat">
+										<text class="heart">{{ texts.heart }}</text>
+										<text>{{ formatLikes(item.like_count) }}</text>
+									</view>
+								</view>
 							</view>
 						</view>
 					</view>
@@ -125,42 +116,40 @@ const MINE_BATCH_VISIBLE = 8;
 const MINE_SKELETON_COUNT = 4;
 
 const TEXTS = Object.freeze({
-	mineTitle: '\u6211\u7684\u89d2\u8272',
-	privateOnlyIntro: '\u4ec5\u81ea\u5df1\u53ef\u89c1\uff0c\u4e0d\u4f1a\u51fa\u73b0\u5728\u53d1\u73b0\u9875',
+	mineTitle: '\u6211\u7684\u89d2\u8272\u5361',
+	privateOnlyIntro: '\u79c1\u4eba\u89d2\u8272\uff0c\u53ea\u6709\u4f60\u80fd\u770b\u5230',
 	createCard: '\u65b0\u5efa\u89d2\u8272\u5361',
-	importCard: '\u5bfc\u5165PNG',
+	importCard: '\u5bfc\u5165\u89d2\u8272\u5361',
 	importing: '\u5bfc\u5165\u4e2d...',
-	importPngOnly: '\u8bf7\u9009\u62e9 .png \u683c\u5f0f\u7684\u89d2\u8272\u5361',
-	importTooLarge: '\u6587\u4ef6\u8fc7\u5927\uff0c\u5f53\u524d\u5355\u6587\u4ef6\u4e0a\u9650\u4e3a 28MB\uff0c\u8bf7\u538b\u7f29\u540e\u518d\u8bd5',
-	createdCount: '\u5df2\u521b\u5efa\u89d2\u8272\u5361',
-	summaryTip: '\u652f\u6301\u5934\u50cf\u3001\u5c01\u9762\u3001\u5267\u60c5\u3001\u5f00\u573a\u767d\u3001\u63d0\u793a\u8bcd\u7b49\u5b8c\u6574\u5185\u5bb9\u7f16\u8f91',
-	pendingReview: '\u5f85\u5ba1\u6838',
-	rejectedReview: '\u5df2\u9a73\u56de',
+	importPngOnly: '\u8bf7\u9009\u62e9 PNG \u683c\u5f0f\u7684\u89d2\u8272\u5361\u6587\u4ef6',
+	importTooLarge: '\u6587\u4ef6\u8fc7\u5927\uff0c\u5355\u6587\u4ef6\u6700\u591a 28MB\uff0c\u8bf7\u538b\u7f29\u540e\u518d\u8bd5',
+	cardCount: '\u5171 {n} \u5f20',
+	pendingReview: '\u5ba1\u6838\u4e2d',
+	rejectedReview: '\u672a\u901a\u8fc7',
 	approvedReview: '\u5df2\u901a\u8fc7',
 	loading: '\u52a0\u8f7d\u4e2d...',
 	retry: '\u70b9\u51fb\u91cd\u8bd5',
-	empty: '\u8fd8\u6ca1\u6709\u521b\u5efa\u89d2\u8272\u5361',
-	emptyTip: '\u521b\u5efa\u540e\u7684\u89d2\u8272\u5361\u4f1a\u5728\u8fd9\u91cc\u72ec\u7acb\u7ba1\u7406\uff0c\u4e0d\u4f1a\u8fdb\u5165\u53d1\u73b0\u9875',
-	createNow: '\u7acb\u5373\u521b\u5efa',
+	empty: '\u8fd8\u6ca1\u6709\u89d2\u8272\u5361',
+	emptyTip: '\u521b\u5efa\u4e00\u4e2a\uff0c\u5f00\u59cb\u4e13\u5c5e\u5bf9\u8bdd',
+	createNow: '\u65b0\u5efa\u89d2\u8272\u5361',
 	sortName: '\u6309\u540d\u79f0',
-	sortRecent: '\u6309\u6700\u8fd1\u521b\u5efa',
-	onlyMe: '\u4ec5\u81ea\u5df1\u53ef\u89c1',
-	editContent: '\u7f16\u8f91\u5185\u5bb9',
-	deleteCard: '\u5220\u9664\u89d2\u8272',
+	sortRecent: '\u6700\u8fd1\u521b\u5efa',
+	editContent: '\u7f16\u8f91',
+	deleteCard: '\u5220\u9664',
 	deleting: '\u5220\u9664\u4e2d...',
 	deleteTitle: '\u5220\u9664\u89d2\u8272\u5361',
-	deleteContent: '\u5220\u9664\u540e\u5c06\u4e00\u8d77\u6e05\u7406\u8fd9\u4e2a\u89d2\u8272\u7684\u804a\u5929\u8bb0\u5f55\u3001\u957f\u671f\u8bb0\u5fc6\u548c\u4e92\u52a8\u6570\u636e\uff0c\u786e\u5b9a\u7ee7\u7eed\u5417\uff1f',
+	deleteContent: '\u5220\u9664\u540e\uff0c\u8be5\u89d2\u8272\u7684\u804a\u5929\u8bb0\u5f55\u4e5f\u4f1a\u4e00\u8d77\u6e05\u9664\uff0c\u4e14\u4e0d\u53ef\u6062\u590d\u3002\u786e\u5b9a\u5220\u9664\u5417\uff1f',
 	deleteSuccess: '\u5220\u9664\u6210\u529f',
 	deleteFailed: '\u5220\u9664\u5931\u8d25',
 	anon: '\u533f\u540d',
 	noIntro: '\u6682\u65e0\u7b80\u4ecb',
-	backendOff: '\u540e\u7aef\u63a5\u53e3\u672a\u5f00\u542f',
+	backendOff: '\u6682\u65f6\u65e0\u6cd5\u52a0\u8f7d\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5',
 	loadFailed: '\u52a0\u8f7d\u5931\u8d25',
 	importSuccess: '\u5bfc\u5165\u6210\u529f',
 	importFailed: '\u5bfc\u5165\u5931\u8d25',
-	creationPaused: '\u5f53\u524d\u5df2\u6682\u505c\u7528\u6237\u7aef\u65b0\u5efa\u548c\u5bfc\u5165\u89d2\u8272\u5361\uff0c\u4f46\u5df2\u521b\u5efa\u7684\u89d2\u8272\u4ecd\u53ef\u7ee7\u7eed\u7ba1\u7406\u3002',
-	creationUnavailable: '\u5f53\u524d\u6682\u4e0d\u53ef\u81ea\u5efa\u89d2\u8272\u5361',
-	creationAccessFailed: '\u81ea\u5efa\u6743\u9650\u68c0\u67e5\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5',
+	creationPaused: '\u6682\u65f6\u65e0\u6cd5\u65b0\u5efa\u6216\u5bfc\u5165\uff0c\u5df2\u6709\u7684\u89d2\u8272\u5361\u4ecd\u53ef\u7ba1\u7406',
+	creationUnavailable: '\u6682\u65f6\u65e0\u6cd5\u65b0\u5efa\u89d2\u8272\u5361',
+	creationAccessFailed: '\u6682\u65f6\u65e0\u6cd5\u65b0\u5efa\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5',
 	heart: '\u2665'
 });
 
@@ -197,6 +186,9 @@ export default {
 		},
 		sortLabel() {
 			return this.sortBy === 'name' ? this.texts.sortName : this.texts.sortRecent;
+		},
+		cardCountText() {
+			return String(this.texts.cardCount || '\u5171 {n} \u5f20').replace('{n}', String(this.list.length));
 		},
 		visibleList() {
 			return tavernListPerf.sliceVisibleList(this.list, this.visibleCount, MINE_INITIAL_VISIBLE);
@@ -569,6 +561,21 @@ export default {
 			}
 			uni.navigateTo({ url: '/pages/tavern/tavernEditor?id=' + item.id });
 		},
+		openCardMenu(item) {
+			if (!item || item.id == null || item.id === '') {
+				return;
+			}
+			uni.showActionSheet({
+				itemList: [this.texts.editContent, this.texts.deleteCard],
+				success: (res) => {
+					if (res.tapIndex === 0) {
+						this.openEditor(item);
+					} else if (res.tapIndex === 1) {
+						this.confirmDelete(item);
+					}
+				}
+			});
+		},
 		confirmDelete(item) {
 			if (!item || item.id == null || item.id === '' || this.deletingId === item.id) {
 				return;
@@ -636,73 +643,69 @@ export default {
 }
 
 .head-strip {
-	padding: 0 24rpx 12rpx;
+	padding: 0 24rpx 8rpx;
+	flex-shrink: 0;
 }
 
 .head-row {
 	display: flex;
-	align-items: flex-start;
+	align-items: center;
 	justify-content: space-between;
-	gap: 18rpx;
+	gap: 14rpx;
+}
+
+.head-left {
+	flex: 1;
+	min-width: 0;
+}
+
+.head-title-row {
+	display: flex;
+	align-items: center;
+	gap: 12rpx;
+	min-width: 0;
 }
 
 .head-title {
 	display: block;
-	font-size: 36rpx;
+	font-size: 34rpx;
 	font-weight: 700;
 	color: $tavern-text-on-dark;
+	line-height: 1.2;
+}
+
+.head-count-chip {
+	flex-shrink: 0;
+	padding: 4rpx 12rpx;
+	border-radius: 999rpx;
+	font-size: 20rpx;
+	font-weight: 600;
+	color: #247494;
+	background: rgba(255, 255, 255, 0.55);
+	border: 1rpx solid rgba(148, 183, 210, 0.28);
+	line-height: 1.3;
 }
 
 .head-sub {
 	display: block;
-	margin-top: 8rpx;
-	font-size: 22rpx;
+	margin-top: 4rpx;
+	font-size: 20rpx;
 	color: $tavern-muted-on-dark;
+	line-height: 1.35;
 }
 
-.head-actions {
-	display: flex;
-	align-items: center;
-	gap: 12rpx;
-	flex-shrink: 0;
-}
-
-.sort-chip,
-.import-chip,
 .create-chip {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 8rpx;
+	gap: 6rpx;
 	min-height: 64rpx;
-	padding: 0 18rpx;
+	padding: 0 22rpx;
 	border-radius: 999rpx;
-	border: 1rpx solid $tavern-border-on-dark;
-}
-
-.sort-chip {
-	background: rgba(255, 255, 255, 0.05);
-}
-
-.import-chip {
-	background: rgba(255, 255, 255, 0.08);
-}
-
-.create-chip {
 	background: $tavern-accent-gradient;
-	border-color: transparent;
-}
-
-.sort-txt,
-.import-txt,
-.create-txt {
-	font-size: 22rpx;
-}
-
-.sort-txt,
-.sort-arrow,
-.import-txt {
-	color: $tavern-muted-on-dark;
+	border: none;
+	flex-shrink: 0;
+	box-shadow: 0 8rpx 18rpx rgba(99, 102, 241, 0.18);
 }
 
 .create-txt,
@@ -711,8 +714,12 @@ export default {
 	font-weight: 700;
 }
 
+.create-txt {
+	font-size: 26rpx;
+}
+
 .create-plus {
-	font-size: 28rpx;
+	font-size: 30rpx;
 	line-height: 1;
 }
 
@@ -720,46 +727,58 @@ export default {
 	opacity: 0.55;
 }
 
-.summary-card {
-	margin: 0 20rpx 16rpx;
-	padding: 18rpx 20rpx;
-	border-radius: $tavern-radius-lg;
-	background: linear-gradient(135deg, rgba(139, 92, 246, 0.16), rgba(15, 23, 42, 0.92));
-	border: 1rpx solid rgba(196, 181, 253, 0.18);
-	box-shadow: $tavern-card-shadow;
-}
-
-.summary-main {
+.meta-bar {
+	margin-top: 10rpx;
 	display: flex;
-	align-items: baseline;
+	align-items: center;
+	justify-content: flex-end;
 	gap: 12rpx;
 }
 
-.summary-num {
-	font-size: 42rpx;
-	font-weight: 700;
-	color: #fff;
+.meta-actions {
+	display: flex;
+	align-items: center;
+	gap: 8rpx;
+	flex-shrink: 0;
 }
 
-.summary-label {
-	font-size: 24rpx;
-	color: #ddd6fe;
+.meta-link {
+	display: flex;
+	align-items: center;
+	gap: 4rpx;
+	min-height: 52rpx;
+	padding: 0 14rpx;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.55);
+	border: 1rpx solid rgba(148, 183, 210, 0.28);
 }
 
-.summary-tip {
-	display: block;
-	margin-top: 10rpx;
+.meta-link--disabled {
+	opacity: 0.5;
+}
+
+.meta-link-txt,
+.sort-arrow {
 	font-size: 22rpx;
-	line-height: 1.5;
-	color: rgba(255, 255, 255, 0.75);
+	color: #247494;
+	font-weight: 600;
 }
 
-.summary-lock-tip {
+.sort-arrow {
+	font-size: 18rpx;
+	opacity: 0.85;
+}
+
+.lock-tip {
 	display: block;
 	margin-top: 12rpx;
+	padding: 14rpx 16rpx;
+	border-radius: 14rpx;
 	font-size: 22rpx;
-	line-height: 1.6;
-	color: #fde68a;
+	line-height: 1.45;
+	color: #92400e;
+	background: rgba(251, 191, 36, 0.16);
+	border: 1rpx solid rgba(245, 158, 11, 0.28);
 }
 
 .state-box {
@@ -801,20 +820,18 @@ export default {
 .mine-skeleton {
 	display: flex;
 	flex-wrap: wrap;
-	margin: 0 20rpx;
-	padding-top: 8rpx;
+	margin: 0 12rpx;
+	padding-top: 4rpx;
+	box-sizing: border-box;
 }
 
 .mine-skeleton-card {
-	width: 336rpx;
-	margin: 16rpx auto 0;
-	padding-bottom: 18rpx;
+	width: 50%;
+	box-sizing: border-box;
+	padding: 0 10rpx;
+	margin: 0 0 22rpx;
 	position: relative;
 	overflow: hidden;
-	border-radius: 28rpx;
-	background: $tavern-card-dark;
-	border: 1rpx solid $tavern-border-on-dark;
-	box-shadow: $tavern-card-shadow;
 }
 
 .mine-skeleton-visual,
@@ -838,36 +855,9 @@ export default {
 }
 
 .mine-skeleton-visual {
-	width: 336rpx;
-	height: 430rpx;
-	border-radius: 28rpx 28rpx 0 0;
-}
-
-.mine-skeleton-line {
-	width: 292rpx;
-	height: 22rpx;
-	margin: 18rpx 22rpx 0;
-}
-
-.mine-skeleton-line--title {
-	width: 188rpx;
-	height: 28rpx;
-}
-
-.mine-skeleton-actions {
-	display: flex;
-	gap: 12rpx;
-	margin: 22rpx 18rpx 0;
-}
-
-.mine-skeleton-btn {
-	flex: 1;
-	height: 64rpx;
-	border-radius: 16rpx;
-}
-
-.mine-skeleton-btn--ghost {
-	background: rgba(255, 255, 255, 0.05);
+	width: 100%;
+	height: 500rpx;
+	border-radius: 28rpx;
 }
 
 .page-scroll {
@@ -882,187 +872,236 @@ export default {
 .grid2-wrap {
 	display: flex;
 	flex-wrap: wrap;
-	margin: 0 20rpx;
+	margin: 0 12rpx;
+	box-sizing: border-box;
 }
 
 .grid2-item {
 	width: 50%;
-	margin-top: 16rpx;
+	box-sizing: border-box;
+	padding: 0 10rpx;
+	margin-top: 0;
+	margin-bottom: 22rpx;
 }
 
 .card-disc {
-	width: 336rpx;
-	overflow: hidden;
-	border-radius: 28rpx;
-	background: $tavern-card-dark;
-	border: 1rpx solid $tavern-border-on-dark;
-	box-shadow: $tavern-card-shadow;
+	position: relative;
+	width: 100%;
+	max-width: 346rpx;
+	margin: 0 auto;
+	overflow: visible;
+	border-radius: 0;
+	background: transparent !important;
+	border: none !important;
+	box-shadow: none !important;
 }
 
 .card-visual {
 	position: relative;
-	height: 430rpx;
-	background: rgba(255, 255, 255, 0.04);
+	isolation: isolate;
+	width: 100%;
+	height: 500rpx;
+	overflow: hidden;
+	border-radius: 28rpx;
+	background: transparent !important;
+}
+
+.card-visual::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: 28rpx;
+	padding: 2rpx;
+	background: linear-gradient(145deg, #f3f4f6 0%, #9ca3af 40%, #e5e7eb 60%, #6b7280 100%);
+	-webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+	-webkit-mask-composite: xor;
+	mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+	mask-composite: exclude;
+	pointer-events: none;
+	z-index: 6;
+	opacity: 0.9;
 }
 
 .card-bg {
+	position: absolute;
+	left: 0;
+	top: 0;
 	width: 100%;
 	height: 100%;
 	display: block;
+	z-index: 0;
+	/* #ifdef H5 */
+	object-fit: cover;
+	object-position: center top;
+	/* #endif */
 }
 
-.card-float-top {
+.card-shade {
 	position: absolute;
-	left: 16rpx;
-	right: 16rpx;
-	top: 16rpx;
+	inset: 0;
+	z-index: 2;
+	pointer-events: none;
+	background: linear-gradient(
+		180deg,
+		rgba(0, 0, 0, 0.08) 0%,
+		rgba(0, 0, 0, 0.02) 28%,
+		rgba(0, 0, 0, 0.28) 62%,
+		rgba(0, 0, 0, 0.72) 100%
+	);
+}
+
+.card-more {
+	position: absolute;
+	top: 14rpx;
+	right: 14rpx;
+	z-index: 8;
+	width: 56rpx;
+	height: 56rpx;
+	border-radius: 50%;
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 10rpx;
+	justify-content: center;
+	background: rgba(12, 20, 28, 0.42);
+	border: 1rpx solid rgba(255, 255, 255, 0.18);
+	/* #ifdef H5 */
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	/* #endif */
 }
 
-.hdl,
-.like-badge {
-	max-width: 140rpx;
-	padding: 8rpx 12rpx;
-	border-radius: 999rpx;
-	font-size: 20rpx;
+.card-more:active {
+	transform: scale(0.94);
+	background: rgba(12, 20, 28, 0.58);
+}
+
+.card-more-dot {
+	font-size: 28rpx;
+	line-height: 1;
+	color: rgba(255, 255, 255, 0.95);
+	font-weight: 700;
+	letter-spacing: 1rpx;
+	margin-top: -6rpx;
+}
+
+.card-visual-copy {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 3;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+	padding: 24rpx 20rpx 20rpx;
+	pointer-events: none;
+}
+
+.card-visual-title {
 	color: #fff;
-	background: rgba(15, 23, 42, 0.55);
-	backdrop-filter: blur(8rpx);
-}
-
-.hdl {
+	font-size: 30rpx;
+	font-weight: 800;
+	line-height: 1.25;
+	text-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.55);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.like-badge {
+.card-visual-desc {
+	color: rgba(255, 255, 255, 0.84);
+	font-size: 21rpx;
+	line-height: 1.4;
+	text-shadow: 0 1rpx 8rpx rgba(0, 0, 0, 0.45);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+
+.card-visual-review {
+	color: #fecaca;
+	font-size: 19rpx;
+	line-height: 1.4;
+	text-shadow: 0 1rpx 6rpx rgba(0, 0, 0, 0.45);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+
+.card-float-tags {
+	position: static;
 	display: flex;
 	align-items: center;
+	flex-wrap: wrap;
 	gap: 6rpx;
-	justify-content: center;
+	margin-top: 4rpx;
+}
+
+.float-tag {
+	padding: 3rpx 12rpx;
+	border-radius: 999rpx;
+	font-size: 18rpx;
+	font-weight: 650;
+	line-height: 1.3;
+	color: rgba(255, 244, 214, 0.96);
+	background: rgba(0, 0, 0, 0.28);
+	border: 1rpx solid rgba(255, 255, 255, 0.16);
+}
+
+.float-tag--pending {
+	color: #dbeafe;
+	background: rgba(37, 99, 235, 0.42);
+	border-color: rgba(147, 197, 253, 0.28);
+}
+
+.float-tag--reject {
+	color: #fee2e2;
+	background: rgba(185, 28, 28, 0.46);
+	border-color: rgba(252, 165, 165, 0.28);
+}
+
+.float-tag--approved {
+	color: #dcfce7;
+	background: rgba(22, 163, 74, 0.42);
+	border-color: rgba(134, 239, 172, 0.28);
+}
+
+.card-inline-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12rpx;
+	margin-top: 6rpx;
+	padding-top: 10rpx;
+	border-top: 1rpx solid rgba(255, 255, 255, 0.12);
+}
+
+.card-inline-handle {
+	flex: 1;
+	min-width: 0;
+	font-size: 20rpx;
+	font-weight: 650;
+	color: rgba(255, 255, 255, 0.78);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.card-inline-heat {
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 6rpx;
+	font-size: 20rpx;
+	font-weight: 700;
+	color: rgba(255, 214, 120, 0.92);
 }
 
 .heart {
 	line-height: 1;
-}
-
-.card-float-tags {
-	position: absolute;
-	left: 16rpx;
-	right: 16rpx;
-	bottom: 16rpx;
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 10rpx;
-}
-
-.float-tag {
-	padding: 10rpx 14rpx;
-	border-radius: 999rpx;
-	font-size: 20rpx;
-	line-height: 1;
-	color: #fff;
-	background: rgba(15, 23, 42, 0.55);
-}
-
-.float-tag--private {
-	background: rgba(139, 92, 246, 0.76);
-}
-
-.float-tag--pending {
-	background: rgba(59, 130, 246, 0.76);
-}
-
-.float-tag--reject {
-	background: rgba(239, 68, 68, 0.82);
-}
-
-.float-tag--approved {
-	background: rgba(34, 197, 94, 0.76);
-}
-
-.card-meta {
-	padding: 18rpx 18rpx 0;
-}
-
-.meta-title-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12rpx;
-}
-
-.meta-title {
-	flex: 1;
-	min-width: 0;
-	font-size: 28rpx;
-	font-weight: 700;
-	color: $tavern-text-on-dark;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.meta-desc {
-	display: block;
-	margin-top: 10rpx;
-	font-size: 22rpx;
-	line-height: 1.5;
-	color: $tavern-muted-on-dark;
-	display: -webkit-box;
-	-webkit-line-clamp: 2;
-	-webkit-box-orient: vertical;
-	overflow: hidden;
-	min-height: 66rpx;
-}
-
-.meta-review {
-	display: block;
-	margin-top: 10rpx;
-	font-size: 20rpx;
-	line-height: 1.5;
-	color: #fca5a5;
-}
-
-.card-actions {
-	display: flex;
-	align-items: center;
-	gap: 12rpx;
-	padding: 18rpx;
-}
-
-.action-btn {
-	flex: 1;
-	height: 64rpx;
-	line-height: 64rpx;
-	text-align: center;
-	border-radius: 16rpx;
-	font-size: 22rpx;
-	font-weight: 700;
-	color: #fff;
-	background: $tavern-accent-gradient;
-}
-
-.action-btn--ghost {
-	color: $tavern-text-on-dark;
-	background: rgba(255, 255, 255, 0.06);
-	border: 1rpx solid rgba(255, 255, 255, 0.08);
-}
-
-.action-btn--danger {
-	color: #fecaca;
-	border-color: rgba(248, 113, 113, 0.22);
-	background: rgba(127, 29, 29, 0.22);
-}
-
-.action-btn--disabled {
-	opacity: 0.58;
-	pointer-events: none;
 }
 
 .list-more {
@@ -1086,51 +1125,17 @@ export default {
 }
 
 /* Light clover tavern mine-page contrast refresh. */
-.sort-chip,
-.import-chip {
-	background: rgba(255, 255, 255, 0.46);
-	border-color: rgba(255, 255, 255, 0.54);
-	backdrop-filter: blur(18rpx);
-	-webkit-backdrop-filter: blur(18rpx);
-}
-
-.summary-card {
-	background: linear-gradient(135deg, rgba(220, 247, 251, 0.72), rgba(255, 235, 243, 0.56));
-	border-color: rgba(255, 255, 255, 0.54);
-}
-
-.summary-num,
-.summary-label,
-.summary-tip,
-.summary-lock-tip,
 .head-sub,
+.meta-count,
 .state-txt,
 .state-tip,
-.list-more-text,
-.meta-desc {
+.list-more-text {
 	color: #4d6678;
 }
 
-.summary-num,
-.summary-label {
-	color: #244b66;
-}
-
 .card-disc {
-	background: rgba(255, 255, 255, 0.62);
-	border-color: rgba(255, 255, 255, 0.56);
-	backdrop-filter: blur(22rpx);
-	-webkit-backdrop-filter: blur(22rpx);
-}
-
-.hdl,
-.like-badge,
-.float-tag {
-	background: rgba(28, 59, 79, 0.56);
-}
-
-.action-btn--ghost {
-	background: rgba(255, 255, 255, 0.42);
-	border-color: rgba(255, 255, 255, 0.54);
+	background: transparent !important;
+	border: none !important;
+	box-shadow: none !important;
 }
 </style>

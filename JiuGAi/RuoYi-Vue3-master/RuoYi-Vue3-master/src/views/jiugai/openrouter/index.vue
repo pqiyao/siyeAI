@@ -1,5 +1,12 @@
 <template>
   <div class="app-container">
+    <UnifiedAiRoutingPanel />
+
+    <div class="legacy-section-title">
+      <span>LEGACY / ROLLBACK</span>
+      <strong>ST 旧路由与采样设置</strong>
+    </div>
+
     <el-alert
       class="mb12"
       type="info"
@@ -243,6 +250,7 @@
 </template>
 
 <script setup name="JgOpenRouterGeneration">
+import UnifiedAiRoutingPanel from './UnifiedAiRoutingPanel.vue'
 import {
   deleteModelProvider,
   deleteModelRoute,
@@ -547,6 +555,25 @@ load()
 <style scoped>
 .mb12 {
   margin-bottom: 12px;
+}
+
+.legacy-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 22px 0 10px;
+}
+
+.legacy-section-title span {
+  color: var(--el-color-warning);
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.legacy-section-title strong {
+  color: var(--el-text-color-primary);
+  font-size: 16px;
 }
 
 .card-head {

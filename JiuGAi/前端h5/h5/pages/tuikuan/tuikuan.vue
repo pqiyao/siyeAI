@@ -66,7 +66,7 @@
 			createRefundLog() {
 				this.util
 					.request('user/createRefundLog', {
-						token: uni.getStorageSync('user').token,
+						token: this.util.getStoredToken(),
 						country: this.country,
 						id_no: this.id_no,
 						username: this.username,

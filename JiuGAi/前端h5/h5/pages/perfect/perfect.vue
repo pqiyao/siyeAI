@@ -114,7 +114,7 @@ export default {
 			fileList: [],
 			action: this.util.api.path + 'common/upload',
 			formData: {
-				token: (uni.getStorageSync('user') || {}).token || ''
+				token: this.util.getStoredToken()
 			},
 			label: [],
 			occupation: [],
@@ -142,7 +142,7 @@ export default {
 		if (u && u.nickname && !this.nickname) this.nickname = u.nickname;
 		if (u && u.avatar) this.imgbox = u.avatar;
 		this.formData = {
-			token: (u || {}).token || ''
+			token: this.util.getStoredToken()
 		};
 	},
 	methods: {
@@ -204,7 +204,7 @@ export default {
 						relation: relationIds,
 						occupation: occupationId,
 						label: [],
-						token: uni.getStorageSync('user').token
+						token: this.util.getStoredToken()
 					},
 					'POST'
 				)

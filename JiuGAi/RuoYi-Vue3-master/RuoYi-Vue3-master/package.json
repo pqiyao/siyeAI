@@ -9,7 +9,8 @@
     "dev": "vite",
     "build:prod": "vite build",
     "build:stage": "vite build --mode staging",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:contracts": "node --test test/*.test.mjs"
   },
   "repository": {
     "type": "git",
@@ -40,6 +41,7 @@
     "@vitejs/plugin-vue": "5.2.4",
     "sass-embedded": "1.97.2",
     "unplugin-auto-import": "0.18.6",
+    "unplugin-vue-components": "0.28.0",
     "unplugin-vue-setup-extend-plus": "1.0.1",
     "vite": "6.4.1",
     "vite-plugin-compression": "0.5.1",

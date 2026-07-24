@@ -1,42 +1,24 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
-		<tavern-nav-bar mode="dark" :show-back="false" @back="onClose">
-			<template #left>
-				<view class="icon-btn" @tap="onClose">
-					<text class="icon-x">×</text>
-				</view>
-			</template>
+		<tavern-nav-bar mode="dark" :show-back="false">
 			<template #center>
 				<view class="title-wrap">
 					<text class="app-title">{{ t.应用标题 }}</text>
-					<text class="title-caret">▼</text>
 				</view>
 			</template>
 			<template #right>
-				<view class="icon-btn" @tap="onMore">
-					<text class="dot-more">⋯</text>
+				<view class="nav-actions">
+					<view class="icon-btn" @tap="goInboxAds">
+						<text class="ad-mark">✧</text>
+						<view v-if="adUnread > 0" class="nav-dot"></view>
+					</view>
+					<view class="icon-btn" @tap="onMore">
+						<text class="dot-more">⋯</text>
+					</view>
 				</view>
 			</template>
 		</tavern-nav-bar>
-
-		<view class="sub-bar">
-			<view class="brand">
-				<view class="brand-mark">
-					<text class="heart">♥</text>
-					<view class="crescent"></view>
-				</view>
-				<text class="brand-text">四叶</text>
-			</view>
-			<view class="promo-pill" @tap="openPromo">
-				<text class="promo-ico">💵</text>
-				<text class="promo-txt">{{ t.促销多重 }}</text>
-			</view>
-			<view class="sub-icons">
-				<text class="sub-ic" @tap="toastMail">✉</text>
-				<text class="sub-ic lang" @tap="toastLang">A/EN</text>
-			</view>
-		</view>
 
 		<view class="section-head">
 			<text class="section-title">{{ t.最近聊天 }}</text>
@@ -51,6 +33,38 @@
 		</view>
 
 		<scroll-view scroll-y class="scroll" :show-scrollbar="false">
+			<view class="card card-system card-system--ad" @tap="goInboxAds">
+				<view class="thumb-wrap">
+					<image
+						class="thumb-img"
+						:src="adEntryCover"
+						mode="aspectFill"
+						lazy-load
+					></image>
+				</view>
+				<view class="card-main">
+					<view v-if="adUnread > 0" class="card-unread-badge">{{ adUnread > 99 ? '99+' : adUnread }}</view>
+					<view class="card-body">
+						<text class="card-title">{{ t.活动推荐 || '活动推荐' }}</text>
+						<text class="card-author">{{ t.作者 }}：官方</text>
+						<text class="card-desc">{{ adEntryDesc }}</text>
+					</view>
+				</view>
+			</view>
+
+			<view class="card card-system" @tap="goHelper">
+				<view class="thumb-wrap">
+					<image class="thumb-img" src="/static/chat/c1.png" mode="aspectFill" lazy-load></image>
+				</view>
+				<view class="card-main">
+					<view class="card-body">
+						<text class="card-title">{{ t.酒馆小助手 }}</text>
+						<text class="card-author">{{ t.作者 }}：{{ t.官方客服 || '官方客服' }}</text>
+						<text class="card-desc">{{ t.助手副标题 }}</text>
+					</view>
+				</view>
+			</view>
+
 			<view class="card" v-for="s in sessions" :key="s.id" @tap="openSession(s)">
 				<view class="thumb-wrap">
 					<image
@@ -76,46 +90,19 @@
 				</view>
 			</view>
 
-			<view class="card card-system" @tap="goSystem">
-				<view class="thumb-wrap">
-					<image class="thumb-img" src="/static/chat/c0.png" mode="aspectFill" lazy-load></image>
-				</view>
-				<view class="card-main">
-					<view v-if="noticeUnread > 0" class="card-unread-badge">{{ noticeUnread > 99 ? '99+' : noticeUnread }}</view>
-					<view class="card-body">
-						<text class="card-title">{{ t.系统公告 }}</text>
-						<text class="card-author">{{ t.作者 }}：官方</text>
-						<text class="card-desc">{{ t.公告内容 }}</text>
-					</view>
-				</view>
-			</view>
-
-			<view class="card card-system" @tap="goHelper">
-				<view class="thumb-wrap">
-					<image class="thumb-img" src="/static/chat/c1.png" mode="aspectFill" lazy-load></image>
-				</view>
-				<view class="card-main">
-					<view class="card-body">
-						<text class="card-title">{{ t.酒馆小助手 }}</text>
-						<text class="card-author">{{ t.作者 }}：{{ t.官方客服 || '官方客服' }}</text>
-						<text class="card-desc">{{ t.助手副标题 }}</text>
-					</view>
-				</view>
-			</view>
-
 			<view class="scroll-pad"></view>
 		</scroll-view>
 	</view>
 </template>
 
 <script>
-	import { applyTavernTabBarLabels, syncTavernTabBar, syncTavernInboxBadge } from '@/common/tavernTabBar.js';
+	import { applyTavernTabBarLabels, syncTavernTabBar } from '@/common/tavernTabBar.js';
+	const tavernInboxBadge = require('@/common/tavernInboxBadge.js');
 	import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 
 	const tavernApi = require('@/common/tavernApi.js');
 	const tavernErrors = require('@/common/tavernErrors.js');
 	const tavernNoticeState = require('@/common/tavernNoticeState.js');
-	const LOCAL_CHAT_IMAGE_CACHE_PREFIX = 'tavern_local_chat_images_';
 
 	function clearSessionLocalArtifacts(session) {
 		const clientUid = tavernApi.getClientUid();
@@ -141,12 +128,31 @@
 				sessions: [],
 				jgInboxLoading: false,
 				jgInboxError: '',
-				noticeUnread: 0
+				noticeUnread: 0,
+				adUnread: 0,
+				adPreview: null,
+				unreadIdentitySignature: '',
+				noticeUnreadRequestVersion: 0,
+				adUnreadRequestVersion: 0,
+				moreBusy: false
 			};
 		},
 		computed: {
 			t() {
 				return this.allText.酒馆页 || {};
+			},
+			adEntryCover() {
+				const url = this.adPreview && this.adPreview.imageUrl;
+				if (url) {
+					return tavernApi.resolveJgAssetUrl(url) || '/static/chat/c0.png';
+				}
+				return '/static/chat/c0.png';
+			},
+			adEntryDesc() {
+				if (this.adPreview && this.adPreview.title) {
+					return String(this.adPreview.title);
+				}
+				return this.t.活动推荐副标题 || '官方活动与精选推荐，随时可看';
 			}
 		},
 		onLoad() {
@@ -157,6 +163,12 @@
 			this.setTabText();
 			this.loadInboxSessions();
 			this.refreshNoticeUnread();
+			this.refreshAdUnread();
+			this.loadAdPreview();
+		},
+		onUnload() {
+			this.noticeUnreadRequestVersion += 1;
+			this.adUnreadRequestVersion += 1;
 		},
 		methods: {
 			loadInboxSessions() {
@@ -189,28 +201,103 @@
 				applyTavernTabBarLabels(this.allText, this);
 				syncTavernTabBar(this, 'pages/tavern/tavernInbox', this.allText);
 			},
+			syncCombinedBadge() {
+				tavernInboxBadge.refreshCombinedInboxBadge(this, tavernApi, {
+					noticeUnread: this.noticeUnread,
+					adUnread: this.adUnread
+				});
+			},
+			getUnreadIdentitySignature() {
+				try {
+					if (typeof tavernApi.getViewerIdentitySignature === 'function') {
+						return String(tavernApi.getViewerIdentitySignature() || '');
+					}
+					return 'client:' + String(tavernApi.getClientUid() || '');
+				} catch (e) {
+					return 'unknown';
+				}
+			},
+			ensureUnreadIdentity() {
+				const currentIdentity = this.getUnreadIdentitySignature();
+				if (
+					this.unreadIdentitySignature &&
+					this.unreadIdentitySignature !== currentIdentity
+				) {
+					this.noticeUnreadRequestVersion += 1;
+					this.adUnreadRequestVersion += 1;
+					this.noticeUnread = 0;
+					this.adUnread = 0;
+					this.syncCombinedBadge();
+				}
+				this.unreadIdentitySignature = currentIdentity;
+				return currentIdentity;
+			},
+			isUnreadRequestCurrent(part, identitySignature, requestVersion) {
+				if (this.getUnreadIdentitySignature() !== identitySignature) return false;
+				if (this.unreadIdentitySignature !== identitySignature) return false;
+				return part === 'notice'
+					? this.noticeUnreadRequestVersion === requestVersion
+					: this.adUnreadRequestVersion === requestVersion;
+			},
 			refreshNoticeUnread() {
+				const identitySignature = this.ensureUnreadIdentity();
+				const requestVersion = ++this.noticeUnreadRequestVersion;
 				if (!tavernApi.jgEnabled()) {
 					this.noticeUnread = 0;
-					syncTavernInboxBadge(this, 0);
+					this.syncCombinedBadge();
 					return;
 				}
 				tavernNoticeState
 					.fetchUnreadState(tavernApi, 30)
 					.then(({ unreadCount }) => {
-						const count = Number(unreadCount) || 0;
-						this.noticeUnread = count;
-						try {
-							this.$store.commit('setUnreadTotal', count);
-						} catch (e) {}
-						syncTavernInboxBadge(this, count);
+						if (!this.isUnreadRequestCurrent('notice', identitySignature, requestVersion)) return;
+						this.noticeUnread = Number(unreadCount) || 0;
+						this.syncCombinedBadge();
 					})
 					.catch(() => {
-						this.noticeUnread = 0;
-						try {
-							this.$store.commit('setUnreadTotal', 0);
-						} catch (e) {}
-						syncTavernInboxBadge(this, 0);
+						if (!this.isUnreadRequestCurrent('notice', identitySignature, requestVersion)) return;
+						this.syncCombinedBadge();
+					});
+			},
+			refreshAdUnread() {
+				const identitySignature = this.ensureUnreadIdentity();
+				const requestVersion = ++this.adUnreadRequestVersion;
+				if (!tavernApi.jgEnabled() || typeof tavernApi.fetchInboxAdsUnread !== 'function') {
+					this.adUnread = 0;
+					this.syncCombinedBadge();
+					return;
+				}
+				tavernApi
+					.fetchInboxAdsUnread(tavernApi.getClientUid())
+					.then(({ unreadCount }) => {
+						if (!this.isUnreadRequestCurrent('ad', identitySignature, requestVersion)) return;
+						this.adUnread = Number(unreadCount) || 0;
+						this.syncCombinedBadge();
+					})
+					.catch(() => {
+						if (!this.isUnreadRequestCurrent('ad', identitySignature, requestVersion)) return;
+						this.syncCombinedBadge();
+					});
+			},
+			loadAdPreview() {
+				if (!tavernApi.jgEnabled() || typeof tavernApi.fetchInboxAds !== 'function') {
+					this.adPreview = null;
+					return;
+				}
+				tavernApi
+					.fetchInboxAds(1)
+					.then((list) => {
+						const first = Array.isArray(list) && list.length ? list[0] : null;
+						this.adPreview = first
+							? {
+									id: first.id,
+									title: first.title || '',
+									imageUrl: first.imageUrl || ''
+								}
+							: null;
+					})
+					.catch(() => {
+						this.adPreview = null;
 					});
 			},
 			displayTitle(s) {
@@ -266,37 +353,87 @@
 					}
 				});
 			},
-			goSystem() {
-				uni.navigateTo({ url: '/pages/chat/systemmsg' });
+			goInboxAds() {
+				uni.navigateTo({ url: '/pages/tavern/inboxAds' });
 			},
 			goHelper() {
 				uni.navigateTo({ url: '/pages/user/supportTickets' });
 			},
-			onClose() {
-				this.util.safeNavigateBack('/pages/index/index');
-			},
 			onMore() {
-				uni.showToast({ title: this.t.更多菜单, icon: 'none' });
-			},
-			openPromo() {
-				const api = require('@/common/api.js');
-				const ext = api.inboxPromoExternalUrl != null ? String(api.inboxPromoExternalUrl).trim() : '';
-				if (ext && /^https?:\/\//i.test(ext)) {
-					/* #ifdef H5 */
-					if (typeof window !== 'undefined' && window.open) {
-						window.open(ext, '_blank');
-						return;
+				if (this.moreBusy) return;
+				uni.showActionSheet({
+					itemList: [
+						this.t.全部标为已读 || '全部标为已读',
+						this.t.管理会话 || '管理会话'
+					],
+					success: (res) => {
+						if (res.tapIndex === 0) {
+							this.clearAllRead();
+						} else if (res.tapIndex === 1) {
+							this.goSessionManage();
+						}
 					}
-					/* #endif */
+				});
+			},
+			clearAllRead() {
+				if (this.moreBusy) return;
+				if (!tavernApi.jgEnabled()) {
+					uni.showToast({
+						title: this.t.发现后端未配置 || '后端接口未开启',
+						icon: 'none'
+					});
+					return;
 				}
-				const p = api.inboxPromoInternalPath || '/pages/chat/systemmsg';
-				uni.navigateTo({ url: p });
+				this.moreBusy = true;
+				uni.showLoading({
+					title: this.t.处理中 || '处理中…',
+					mask: true
+				});
+				const noticePromise = tavernNoticeState
+					.markAllAsRead(tavernApi)
+					.then((state) => ({ ok: true, state: state }))
+					.catch((error) => ({ ok: false, error: error }));
+				const adPromise =
+					typeof tavernApi.markInboxAdsReadAll === 'function'
+						? tavernApi
+								.markInboxAdsReadAll(tavernApi.getClientUid())
+								.then((state) => ({ ok: true, state: state }))
+								.catch((error) => ({ ok: false, error: error }))
+						: Promise.resolve({ ok: true, state: { unreadCount: 0 } });
+				Promise.all([noticePromise, adPromise])
+					.then(([noticeResult, adResult]) => {
+						if (noticeResult.ok) {
+							this.noticeUnread = Number(noticeResult.state && noticeResult.state.unreadCount) || 0;
+						}
+						if (adResult.ok) {
+							this.adUnread = Number(adResult.state && adResult.state.unreadCount) || 0;
+						}
+						this.syncCombinedBadge();
+						if (noticeResult.ok && adResult.ok) {
+							uni.showToast({
+								title: this.t.已全部标为已读 || '已全部标为已读',
+								icon: 'success'
+							});
+							return;
+						}
+						const firstError = !noticeResult.ok ? noticeResult.error : adResult.error;
+						uni.showToast({
+							title: tavernErrors.getTavernErrorMessage(
+								firstError,
+								this.t.标为已读失败 || '操作失败'
+							),
+							icon: 'none'
+						});
+					})
+					.finally(() => {
+						try {
+							uni.hideLoading();
+						} catch (e) {}
+						this.moreBusy = false;
+					});
 			},
-			toastMail() {
-				this.goSystem();
-			},
-			toastLang() {
-				uni.navigateTo({ url: '/pages/user/language' });
+			goSessionManage() {
+				uni.navigateTo({ url: '/pages/tavern/sessionManage' });
 			}
 		}
 	};
@@ -309,8 +446,6 @@
 	$muted: $tavern-muted-on-dark;
 	$desc: #687f92;
 	$link: #247494;
-	$pink: #f4a6c4;
-	$violet: #76d2dd;
 
 	.page {
 		position: relative;
@@ -324,20 +459,39 @@
 	}
 
 	.icon-btn {
-		min-width: 88rpx;
-		min-height: 72rpx;
+		min-width: 72rpx;
+		min-height: 64rpx;
 		padding: 0 8rpx;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		box-sizing: border-box;
+		position: relative;
 	}
 
-	.icon-x {
-		font-size: 48rpx;
-		color: $text;
+	.nav-actions {
+		display: flex;
+		align-items: center;
+		gap: 4rpx;
+	}
+
+	.ad-mark {
+		font-size: 34rpx;
 		line-height: 1;
-		font-weight: 300;
+		color: #355468;
+		font-weight: 500;
+		opacity: 0.88;
+	}
+
+	.nav-dot {
+		position: absolute;
+		top: 12rpx;
+		right: 10rpx;
+		width: 12rpx;
+		height: 12rpx;
+		border-radius: 50%;
+		background: #ef4444;
+		border: 2rpx solid rgba(255, 255, 255, 0.92);
 	}
 
 	.dot-more {
@@ -346,6 +500,12 @@
 		line-height: 1;
 		font-weight: bold;
 		letter-spacing: 2rpx;
+	}
+
+	.card-system--ad {
+		opacity: 1;
+		border-color: rgba(36, 116, 148, 0.22);
+		box-shadow: 0 16rpx 36rpx rgba(36, 116, 148, 0.12);
 	}
 
 	.title-wrap {
@@ -368,110 +528,8 @@
 		letter-spacing: 0.5rpx;
 	}
 
-	.title-caret {
-		font-size: 16rpx;
-		color: $muted;
-		opacity: 0.85;
-	}
-
-	.sub-bar {
-		display: flex;
-		align-items: center;
-		padding: 16rpx 28rpx 20rpx;
-		gap: 14rpx;
-	}
-
-	.brand {
-		display: flex;
-		align-items: center;
-		gap: 12rpx;
-		flex-shrink: 0;
-	}
-
-	.brand-mark {
-		width: 48rpx;
-		height: 48rpx;
-		position: relative;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.heart {
-		font-size: 22rpx;
-		color: #fda4af;
-		line-height: 1;
-		z-index: 1;
-	}
-
-	.crescent {
-		position: absolute;
-		width: 36rpx;
-		height: 36rpx;
-		border-radius: 50%;
-		background: linear-gradient(145deg, $violet 0%, $pink 100%);
-		opacity: 0.95;
-		box-shadow: 0 0 12rpx rgba($pink, 0.35);
-	}
-
-	.brand-text {
-		font-size: 32rpx;
-		font-weight: 800;
-		color: $text;
-		letter-spacing: 1rpx;
-	}
-
-	.promo-pill {
-		flex: 1;
-		min-width: 0;
-		height: 60rpx;
-		padding: 0 18rpx;
-		border-radius: 30rpx;
-		background: linear-gradient(135deg, #348fb8 0%, #76d2dd 62%, #f4a6c4 100%);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 10rpx;
-		box-shadow: 0 10rpx 22rpx rgba(52, 143, 184, 0.18);
-	}
-
-	.promo-ico {
-		font-size: 26rpx;
-		line-height: 1;
-		flex-shrink: 0;
-	}
-
-	.promo-txt {
-		font-size: 24rpx;
-		color: #fff;
-		font-weight: 700;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.sub-icons {
-		display: flex;
-		align-items: center;
-		gap: 32rpx;
-		flex-shrink: 0;
-		padding-left: 4rpx;
-	}
-
-	.sub-ic {
-		font-size: 34rpx;
-		color: #247494;
-		line-height: 1;
-	}
-
-	.sub-ic.lang {
-		font-size: 24rpx;
-		font-weight: 700;
-		letter-spacing: -0.5rpx;
-	}
-
 	.section-head {
-		padding: 4rpx 28rpx 20rpx;
+		padding: 16rpx 28rpx 16rpx;
 	}
 
 	.section-title {

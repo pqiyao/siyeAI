@@ -175,9 +175,12 @@ function getTavernErrorMessage(err, fallback) {
 	return fb;
 }
 
-function resolveCommercialPrompt(err) {
+function resolveCommercialPrompt(err, options) {
 	var message = getTavernErrorMessage(err, '');
 	if (!message) return null;
+	var rechargeEntryVisible = !(options && options.rechargeEntryVisible === false);
+	var primaryText = rechargeEntryVisible ? '开通会员' : '联系客服';
+	var primaryUrl = rechargeEntryVisible ? '/pages/user/myvip' : '/pages/user/lianxiwomen/lianxiwomen';
 	if (
 		containsAny(message, [
 			'今日聊天次数已用完',
@@ -190,11 +193,13 @@ function resolveCommercialPrompt(err) {
 		return {
 			kind: 'chat_quota',
 			title: '今日聊天额度已用完',
-			message: '免费版今日聊天额度已达上限。开通会员后可立即恢复更高聊天额度，并解锁续写、重生等权益。',
-			primaryText: '开通会员',
-			primaryUrl: '/pages/user/myvip',
-			secondaryText: '去充值',
-			secondaryUrl: '/pages/user/pay'
+			message: rechargeEntryVisible
+				? '免费版今日聊天额度已达上限。开通会员后可立即恢复更高聊天额度，并解锁续写、重生等权益。'
+				: '免费版今日聊天额度已达上限，充值与会员购买入口暂未开放，请稍后再试或联系客服。',
+			primaryText: primaryText,
+			primaryUrl: primaryUrl,
+			secondaryText: rechargeEntryVisible ? '去充值' : '',
+			secondaryUrl: rechargeEntryVisible ? '/pages/user/pay' : ''
 		};
 	}
 	if (
@@ -208,11 +213,13 @@ function resolveCommercialPrompt(err) {
 		return {
 			kind: 'image_quota',
 			title: '今日生图额度不足',
-			message: '当前账号的生图额度不足。开通会员或充值后即可继续使用生图功能。',
-			primaryText: '开通会员',
-			primaryUrl: '/pages/user/myvip',
-			secondaryText: '去充值',
-			secondaryUrl: '/pages/user/pay'
+			message: rechargeEntryVisible
+				? '当前账号的生图额度不足。开通会员或充值后即可继续使用生图功能。'
+				: '当前账号的生图额度不足，充值与会员购买入口暂未开放，请稍后再试或联系客服。',
+			primaryText: primaryText,
+			primaryUrl: primaryUrl,
+			secondaryText: rechargeEntryVisible ? '去充值' : '',
+			secondaryUrl: rechargeEntryVisible ? '/pages/user/pay' : ''
 		};
 	}
 	if (
@@ -228,11 +235,13 @@ function resolveCommercialPrompt(err) {
 		return {
 			kind: 'vip_only',
 			title: '当前内容需要会员权限',
-			message: '这个角色或功能仅会员可用。开通会员后即可继续聊天、续写、重生或访问会员角色。',
-			primaryText: '开通会员',
-			primaryUrl: '/pages/user/myvip',
-			secondaryText: '去充值',
-			secondaryUrl: '/pages/user/pay'
+			message: rechargeEntryVisible
+				? '这个角色或功能仅会员可用。开通会员后即可继续聊天、续写、重生或访问会员角色。'
+				: '这个角色或功能仅会员可用，充值与会员购买入口暂未开放，请稍后再试或联系客服。',
+			primaryText: primaryText,
+			primaryUrl: primaryUrl,
+			secondaryText: rechargeEntryVisible ? '去充值' : '',
+			secondaryUrl: rechargeEntryVisible ? '/pages/user/pay' : ''
 		};
 	}
 	return null;

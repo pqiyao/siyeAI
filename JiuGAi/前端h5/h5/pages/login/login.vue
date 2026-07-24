@@ -50,6 +50,9 @@
 					confirm-type="done"
 					@confirm="login"
 				/>
+				<view class="forgot-row">
+					<text class="forgot-link" @tap="goForget">{{ copy.forgot }}</text>
+				</view>
 			</view>
 
 			<view class="agreement-row" :class="{ 'agreement-row--warn': !agreePrivacy }" @tap="agreePrivacy = !agreePrivacy">
@@ -114,7 +117,8 @@ const COPY = {
 		confirm: '确定',
 		loginLoading: '登录中...',
 		accountRequired: '请输入账号',
-		passwordRequired: '请输入密码'
+		passwordRequired: '请输入密码',
+		forgot: '忘记密码？'
 	},
 	'zh-hk': {
 		language: '語言',
@@ -133,7 +137,8 @@ const COPY = {
 		confirm: '確定',
 		loginLoading: '登入中...',
 		accountRequired: '請輸入帳號',
-		passwordRequired: '請輸入密碼'
+		passwordRequired: '請輸入密碼',
+		forgot: '忘記密碼？'
 	},
 	en: {
 		language: 'Lang',
@@ -158,7 +163,18 @@ const COPY = {
 		loginPausedTitle: 'Login unavailable',
 		loginPausedDesc: 'Account login is temporarily closed. You can still browse as a guest first.',
 		loginPausedToast: 'Login is temporarily unavailable',
-		registerPausedToast: 'Registration is temporarily unavailable'
+		registerPausedToast: 'Registration is temporarily unavailable',
+		forgot: 'Forgot password?'
+	},
+	ko: {
+		language: '언어', subtitle: '게스트로 먼저 둘러보고 결제가 필요할 때 계정을 등록하세요.', accountLabel: '계정', accountPlaceholder: '계정을 입력하세요',
+		passwordLabel: '비밀번호', passwordPlaceholder: '비밀번호를 입력하세요', show: '표시', hide: '숨기기', login: '로그인', noAccount: '계정이 없으신가요?',
+		register: '계정 만들기', confirm: '확인', loginLoading: '로그인 중...', accountRequired: '계정을 입력하세요', passwordRequired: '비밀번호를 입력하세요', forgot: '비밀번호를 잊으셨나요?'
+	},
+	ja: {
+		language: '言語', subtitle: 'まずゲストとして試し、支払いが必要になったらアカウントを登録できます。', accountLabel: 'アカウント', accountPlaceholder: 'アカウントを入力',
+		passwordLabel: 'パスワード', passwordPlaceholder: 'パスワードを入力', show: '表示', hide: '非表示', login: 'ログイン', noAccount: 'アカウントをお持ちでないですか？',
+		register: '新規登録', confirm: '確認', loginLoading: 'ログイン中...', accountRequired: 'アカウントを入力してください', passwordRequired: 'パスワードを入力してください', forgot: 'パスワードを忘れた場合'
 	}
 };
 
@@ -253,6 +269,9 @@ export default {
 				url += '?redirect=' + encodeURIComponent(this.redirectUrl);
 			}
 			this.util.urlTo(url);
+		},
+		goForget() {
+			this.util.urlTo('/pages/login/forget');
 		},
 		afterLogin(userinfo) {
 			uni.setStorageSync('user', userinfo);
@@ -458,6 +477,18 @@ export default {
 	background: transparent;
 	caret-color: #ffffff;
 	-webkit-text-fill-color: #f8fafc;
+}
+
+.forgot-row {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: 2rpx;
+}
+
+.forgot-link {
+	padding: 8rpx 0 2rpx 18rpx;
+	font-size: 23rpx;
+	color: rgba(125, 211, 252, 0.94);
 }
 
 /* #ifdef H5 */

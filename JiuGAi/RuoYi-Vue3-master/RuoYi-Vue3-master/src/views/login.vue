@@ -1,13 +1,14 @@
 <template>
   <div class="login">
-    <el-form ref="loginRef" :model="loginForm" :rules="loginRules" class="login-form">
+    <el-form ref="loginRef" :model="loginForm" :rules="loginRules" class="login-form" autocomplete="on">
       <h3 class="title">{{ title }}</h3>
       <el-form-item prop="username">
         <el-input
           v-model="loginForm.username"
           type="text"
+          name="username"
           size="large"
-          auto-complete="off"
+          autocomplete="username"
           placeholder="账号"
         >
           <template #prefix><svg-icon icon-class="user" class="el-input__icon input-icon" /></template>
@@ -17,8 +18,9 @@
         <el-input
           v-model="loginForm.password"
           type="password"
+          name="password"
           size="large"
-          auto-complete="off"
+          autocomplete="current-password"
           placeholder="密码"
           @keyup.enter="handleLogin"
         >
@@ -28,8 +30,9 @@
       <el-form-item prop="code" v-if="captchaEnabled">
         <el-input
           v-model="loginForm.code"
+          name="captcha"
           size="large"
-          auto-complete="off"
+          autocomplete="one-time-code"
           placeholder="验证码"
           style="width: 63%"
           @keyup.enter="handleLogin"
@@ -70,8 +73,8 @@ const router = useRouter()
 const { proxy } = getCurrentInstance()
 
 const loginForm = ref({
-  username: 'admin',
-  password: 'admin123',
+  username: '',
+  password: '',
   rememberMe: false,
   code: '',
   uuid: ''

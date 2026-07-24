@@ -52,6 +52,8 @@
       </el-card>
     </section>
 
+    <GenerationOpsPanel :data="generationOps" :loading="loading" @refresh="load" />
+
     <section class="list-grid">
       <el-card class="panel" shadow="never">
         <template #header>
@@ -152,12 +154,27 @@
 </template>
 
 <script setup name="Index">
-import * as echarts from 'echarts'
+import { init, use } from 'echarts/core'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { getJgDashboardOverview } from '@/api/jiugai/dashboard'
+import GenerationOpsPanel from '@/views/dashboard/GenerationOpsPanel.vue'
+
+use([
+  BarChart,
+  LineChart,
+  PieChart,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+  CanvasRenderer
+])
 
 const { proxy } = getCurrentInstance()
 
 const loading = ref(true)
+const AUTO_REFRESH_MS = 60_000
 const trendRef = ref(null)
 const scopeRef = ref(null)
 const trendRange = ref('14d')
@@ -187,10 +204,13 @@ const topActiveUsers = ref([])
 const hotCharacters = ref([])
 const latestNotices = ref([])
 const generationTrend = ref([])
+const generationOps = ref({})
 const ownerSummary = ref({})
 
 let trendChart
 let scopeChart
+let refreshTimer
+let latestRequestId = 0
 
 const metricCards = computed(() => [
   {
@@ -240,13 +260,17 @@ const metricCards = computed(() => [
 const successRateText = computed(() => `${Math.round((metrics.successRate || 0) * 100)}%`)
 const ownerTopList = computed(() => ownerSummary.value?.topOwners || [])
 
-function load() {
-  loading.value = true
+function load(options = {}) {
+  const silent = options?.silent === true
+  const requestId = ++latestRequestId
+  if (!silent) loading.value = true
   getJgDashboardOverview(trendRange.value)
     .then((res) => {
+      if (requestId !== latestRequestId) return
       const data = res.data || {}
       Object.assign(metrics, data.metrics || {})
       generationTrend.value = data.generationTrend || []
+      generationOps.value = data.generationOps || {}
       topActiveUsers.value = data.topActiveUsers || []
       hotCharacters.value = data.hotCharacters || []
       latestNotices.value = data.latestNotices || []
@@ -257,16 +281,28 @@ function load() {
       })
     })
     .catch((error) => {
-      proxy.$modal.msgError(error?.message || '加载大屏数据失败')
+      if (!silent && requestId === latestRequestId) {
+        proxy.$modal.msgError(error?.message || '加载大屏数据失败')
+      }
     })
     .finally(() => {
-      loading.value = false
+      if (!silent && requestId === latestRequestId) loading.value = false
     })
+}
+
+function refreshSilently() {
+  if (document.visibilityState === 'visible' && !loading.value) {
+    load({ silent: true })
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') refreshSilently()
 }
 
 function renderTrendChart() {
   if (!trendRef.value) return
-  trendChart = trendChart || echarts.init(trendRef.value)
+  trendChart = trendChart || init(trendRef.value)
   const dates = generationTrend.value.map((item) => item.date)
   const success = generationTrend.value.map((item) => item.successCount || 0)
   const failure = generationTrend.value.map((item) => item.failureCount || 0)
@@ -313,7 +349,7 @@ function renderTrendChart() {
 
 function renderScopeChart() {
   if (!scopeRef.value) return
-  scopeChart = scopeChart || echarts.init(scopeRef.value)
+  scopeChart = scopeChart || init(scopeRef.value)
   scopeChart.setOption({
     tooltip: { trigger: 'item' },
     series: [
@@ -340,11 +376,15 @@ function handleResize() {
 
 onMounted(() => {
   load()
+  refreshTimer = window.setInterval(refreshSilently, AUTO_REFRESH_MS)
   window.addEventListener('resize', handleResize)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
+  if (refreshTimer) window.clearInterval(refreshTimer)
   window.removeEventListener('resize', handleResize)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   trendChart?.dispose()
   scopeChart?.dispose()
 })

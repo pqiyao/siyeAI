@@ -29,18 +29,3 @@ export function updateEntitlementRuntimeSettings(data) {
     data
   })
 }
-
-export function getImageGenerationSettings() {
-  return request({
-    url: '/admin/jiugai/entitlement/image-generation-settings',
-    method: 'get'
-  })
-}
-
-export function updateImageGenerationSettings(data) {
-  return request({
-    url: '/admin/jiugai/entitlement/image-generation-settings',
-    method: 'put',
-    data
-  })
-}

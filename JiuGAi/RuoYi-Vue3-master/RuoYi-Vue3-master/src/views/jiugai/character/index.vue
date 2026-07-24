@@ -25,6 +25,11 @@
           <el-option v-for="opt in reviewStatusOptions" :key="String(opt.value)" :label="opt.label" :value="opt.value" />
         </el-select>
       </el-form-item>
+      <el-form-item label="内容健康">
+        <el-select v-model="queryParams.healthLevel" clearable style="width: 150px" @change="handleQuery">
+          <el-option v-for="opt in healthLevelOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+      </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
         <el-button icon="Refresh" @click="resetQuery">重置</el-button>
@@ -109,6 +114,16 @@
       </el-table-column>
       <el-table-column label="名称" prop="name" min-width="140" show-overflow-tooltip />
       <el-table-column label="标语" prop="tagline" min-width="120" show-overflow-tooltip />
+      <el-table-column label="健康检查" width="118" align="center">
+        <template #default="scope">
+          <button class="jg-health-cell" type="button" @click="openHealthDrawer(scope.row)">
+            <span class="jg-health-score" :class="'jg-health-score--' + healthTone(scope.row)">
+              {{ normalizedHealthScore(scope.row) }}
+            </span>
+            <span class="jg-health-label">{{ healthScoreLabel(scope.row) }}</span>
+          </button>
+        </template>
+      </el-table-column>
       <el-table-column label="世界书" width="150">
         <template #default="scope">
           <el-button
@@ -168,7 +183,7 @@
       </el-table-column>
       <el-table-column label="排序" prop="sortOrder" width="70" />
       <el-table-column label="创建时间" prop="createTime" width="170" />
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="270" fixed="right">
         <template #default="scope">
           <el-button
             v-if="scope.row.userCreated && scope.row.reviewStatus !== 'APPROVED'"
@@ -183,6 +198,7 @@
             @click="handleReject(scope.row)"
           >驳回</el-button>
           <el-button link type="info" icon="Notebook" @click="openCharacterLorebook(scope.row)">世界书</el-button>
+          <el-button link type="warning" icon="FirstAidKit" @click="openHealthDrawer(scope.row)">检查</el-button>
           <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)">修改</el-button>
           <el-button link type="danger" icon="Delete" @click="handleDelete(scope.row)">删除</el-button>
         </template>
@@ -190,6 +206,65 @@
     </el-table>
 
     <pagination v-show="total > 0" :total="total" v-model:page="queryParams.pageNum" v-model:limit="queryParams.pageSize" @pagination="getList" />
+
+    <el-drawer v-model="healthDrawer.visible" title="角色公开内容检查" size="520px" append-to-body destroy-on-close>
+      <div v-if="healthDrawer.row" class="jg-health-drawer">
+        <div class="jg-health-hero">
+          <div class="jg-health-gauge" :class="'jg-health-gauge--' + healthTone(healthDrawer.row)">
+            <strong>{{ normalizedHealthScore(healthDrawer.row) }}</strong>
+            <span>健康分</span>
+          </div>
+          <div class="jg-health-hero-copy">
+            <h3>{{ healthDrawer.row.name || '未命名角色' }}</h3>
+            <el-tag :type="healthTagType(healthDrawer.row)" effect="light">
+              {{ healthScoreLabel(healthDrawer.row) }}
+            </el-tag>
+            <p>评分用于运营检查公开展示质量，不会直接显示给普通用户。</p>
+          </div>
+        </div>
+
+        <section class="jg-health-section">
+          <div class="jg-health-section-head">
+            <span>用户端公开摘要</span>
+            <el-tag size="small" type="info">{{ String(healthDrawer.row.publicSummary || '').length }}/180</el-tag>
+          </div>
+          <p v-if="healthDrawer.row.publicSummary" class="jg-health-summary">{{ healthDrawer.row.publicSummary }}</p>
+          <el-empty v-else :image-size="56" description="暂无可用公开摘要" />
+        </section>
+
+        <section class="jg-health-section">
+          <div class="jg-health-section-head">
+            <span>检查结果</span>
+            <el-tag size="small" :type="healthIssues(healthDrawer.row).length ? 'warning' : 'success'">
+              {{ healthIssues(healthDrawer.row).length ? healthIssues(healthDrawer.row).length + ' 项待处理' : '未发现问题' }}
+            </el-tag>
+          </div>
+          <div v-if="healthIssues(healthDrawer.row).length" class="jg-health-issues">
+            <div v-for="code in healthIssues(healthDrawer.row)" :key="code" class="jg-health-issue">
+              <div class="jg-health-issue-title">{{ healthIssueTitle(code) }}</div>
+              <div class="jg-health-issue-tip">{{ healthIssueSuggestion(code) }}</div>
+            </div>
+          </div>
+          <div v-else class="jg-health-ok">头像、开场、公开摘要与角色设定检查正常。</div>
+        </section>
+
+        <section v-if="publicWarnings(healthDrawer.row).length" class="jg-health-section">
+          <div class="jg-health-section-head"><span>公开内容处理记录</span></div>
+          <div class="jg-health-warning-list">
+            <el-tag v-for="code in publicWarnings(healthDrawer.row)" :key="code" type="warning" effect="plain">
+              {{ publicWarningTitle(code) }}
+            </el-tag>
+          </div>
+        </section>
+
+        <div class="jg-health-actions">
+          <el-button @click="editHealthCharacter">编辑角色</el-button>
+          <el-button type="primary" :loading="healthDrawer.recalculating" icon="Refresh" @click="recalculateHealth">
+            重新检查
+          </el-button>
+        </div>
+      </div>
+    </el-drawer>
 
     <!-- 编辑：对齐 SillyTavern 字段 + 酒馆 H5 发现页 -->
     <el-dialog :title="title" v-model="open" width="1100px" append-to-body destroy-on-close class="jg-char-dialog" align-center>
@@ -669,13 +744,14 @@ import {
   listCharacter,
   listCharacterWorldbookOptions,
   getUserCreatedCharacterStats,
-    getCharacter,
-    addCharacter,
-    updateCharacter,
-    delCharacter,
-    reviewCharacter as reviewCharacterApi,
-    batchEvictCharacterLoreCache,
-    importSillyTavernPng
+  getCharacter,
+  recalculateCharacterPublicProfile,
+  addCharacter,
+  updateCharacter,
+  delCharacter,
+  reviewCharacter as reviewCharacterApi,
+  batchEvictCharacterLoreCache,
+  importSillyTavernPng
 } from '@/api/jiugai/character'
 import { listLorebook } from '@/api/jiugai/lorebook'
 import { listTagOptions } from '@/api/jiugai/taglibrary'
@@ -702,6 +778,7 @@ const worldbookOptionsError = ref('')
 const userCreatedStats = ref({ totalUserCreated: 0, ownerCount: 0, topOwners: [] })
 const characterLorebookRows = ref([])
 const characterLorebookLoading = ref(false)
+const healthDrawer = reactive({ visible: false, row: null, recalculating: false })
 const uiText = Object.freeze({
   systemRole: '\u7cfb\u7edf\u89d2\u8272',
   userCreated: '\u7528\u6237\u521b\u5efa',
@@ -725,12 +802,17 @@ const uiText = Object.freeze({
     { value: 'user', label: uiText.userCreated },
     { value: 'all', label: uiText.allRoles }
   ])
-  const reviewStatusOptions = Object.freeze([
+const reviewStatusOptions = Object.freeze([
     { value: undefined, label: uiText.reviewAll },
     { value: 'PENDING', label: uiText.reviewPending },
     { value: 'APPROVED', label: uiText.reviewApproved },
     { value: 'REJECTED', label: uiText.reviewRejected }
   ])
+const healthLevelOptions = Object.freeze([
+  { value: 'excellent', label: '健康（90-100）' },
+  { value: 'attention', label: '需完善（70-89）' },
+  { value: 'risk', label: '高风险（0-69）' }
+])
 const previewBlurOptions = Object.freeze([
   { value: 0, label: '所有用户清晰' },
   { value: 1, label: 'VIP 及以上清晰' },
@@ -1062,6 +1144,7 @@ function httpRequestPngImport(options) {
       queryParams.value.name = undefined
       queryParams.value.ownerClientUid = undefined
       queryParams.value.reviewStatus = undefined
+      queryParams.value.healthLevel = undefined
       queryParams.value.pageNum = 1
       return getList().then(() => {
         if (importedId) {
@@ -1124,7 +1207,15 @@ const emptyForm = () => ({
 
 const data = reactive({
   form: emptyForm(),
-    queryParams: { pageNum: 1, pageSize: 10, name: undefined, scope: 'system', ownerClientUid: undefined, reviewStatus: undefined },
+    queryParams: {
+      pageNum: 1,
+      pageSize: 10,
+      name: undefined,
+      scope: 'system',
+      ownerClientUid: undefined,
+      reviewStatus: undefined,
+      healthLevel: undefined
+    },
   rules: {
     name: [{ required: true, message: '名称不能为空', trigger: 'blur' }]
   }
@@ -1219,7 +1310,115 @@ function resetQuery() {
   queryParams.value.name = undefined
   queryParams.value.ownerClientUid = undefined
   queryParams.value.reviewStatus = undefined
+  queryParams.value.healthLevel = undefined
   handleQuery()
+}
+
+function parseJsonStringArray(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean)
+  if (!value || !String(value).trim()) return []
+  try {
+    const parsed = JSON.parse(String(value))
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()).filter(Boolean) : []
+  } catch (e) {
+    return []
+  }
+}
+
+function normalizedHealthScore(row) {
+  const score = Number(row?.healthScore)
+  if (!Number.isFinite(score)) return 0
+  return Math.max(0, Math.min(100, Math.round(score)))
+}
+
+function healthIssues(row) {
+  return parseJsonStringArray(row?.healthIssuesJson)
+}
+
+function publicWarnings(row) {
+  return parseJsonStringArray(row?.publicWarningsJson)
+}
+
+function healthTone(row) {
+  const score = normalizedHealthScore(row)
+  if (score >= 90) return 'good'
+  if (score >= 70) return 'attention'
+  return 'risk'
+}
+
+function healthScoreLabel(row) {
+  if (normalizedHealthScore(row) === 0 && !healthIssues(row).length && !row?.publicSummary) return '待检查'
+  if (normalizedHealthScore(row) >= 90) return '健康'
+  if (normalizedHealthScore(row) >= 70) return '需完善'
+  return '高风险'
+}
+
+function healthTagType(row) {
+  const tone = healthTone(row)
+  if (tone === 'good') return 'success'
+  if (tone === 'attention') return 'warning'
+  return 'danger'
+}
+
+const healthIssueCopy = Object.freeze({
+  missing_avatar: ['缺少角色图片', '补充头像、封面或 ST 角色图片，确保发现页和详情页可以识别角色。'],
+  missing_opening_message: ['缺少开场剧情', '至少填写一个 first_mes；多开场角色还应检查 alternate_greetings。'],
+  missing_personality: ['缺少角色人设', '补充 bio、persona 或 description，让模型获得稳定的角色行为依据。'],
+  missing_scenario: ['缺少场景设定', '补充 scenario，明确故事发生地点、关系和当前情境。'],
+  missing_public_summary: ['缺少公开摘要来源', '填写简洁的 tagline 或 bio；内部 persona 和 scenario 不会作为公开简介回退。'],
+  missing_public_tags: ['缺少公开标签', '添加能描述玩法、关系或题材的标签，便于发现页检索。'],
+  very_long_context: ['上下文过长', '精简重复人设、示例和系统提示，避免挤占实际聊天上下文。'],
+  variable_format_review: ['变量格式需检查', '检查未闭合的花括号、未知变量或不兼容的模板语法。'],
+  sensitive_content_review: ['敏感内容需人工复核', '检查年龄、暴力、自伤或联系方式等公开与生成内容边界。'],
+  missing_character: ['角色数据不存在', '确认角色卡是否完整导入并重新检查。']
+})
+
+function healthIssueTitle(code) {
+  return healthIssueCopy[code]?.[0] || `未知问题：${code}`
+}
+
+function healthIssueSuggestion(code) {
+  return healthIssueCopy[code]?.[1] || '请打开角色编辑页检查对应字段后重新检查。'
+}
+
+function publicWarningTitle(code) {
+  const labels = {
+    prompt_trace_removed: '公开摘要已移除提示词痕迹',
+    tag_prompt_trace_removed: '公开标签已移除模板内容',
+    sensitive_content_review: '检测到需人工复核的敏感提示'
+  }
+  return labels[code] || code
+}
+
+function openHealthDrawer(row) {
+  healthDrawer.row = row ? { ...row } : null
+  healthDrawer.visible = !!healthDrawer.row
+}
+
+function editHealthCharacter() {
+  const row = healthDrawer.row
+  healthDrawer.visible = false
+  if (row?.id) handleUpdate(row)
+}
+
+function recalculateHealth() {
+  const id = healthDrawer.row?.id
+  if (!id || healthDrawer.recalculating) return
+  healthDrawer.recalculating = true
+  recalculateCharacterPublicProfile(id)
+    .then((res) => {
+      const updated = { ...healthDrawer.row, ...(res.data || {}) }
+      healthDrawer.row = updated
+      const index = dataList.value.findIndex((item) => item.id === id)
+      if (index >= 0) dataList.value.splice(index, 1, { ...dataList.value[index], ...updated })
+      proxy.$modal.msgSuccess('公开摘要与健康评分已更新')
+    })
+    .catch((e) => {
+      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '重新检查失败'))
+    })
+    .finally(() => {
+      healthDrawer.recalculating = false
+    })
 }
 
 function reviewStatusLabel(status) {
@@ -1571,6 +1770,89 @@ loadCharacterWorldbookOptions()
   margin-top: 12px;
   color: var(--el-text-color-placeholder);
 }
+.jg-health-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.jg-health-cell:hover {
+  background: var(--el-fill-color-light);
+}
+.jg-health-score {
+  min-width: 30px;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+}
+.jg-health-score--good { color: var(--el-color-success); }
+.jg-health-score--attention { color: var(--el-color-warning); }
+.jg-health-score--risk { color: var(--el-color-danger); }
+.jg-health-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.jg-health-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.jg-health-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--el-fill-color-extra-light), #fff);
+}
+.jg-health-gauge {
+  width: 92px;
+  height: 92px;
+  flex: 0 0 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 8px solid var(--el-border-color-lighter);
+}
+.jg-health-gauge strong { font-size: 27px; line-height: 1; }
+.jg-health-gauge span { margin-top: 5px; font-size: 11px; color: var(--el-text-color-secondary); }
+.jg-health-gauge--good { border-color: color-mix(in srgb, var(--el-color-success) 55%, white); color: var(--el-color-success); }
+.jg-health-gauge--attention { border-color: color-mix(in srgb, var(--el-color-warning) 55%, white); color: var(--el-color-warning); }
+.jg-health-gauge--risk { border-color: color-mix(in srgb, var(--el-color-danger) 48%, white); color: var(--el-color-danger); }
+.jg-health-hero-copy { min-width: 0; }
+.jg-health-hero-copy h3 { margin: 0 0 8px; font-size: 18px; color: var(--el-text-color-primary); }
+.jg-health-hero-copy p { margin: 10px 0 0; font-size: 12px; line-height: 1.55; color: var(--el-text-color-secondary); }
+.jg-health-section {
+  padding: 14px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+  background: var(--el-bg-color);
+}
+.jg-health-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+}
+.jg-health-summary { margin: 0; font-size: 13px; line-height: 1.7; color: var(--el-text-color-regular); }
+.jg-health-issues { display: flex; flex-direction: column; gap: 10px; }
+.jg-health-issue { padding: 10px 12px; border-radius: 9px; background: var(--el-color-warning-light-9); }
+.jg-health-issue-title { font-size: 13px; font-weight: 700; color: var(--el-color-warning-dark-2); }
+.jg-health-issue-tip { margin-top: 4px; font-size: 12px; line-height: 1.55; color: var(--el-text-color-secondary); }
+.jg-health-ok { font-size: 13px; line-height: 1.6; color: var(--el-color-success-dark-2); }
+.jg-health-warning-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.jg-health-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 2px; }
 .jg-av {
   width: 44px;
   height: 44px;

@@ -20,8 +20,11 @@
 					<text class="balance-value">{{ Number(profile.goldCoin || 0) }}</text>
 				</view>
 			</view>
+			<view class="quota-hint">
+				<text class="quota-hint-text">{{ copy.quotaHint }}</text>
+			</view>
 
-			<view class="section-card">
+			<view v-if="rechargeEntryReady && rechargeEntryVisible" class="section-card">
 				<view class="section-head">
 					<view>
 						<text class="section-title">{{ copy.packageTitle }}</text>
@@ -43,7 +46,11 @@
 						</view>
 						<view class="product-side">
 							<text class="product-price">¥{{ item.priceYuan }}</text>
-							<view class="buy-btn" @tap="goPay(item.code)">{{ copy.buyNow }}</view>
+							<view
+								v-if="rechargeEntryReady && rechargeEntryVisible"
+								class="buy-btn"
+								@tap="goPay(item.code)"
+							>{{ copy.buyNow }}</view>
 						</view>
 					</view>
 					<view v-if="!coinProducts.length" class="empty-box">
@@ -78,7 +85,7 @@
 				</view>
 			</view>
 
-			<view class="note-card">
+			<view v-if="rechargeEntryReady && rechargeEntryVisible" class="note-card">
 				<text class="note-title">{{ copy.noteTitle }}</text>
 				<text class="note-text">{{ copy.noteBody }}</text>
 			</view>
@@ -101,6 +108,7 @@ const COPY = {
 		heroSubtitle: '充值后可用于后续功能解锁、订单抵扣和运营活动。游客也能浏览，真正付款时再登录即可。',
 		diamondBalance: '钻石余额',
 		coinBalance: '金币余额',
+		quotaHint: '免费每日额度用完后，聊天 / 生图 / 语音将优先消耗钻石（或金币，视站点配置）。',
 		packageTitle: '充值套餐',
 		packageSubtitle: '选择一个更适合现在节奏的档位',
 		packageFallback: '购买后会自动补充账户余额',
@@ -122,6 +130,7 @@ const COPY = {
 		heroSubtitle: '充值後可用於後續功能解鎖、訂單抵扣與活動使用。旅客可先瀏覽，付款時再登入即可。',
 		diamondBalance: '鑽石餘額',
 		coinBalance: '金幣餘額',
+		quotaHint: '免費每日額度用完後，聊天 / 生圖 / 語音會優先消耗鑽石（或金幣，視站點設定）。',
 		packageTitle: '充值方案',
 		packageSubtitle: '選擇一個更適合目前節奏的檔位',
 		packageFallback: '購買後會自動補充帳戶餘額',
@@ -143,6 +152,7 @@ const COPY = {
 		heroSubtitle: 'Use your balance for future unlocks, orders, and events. Guests can browse first and log in only when paying.',
 		diamondBalance: 'Diamond Balance',
 		coinBalance: 'Coin Balance',
+		quotaHint: 'When free daily quota runs out, chat / image / voice will spend diamonds (or coins, depending on site settings).',
 		packageTitle: 'Top-Up Plans',
 		packageSubtitle: 'Pick a package that matches your current pace',
 		packageFallback: 'Your balance will update automatically after purchase',
@@ -164,6 +174,7 @@ const COPY = {
 		heroSubtitle: 'Use your balance for future unlocks, orders, and events. Guests can browse first and log in only when paying.',
 		diamondBalance: 'Diamond Balance',
 		coinBalance: 'Coin Balance',
+		quotaHint: 'When free daily quota runs out, chat / image / voice will spend diamonds (or coins, depending on site settings).',
 		packageTitle: 'Top-Up Plans',
 		packageSubtitle: 'Pick a package that matches your current pace',
 		packageFallback: 'Your balance will update automatically after purchase',
@@ -185,6 +196,7 @@ const COPY = {
 		heroSubtitle: 'Use your balance for future unlocks, orders, and events. Guests can browse first and log in only when paying.',
 		diamondBalance: 'Diamond Balance',
 		coinBalance: 'Coin Balance',
+		quotaHint: 'When free daily quota runs out, chat / image / voice will spend diamonds (or coins, depending on site settings).',
 		packageTitle: 'Top-Up Plans',
 		packageSubtitle: 'Pick a package that matches your current pace',
 		packageFallback: 'Your balance will update automatically after purchase',
@@ -207,7 +219,9 @@ export default {
 		return {
 			profile: {},
 			coinProducts: [],
-			orderList: []
+			orderList: [],
+			rechargeEntryVisible: tavernApi.isRechargeEntryVisible(),
+			rechargeEntryReady: false
 		};
 	},
 	computed: {
@@ -217,9 +231,26 @@ export default {
 	},
 	onShow() {
 		this.loadPage();
+		this.syncRechargeEntryVisibility(true);
 	},
 	methods: {
+		syncRechargeEntryVisibility(forceRefresh) {
+			this.rechargeEntryVisible = tavernApi.isRechargeEntryVisible();
+			this.rechargeEntryReady = false;
+			return tavernApi
+				.fetchAppRuntimeConfig(forceRefresh === true)
+				.then((config) => {
+					this.rechargeEntryVisible = !(config && config.rechargeEntryVisible === false);
+					this.rechargeEntryReady = true;
+					return this.rechargeEntryVisible;
+				})
+				.catch(() => {
+					this.rechargeEntryReady = true;
+					return this.rechargeEntryVisible;
+				});
+		},
 		ensureLoginForPayment(productCode) {
+			if (!this.rechargeEntryReady || !this.rechargeEntryVisible) return;
 			if (tavernApi.hasLoggedInUser()) {
 				this.util.urlTo('/pages/user/pay?productCode=' + encodeURIComponent(productCode));
 				return;
@@ -258,6 +289,7 @@ export default {
 			uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/user/user' }) });
 		},
 		goPay(productCode) {
+			if (!this.rechargeEntryReady || !this.rechargeEntryVisible) return;
 			this.ensureLoginForPayment(productCode);
 		},
 		formatDate(value) {
@@ -365,6 +397,18 @@ export default {
 	margin-top: 12rpx;
 	font-size: 36rpx;
 	font-weight: 700;
+}
+
+.quota-hint {
+	margin: -8rpx 0 20rpx;
+	padding: 0 8rpx;
+}
+
+.quota-hint-text {
+	display: block;
+	font-size: 22rpx;
+	line-height: 1.7;
+	color: $tavern-muted-on-dark;
 }
 
 .section-head,

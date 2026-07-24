@@ -47,7 +47,7 @@
         <div class="runtime-item runtime-item--stack">
           <div class="runtime-item__meta">
             <div class="runtime-item__title">允许用户自定义 API Key</div>
-            <div class="runtime-item__desc">开启后，H5 用户端会出现“模型与 API 设置”入口，用户可以切换到自己的平台、模型和 API Key。</div>
+            <div class="runtime-item__desc">开启后，H5 用户可以使用自己的平台、模型和 API Key；语音与聊天生图的用户自定义配置也依赖此开关和最低会员等级。</div>
           </div>
           <div class="runtime-limits">
             <div class="runtime-limit runtime-limit--inline">
@@ -67,18 +67,26 @@
 
         <div class="runtime-item">
           <div class="runtime-item__meta">
-            <div class="runtime-item__title">允许聊天生图</div>
-            <div class="runtime-item__desc">关闭后，用户端不再显示聊天内生图入口；开启后是否使用、生图平台和模型都交给用户端自己配置。</div>
+            <div class="runtime-item__title">显示四叶插画入口</div>
+            <div class="runtime-item__desc">关闭后隐藏用户端首页和个人页的“四叶插画分享”入口，不影响插画站本身和其他功能。</div>
           </div>
-          <el-switch v-model="runtimeSettings.imageGenerationEnabled" />
+          <el-switch v-model="runtimeSettings.illustrationEntryEnabled" />
         </div>
 
         <div class="runtime-item">
           <div class="runtime-item__meta">
-            <div class="runtime-item__title">允许语音功能</div>
-            <div class="runtime-item__desc">关闭后，用户端不再显示语音输入、角色语音和语音播放入口。</div>
+            <div class="runtime-item__title">显示充值入口</div>
+            <div class="runtime-item__desc">关闭后只隐藏用户端的钱包充值、会员套餐入口和充值引导，不会停用支付回调、订单到账或后台对账。</div>
           </div>
-          <el-switch v-model="runtimeSettings.voiceFeatureEnabled" />
+          <el-switch v-model="runtimeSettings.rechargeEntryVisible" />
+        </div>
+
+        <div class="runtime-item">
+          <div class="runtime-item__meta">
+            <div class="runtime-item__title">显示每日签到入口</div>
+            <div class="runtime-item__desc">关闭后隐藏用户端“我的”页的每日签到入口，不删除签到记录，也不影响后台签到活动与奖励规则。</div>
+          </div>
+          <el-switch v-model="runtimeSettings.checkinEntryVisible" />
         </div>
 
         <div class="runtime-item runtime-item--stack">
@@ -103,195 +111,7 @@
         </div>
       </div>
     </el-card>
-
     <el-card shadow="never" class="policy-card mb12">
-      <template #header>
-        <div class="card-header">
-          <div>
-            <span class="card-title">聊天生图 API 配置</span>
-            <div class="card-subtitle">APP 仍然只调用后端生图接口；这里选择用户自定义 API 或平台统一 API，不需要本地 ComfyUI。</div>
-          </div>
-          <el-button type="primary" :loading="imageGenerationSubmitting" @click="submitImageGenerationSettings">保存生图配置</el-button>
-        </div>
-      </template>
-
-      <el-form v-loading="imageGenerationLoading" :model="imageGenerationSettings" label-width="150px">
-        <el-row :gutter="24">
-          <el-col :xs="24" :md="8">
-            <el-form-item label="当前引擎">
-              <el-select v-model="imageGenerationSettings.engine" style="width: 100%">
-                <el-option label="用户自定义 API" value="user_openai_compatible" />
-                <el-option label="平台统一 API" value="managed_openai_compatible" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="全局并发">
-              <el-input-number v-model="imageGenerationSettings.globalConcurrentLimit" :min="1" :max="64" controls-position="right" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="单用户并发">
-              <el-input-number v-model="imageGenerationSettings.perUserConcurrentLimit" :min="1" :max="8" controls-position="right" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-divider />
-
-        <el-row :gutter="24">
-          <el-col :xs="24" :md="12">
-            <el-form-item label="请求超时(秒)">
-              <el-input-number v-model="imageGenerationSettings.requestTimeoutSeconds" :min="1" :max="600" controls-position="right" />
-            </el-form-item>
-          </el-col>
-          <el-col v-if="imageGenerationSettings.engine === 'managed_openai_compatible'" :xs="24" :md="12">
-            <el-form-item label="平台">
-              <el-select v-model="imageGenerationSettings.managedProviderSource" style="width: 100%">
-                <el-option
-                  v-for="item in imageProviderOptions"
-                  :key="item.value"
-                  :label="item.label"
-                  :value="item.value"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col v-if="imageGenerationSettings.engine === 'managed_openai_compatible'" :xs="24" :md="12">
-            <el-form-item label="生图模型">
-              <el-input v-model="imageGenerationSettings.managedImageModelName" placeholder="例如：Kwai-Kolors/Kolors" />
-            </el-form-item>
-          </el-col>
-          <el-col v-if="imageGenerationSettings.engine === 'managed_openai_compatible'" :xs="24" :md="12">
-            <el-form-item label="平台 API Key">
-              <el-input
-                v-model="imageGenerationSettings.managedApiKey"
-                type="password"
-                show-password
-                :placeholder="imageGenerationSettings.managedApiKeyConfigured ? `已配置：${imageGenerationSettings.managedApiKeyMask}` : '请输入平台 API Key'"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col v-if="imageGenerationSettings.engine === 'managed_openai_compatible'" :xs="24" :md="12">
-            <el-form-item label="自定义 Base URL">
-              <el-input v-model="imageGenerationSettings.managedCustomUrl" placeholder="仅自定义平台需要填写" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-row v-if="false" :gutter="24">
-          <el-col :xs="24" :md="8">
-            <el-form-item label="采样器">
-              <el-input v-model="imageGenerationSettings.sampler" placeholder="euler" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="调度器">
-              <el-input v-model="imageGenerationSettings.scheduler" placeholder="normal" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="步数">
-              <el-input-number v-model="imageGenerationSettings.steps" :min="1" :max="150" controls-position="right" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="CFG">
-              <el-input-number v-model="imageGenerationSettings.scale" :min="1" :max="30" :step="0.5" controls-position="right" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="Seed">
-              <el-input-number v-model="imageGenerationSettings.seed" :min="-1" controls-position="right" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="8">
-            <el-form-item label="Denoise">
-              <el-input-number v-model="imageGenerationSettings.denoise" :min="0" :max="1" :step="0.05" controls-position="right" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="24">
-            <el-form-item label="负面提示词">
-              <el-input v-model="imageGenerationSettings.negativePrompt" type="textarea" :rows="3" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-      </el-form>
-    </el-card>
-
-    <el-card shadow="never" class="policy-card mb12">
-      <template #header>
-        <div class="card-header">
-          <div>
-            <span class="card-title">SiliconFlow 音色模板</span>
-            <div class="card-subtitle">这里配置的是“模板”，不是共享 voice id。用户第一次选择模板时，会使用他们自己的 SiliconFlow Key 自动生成一份专属 voice 并长期复用。</div>
-          </div>
-          <el-button type="primary" @click="openVoiceTemplateDialog()">新增模板</el-button>
-        </div>
-      </template>
-
-      <el-alert
-        class="mb12"
-        type="info"
-        :closable="false"
-        show-icon
-        title="推荐做法：给每个角色准备 5 到 20 秒、干净少噪声的参考音频，并填写一段稳定的人声示例文案。模板更新后，用户下次播放时会自动重新生成新的专属音色。"
-      />
-
-      <div v-loading="voiceTemplateLoading">
-        <div v-if="voiceTemplateRows.length" class="voice-template-list">
-          <div v-for="row in voiceTemplateRows" :key="row.id" class="voice-template-card">
-            <div class="voice-template-card__cover">
-              <el-image
-                v-if="row.coverImageUrl"
-                :src="displayUploadUrl(row.coverImageUrl)"
-                fit="cover"
-                class="voice-template-card__image"
-                preview-teleported
-                :preview-src-list="[displayUploadUrl(row.coverImageUrl)]"
-              />
-              <div v-else class="voice-template-card__placeholder">Voice</div>
-            </div>
-
-            <div class="voice-template-card__body">
-              <div class="voice-template-card__head">
-                <div>
-                  <div class="voice-template-card__title">{{ row.displayName }}</div>
-                  <div class="voice-template-card__code">{{ row.templateCode }}</div>
-                </div>
-                <el-tag :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用中' : '已停用' }}</el-tag>
-              </div>
-
-              <div class="voice-template-card__meta">
-                <el-tag size="small" effect="plain">{{ row.providerSource || 'siliconflow' }}</el-tag>
-                <el-tag size="small" effect="plain" type="warning">{{ row.ttsModelName || '未填写推荐模型' }}</el-tag>
-              </div>
-
-              <div class="voice-template-card__desc">{{ row.description || '未填写模板描述' }}</div>
-
-              <div class="voice-template-card__sample">
-                <span class="voice-template-card__sample-label">示例文案</span>
-                <span class="voice-template-card__sample-text">{{ row.sampleScript || '未填写' }}</span>
-              </div>
-
-              <div class="voice-template-card__audio">
-                <audio v-if="row.referenceAudioUrl" :src="displayUploadUrl(row.referenceAudioUrl)" controls preload="none" />
-                <span v-else class="voice-template-card__audio-empty">未上传参考音频</span>
-              </div>
-
-              <div class="voice-template-card__actions">
-                <el-button link type="primary" @click="openVoiceTemplateDialog(row)">编辑</el-button>
-                <el-button link type="danger" @click="handleDeleteVoiceTemplate(row)">删除</el-button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <el-empty v-else description="还没有配置模板音色" />
-      </div>
-    </el-card>
-
-    <el-card shadow="never" class="policy-card">
       <template #header>
         <div class="card-header">
           <div>
@@ -402,166 +222,109 @@
       </el-form>
     </el-card>
 
-    <el-dialog
-      v-model="voiceTemplateDialogOpen"
-      :title="voiceTemplateForm.id ? '编辑音色模板' : '新增音色模板'"
-      width="760px"
-      destroy-on-close
-    >
-      <el-form :model="voiceTemplateForm" label-width="120px">
-        <el-row :gutter="16">
+    <el-card shadow="never" class="policy-card mb12">
+      <template #header>
+        <div class="card-header">
+          <div>
+            <span class="card-title">超额扣费（双轨）</span>
+            <div class="card-subtitle">免费每日额度用完后，按此处单价扣钻/币；与上方权益配置一并保存。</div>
+          </div>
+          <el-button type="primary" :loading="policySubmitting" @click="submitPolicy">保存权益配置</el-button>
+        </div>
+      </template>
+
+      <el-form :model="form" label-width="150px">
+        <el-alert
+          class="mb12"
+          type="info"
+          :closable="false"
+          show-icon
+          title="免费每日额度用完后，按此处单价扣钻/币；单价为 0 表示该货币不参与扣费。两项都为 0 且超额计费关闭时，用完即不可用。"
+        />
+
+        <el-form-item label="开启超额扣费">
+          <div class="over-quota-switch">
+            <el-switch v-model="form.overQuotaBillingEnabled" />
+            <span class="over-quota-switch__hint">免费次数用完后允许扣钻石/金币继续使用</span>
+          </div>
+        </el-form-item>
+
+        <el-divider content-position="left">聊天</el-divider>
+        <el-row :gutter="24">
           <el-col :xs="24" :md="12">
-            <el-form-item label="模板名称">
-              <el-input v-model="voiceTemplateForm.displayName" placeholder="例如：雷姆" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-form-item label="模板编码">
-              <el-input
-                v-model="voiceTemplateForm.templateCode"
-                :disabled="!!voiceTemplateForm.id"
-                placeholder="留空时按名称自动生成"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-form-item label="Provider">
-              <el-input v-model="voiceTemplateForm.providerSource" disabled />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-form-item label="推荐模型">
-              <el-input v-model="voiceTemplateForm.ttsModelName" placeholder="例如：FunAudioLLM/CosyVoice2-0.5B" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :md="12">
-            <el-form-item label="模板状态">
-              <el-switch v-model="voiceTemplateForm.enabled" />
+            <el-form-item label="聊天扣钻">
+              <el-input-number v-model="form.chatScoreCost" :min="0" :step="1" controls-position="right" />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :md="12">
-            <el-form-item label="排序">
-              <el-input-number v-model="voiceTemplateForm.sortOrder" :min="0" :max="9999" />
+            <el-form-item label="聊天扣币">
+              <el-input-number v-model="form.chatGoldCost" :min="0" :step="1" controls-position="right" />
             </el-form-item>
           </el-col>
-          <el-col :span="24">
-            <el-form-item label="模板描述">
-              <el-input v-model="voiceTemplateForm.description" type="textarea" :rows="2" placeholder="给用户看的简短说明，例如：更贴近动画版声线、语气偏温柔。" />
+        </el-row>
+
+        <el-divider content-position="left">生图</el-divider>
+        <el-row :gutter="24">
+          <el-col :xs="24" :md="12">
+            <el-form-item label="生图扣钻">
+              <el-input-number v-model="form.imageScoreCost" :min="0" :step="1" controls-position="right" />
             </el-form-item>
           </el-col>
-          <el-col :span="24">
-            <el-form-item label="示例文案">
-              <el-input v-model="voiceTemplateForm.sampleScript" type="textarea" :rows="3" placeholder="用于在 SiliconFlow 侧生成动态音色时对齐音色特征的文案。" />
+          <el-col :xs="24" :md="12">
+            <el-form-item label="生图扣币">
+              <el-input-number v-model="form.imageGoldCost" :min="0" :step="1" controls-position="right" />
             </el-form-item>
           </el-col>
-          <el-col :span="24">
-            <el-form-item label="参考音频">
-              <div class="upload-surface">
-                <div class="upload-surface__preview">
-                  <audio v-if="voiceTemplateForm.referenceAudioUrl" :src="displayUploadUrl(voiceTemplateForm.referenceAudioUrl)" controls preload="none" />
-                  <div v-else class="upload-surface__empty">上传参考音频后，这里会显示试听</div>
-                </div>
-                <div class="upload-surface__actions">
-                  <el-upload
-                    :action="voiceTemplateAudioUploadAction"
-                    :headers="uploadHeaders"
-                    :show-file-list="false"
-                    accept=".mp3,.wav,.m4a,.ogg,.aac,.amr,audio/*"
-                    :before-upload="beforeVoiceTemplateAudioUpload"
-                    :on-success="onVoiceTemplateAudioUploadSuccess"
-                  >
-                    <el-button type="primary">上传参考音频</el-button>
-                  </el-upload>
-                  <div class="upload-surface__tip">建议 5 到 20 秒，单人声、少噪声、说话稳定。</div>
-                </div>
-              </div>
-              <el-input
-                v-model="voiceTemplateForm.referenceAudioUrl"
-                class="mt10"
-                placeholder="也可以直接填写外部可访问的音频 URL"
-              />
+        </el-row>
+
+        <el-divider content-position="left">语音 TTS</el-divider>
+        <el-row :gutter="24">
+          <el-col :xs="24" :md="12">
+            <el-form-item label="TTS 扣钻">
+              <el-input-number v-model="form.ttsScoreCost" :min="0" :step="1" controls-position="right" />
             </el-form-item>
           </el-col>
-          <el-col :span="24">
-            <el-form-item label="封面图">
-              <div class="upload-surface upload-surface--image">
-                <div class="upload-surface__preview upload-surface__preview--image">
-                  <el-image
-                    v-if="voiceTemplateForm.coverImageUrl"
-                    :src="displayUploadUrl(voiceTemplateForm.coverImageUrl)"
-                    fit="cover"
-                    class="voice-dialog-cover"
-                    preview-teleported
-                    :preview-src-list="[displayUploadUrl(voiceTemplateForm.coverImageUrl)]"
-                  />
-                  <div v-else class="upload-surface__empty">可选，用于用户端模板卡片展示</div>
-                </div>
-                <div class="upload-surface__actions">
-                  <el-upload
-                    :action="voiceTemplateImageUploadAction"
-                    :headers="uploadHeaders"
-                    :show-file-list="false"
-                    accept=".png,.jpg,.jpeg,.webp,.gif,image/*"
-                    :before-upload="beforeVoiceTemplateImageUpload"
-                    :on-success="onVoiceTemplateImageUploadSuccess"
-                  >
-                    <el-button type="primary" plain>上传封面</el-button>
-                  </el-upload>
-                  <div class="upload-surface__tip">建议方图或 3:4 立绘，用户端会显示为模板视觉卡片。</div>
-                </div>
-              </div>
-              <el-input
-                v-model="voiceTemplateForm.coverImageUrl"
-                class="mt10"
-                placeholder="也可以直接填写外部可访问的图片 URL"
-              />
+          <el-col :xs="24" :md="12">
+            <el-form-item label="TTS 扣币">
+              <el-input-number v-model="form.ttsGoldCost" :min="0" :step="1" controls-position="right" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-divider content-position="left">语音识别 STT</el-divider>
+        <el-alert class="mb12" type="info" :closable="false" show-icon title="STT 默认免费；两项均为 0 时只受独立并发和频率限制，配置单价后每段录音成功识别扣一次。" />
+        <el-row :gutter="24">
+          <el-col :xs="24" :md="12">
+            <el-form-item label="STT 扣钻">
+              <el-input-number v-model="form.sttScoreCost" :min="0" :step="1" controls-position="right" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="12">
+            <el-form-item label="STT 扣币">
+              <el-input-number v-model="form.sttGoldCost" :min="0" :step="1" controls-position="right" />
             </el-form-item>
           </el-col>
         </el-row>
       </el-form>
-      <template #footer>
-        <el-button @click="voiceTemplateDialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="voiceTemplateSubmitting" @click="submitVoiceTemplate">保存模板</el-button>
-      </template>
-    </el-dialog>
+    </el-card>
+
   </div>
 </template>
 
 <script setup name="JgEntitlement">
-import { ElMessageBox } from 'element-plus'
 import {
   getEntitlementPolicy,
   getEntitlementRuntimeSettings,
-  getImageGenerationSettings,
   updateEntitlementPolicy,
-  updateEntitlementRuntimeSettings,
-  updateImageGenerationSettings
+  updateEntitlementRuntimeSettings
 } from '@/api/jiugai/entitlement'
-import {
-  addTtsVoiceTemplate,
-  deleteTtsVoiceTemplate,
-  listTtsVoiceTemplates,
-  updateTtsVoiceTemplate
-} from '@/api/jiugai/ttsVoiceTemplate'
-import { getToken } from '@/utils/auth'
 import { jiugaiRequestErrorMessage } from '@/utils/jiugaiRequestError'
 
 const { proxy } = getCurrentInstance()
 
-const baseApi = import.meta.env.VITE_SILLY_API || '/silly-api'
-const uploadHeaders = ref({ Authorization: 'Bearer ' + getToken() })
-const voiceTemplateAudioUploadAction = baseApi + '/admin/jiugai/tts-voice-template/upload/audio'
-const voiceTemplateImageUploadAction = baseApi + '/admin/jiugai/tts-voice-template/upload/image'
-
 const policySubmitting = ref(false)
 const runtimeLoading = ref(false)
 const runtimeSubmitting = ref(false)
-const imageGenerationLoading = ref(false)
-const imageGenerationSubmitting = ref(false)
-const voiceTemplateLoading = ref(false)
-const voiceTemplateSubmitting = ref(false)
-const voiceTemplateDialogOpen = ref(false)
-const voiceTemplateRows = ref([])
 
 const emptyForm = () => ({
   guestDailyChatQuota: 20,
@@ -582,25 +345,19 @@ const emptyForm = () => ({
   continueConsumesQuota: true,
   regenerateConsumesQuota: true,
   byokContinueConsumesQuota: true,
-  byokRegenerateConsumesQuota: true
-})
-
-const defaultVoiceTemplateForm = () => ({
-  id: null,
-  templateCode: '',
-  displayName: '',
-  providerSource: 'siliconflow',
-  ttsModelName: '',
-  description: '',
-  referenceAudioUrl: '',
-  coverImageUrl: '',
-  sampleScript: '请用温柔自然的语气说话。',
-  enabled: true,
-  sortOrder: 100
+  byokRegenerateConsumesQuota: true,
+  overQuotaBillingEnabled: false,
+  chatScoreCost: 0,
+  chatGoldCost: 0,
+  imageScoreCost: 0,
+  imageGoldCost: 0,
+  ttsScoreCost: 0,
+  ttsGoldCost: 0,
+  sttScoreCost: 0,
+  sttGoldCost: 0
 })
 
 const form = ref(emptyForm())
-const voiceTemplateForm = reactive(defaultVoiceTemplateForm())
 
 const runtimeSettings = reactive({
   loginEnabled: true,
@@ -609,43 +366,13 @@ const runtimeSettings = reactive({
   userByokEnabled: false,
   imageGenerationEnabled: true,
   voiceFeatureEnabled: true,
+  illustrationEntryEnabled: true,
+  rechargeEntryVisible: true,
+  checkinEntryVisible: true,
   userByokVipMinLevel: 0,
   anonymousTrialChatLimit: 30,
   anonymousTrialConversationLimit: 6,
   anonymousTrialCharacterCreationLimit: 2
-})
-
-const imageProviderOptions = [
-  { label: 'SiliconFlow', value: 'siliconflow' },
-  { label: 'OpenRouter', value: 'openrouter' },
-  { label: 'OpenAI', value: 'openai' },
-  { label: 'Fireworks', value: 'fireworks' },
-  { label: '自定义 OpenAI 兼容', value: 'custom' }
-]
-
-const imageGenerationSettings = reactive({
-  engine: 'user_openai_compatible',
-  globalConcurrentLimit: 2,
-  perUserConcurrentLimit: 1,
-  counterTtlSeconds: 600,
-  managedProviderSource: 'siliconflow',
-  managedImageModelName: '',
-  managedApiKey: '',
-  managedApiKeyConfigured: false,
-  managedApiKeyMask: '',
-  managedCustomUrl: '',
-  comfyUrl: 'http://127.0.0.1:8188',
-  workflow: 'Default_Comfy_Workflow.json',
-  referenceWorkflow: 'Char_Avatar_Comfy_Workflow.json',
-  model: '',
-  sampler: 'euler',
-  scheduler: 'normal',
-  negativePrompt: 'low quality, blurry, bad anatomy, extra fingers, watermark, text',
-  steps: 28,
-  scale: 7,
-  seed: -1,
-  denoise: 1,
-  requestTimeoutSeconds: 90
 })
 
 function normalizeLimit(value, fallback) {
@@ -653,71 +380,37 @@ function normalizeLimit(value, fallback) {
   return Number.isFinite(number) ? Math.max(0, Math.floor(number)) : fallback
 }
 
-function normalizeUploadUrl(url) {
-  const text = String(url || '').trim()
-  if (!text) return ''
-  if (/^https?:\/\//i.test(text) || text.startsWith('data:')) {
-    return text
-  }
-  if (text.startsWith('/')) {
-    return baseApi + text
-  }
-  return text
-}
-
-function displayUploadUrl(url) {
-  return normalizeUploadUrl(url)
-}
-
 function applyRuntimeSettings(data) {
   runtimeSettings.loginEnabled = data.loginEnabled !== false
   runtimeSettings.registerEnabled = data.registerEnabled !== false
   runtimeSettings.userCharacterCreationEnabled = data.userCharacterCreationEnabled !== false
   runtimeSettings.userByokEnabled = data.userByokEnabled === true
-  runtimeSettings.imageGenerationEnabled = data.imageGenerationEnabled !== false
-  runtimeSettings.voiceFeatureEnabled = data.voiceFeatureEnabled !== false
+  runtimeSettings.illustrationEntryEnabled = data.illustrationEntryEnabled !== false
+  runtimeSettings.rechargeEntryVisible = data.rechargeEntryVisible !== false
+  runtimeSettings.checkinEntryVisible = data.checkinEntryVisible !== false
   runtimeSettings.userByokVipMinLevel = normalizeLimit(data.userByokVipMinLevel, 0)
   runtimeSettings.anonymousTrialChatLimit = normalizeLimit(data.anonymousTrialChatLimit, 30)
   runtimeSettings.anonymousTrialConversationLimit = normalizeLimit(data.anonymousTrialConversationLimit, 6)
   runtimeSettings.anonymousTrialCharacterCreationLimit = normalizeLimit(data.anonymousTrialCharacterCreationLimit, 2)
 }
 
-function normalizeRange(value, fallback, min, max) {
-  const number = Number(value)
-  if (!Number.isFinite(number)) return fallback
-  return Math.max(min, Math.min(max, number))
-}
-
-function applyImageGenerationSettings(data) {
-  const normalizedEngine = data.engine === 'openai_compatible' ? 'user_openai_compatible' : data.engine
-  imageGenerationSettings.engine = ['user_openai_compatible', 'managed_openai_compatible'].includes(normalizedEngine) ? normalizedEngine : 'user_openai_compatible'
-  imageGenerationSettings.globalConcurrentLimit = normalizeRange(data.globalConcurrentLimit, 2, 1, 64)
-  imageGenerationSettings.perUserConcurrentLimit = normalizeRange(data.perUserConcurrentLimit, 1, 1, 8)
-  imageGenerationSettings.counterTtlSeconds = normalizeRange(data.counterTtlSeconds, 600, 10, 7200)
-  imageGenerationSettings.managedProviderSource = String(data.managedProviderSource || 'siliconflow')
-  imageGenerationSettings.managedImageModelName = String(data.managedImageModelName || '')
-  imageGenerationSettings.managedApiKey = ''
-  imageGenerationSettings.managedApiKeyConfigured = data.managedApiKeyConfigured === true
-  imageGenerationSettings.managedApiKeyMask = String(data.managedApiKeyMask || '')
-  imageGenerationSettings.managedCustomUrl = String(data.managedCustomUrl || '')
-  imageGenerationSettings.comfyUrl = String(data.comfyUrl || 'http://127.0.0.1:8188')
-  imageGenerationSettings.workflow = String(data.workflow || 'Default_Comfy_Workflow.json')
-  imageGenerationSettings.referenceWorkflow = String(data.referenceWorkflow || 'Char_Avatar_Comfy_Workflow.json')
-  imageGenerationSettings.model = String(data.model || '')
-  imageGenerationSettings.sampler = String(data.sampler || 'euler')
-  imageGenerationSettings.scheduler = String(data.scheduler || 'normal')
-  imageGenerationSettings.negativePrompt = String(data.negativePrompt || '')
-  imageGenerationSettings.steps = normalizeRange(data.steps, 28, 1, 150)
-  imageGenerationSettings.scale = normalizeRange(data.scale, 7, 1, 30)
-  imageGenerationSettings.seed = Number.isFinite(Number(data.seed)) ? Number(data.seed) : -1
-  imageGenerationSettings.denoise = normalizeRange(data.denoise, 1, 0, 1)
-  imageGenerationSettings.requestTimeoutSeconds = normalizeRange(data.requestTimeoutSeconds, 90, 1, 600)
-}
-
 function loadPolicy() {
   getEntitlementPolicy()
     .then((res) => {
-      form.value = { ...emptyForm(), ...(res.data || {}) }
+      const data = res.data || {}
+      form.value = {
+        ...emptyForm(),
+        ...data,
+        overQuotaBillingEnabled: data.overQuotaBillingEnabled === true,
+        chatScoreCost: normalizeLimit(data.chatScoreCost, 0),
+        chatGoldCost: normalizeLimit(data.chatGoldCost, 0),
+        imageScoreCost: normalizeLimit(data.imageScoreCost, 0),
+        imageGoldCost: normalizeLimit(data.imageGoldCost, 0),
+        ttsScoreCost: normalizeLimit(data.ttsScoreCost, 0),
+        ttsGoldCost: normalizeLimit(data.ttsGoldCost, 0),
+        sttScoreCost: normalizeLimit(data.sttScoreCost, 0),
+        sttGoldCost: normalizeLimit(data.sttGoldCost, 0)
+      }
     })
     .catch((e) => {
       proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '加载权益配置失败'))
@@ -735,34 +428,6 @@ function loadRuntimeSettings() {
     })
     .finally(() => {
       runtimeLoading.value = false
-    })
-}
-
-function loadImageGenerationSettings() {
-  imageGenerationLoading.value = true
-  return getImageGenerationSettings()
-    .then((res) => {
-      applyImageGenerationSettings(res.data || {})
-    })
-    .catch((e) => {
-      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '加载生图配置失败'))
-    })
-    .finally(() => {
-      imageGenerationLoading.value = false
-    })
-}
-
-function loadVoiceTemplates() {
-  voiceTemplateLoading.value = true
-  return listTtsVoiceTemplates()
-    .then((res) => {
-      voiceTemplateRows.value = Array.isArray(res.rows) ? res.rows : []
-    })
-    .catch((e) => {
-      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '加载音色模板失败'))
-    })
-    .finally(() => {
-      voiceTemplateLoading.value = false
     })
 }
 
@@ -788,8 +453,9 @@ function submitRuntimeSettings() {
     registerEnabled: runtimeSettings.registerEnabled,
     userCharacterCreationEnabled: runtimeSettings.userCharacterCreationEnabled,
     userByokEnabled: runtimeSettings.userByokEnabled,
-    imageGenerationEnabled: runtimeSettings.imageGenerationEnabled,
-    voiceFeatureEnabled: runtimeSettings.voiceFeatureEnabled,
+    illustrationEntryEnabled: runtimeSettings.illustrationEntryEnabled,
+    rechargeEntryVisible: runtimeSettings.rechargeEntryVisible,
+    checkinEntryVisible: runtimeSettings.checkinEntryVisible,
     userByokVipMinLevel: runtimeSettings.userByokVipMinLevel,
     anonymousTrialChatLimit: runtimeSettings.anonymousTrialChatLimit,
     anonymousTrialConversationLimit: runtimeSettings.anonymousTrialConversationLimit,
@@ -807,145 +473,13 @@ function submitRuntimeSettings() {
     })
 }
 
-function submitImageGenerationSettings() {
-  imageGenerationSubmitting.value = true
-  updateImageGenerationSettings({
-    ...imageGenerationSettings,
-    globalConcurrentLimit: Math.floor(imageGenerationSettings.globalConcurrentLimit),
-    perUserConcurrentLimit: Math.floor(imageGenerationSettings.perUserConcurrentLimit),
-    counterTtlSeconds: Math.floor(imageGenerationSettings.counterTtlSeconds),
-    steps: Math.floor(imageGenerationSettings.steps),
-    requestTimeoutSeconds: Math.floor(imageGenerationSettings.requestTimeoutSeconds)
-  })
-    .then((res) => {
-      applyImageGenerationSettings(res.data || {})
-      proxy.$modal.msgSuccess('生图配置已保存')
-    })
-    .catch((e) => {
-      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '保存生图配置失败'))
-    })
-    .finally(() => {
-      imageGenerationSubmitting.value = false
-    })
-}
-
-function openVoiceTemplateDialog(row) {
-  Object.assign(voiceTemplateForm, defaultVoiceTemplateForm(), row || {})
-  voiceTemplateDialogOpen.value = true
-}
-
-function validateVoiceTemplateForm() {
-  if (!String(voiceTemplateForm.displayName || '').trim()) {
-    proxy.$modal.msgError('请先填写模板名称')
-    return false
-  }
-  if (!String(voiceTemplateForm.referenceAudioUrl || '').trim()) {
-    proxy.$modal.msgError('请先上传参考音频')
-    return false
-  }
-  if (!String(voiceTemplateForm.sampleScript || '').trim()) {
-    proxy.$modal.msgError('请先填写示例文案')
-    return false
-  }
-  return true
-}
-
-function submitVoiceTemplate() {
-  if (voiceTemplateSubmitting.value || !validateVoiceTemplateForm()) {
-    return
-  }
-  const payload = {
-    ...voiceTemplateForm,
-    providerSource: 'siliconflow',
-    templateCode: String(voiceTemplateForm.templateCode || '').trim(),
-    displayName: String(voiceTemplateForm.displayName || '').trim(),
-    ttsModelName: String(voiceTemplateForm.ttsModelName || '').trim(),
-    description: String(voiceTemplateForm.description || '').trim(),
-    referenceAudioUrl: String(voiceTemplateForm.referenceAudioUrl || '').trim(),
-    coverImageUrl: String(voiceTemplateForm.coverImageUrl || '').trim(),
-    sampleScript: String(voiceTemplateForm.sampleScript || '').trim(),
-    sortOrder: Number(voiceTemplateForm.sortOrder || 100),
-    enabled: !!voiceTemplateForm.enabled
-  }
-  voiceTemplateSubmitting.value = true
-  const request = payload.id ? updateTtsVoiceTemplate(payload) : addTtsVoiceTemplate(payload)
-  request
-    .then(() => {
-      proxy.$modal.msgSuccess(payload.id ? '音色模板已保存' : '音色模板已创建')
-      voiceTemplateDialogOpen.value = false
-      return loadVoiceTemplates()
-    })
-    .catch((e) => {
-      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '保存音色模板失败'))
-    })
-    .finally(() => {
-      voiceTemplateSubmitting.value = false
-    })
-}
-
-function handleDeleteVoiceTemplate(row) {
-  ElMessageBox.confirm(
-    `删除后，已经选中过这个模板的用户下次播放会提示模板失效。确认删除“${row.displayName}”吗？`,
-    '删除模板',
-    { type: 'warning' }
-  )
-    .then(() => deleteTtsVoiceTemplate(row.id))
-    .then(() => {
-      proxy.$modal.msgSuccess('音色模板已删除')
-      return loadVoiceTemplates()
-    })
-    .catch(() => {})
-}
-
-function beforeVoiceTemplateAudioUpload(file) {
-  const sizeMb = Number(file.size || 0) / 1024 / 1024
-  if (sizeMb > 10) {
-    proxy.$modal.msgError('参考音频请控制在 10MB 以内')
-    return false
-  }
-  return true
-}
-
-function beforeVoiceTemplateImageUpload(file) {
-  const sizeMb = Number(file.size || 0) / 1024 / 1024
-  if (sizeMb > 10) {
-    proxy.$modal.msgError('封面图片请控制在 10MB 以内')
-    return false
-  }
-  return true
-}
-
-function onVoiceTemplateAudioUploadSuccess(response) {
-  if (response && Number(response.code) === 200 && response.fileName) {
-    voiceTemplateForm.referenceAudioUrl = response.fileName
-    proxy.$modal.msgSuccess('参考音频上传成功')
-    return
-  }
-  proxy.$modal.msgError((response && response.msg) || '参考音频上传失败')
-}
-
-function onVoiceTemplateImageUploadSuccess(response) {
-  if (response && Number(response.code) === 200 && response.fileName) {
-    voiceTemplateForm.coverImageUrl = response.fileName
-    proxy.$modal.msgSuccess('封面上传成功')
-    return
-  }
-  proxy.$modal.msgError((response && response.msg) || '封面上传失败')
-}
-
 loadPolicy()
 loadRuntimeSettings()
-loadImageGenerationSettings()
-loadVoiceTemplates()
 </script>
 
 <style scoped>
 .mb12 {
   margin-bottom: 12px;
-}
-
-.mt10 {
-  margin-top: 10px;
 }
 
 .policy-card {
@@ -976,6 +510,19 @@ loadVoiceTemplates()
   margin-bottom: 12px;
   font-weight: 700;
   font-size: 15px;
+}
+
+.over-quota-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.over-quota-switch__hint {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
 }
 
 .runtime-grid {
@@ -1040,207 +587,4 @@ loadVoiceTemplates()
   color: var(--el-text-color-regular);
 }
 
-.voice-template-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 560px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.voice-template-card {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(255, 255, 255, 1));
-  border: 1px solid var(--el-border-color-lighter);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
-}
-
-.voice-template-card__cover {
-  width: 64px;
-  height: 64px;
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--el-fill-color-light);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.voice-template-card__image {
-  width: 100%;
-  height: 100%;
-}
-
-.voice-template-card__placeholder {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--el-text-color-secondary);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.voice-template-card__body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.voice-template-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.voice-template-card__title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.voice-template-card__code {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.voice-template-card__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.voice-template-card__desc {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--el-text-color-regular);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.voice-template-card__sample {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-}
-
-.voice-template-card__sample-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--el-text-color-secondary);
-}
-
-.voice-template-card__sample-text {
-  font-size: 13px;
-  color: var(--el-text-color-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.voice-template-card__audio audio {
-  width: 280px;
-  max-width: 100%;
-  height: 34px;
-}
-
-.voice-template-card__audio-empty {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.voice-template-card__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 0;
-}
-
-.upload-surface {
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
-  gap: 16px;
-}
-
-.upload-surface--image {
-  align-items: stretch;
-}
-
-.upload-surface__preview {
-  min-height: 84px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  border: 1px dashed var(--el-border-color);
-  background: var(--el-fill-color-lighter);
-  padding: 12px;
-}
-
-.upload-surface__preview audio {
-  width: 100%;
-}
-
-.upload-surface__preview--image {
-  min-height: 180px;
-}
-
-.upload-surface__empty {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
-  text-align: center;
-}
-
-.upload-surface__actions {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 10px;
-}
-
-.upload-surface__tip {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
-}
-
-.voice-dialog-cover {
-  width: 132px;
-  height: 176px;
-  border-radius: 12px;
-}
-
-@media (max-width: 900px) {
-  .voice-template-card {
-    grid-template-columns: 88px minmax(0, 1fr);
-  }
-
-  .voice-template-card__cover {
-    width: 88px;
-    height: 118px;
-  }
-
-  .upload-surface {
-    grid-template-columns: 1fr;
-  }
-
-  .voice-dialog-cover {
-    width: 112px;
-    height: 148px;
-  }
-}
 </style>

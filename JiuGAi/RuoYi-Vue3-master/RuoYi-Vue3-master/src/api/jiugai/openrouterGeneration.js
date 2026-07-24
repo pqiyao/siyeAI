@@ -53,3 +53,85 @@ export function deleteModelRoute(id) {
     method: 'delete'
   })
 }
+
+export function getAiRouting() {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing',
+    method: 'get'
+  })
+}
+
+export function discoverAiModels(data) {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/models',
+    method: 'post',
+    data
+  })
+}
+
+export function probeAiCapability(data) {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/probe',
+    method: 'post',
+    data
+  })
+}
+
+export function importLegacyAiChatRoute() {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/import-legacy-chat',
+    method: 'post'
+  })
+}
+
+export function saveAiRoutingRuntimeSettings(data) {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/runtime-settings',
+    method: 'put',
+    data
+  })
+}
+
+export function resetAiRoutingRuntimeSettings() {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/runtime-settings',
+    method: 'delete'
+  })
+}
+
+export function saveAiProvider(data) {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/provider',
+    method: 'put',
+    data
+  })
+}
+
+export function deleteAiDeployment(id) {
+  return sillyRequest({
+    url: `/admin/jiugai/ai-routing/deployment/${id}`,
+    method: 'delete'
+  })
+}
+
+export function deleteAiAccount(id) {
+  return sillyRequest({
+    url: `/admin/jiugai/ai-routing/account/${id}`,
+    method: 'delete'
+  })
+}
+
+export function saveAiRoute(data) {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/route',
+    method: 'put',
+    data
+  })
+}
+
+export function deleteAiRoute(id) {
+  return sillyRequest({
+    url: `/admin/jiugai/ai-routing/route/${id}`,
+    method: 'delete'
+  })
+}

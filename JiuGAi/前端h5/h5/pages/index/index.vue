@@ -10,115 +10,91 @@
 		>
 			<view class="disc-header" :style="{ paddingTop: statusBarH + 'px' }">
 				<view class="brand-row">
-					<image class="brand-logo" src="/static/logo.png" mode="aspectFill" />
-					<view class="promo-pill">{{ discoverUi.promo }}</view>
+					<view class="brand-main">
+						<image class="brand-logo" src="/static/logo.png" mode="aspectFill" />
+						<text class="brand-title">{{ discoverUi.promo }}</text>
+					</view>
 					<view class="brand-actions">
-						<view class="icon-btn icon-btn--mail" @tap="goSystemMsg">
-							<text class="mail-ico">✉</text>
-							<view v-if="noticeUnread > 0" class="mail-badge">{{ noticeUnread > 99 ? '99+' : noticeUnread }}</view>
+						<view class="icon-btn" @tap="goSystemMsg">
+							<text class="notice-ico">✉</text>
+							<view v-if="noticeUnread > 0" class="notice-badge">{{ noticeUnread > 99 ? '99+' : noticeUnread }}</view>
 						</view>
-						<view class="lang-chip" @tap.stop="goLanguage">A/文</view>
-						<view class="icon-btn icon-btn--more" @tap="onMoreMenu">
-							<text class="icon-more">...</text>
+						<view class="icon-btn" @tap="onMoreMenu">
+							<text class="icon-more">⋯</text>
 						</view>
 					</view>
 				</view>
 
 				<view class="search-row" @tap="toastSearch">
-					<image class="search-ico" src="/static/cha.png" mode="widthFix" />
+					<image class="search-ico" src="/static/cha.png" mode="aspectFit" />
 					<text class="search-ph" :class="{ 'search-ph--active': !!searchKeyword }">{{ searchDisplayText }}</text>
-					<view class="search-row-right">
-						<text v-if="searchKeyword" class="search-clear" @tap.stop="clearSearchKeyword">{{ discoverUi.clear }}</text>
-						<text v-else class="search-enter">{{ discoverUi.search }}</text>
-					</view>
+					<text
+						v-if="searchKeyword"
+						class="search-clear"
+						@tap.stop="clearSearchKeyword"
+					>{{ discoverUi.clear }}</text>
 				</view>
 
-				<scroll-view scroll-x class="feed-tabs" :show-scrollbar="false" enable-flex>
+				<scroll-view scroll-x class="feed-tabs" :show-scrollbar="false">
 					<view class="feed-tabs-inner">
 						<view
 							v-for="(ft, i) in feedTabList"
 							:key="'f' + i"
-							class="feed-pill"
+							class="feed-tab"
 							:class="{ on: feedTab === i }"
 							@tap="setFeedTab(i)"
 						>
-							<text>{{ ft.label }}</text>
+							<text class="feed-tab-txt">{{ ft.label }}</text>
 							<view v-if="ft.dot" class="feed-dot" />
 						</view>
 					</view>
 				</scroll-view>
 
 				<view v-if="noticeBannerVisible" class="notice-banner" @tap="openNoticeBanner">
-					<view class="notice-banner-icon">i</view>
-					<view class="notice-banner-copy">
-						<view class="notice-banner-head">
-							<text class="notice-banner-mark">公告</text>
-							<text class="notice-banner-title">{{ noticeBanner.title }}</text>
-						</view>
-						<text class="notice-banner-desc">{{ noticeBanner.content }}</text>
-					</view>
+					<text class="notice-banner-mark">公告</text>
+					<text class="notice-banner-title">{{ noticeBanner.title }}</text>
 					<text class="notice-banner-close" @tap.stop="dismissNoticeBanner">×</text>
 				</view>
 
 				<view v-if="isJgDiscover" class="tag-filter-row">
-					<view class="tag-filter-head">
-						<view class="tag-filter-head-left">
-							<text class="tag-filter-title">{{ discoverUi.themeTitle }}</text>
-						</view>
-						<text v-if="selectedTag || selectedGameplay" class="tag-filter-reset" @tap="clearDiscoverFilters">{{ discoverUi.clear }}</text>
-					</view>
-					<view class="tag-filter-bar">
-						<scroll-view scroll-x class="tag-scroll" :show-scrollbar="false" enable-flex>
+					<scroll-view scroll-x class="tag-scroll" :show-scrollbar="false">
 						<view class="tag-inner">
-							<view
-								class="tag-chip"
+							<text
+								class="tag-link"
 								:class="{ on: !selectedTag && !selectedGameplay }"
 								@tap="clearDiscoverFilters"
-							>{{ discoverUi.all }}</view>
-							<view
-								v-for="(tg, ti) in discoverVisibleTags"
-								:key="'tg' + ti + '_' + tagOptionValue(tg)"
-								class="tag-chip"
-								:class="{ on: selectedTag === tagOptionValue(tg) }"
-								@tap="toggleDiscoverTag(tagOptionValue(tg))"
-							>{{ displayDiscoverTag(tg) }}</view>
-							<view
-								v-if="hasDiscoverTagOverflow"
-								class="tag-chip tag-chip--more"
-								@tap="openDiscoverTagPopup"
-							>
-								{{ discoverUi.moreFilters }}
-								<text class="tag-chip-count">+{{ discoverHiddenTagCount }}</text>
-							</view>
-							<view
-								class="tag-chip tag-chip--ghost"
-								:class="{ on: selectedGameplay === discoverPopupText.gameplayLabel }"
-								@tap="toggleGameplayFilter(discoverPopupText.gameplayLabel)"
-							>{{ discoverPopupText.gameplayLabel }}</view>
+							>{{ discoverUi.all }}</text>
+							<block v-for="(tg, ti) in discoverVisibleTags" :key="'tg' + ti">
+								<text class="tag-sep">·</text>
+								<text
+									class="tag-link"
+									:class="{ on: selectedTag === tagOptionValue(tg) }"
+									@tap="toggleDiscoverTag(tagOptionValue(tg))"
+								>{{ displayDiscoverTag(tg) }}</text>
+							</block>
+							<block v-if="hasDiscoverTagOverflow">
+								<text class="tag-sep">·</text>
+								<text class="tag-link tag-link--more" @tap="openDiscoverTagPopup">更多</text>
+							</block>
+							<block v-if="discoverPopupText.gameplayLabel">
+								<text class="tag-sep">·</text>
+								<text
+									class="tag-link"
+									:class="{ on: selectedGameplay === discoverPopupText.gameplayLabel }"
+									@tap="toggleGameplayFilter(discoverPopupText.gameplayLabel)"
+								>{{ discoverPopupText.gameplayLabel }}</text>
+							</block>
+							<block v-if="selectedTag || selectedGameplay">
+								<text class="tag-sep">·</text>
+								<text class="tag-link tag-link--clear" @tap="clearDiscoverFilters">{{ discoverUi.clear }}</text>
+							</block>
 						</view>
-						</scroll-view>
-					</view>
-					<view class="tag-filter-tip-row">
-						<view v-if="discoverTagLoading && !discoverAllTags.length" class="tag-filter-tip">
-							{{ discoverUi.tagLoading }}
-						</view>
-						<view
-							v-else-if="discoverTagHint"
-							class="tag-filter-tip"
-							:class="{ 'tag-filter-tip--warn': !discoverAllTags.length }"
-						>
-							{{ discoverTagHint }}
-						</view>
-						<view v-else-if="hasDiscoverTagOverflow" class="tag-filter-tip">
-							{{ discoverUi.searchHint }}
-						</view>
-					</view>
+					</scroll-view>
 				</view>
-
-</view>
+			</view>
 
 			<view v-show="swiperCurrent === 0" class="page-box">
-				<view v-if="isJgDiscover" class="illustration-entry-card" @tap="openIllustrationSite">
+				<view v-if="isJgDiscover && illustrationEntryEnabled" class="illustration-entry-card" @tap="openIllustrationSite">
 					<view class="illustration-entry-copy">
 						<text class="illustration-entry-kicker">四叶插画分享</text>
 						<text class="illustration-entry-title">去画廊看看灵感与壁纸</text>
@@ -166,48 +142,54 @@
 					</view>
 					<view class="grid3">
 						<view class="g3" v-for="(c, k) in topPick" :key="'t' + k" @tap="goDetail(c.id)">
-							<view
-								class="g3-inner"
-								:class="{ 'g3-inner--hover': hoverTopPickId === c.id }"
+						<view
+							class="g3-inner"
+							:class="[cardTierClass(c), { 'g3-inner--hover': hoverTopPickId === c.id }]"
 								@mouseenter="setDiscoverHover('top', c.id)"
 								@mouseleave="clearDiscoverHover('top')"
 								@touchstart="setDiscoverHover('top', c.id)"
 								@touchend="clearDiscoverHover('top')"
 								@touchcancel="clearDiscoverHover('top')"
 							>
+								<view class="card-grade card-grade--compact">
+									<text class="card-grade-label">{{ cardTierLabel(c) }}</text>
+									<text class="card-grade-caption">{{ cardTierCaption(c) }}</text>
+								</view>
+								<view class="g3-media">
 								<image
 									class="g3-img"
 									:class="{ 'g3-img--blur': isPreviewBlurActive(c) }"
-									:src="charAvatarUrl(c)"
+									:src="charCoverUrl(c)"
 									mode="aspectFill"
 									lazy-load
 								></image>
 								<view
 									v-if="isPreviewBlurActive(c)"
 									class="preview-blur-surface preview-blur-surface--compact"
-									:style="blurSurfaceStyle(charAvatarUrl(c), 'cover')"
+									:style="blurSurfaceStyle(charCoverUrl(c), 'cover')"
 								></view>
 								<view v-if="isPreviewBlurActive(c)" class="preview-blur-layer preview-blur-layer--compact">
 									<view class="preview-blur-pill">{{ previewBlurBadgeText(c) }}</view>
 								</view>
-								<view class="g3-overlay-top">
-									<text class="g3-handle">{{ displayHandle(c) }}</text>
-									<view class="g3-likes">
-										<text class="heart">❤</text>
-										<text>{{ formatLikes(c.like_count) }}</text>
-									</view>
-								</view>
-								<view class="g3-tags" v-if="safeLabels(c, 2).length">
-									<text
-										v-for="(lb, li) in safeLabels(c, 2)"
-										:key="li"
-										class="mini-tag"
-										:class="'tone-' + (li % 3)"
-									>{{ lb.code }}</text>
-								</view>
+								<view class="card-shade card-shade--compact" aria-hidden="true"></view>
 								<view class="g3-mask">
 									<view class="g3-name">{{ c.nickname }}</view>
 									<view class="g3-sub">{{ cardHeroCopy(c) }}</view>
+									<view class="g3-tags" v-if="safeLabels(c, 2).length">
+										<text
+											v-for="(lb, li) in safeLabels(c, 2)"
+											:key="li"
+											class="mini-tag"
+										>{{ lb.code }}</text>
+									</view>
+									<view class="g3-foot">
+										<text class="g3-foot-handle">{{ displayHandle(c) }}</text>
+										<view class="g3-foot-heat">
+											<text class="heart sm">❤</text>
+											<text>{{ formatLikes(c.like_count) }}</text>
+										</view>
+									</view>
+								</view>
 								</view>
 							</view>
 						</view>
@@ -237,13 +219,17 @@
 					<view class="grid2-item" v-for="c in displayGridList" :key="c.id" @tap="goDetail(c.id)">
 						<view
 							class="card-disc"
-							:class="{ 'card-disc--hover': hoverGridId === c.id }"
+							:class="[cardTierClass(c), { 'card-disc--hover': hoverGridId === c.id }]"
 							@mouseenter="setDiscoverHover('grid', c.id)"
 							@mouseleave="clearDiscoverHover('grid')"
 							@touchstart="setDiscoverHover('grid', c.id)"
 							@touchend="clearDiscoverHover('grid')"
 							@touchcancel="clearDiscoverHover('grid')"
 						>
+							<view class="card-grade">
+								<text class="card-grade-label">{{ cardTierLabel(c) }}</text>
+								<text class="card-grade-caption">{{ cardTierCaption(c) }}</text>
+							</view>
 							<view class="card-visual">
 								<image
 									class="card2-bg"
@@ -262,39 +248,29 @@
 									<text class="preview-blur-note">{{ previewBlurHintText(c) }}</text>
 								</view>
 
-								<view class="card-float-top">
-									<text class="hdl">{{ displayHandle(c) }}</text>
-									<view class="like-badge">
-										<text class="heart sm">❤</text>
-										<text>{{ formatLikes(c.like_count) }}</text>
-									</view>
-								</view>
-								<view class="card-float-tags" v-if="safeLabels(c, 3).length">
-									<text
-										v-for="(lb, li) in safeLabels(c, 3)"
-										:key="li"
-										class="float-tag"
-										:class="'tone-' + (li % 3)"
-									>{{ lb.code }}</text>
-								</view>
+								<view class="card-shade" aria-hidden="true"></view>
 								<view class="card-visual-copy">
 									<text class="card-visual-title">{{ c.nickname }}</text>
-									<text class="card-visual-desc">{{ cardHeroCopy(c) }}</text>
-								</view>
-							</view>
-							<view class="card-meta">
-								<view class="meta-badges" :class="{ 'meta-badges--empty': !cardMetaBadges(c).length }">
-									<text
-										v-for="(badge, bi) in cardMetaBadges(c)"
-										:key="'badge_main_' + bi"
-										class="meta-badge"
-										:class="'meta-badge--' + badge.tone"
-									>{{ badge.text }}</text>
-								</view>
-								<text class="meta-desc">{{ cardPreview(c) }}</text>
-								<view class="meta-foot">
-									<text class="meta-handle">{{ displayHandle(c) }}</text>
-									<text class="meta-cta" @tap.stop="handleDiscoverCardAction(c)">{{ c.unlocked === false ? discoverUi.openVip : discoverUi.viewDetail }}</text>
+									<text class="card-visual-desc">{{ cardPreview(c) }}</text>
+									<view class="card-float-tags" v-if="safeLabels(c, 3).length">
+										<text
+											v-for="(lb, li) in safeLabels(c, 3)"
+											:key="li"
+											class="float-tag"
+										>{{ lb.code }}</text>
+									</view>
+									<view class="card-inline-foot">
+										<text class="card-inline-handle">{{ displayHandle(c) }}</text>
+										<text
+											v-if="c.unlocked === false"
+											class="card-inline-unlock"
+											@tap.stop="handleDiscoverCardAction(c)"
+										>{{ discoverUi.openVip }}</text>
+										<view v-else class="card-inline-heat">
+											<text class="heart sm">❤</text>
+											<text>{{ formatLikes(c.like_count) }}</text>
+										</view>
+									</view>
 								</view>
 							</view>
 						</view>
@@ -319,13 +295,17 @@
 					<view class="grid2-item" v-for="c in unlockedDisplayList" :key="'u' + c.id" @tap="goDetail(c.id)">
 						<view
 							class="card-disc"
-							:class="{ 'card-disc--hover': hoverGridId === c.id }"
+							:class="[cardTierClass(c), { 'card-disc--hover': hoverGridId === c.id }]"
 							@mouseenter="setDiscoverHover('grid', c.id)"
 							@mouseleave="clearDiscoverHover('grid')"
 							@touchstart="setDiscoverHover('grid', c.id)"
 							@touchend="clearDiscoverHover('grid')"
 							@touchcancel="clearDiscoverHover('grid')"
 						>
+							<view class="card-grade">
+								<text class="card-grade-label">{{ cardTierLabel(c) }}</text>
+								<text class="card-grade-caption">{{ cardTierCaption(c) }}</text>
+							</view>
 							<view class="card-visual">
 								<image
 									class="card2-bg"
@@ -343,39 +323,29 @@
 									<view class="preview-blur-pill">{{ previewBlurBadgeText(c) }}</view>
 									<text class="preview-blur-note">{{ previewBlurHintText(c) }}</text>
 								</view>
-								<view class="card-float-top">
-									<text class="hdl">{{ displayHandle(c) }}</text>
-									<view class="like-badge">
-										<text class="heart sm">❤</text>
-										<text>{{ formatLikes(c.like_count) }}</text>
-									</view>
-								</view>
-								<view class="card-float-tags" v-if="safeLabels(c, 3).length">
-									<text
-										v-for="(lb, li) in safeLabels(c, 3)"
-										:key="li"
-										class="float-tag"
-										:class="'tone-' + (li % 3)"
-									>{{ lb.code }}</text>
-								</view>
+								<view class="card-shade" aria-hidden="true"></view>
 								<view class="card-visual-copy">
 									<text class="card-visual-title">{{ c.nickname }}</text>
-									<text class="card-visual-desc">{{ cardHeroCopy(c) }}</text>
-								</view>
-							</view>
-							<view class="card-meta">
-								<view class="meta-badges" :class="{ 'meta-badges--empty': !cardMetaBadges(c).length }">
-									<text
-										v-for="(badge, bi) in cardMetaBadges(c)"
-										:key="'badge_unlock_' + bi"
-										class="meta-badge"
-										:class="'meta-badge--' + badge.tone"
-									>{{ badge.text }}</text>
-								</view>
-								<text class="meta-desc">{{ cardPreview(c) }}</text>
-								<view class="meta-foot">
-									<text class="meta-handle">{{ displayHandle(c) }}</text>
-									<text class="meta-cta" @tap.stop="handleDiscoverCardAction(c)">{{ c.unlocked === false ? discoverUi.openVip : discoverUi.viewDetail }}</text>
+									<text class="card-visual-desc">{{ cardPreview(c) }}</text>
+									<view class="card-float-tags" v-if="safeLabels(c, 3).length">
+										<text
+											v-for="(lb, li) in safeLabels(c, 3)"
+											:key="li"
+											class="float-tag"
+										>{{ lb.code }}</text>
+									</view>
+									<view class="card-inline-foot">
+										<text class="card-inline-handle">{{ displayHandle(c) }}</text>
+										<text
+											v-if="c.unlocked === false"
+											class="card-inline-unlock"
+											@tap.stop="handleDiscoverCardAction(c)"
+										>{{ discoverUi.openVip }}</text>
+										<view v-else class="card-inline-heat">
+											<text class="heart sm">❤</text>
+											<text>{{ formatLikes(c.like_count) }}</text>
+										</view>
+									</view>
 								</view>
 							</view>
 						</view>
@@ -494,12 +464,15 @@
 			<view class="discover-menu-layer" :style="{ paddingTop: statusBarH + 92 + 'px' }">
 				<view class="discover-menu-card" @tap.stop>
 					<view class="discover-menu-head">
-						<text class="discover-menu-title">{{ discoverUi.moreFilters }}</text>
+						<text class="discover-menu-title">{{ discoverUi.menuMoreTitle || '更多' }}</text>
 						<text class="discover-menu-close" @tap="discoverMenuShow = false">×</text>
 					</view>
 					<view class="discover-menu-item" @tap="handleDiscoverMenu('notice')">
 						<view class="discover-menu-item-main">
-							<text class="discover-menu-item-title">{{ discoverUi.menuNoticeTitle }}</text>
+							<view class="discover-menu-item-title-row">
+								<text class="discover-menu-item-title">{{ discoverUi.menuNoticeTitle }}</text>
+								<view v-if="noticeUnread > 0" class="discover-menu-unread">{{ noticeUnread > 99 ? '99+' : noticeUnread }}</view>
+							</view>
 							<text class="discover-menu-item-desc">{{ discoverUi.menuNoticeDesc }}</text>
 						</view>
 						<text class="discover-menu-item-arrow">›</text>
@@ -508,13 +481,6 @@
 						<view class="discover-menu-item-main">
 							<text class="discover-menu-item-title">{{ discoverUi.menuFavoritesTitle }}</text>
 							<text class="discover-menu-item-desc">{{ discoverUi.menuFavoritesDesc }}</text>
-						</view>
-						<text class="discover-menu-item-arrow">›</text>
-					</view>
-					<view class="discover-menu-item" @tap="handleDiscoverMenu('language')">
-						<view class="discover-menu-item-main">
-							<text class="discover-menu-item-title">{{ discoverUi.menuLanguageTitle }}</text>
-							<text class="discover-menu-item-desc">{{ discoverUi.menuLanguageDesc }}</text>
 						</view>
 						<text class="discover-menu-item-arrow">›</text>
 					</view>
@@ -528,7 +494,8 @@
 </template>
 
 <script>
-	import { applyTavernTabBarLabels, syncTavernTabBar, syncTavernInboxBadge } from '@/common/tavernTabBar.js';
+	import { applyTavernTabBarLabels, syncTavernTabBar } from '@/common/tavernTabBar.js';
+	const tavernInboxBadge = require('@/common/tavernInboxBadge.js');
 	const { getTavernUiText } = require('@/common/tavernUiI18n.js');
 	const tavernNoticeState = require('@/common/tavernNoticeState.js');
 	const tavernCharacterAccess = require('@/common/tavernCharacterAccess.js');
@@ -550,6 +517,7 @@
 
 	export default {
 		data() {
+			const runtimeFeatureConfig = require('@/common/tavernApi.js').getRuntimeFeatureConfig();
 			return {
 				current: 0,
 				swiperCurrent: 0,
@@ -571,6 +539,8 @@
 				discoverLoading: false,
 				discoverLoadError: '',
 				noticeUnread: 0,
+				noticeUnreadIdentitySignature: '',
+				noticeUnreadRequestVersion: 0,
 				discoverRequestSeq: 0,
 				discoverFetchKey: '',
 				discoverHasLoaded: false,
@@ -582,7 +552,8 @@
 				noticeBanner: null,
 				noticePopup: null,
 				noticePopupVisible: false,
-				noticeExposureLoading: false
+				noticeExposureLoading: false,
+				illustrationEntryEnabled: runtimeFeatureConfig.illustrationEntryEnabled !== false
 			};
 		},
 		computed: {
@@ -772,6 +743,7 @@
 				this.statusBarH = sys.statusBarHeight || 20;
 			} catch (e) {}
 			this.discoverViewerSignature = tavernApi.getViewerStateSignature();
+			this.noticeUnreadIdentitySignature = tavernApi.getViewerIdentitySignature();
 			this.applyDiscoverFilterFromStorage();
 			this.allChars = [];
 			this.syncDiscoverVisibleCounts();
@@ -780,6 +752,7 @@
 			this.pickTop();
 			this.tryLoadDiscoverTags();
 			this.tryLoadCharsFromBackend({ force: true });
+			this.syncIllustrationEntryVisibility(false);
 		},
 		onShow() {
 			applyTavernTabBarLabels(this.allText, this);
@@ -789,6 +762,7 @@
 			});
 			this.applyLatestInteractionPatch();
 			this.applyDiscoverFilterFromStorage();
+			this.syncIllustrationEntryVisibility(true);
 			if (this.isJgDiscover) {
 				const tavernApi = require('@/common/tavernApi.js');
 				const currentViewerSignature = tavernApi.getViewerStateSignature();
@@ -816,10 +790,10 @@
 			if (!this.discoverTagOptions.length && this.isJgDiscover) {
 				this.tryLoadDiscoverTags();
 			}
-			const u = uni.getStorageSync('user');
-			if (u && u.token) {
+			const token = this.util.getStoredToken();
+			if (token) {
 				this.util
-					.request('user/user_info', { token: u.token })
+					.request('user/user_info', { token })
 					.then((res) => {
 						if (res && res.need_edit === 0) {
 							uni.reLaunch({ url: '/pages/perfect/perfect' });
@@ -829,6 +803,14 @@
 			}
 		},
 		methods: {
+			syncIllustrationEntryVisibility(forceRefresh) {
+				const tavernApi = require('@/common/tavernApi.js');
+				this.illustrationEntryEnabled = tavernApi.isIllustrationEntryEnabled();
+				return tavernApi.fetchAppRuntimeConfig(forceRefresh === true).then((config) => {
+					this.illustrationEntryEnabled = !(config && config.illustrationEntryEnabled === false);
+					return this.illustrationEntryEnabled;
+				});
+			},
 			syncDiscoverVisibleCounts() {
 				this.discoverVisibleCount = tavernListPerf.syncVisibleCount(
 					this.discoverVisibleCount,
@@ -875,29 +857,72 @@
 				}
 				return '已显示 ' + safeVisible + ' / ' + safeTotal + '，继续下滑自动加载更多';
 			},
+			getNoticeUnreadIdentitySignature(tavernApi) {
+				try {
+					if (tavernApi && typeof tavernApi.getViewerIdentitySignature === 'function') {
+						return String(tavernApi.getViewerIdentitySignature() || '');
+					}
+					return tavernApi && typeof tavernApi.getClientUid === 'function'
+						? 'client:' + String(tavernApi.getClientUid() || '')
+						: 'none';
+				} catch (e) {
+					return 'unknown';
+				}
+			},
+			prepareNoticeUnreadIdentity(tavernApi) {
+				const currentIdentity = this.getNoticeUnreadIdentitySignature(tavernApi);
+				if (
+					this.noticeUnreadIdentitySignature &&
+					this.noticeUnreadIdentitySignature !== currentIdentity
+				) {
+					this.noticeUnreadRequestVersion += 1;
+					this.noticeUnread = 0;
+					tavernInboxBadge
+						.refreshCombinedInboxBadge(this, tavernApi, { noticeUnread: 0, adUnread: 0 })
+						.catch(() => {});
+				}
+				this.noticeUnreadIdentitySignature = currentIdentity;
+				return currentIdentity;
+			},
+			isNoticeUnreadRequestCurrent(tavernApi, identitySignature, requestVersion) {
+				return (
+					this.noticeUnreadRequestVersion === requestVersion &&
+					this.noticeUnreadIdentitySignature === identitySignature &&
+					this.getNoticeUnreadIdentitySignature(tavernApi) === identitySignature
+				);
+			},
 			refreshNoticeUnread() {
 				if (!this.isJgDiscover) {
+					this.noticeUnreadRequestVersion += 1;
+					this.noticeUnreadIdentitySignature = 'none';
 					this.noticeUnread = 0;
-					syncTavernInboxBadge(this, 0);
-					return Promise.resolve(0);
+					return tavernInboxBadge
+						.refreshCombinedInboxBadge(this, null, { noticeUnread: 0, adUnread: 0 })
+						.then((r) => r.noticeUnread);
 				}
 				const tavernApi = require('@/common/tavernApi.js');
-				return tavernNoticeState.fetchUnreadState(tavernApi, 30)
+				const identitySignature = this.prepareNoticeUnreadIdentity(tavernApi);
+				const requestVersion = ++this.noticeUnreadRequestVersion;
+				return tavernNoticeState
+					.fetchUnreadState(tavernApi, 30)
 					.then((state) => {
-						this.noticeUnread = state.unreadCount;
-						try {
-							this.$store.commit('setUnreadTotal', state.unreadCount);
-						} catch (e) {}
-						syncTavernInboxBadge(this, state.unreadCount);
-						return state.unreadCount;
+						if (!this.isNoticeUnreadRequestCurrent(tavernApi, identitySignature, requestVersion)) {
+							return { noticeUnread: this.noticeUnread, stale: true };
+						}
+						this.noticeUnread = Math.max(0, Number(state && state.unreadCount) || 0);
+						return tavernInboxBadge.refreshCombinedInboxBadge(this, tavernApi, {
+							noticeUnread: this.noticeUnread
+						});
 					})
+					.then((r) => (r && r.noticeUnread != null ? r.noticeUnread : this.noticeUnread))
 					.catch(() => {
-						this.noticeUnread = 0;
-						try {
-							this.$store.commit('setUnreadTotal', 0);
-						} catch (e) {}
-						syncTavernInboxBadge(this, 0);
-						return 0;
+						if (!this.isNoticeUnreadRequestCurrent(tavernApi, identitySignature, requestVersion)) {
+							return this.noticeUnread;
+						}
+						return tavernInboxBadge
+							.refreshCombinedInboxBadge(this, tavernApi, { noticeUnread: this.noticeUnread })
+							.then((r) => r.noticeUnread)
+							.catch(() => this.noticeUnread);
 					});
 			},
 			normalizeNoticeDisplayType(value) {
@@ -1018,10 +1043,9 @@
 				const done = (state) => {
 					const count = Math.max(0, Number(state && state.unreadCount) || 0);
 					this.noticeUnread = count;
-					try {
-						this.$store.commit('setUnreadTotal', count);
-					} catch (e) {}
-					syncTavernInboxBadge(this, count);
+					tavernInboxBadge.refreshCombinedInboxBadge(this, tavernApi, {
+						noticeUnread: count
+					});
 				};
 				if (tavernApi && typeof tavernApi.markNoticeRead === 'function') {
 					tavernApi
@@ -1339,7 +1363,14 @@
 			},
 			charCoverUrl(c) {
 				const tavernApi = require('@/common/tavernApi.js');
-				const u = c && (c.cover_thumb || c.avatar_thumb || c.cover || c.avatar);
+				const u = c && (
+					c.cover_detail ||
+					c.coverDetail ||
+					c.cover ||
+					c.avatar ||
+					c.cover_thumb ||
+					c.avatar_thumb
+				);
 				if (!this.isNonEmptyImg(u)) return '/static/logo.png';
 				const r = tavernApi.resolveJgAssetUrl(u);
 				return r || '/static/logo.png';
@@ -1376,7 +1407,7 @@
 				if (!c || typeof c !== 'object') {
 					return '';
 				}
-				const raw = c.bio || c.persona || c.scenario || c.tagline || '';
+				const raw = c.public_summary || c.publicSummary || c.bio || c.persona || c.scenario || c.tagline || '';
 				const text = this.normalizePreviewText(raw);
 				if (!text) {
 					return this.cardFallbackCopy(c);
@@ -1387,7 +1418,7 @@
 				if (!c || typeof c !== 'object') {
 					return '';
 				}
-				const raw = c.tagline || c.bio || c.persona || c.scenario || '';
+				const raw = c.public_summary || c.publicSummary || c.tagline || c.bio || c.persona || c.scenario || '';
 				const text = this.normalizePreviewText(raw);
 				if (!text) {
 					return this.truncatePreviewText(this.cardFallbackCopy(c), 20);
@@ -1427,6 +1458,37 @@
 					}
 				}
 				return badges.slice(0, 3);
+			},
+			cardVisualTier(c) {
+				if (!c || typeof c !== 'object') {
+					return 'standard';
+				}
+				const requiredLevel = Math.max(
+					0,
+					Math.min(2, Math.floor(Number(c.preview_blur_vip_level || c.previewBlurVipLevel || 0) || 0))
+				);
+				if (requiredLevel >= 2) {
+					return 'svip';
+				}
+				if (requiredLevel >= 1 || c.vip_only || c.vipOnly) {
+					return 'vip';
+				}
+				return 'standard';
+			},
+			cardTierClass(c) {
+				return 'card-tier--' + this.cardVisualTier(c);
+			},
+			cardTierLabel(c) {
+				const tier = this.cardVisualTier(c);
+				if (tier === 'svip') return 'SVIP';
+				if (tier === 'vip') return 'VIP';
+				return 'R';
+			},
+			cardTierCaption(c) {
+				const tier = this.cardVisualTier(c);
+				if (tier === 'svip') return 'SUPREME';
+				if (tier === 'vip') return 'PREMIUM';
+				return 'CHARACTER';
 			},
 			normalizePreviewText(value) {
 				return value == null ? '' : String(value).replace(/\s+/g, ' ').trim();
@@ -1577,9 +1639,6 @@
 				uni.navigateTo({ url });
 			},
 
-			goLanguage() {
-				this.util.urlTo('/pages/user/language');
-			},
 			onMoreMenu() {
 				this.discoverMenuShow = true;
 			},
@@ -1591,10 +1650,6 @@
 				}
 				if (action === 'favorites') {
 					this.util.urlTo('/pages/user/myfavorites');
-					return;
-				}
-				if (action === 'language') {
-					this.goLanguage();
 				}
 			},
 			clearSearchKeyword() {
@@ -1647,11 +1702,9 @@
 	.disc-header {
 		position: relative;
 		overflow: hidden;
-		padding-left: 28rpx;
-		padding-right: 28rpx;
-		padding-bottom: 18rpx;
+		padding: 12rpx 28rpx 24rpx;
 		background: transparent;
-		border-bottom: 1rpx solid rgba(255, 255, 255, 0.18);
+		border-bottom: 1rpx solid rgba(255, 255, 255, 0.1);
 		box-shadow: none;
 	}
 
@@ -1659,108 +1712,97 @@
 		display: none;
 	}
 
-	.icon-more {
-		font-size: 34rpx;
-		color: #497089;
-		line-height: 1;
-		padding-bottom: 10rpx;
-	}
-
 	.brand-row {
 		position: relative;
 		z-index: 1;
 		display: flex;
 		align-items: center;
-		gap: 16rpx;
-		margin-top: 6rpx;
+		justify-content: space-between;
+		gap: 20rpx;
+		min-height: 80rpx;
+		padding-top: 8rpx;
+	}
+
+	.brand-main {
+		display: flex;
+		align-items: center;
+		gap: 18rpx;
+		min-width: 0;
+		flex: 1;
 	}
 
 	.brand-logo {
-		width: 76rpx;
-		height: 76rpx;
+		width: 72rpx;
+		height: 72rpx;
 		border-radius: 50%;
 		flex-shrink: 0;
-		background: rgba(255, 255, 255, 0.5);
-		border: 3rpx solid rgba(255, 255, 255, 0.58);
-		box-shadow: 0 10rpx 22rpx rgba(38, 57, 77, 0.1);
+		background: rgba(255, 255, 255, 0.55);
+		border: 2rpx solid rgba(255, 255, 255, 0.75);
 	}
 
-	.promo-pill {
-		flex: 1;
-		font-size: 30rpx;
-		font-weight: 800;
-		letter-spacing: 0;
-		color: #26394d;
-		padding: 10rpx 0;
-		background: transparent;
-		border: 0;
-		box-shadow: none;
-		text-align: left;
-		max-width: 300rpx;
+	.brand-title {
+		font-size: 34rpx;
+		font-weight: 700;
+		letter-spacing: 1rpx;
+		color: #1f3a4d;
+		line-height: 1.25;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.brand-actions {
 		display: flex;
 		align-items: center;
-		gap: 12rpx;
+		gap: 14rpx;
 		flex-shrink: 0;
 	}
 
 	.icon-btn {
-		width: 64rpx;
-		height: 64rpx;
-		border-radius: 20rpx;
-		background: rgba(255, 255, 255, 0.44);
-		border: 1rpx solid rgba(255, 255, 255, 0.42);
-		box-shadow: 0 10rpx 22rpx rgba(38, 57, 77, 0.08);
+		width: 68rpx;
+		height: 68rpx;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.58);
+		border: 1rpx solid rgba(255, 255, 255, 0.6);
 		position: relative;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 	}
 
-	.mail-badge {
-		position: absolute;
-		top: -8rpx;
-		right: -8rpx;
-		min-width: 34rpx;
-		height: 34rpx;
-		padding: 0 8rpx;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 999rpx;
-		background: linear-gradient(135deg, #ff8fb1 0%, #ffb5c9 100%);
-		color: #fff;
-		font-size: 18rpx;
-		font-weight: 700;
+	.icon-btn:active {
+		opacity: 0.86;
+	}
+
+	.notice-ico {
+		font-size: 30rpx;
+		color: #3d5f74;
 		line-height: 1;
-		box-shadow: 0 8rpx 18rpx rgba(244, 131, 162, 0.26);
-		border: 2rpx solid rgba(255, 255, 255, 0.92);
 	}
 
-	.mail-ico {
-		font-size: 0;
-		color: transparent;
-		position: relative;
+	.icon-more {
+		font-size: 36rpx;
+		color: #3d5f74;
+		line-height: 1;
+		transform: translateY(-2rpx);
 	}
 
-	.mail-ico::after {
-		content: '✉';
-		color: #497089;
-		font-size: 28rpx;
-	}
-
-	.lang-chip {
-		padding: 8rpx 18rpx;
-		font-size: 22rpx;
-		font-weight: 600;
-		color: #3f6f7f;
-		background: rgba(255, 255, 255, 0.44);
-		border-radius: 24rpx;
-		border: 1rpx solid rgba(255, 255, 255, 0.42);
-		box-shadow: 0 10rpx 22rpx rgba(38, 57, 77, 0.08);
-		position: relative;
+	.notice-badge {
+		position: absolute;
+		top: -4rpx;
+		right: -4rpx;
+		min-width: 28rpx;
+		height: 28rpx;
+		padding: 0 6rpx;
+		border-radius: 999rpx;
+		background: #f43f5e;
+		color: #fff;
+		font-size: 16rpx;
+		font-weight: 700;
+		line-height: 28rpx;
+		text-align: center;
+		border: 2rpx solid rgba(255, 255, 255, 0.95);
+		box-sizing: border-box;
 	}
 
 	.search-row {
@@ -1768,28 +1810,31 @@
 		z-index: 1;
 		display: flex;
 		align-items: center;
-		margin-top: 20rpx;
-		padding: 0 20rpx 0 24rpx;
-		min-height: 80rpx;
-		border-radius: 36rpx;
-		background: rgba(255, 255, 255, 0.56);
-		border: 1rpx solid rgba(255, 255, 255, 0.44);
-		box-shadow: 0 14rpx 30rpx rgba(38, 57, 77, 0.08);
+		margin-top: 22rpx;
+		padding: 0 24rpx;
+		height: 76rpx;
+		border-radius: 999rpx;
+		background: rgba(255, 255, 255, 0.66);
+		border: 1rpx solid rgba(255, 255, 255, 0.58);
+		box-sizing: border-box;
 	}
 
 	.search-ico {
-		width: 30rpx;
-		height: 30rpx;
-		margin-right: 16rpx;
-		opacity: 0.45;
+		width: 28rpx;
+		height: 28rpx;
+		margin-right: 14rpx;
+		opacity: 0.4;
+		flex-shrink: 0;
 	}
 
 	.search-ph {
 		flex: 1;
 		font-size: 26rpx;
-		line-height: 1.45;
-		color: #70859a;
-		padding: 18rpx 0;
+		line-height: 1.3;
+		color: #7a8fa3;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.search-ph--active {
@@ -1797,73 +1842,70 @@
 		font-weight: 600;
 	}
 
-	.search-row-right {
-		display: inline-flex;
-		align-items: center;
-		gap: 8rpx;
-		margin-left: 16rpx;
-	}
-
-	.search-clear,
-	.search-enter {
-		padding: 10rpx 18rpx;
+	.search-clear {
+		margin-left: 12rpx;
+		padding: 8rpx 16rpx;
 		border-radius: 999rpx;
 		font-size: 22rpx;
 		font-weight: 600;
-	}
-
-	.search-clear {
-		color: #c85f85;
-		background: rgba(255, 214, 226, 0.62);
-		border: 1rpx solid rgba(255, 164, 193, 0.34);
-	}
-
-	.search-enter {
-		color: #2f6f92;
-		background: rgba(206, 238, 247, 0.72);
-		border: 1rpx solid rgba(107, 188, 214, 0.24);
+		color: #9a6b7f;
+		background: rgba(255, 255, 255, 0.72);
+		flex-shrink: 0;
 	}
 
 	.feed-tabs {
 		position: relative;
 		z-index: 1;
 		width: 100%;
-		margin-top: 20rpx;
+		margin-top: 24rpx;
 		white-space: nowrap;
 	}
 
 	.feed-tabs-inner {
 		display: inline-flex;
 		flex-direction: row;
+		align-items: center;
 		gap: 16rpx;
 		padding: 4rpx 0;
 	}
 
-	.feed-pill {
+	.feed-tab {
 		position: relative;
-		padding: 14rpx 28rpx;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 60rpx;
+		padding: 0 28rpx;
 		border-radius: 999rpx;
-		background: rgba(255, 255, 255, 0.54);
-		border: 1rpx solid rgba(255, 255, 255, 0.74);
-		font-size: 26rpx;
-		color: #557089;
+		background: rgba(255, 255, 255, 0.48);
+		border: 1rpx solid rgba(255, 255, 255, 0.55);
 		flex-shrink: 0;
+		box-sizing: border-box;
 	}
 
-	.feed-pill.on {
+	.feed-tab-txt {
+		font-size: 26rpx;
+		font-weight: 560;
+		color: #5f7690;
+		line-height: 1;
+	}
+
+	.feed-tab.on {
+		background: #4f93a3;
+		border-color: #4f93a3;
+	}
+
+	.feed-tab.on .feed-tab-txt {
 		color: #fff;
-		font-weight: 600;
-		background: linear-gradient(135deg, #67b7d6 0%, #8ecfe3 48%, #f5a7c3 100%);
-		border-color: rgba(255, 255, 255, 0.82);
-		box-shadow: 0 14rpx 24rpx rgba(93, 174, 207, 0.22);
+		font-weight: 700;
 	}
 
 	.feed-dot {
 		position: absolute;
-		top: 8rpx;
+		top: 10rpx;
 		right: 12rpx;
-		width: 12rpx;
-		height: 12rpx;
+		width: 10rpx;
+		height: 10rpx;
 		border-radius: 50%;
 		background: #f43f5e;
 	}
@@ -1873,90 +1915,37 @@
 		z-index: 1;
 		display: flex;
 		align-items: center;
-		gap: 14rpx;
-		margin-top: 14rpx;
-		padding: 14rpx 58rpx 14rpx 16rpx;
-		border-radius: 18rpx;
-		background:
-			linear-gradient(135deg, rgba(255, 255, 255, 0.82) 0%, rgba(236, 249, 253, 0.72) 100%);
-		border: 1rpx solid rgba(124, 183, 207, 0.2);
-		box-shadow: 0 10rpx 24rpx rgba(66, 112, 139, 0.08);
+		gap: 12rpx;
+		margin-top: 20rpx;
+		padding: 16rpx 52rpx 16rpx 18rpx;
+		border-radius: 16rpx;
+		background: rgba(255, 255, 255, 0.72);
+		border: 1rpx solid rgba(124, 183, 207, 0.18);
 		box-sizing: border-box;
 	}
 
-	.notice-banner:active {
-		transform: scale(0.995);
-	}
-
-	.notice-banner-icon {
-		flex-shrink: 0;
-		width: 42rpx;
-		height: 42rpx;
-		border-radius: 50%;
-		background: rgba(83, 161, 194, 0.14);
-		color: #2e86a8;
-		font-size: 25rpx;
-		font-weight: 900;
-		text-align: center;
-		line-height: 42rpx;
-		font-style: italic;
-	}
-
-	.notice-banner-head {
-		display: flex;
-		align-items: center;
-		gap: 10rpx;
-		min-width: 0;
-	}
-
 	.notice-banner-mark {
-		display: inline-block;
 		flex-shrink: 0;
 		height: 32rpx;
 		padding: 0 12rpx;
 		border-radius: 8rpx;
-		background: rgba(255, 255, 255, 0.7);
+		background: rgba(83, 161, 194, 0.12);
 		color: #3e8dab;
-		font-size: 19rpx;
-		font-weight: 800;
+		font-size: 20rpx;
+		font-weight: 700;
 		line-height: 32rpx;
 	}
 
-	.notice-banner-copy {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 6rpx;
-	}
-
 	.notice-banner-title {
-		display: block;
 		flex: 1;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-
-	.notice-banner-desc {
-		display: block;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.notice-banner-title {
 		font-size: 24rpx;
-		font-weight: 800;
+		font-weight: 650;
 		color: #254962;
-		line-height: 1.25;
-	}
-
-	.notice-banner-desc {
-		font-size: 20rpx;
-		color: #72899b;
-		line-height: 1.35;
+		line-height: 1.3;
 	}
 
 	.notice-banner-close {
@@ -1967,7 +1956,7 @@
 		height: 40rpx;
 		margin-top: -20rpx;
 		border-radius: 999rpx;
-		background: rgba(255, 255, 255, 0.58);
+		background: rgba(255, 255, 255, 0.55);
 		color: #7a91a2;
 		text-align: center;
 		line-height: 38rpx;
@@ -1979,53 +1968,7 @@
 		z-index: 1;
 		width: 100%;
 		margin-top: 18rpx;
-	}
-
-	.tag-filter-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0 6rpx 10rpx;
-	}
-
-	.tag-filter-head-left {
-		display: flex;
-		align-items: center;
-		gap: 12rpx;
-	}
-
-	.tag-filter-title {
-		font-size: 24rpx;
-		font-weight: 700;
-		color: #24445f;
-		letter-spacing: 1rpx;
-	}
-
-	.tag-filter-meta {
-		font-size: 20rpx;
-		color: #7c89a3;
-	}
-
-	.tag-filter-active {
-		font-size: 20rpx;
-		color: #2f6f92;
-		padding: 4rpx 12rpx;
-		border-radius: 999rpx;
-		background: rgba(217, 242, 249, 0.82);
-		border: 1rpx solid rgba(87, 169, 206, 0.18);
-	}
-
-	.tag-filter-reset {
-		font-size: 22rpx;
-		color: #4c93b4;
-	}
-
-	.tag-filter-bar {
-		padding: 12rpx 14rpx 14rpx;
-		border-radius: 24rpx;
-		background: rgba(255, 255, 255, 0.42);
-		border: 1rpx solid rgba(255, 255, 255, 0.68);
-		box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.5);
+		padding-bottom: 4rpx;
 	}
 
 	.tag-scroll {
@@ -2036,67 +1979,40 @@
 	.tag-inner {
 		display: inline-flex;
 		flex-direction: row;
-		gap: 12rpx;
-		padding: 2rpx 2rpx 6rpx;
-		min-width: 100%;
+		align-items: center;
+		gap: 4rpx;
+		padding: 8rpx 2rpx;
+		min-height: 48rpx;
 	}
 
-	.tag-chip {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-height: 58rpx;
-		padding: 0 24rpx;
-		border-radius: 999rpx;
-		font-size: 24rpx;
-		color: #5d7289;
-		background: rgba(255, 255, 255, 0.76);
+	.tag-link {
 		flex-shrink: 0;
-		border: 1rpx solid rgba(122, 181, 209, 0.16);
+		padding: 8rpx 10rpx;
+		font-size: 26rpx;
+		font-weight: 500;
+		color: #6f8498;
+		line-height: 1.2;
 	}
 
-	.tag-chip.on {
-		color: #fff;
+	.tag-link.on {
+		color: #2a6d87;
 		font-weight: 700;
-		background: linear-gradient(135deg, #57a9ce 0%, #7fd0e4 54%, #f3a7c1 100%);
-		border-color: rgba(255, 255, 255, 0.72);
-		box-shadow: 0 10rpx 24rpx rgba(87, 169, 206, 0.2);
 	}
 
-	.tag-chip--more {
-		display: inline-flex;
-		align-items: center;
-		gap: 8rpx;
-		background: rgba(232, 246, 251, 0.82);
-		color: #3d7f9e;
-		border-color: rgba(87, 169, 206, 0.22);
+	.tag-link--more {
+		color: #5d8aa0;
 	}
 
-	.tag-chip-count {
-		font-size: 20rpx;
-		opacity: 0.78;
+	.tag-link--clear {
+		color: #9a6b7f;
 	}
 
-	.tag-chip--ghost {
-		background: rgba(255, 240, 247, 0.86);
-		color: #bd6d91;
-	}
-
-	.tag-filter-tip-row {
-		display: flex;
-		align-items: center;
-		min-height: 34rpx;
-		padding: 10rpx 8rpx 0;
-	}
-
-	.tag-filter-tip {
-		font-size: 21rpx;
-		color: #75889a;
-		line-height: 1.55;
-	}
-
-	.tag-filter-tip--warn {
-		color: #f9a8d4;
+	.tag-sep {
+		flex-shrink: 0;
+		padding: 0 2rpx;
+		font-size: 22rpx;
+		color: rgba(111, 132, 152, 0.45);
+		line-height: 1;
 	}
 
 	.tag-popup {
@@ -2400,6 +2316,25 @@
 		color: #24445f;
 	}
 
+	.discover-menu-item-title-row {
+		display: flex;
+		align-items: center;
+		gap: 10rpx;
+	}
+
+	.discover-menu-unread {
+		min-width: 28rpx;
+		height: 28rpx;
+		padding: 0 8rpx;
+		border-radius: 999rpx;
+		background: #f43f5e;
+		color: #fff;
+		font-size: 18rpx;
+		font-weight: 700;
+		line-height: 28rpx;
+		text-align: center;
+	}
+
 	.discover-menu-item-desc {
 		display: block;
 		margin-top: 8rpx;
@@ -2656,17 +2591,13 @@
 	.g3-inner {
 		position: relative;
 		width: 216rpx;
-		height: 386rpx;
+		height: 344rpx;
 		margin: 0 auto;
-		border-radius: 22rpx;
-		overflow: hidden;
-		background:
-			radial-gradient(circle at top, rgba(255, 255, 255, 0.28), transparent 26%),
-			linear-gradient(180deg, rgba(237, 248, 253, 0.96) 0%, rgba(255, 246, 250, 0.98) 100%);
-		box-shadow:
-			0 18rpx 34rpx rgba(72, 112, 142, 0.16),
-			0 6rpx 16rpx rgba(72, 112, 142, 0.1);
-		transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, filter 0.22s ease;
+		border-radius: 36rpx;
+		overflow: visible;
+		background: transparent;
+		box-shadow: none;
+		transition: transform 0.18s ease;
 		will-change: transform;
 	}
 
@@ -2719,9 +2650,9 @@
 		gap: 4rpx;
 		padding: 4rpx 10rpx;
 		border-radius: 999rpx;
-		background: rgba(87, 169, 206, 0.66);
+		background: rgba(12, 18, 24, 0.48);
 		font-size: 20rpx;
-		color: #fff;
+		color: rgba(255, 245, 220, 0.94);
 	}
 
 	.g3-tags {
@@ -2785,37 +2716,25 @@
 	}
 
 	.card-disc {
-		width: 352rpx;
+		position: relative;
+		width: 346rpx;
 		margin: 0 auto;
-		border-radius: 24rpx;
-		overflow: hidden;
-		background: rgba(255, 255, 255, 0.84);
-		border: 1rpx solid rgba(255, 255, 255, 0.88);
-		box-shadow:
-			0 20rpx 42rpx rgba(73, 112, 137, 0.13),
-			0 8rpx 18rpx rgba(73, 112, 137, 0.08);
-		transition: transform 0.24s ease, box-shadow 0.24s ease, border-color 0.24s ease, filter 0.24s ease;
+		border-radius: 0;
+		overflow: visible;
+		background: transparent;
+		border: none;
+		box-shadow: none;
+		transition: transform 0.18s ease;
 		will-change: transform;
 	}
 
 	.card-visual {
 		position: relative;
 		width: 100%;
-		height: 592rpx;
+		height: 550rpx;
 		overflow: hidden;
-		background:
-			radial-gradient(circle at top, rgba(255, 255, 255, 0.24), transparent 28%),
-			linear-gradient(180deg, rgba(232, 246, 251, 0.78) 0%, rgba(255, 246, 250, 0.98) 100%);
-	}
-
-	.card-visual::after {
-		content: '';
-		position: absolute;
-		inset: 0;
-		z-index: 1;
-		background:
-			linear-gradient(180deg, rgba(21, 42, 58, 0.01) 0%, rgba(21, 42, 58, 0.02) 28%, rgba(21, 42, 58, 0.16) 72%, rgba(21, 42, 58, 0.62) 100%);
-		pointer-events: none;
+		border-radius: 36rpx;
+		background: transparent;
 	}
 
 	.card2-bg {
@@ -2906,38 +2825,16 @@
 		cursor: pointer;
 	}
 
-	.g3-inner:hover .g3-img,
-	.g3-inner--hover .g3-img,
-	.g3-inner:active .g3-img {
-		transform: translateY(-34rpx) scale(1.2);
-		filter: brightness(1.1) saturate(1.12);
-	}
-
 	.g3-inner:hover .g3-img--blur,
 	.g3-inner--hover .g3-img--blur,
 	.g3-inner:active .g3-img--blur {
-		filter: blur(18rpx) scale(1.18) brightness(0.76);
-	}
-
-	.g3-inner:active {
-		filter: saturate(1.04) brightness(1.02);
-	}
-
-	.card-disc:hover .card2-bg,
-	.card-disc--hover .card2-bg,
-	.card-disc:active .card2-bg {
-		transform: translateY(-36rpx) scale(1.2);
-		filter: brightness(1.1) saturate(1.12);
+		filter: blur(18rpx) scale(1.08) brightness(0.76);
 	}
 
 	.card-disc:hover .card2-bg--blur,
 	.card-disc--hover .card2-bg--blur,
 	.card-disc:active .card2-bg--blur {
-		filter: blur(18rpx) scale(1.18) brightness(0.74);
-	}
-
-	.card-disc:active {
-		border-color: rgba(220, 181, 255, 0.16);
+		filter: blur(18rpx) scale(1.08) brightness(0.74);
 	}
 
 	.grid2-item:hover .card-disc,
@@ -2990,11 +2887,11 @@
 		gap: 4rpx;
 		padding: 6rpx 12rpx;
 		border-radius: 999rpx;
-		background: rgba(87, 169, 206, 0.66);
+		background: rgba(12, 18, 24, 0.48);
 		font-size: 22rpx;
-		color: #fff;
-		backdrop-filter: blur(8px);
-		border: 1rpx solid rgba(255, 255, 255, 0.1);
+		color: rgba(255, 245, 220, 0.94);
+		backdrop-filter: blur(12px);
+		border: 1rpx solid rgba(255, 255, 255, 0.16);
 	}
 
 	.heart {
@@ -3008,13 +2905,13 @@
 
 	.card-float-tags {
 		position: absolute;
-		left: 10rpx;
-		right: 10rpx;
-		bottom: 204rpx;
+		left: 12rpx;
+		right: 12rpx;
+		bottom: 128rpx;
 		z-index: 5;
 		display: flex;
 		flex-wrap: wrap;
-		gap: 8rpx;
+		gap: 6rpx;
 		pointer-events: none;
 		transition: transform 0.26s ease;
 	}
@@ -3025,25 +2922,30 @@
 		right: 0;
 		bottom: 0;
 		z-index: 5;
-		padding: 176rpx 20rpx 24rpx;
-		background: linear-gradient(180deg, rgba(21, 42, 58, 0) 0%, rgba(21, 42, 58, 0.86) 100%);
+		padding: 120rpx 18rpx 18rpx;
+		background: linear-gradient(
+			180deg,
+			rgba(8, 14, 20, 0) 0%,
+			rgba(8, 14, 20, 0.5) 48%,
+			rgba(8, 14, 20, 0.92) 100%
+		);
 		transition: transform 0.24s ease;
 	}
 
 	.card-visual-title {
 		display: block;
-		font-size: 36rpx;
+		font-size: 30rpx;
 		font-weight: 800;
 		color: #fff;
-		line-height: 1.15;
+		line-height: 1.2;
 	}
 
 	.card-visual-desc {
 		display: block;
-		margin-top: 10rpx;
-		font-size: 22rpx;
-		line-height: 1.55;
-		color: rgba(241, 245, 249, 0.82);
+		margin-top: 6rpx;
+		font-size: 20rpx;
+		line-height: 1.4;
+		color: rgba(245, 248, 250, 0.78);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		display: -webkit-box;
@@ -3055,8 +2957,8 @@
 		font-size: 20rpx;
 		padding: 4rpx 12rpx;
 		border-radius: 999rpx;
-		color: #fff;
-		border: 1rpx solid rgba(255, 255, 255, 0.16);
+		color: rgba(255, 248, 230, 0.94);
+		border: 1rpx solid rgba(255, 255, 255, 0.14);
 		backdrop-filter: blur(8px);
 	}
 
@@ -3071,9 +2973,16 @@
 	}
 
 	.card-meta {
-		padding: 22rpx 18rpx 24rpx;
-		min-height: 188rpx;
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 252, 255, 0.96) 100%);
+		display: none !important;
+		height: 0 !important;
+		min-height: 0 !important;
+		max-height: 0 !important;
+		padding: 0 !important;
+		margin: 0 !important;
+		overflow: hidden !important;
+		background: transparent !important;
+		border: none !important;
+		box-shadow: none !important;
 	}
 
 	.meta-kicker {
@@ -3428,44 +3337,16 @@
 	}
 
 	/* Home clean pass: image-first, low-key surfaces. */
-	.feed-pill,
-	.tag-chip,
 	.main-tabs,
-	.tag-filter-bar,
-	.card-top,
-	.card-disc,
-	.g3-inner {
+	.card-top {
 		background: rgba(255, 255, 255, 0.58);
 		border-color: rgba(255, 255, 255, 0.42);
 		box-shadow: 0 14rpx 30rpx rgba(38, 57, 77, 0.08);
 	}
 
-	.feed-pill.on,
-	.tag-chip.on,
 	.main-pill.on {
 		background: #4f93a3;
 		box-shadow: 0 12rpx 24rpx rgba(48, 103, 117, 0.16);
-	}
-
-	.card-meta {
-		background: rgba(255, 255, 255, 0.62);
-	}
-
-	/* Keep card rows aligned even when tag counts differ. */
-	.card-disc {
-		display: flex;
-		flex-direction: column;
-	}
-
-	.card-visual {
-		flex-shrink: 0;
-	}
-
-	.card-meta {
-		height: 244rpx;
-		min-height: 244rpx;
-		display: flex;
-		flex-direction: column;
 	}
 
 	.meta-badges {
@@ -3487,6 +3368,401 @@
 	.meta-foot {
 		margin-top: auto;
 	}
+
+	/*
+	 * Character cards mirrored from JiuGuanSJ/copy (Saki discover).
+	 * Light-client rule: no outer black frame; rounded cover only.
+	 */
+	.g3-inner,
+	.card-disc {
+		--tier-rim: linear-gradient(145deg, #f3f4f6 0%, #9ca3af 40%, #e5e7eb 60%, #6b7280 100%);
+		--tier-ink-a: 156, 163, 175;
+		--tier-ink-b: 209, 213, 219;
+		background: transparent;
+		border: none;
+		box-shadow: none;
+		overflow: visible;
+	}
+
+	.card-tier--vip {
+		--tier-rim: linear-gradient(135deg, #e0f2fe 0%, #38bdf8 25%, #60a5fa 50%, #7dd3fc 75%, #bae6fd 100%);
+		--tier-ink-a: 56, 189, 248;
+		--tier-ink-b: 96, 165, 250;
+	}
+
+	.card-tier--svip {
+		--tier-rim: linear-gradient(125deg, #f9a8d4 0%, #c084fc 20%, #818cf8 40%, #67e8f9 60%, #fde047 80%, #fb7185 100%);
+		--tier-ink-a: 192, 132, 252;
+		--tier-ink-b: 249, 168, 212;
+	}
+
+	.card-grade {
+		position: absolute;
+		top: -2rpx;
+		left: -2rpx;
+		z-index: 8;
+		display: inline-flex;
+		flex-direction: column;
+		align-items: flex-start;
+		padding: 12rpx 16rpx 8rpx 10rpx;
+		pointer-events: none;
+		transform: rotate(-6deg);
+		transform-origin: 0 0;
+	}
+
+	.card-tier--vip .card-grade {
+		transform: rotate(-4deg);
+	}
+
+	.card-tier--standard .card-grade,
+	.g3-inner:not(.card-tier--vip):not(.card-tier--svip) .card-grade,
+	.card-disc:not(.card-tier--vip):not(.card-tier--svip) .card-grade {
+		transform: rotate(-3deg);
+		top: 2rpx;
+		left: 2rpx;
+	}
+
+	.card-grade-label {
+		font-family: Georgia, 'Times New Roman', 'Noto Serif SC', 'Songti SC', serif;
+		font-size: 44rpx;
+		font-weight: 900;
+		font-style: italic;
+		line-height: 0.85;
+		letter-spacing: -0.02em;
+		text-transform: uppercase;
+		color: #e5e7eb;
+		text-shadow: 0 2rpx 2rpx rgba(0, 0, 0, 0.75), 0 0 12rpx rgba(var(--tier-ink-a), 0.7);
+	}
+
+	.card-grade-caption {
+		display: none;
+	}
+
+	.card-grade--compact .card-grade-label {
+		font-size: 34rpx;
+	}
+
+	.card-tier--vip .card-grade-label {
+		font-size: 40rpx;
+		color: #bae6fd;
+	}
+
+	.card-tier--svip .card-grade-label {
+		font-size: 48rpx;
+		color: #f5d0fe;
+	}
+
+	.g3-img:not(.g3-img--blur),
+	.card2-bg:not(.card2-bg--blur) {
+		filter: none;
+		image-rendering: auto;
+	}
+
+	.card-disc {
+		position: relative;
+		display: block;
+		width: 346rpx;
+		margin: 0 auto;
+		height: auto;
+		background: transparent !important;
+		border: none !important;
+		box-shadow: none !important;
+	}
+
+	.card-visual {
+		position: relative;
+		isolation: isolate;
+		overflow: hidden;
+		border-radius: 36rpx;
+		background: transparent !important;
+		width: 100%;
+		height: 550rpx;
+	}
+
+	.g3-inner {
+		position: relative;
+		isolation: isolate;
+		overflow: visible;
+		background: transparent;
+		width: 216rpx;
+		height: 344rpx;
+		margin: 0 auto;
+	}
+
+	.g3-media {
+		position: absolute;
+		inset: 0;
+		border-radius: 36rpx;
+		overflow: hidden;
+	}
+
+	.card-visual::before,
+	.g3-media::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: 36rpx;
+		padding: 3rpx;
+		background: var(--tier-rim);
+		background-size: 200% 200%;
+		-webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+		-webkit-mask-composite: xor;
+		mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+		mask-composite: exclude;
+		pointer-events: none;
+		z-index: 6;
+		opacity: 0.95;
+	}
+
+	.card-tier--vip .card-visual::before,
+	.card-tier--vip .g3-media::before {
+		padding: 4rpx;
+		animation: saki-grade-shift 4.5s ease infinite;
+	}
+
+	.card-tier--svip .card-visual::before,
+	.card-tier--svip .g3-media::before {
+		padding: 5rpx;
+		animation: saki-grade-shift 3.2s ease infinite;
+	}
+
+	.card2-bg,
+	.g3-img {
+		position: absolute;
+		left: 0;
+		top: 0;
+		width: 100%;
+		height: 100%;
+		z-index: 0;
+		display: block;
+		/* #ifdef H5 */
+		object-fit: cover;
+		object-position: center top;
+		/* #endif */
+		transform-origin: center center;
+		transition: transform 0.45s ease;
+	}
+
+	.card-shade {
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		pointer-events: none;
+		background: linear-gradient(
+			180deg,
+			rgba(0, 0, 0, 0.02) 0%,
+			rgba(0, 0, 0, 0.04) 42%,
+			rgba(0, 0, 0, 0.38) 68%,
+			rgba(0, 0, 0, 0.78) 100%
+		);
+	}
+
+	.g3-overlay-top,
+	.card-float-top,
+	.g3-likes,
+	.like-badge {
+		display: none;
+	}
+
+	.g3-mask,
+	.card-visual-copy {
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 3;
+		display: flex;
+		flex-direction: column;
+		gap: 6rpx;
+		padding: 24rpx 20rpx 18rpx;
+		pointer-events: none;
+		background: transparent;
+	}
+
+	.g3-name,
+	.card-visual-title {
+		margin: 0;
+		color: #fff;
+		font-size: 30rpx;
+		font-weight: 800;
+		line-height: 1.25;
+		letter-spacing: 0.01em;
+		text-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.55);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.g3-name {
+		font-size: 24rpx;
+	}
+
+	.g3-sub,
+	.card-visual-desc {
+		margin: 0;
+		min-height: 0;
+		color: rgba(255, 255, 255, 0.84);
+		font-size: 21rpx;
+		line-height: 1.4;
+		text-shadow: 0 1rpx 8rpx rgba(0, 0, 0, 0.45);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+	}
+
+	.g3-sub {
+		font-size: 19rpx;
+		-webkit-line-clamp: 1;
+	}
+
+	.g3-tags,
+	.card-float-tags {
+		position: static;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6rpx;
+		margin-top: 4rpx;
+		left: auto;
+		right: auto;
+		bottom: auto;
+	}
+
+	.mini-tag,
+	.float-tag,
+	.tone-0,
+	.tone-1,
+	.tone-2 {
+		max-width: 100%;
+		padding: 3rpx 12rpx;
+		border-radius: 999rpx;
+		font-size: 20rpx;
+		font-weight: 650;
+		color: rgba(255, 244, 214, 0.96);
+		background: rgba(0, 0, 0, 0.28);
+		border: 1rpx solid rgba(255, 255, 255, 0.16);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		backdrop-filter: blur(6px);
+		-webkit-backdrop-filter: blur(6px);
+	}
+
+	.g3-foot,
+	.card-inline-foot {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12rpx;
+		margin-top: 6rpx;
+		padding-top: 10rpx;
+		border-top: 1rpx solid rgba(255, 255, 255, 0.12);
+		pointer-events: auto;
+	}
+
+	.g3-foot-handle,
+	.card-inline-handle {
+		flex: 1;
+		min-width: 0;
+		font-size: 20rpx;
+		font-weight: 650;
+		color: rgba(255, 255, 255, 0.78);
+		text-shadow: 0 1rpx 6rpx rgba(0, 0, 0, 0.5);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.g3-foot-heat,
+	.card-inline-heat {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		gap: 6rpx;
+		font-size: 20rpx;
+		font-weight: 700;
+		color: rgba(255, 214, 120, 0.92);
+		text-shadow: 0 1rpx 6rpx rgba(0, 0, 0, 0.5);
+	}
+
+	.card-inline-unlock {
+		flex-shrink: 0;
+		padding: 4rpx 12rpx;
+		border-radius: 999rpx;
+		font-size: 18rpx;
+		font-weight: 700;
+		color: #fff6d6;
+		background: rgba(150, 100, 28, 0.42);
+		border: 1rpx solid rgba(255, 220, 140, 0.28);
+	}
+
+	.card-meta {
+		display: none !important;
+		height: 0 !important;
+		min-height: 0 !important;
+		padding: 0 !important;
+		margin: 0 !important;
+		overflow: hidden !important;
+		background: transparent !important;
+	}
+
+	/* #ifdef H5 */
+	.card-grade-label {
+		color: transparent;
+		background-image: conic-gradient(from 0deg at 50% 50%, #e5e7eb, #9ca3af, #f3f4f6, #d1d5db, #e5e7eb);
+		background-size: 300% 300%;
+		-webkit-background-clip: text;
+		background-clip: text;
+		-webkit-text-fill-color: transparent;
+		filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.8)) drop-shadow(0 0 6px rgba(var(--tier-ink-a), 0.75)) drop-shadow(0 0 12px rgba(var(--tier-ink-b), 0.45));
+		text-shadow: none;
+		animation: saki-holo-rotate 12s steps(180, end) infinite;
+	}
+
+	.card-tier--vip .card-grade-label {
+		background-image: conic-gradient(from 0deg at 50% 50%, #c8e0ff, #90c8ff, #e0f0ff, #b0d4ff, #d8ecff, #c8e0ff);
+	}
+
+	.card-tier--svip .card-grade-label {
+		background-image: conic-gradient(from 0deg at 50% 50%, #d8c8ff, #ffc8e8, #b5f0ff, #fff0c8, #ffc8d8, #d8c8ff);
+	}
+	/* #endif */
+
+	/* Keep full-resolution covers crisp during pointer interaction. */
+	.g3-inner:hover .g3-img:not(.g3-img--blur),
+	.g3-inner--hover .g3-img:not(.g3-img--blur),
+	.g3-inner:active .g3-img:not(.g3-img--blur),
+	.card-disc:hover .card2-bg:not(.card2-bg--blur),
+	.card-disc--hover .card2-bg:not(.card2-bg--blur),
+	.card-disc:active .card2-bg:not(.card2-bg--blur) {
+		transform: scale(1.04);
+	}
+
+	.g3-inner:active,
+	.card-disc:active {
+		transform: scale(0.975);
+	}
+
+	@keyframes saki-grade-shift {
+		0% { background-position: 0% 50%; }
+		50% { background-position: 100% 50%; }
+		100% { background-position: 0% 50%; }
+	}
+
+	@keyframes saki-holo-rotate {
+		to { background-position: 100% 50%; }
+	}
+
+	/* #ifdef H5 */
+	@media (prefers-reduced-motion: reduce) {
+		.card-visual::before,
+		.g3-media::before,
+		.card-grade-label {
+			animation: none;
+		}
+	}
+	/* #endif */
 
 	@keyframes discover-shimmer {
 		100% {

@@ -1,5 +1,18 @@
 {
-  "dependencies": {
+	"scripts": {
+		"test:discover-card-ui": "node tests/discoverCardUi.contract.test.cjs",
+		"test:appearance": "node tests/chatAppearance.contract.test.cjs",
+		"test:frontend-reliability": "node tests/frontendReliability.contract.test.cjs",
+		"test:chat-output-finalization": "node tests/chatOutputFinalization.contract.test.cjs",
+		"test:auth-storage": "node tests/authStorage.contract.test.cjs",
+		"test:viewer-identity": "node tests/viewerIdentity.unit.test.cjs",
+		"test:inbox-reliability": "node tests/inboxReliability.contract.test.cjs",
+		"test:recharge-entry": "node tests/rechargeEntry.contract.test.cjs",
+		"test:checkin": "node tests/checkin.contract.test.cjs"
+		,"test:local-media": "node tests/localMediaStore.contract.test.cjs",
+		"test:media-experience": "node tests/mediaExperience.contract.test.cjs"
+	},
+	"dependencies": {
     "@ffmpeg/core": "^0.12.10",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "dompurify": "^3.2.4",

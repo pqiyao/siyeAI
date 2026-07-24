@@ -575,6 +575,10 @@ import {
   updateJgH5User
 } from '@/api/jiugai/h5user'
 import { jiugaiRequestErrorMessage } from '@/utils/jiugaiRequestError'
+import {
+  captureH5UserFinancialSnapshot,
+  expectedH5UserFinancialFields
+} from './financialSnapshot'
 
 const { proxy } = getCurrentInstance()
 const router = useRouter()
@@ -622,6 +626,10 @@ function emptyForm() {
     vipExpiresAt: '',
     score: 0,
     goldCoin: 0,
+    expectedScore: 0,
+    expectedGoldCoin: 0,
+    expectedVipType: 0,
+    expectedVipExpiresAt: '',
     dailyChatQuota: 0,
     chatQuotaOverride: null,
     chatQuotaOverrideInput: '',
@@ -860,7 +868,12 @@ function formatWorldNames(worldNames) {
 }
 
 function patchForm(payload) {
-  const next = { ...emptyForm(), ...(payload || {}) }
+  const source = payload || {}
+  const next = {
+    ...emptyForm(),
+    ...source,
+    ...captureH5UserFinancialSnapshot(source)
+  }
   next.chatQuotaOverrideInput =
     next.chatQuotaOverride == null || next.chatQuotaOverride === '' ? '' : String(next.chatQuotaOverride)
   next.imageQuotaOverrideInput =
@@ -1119,6 +1132,7 @@ function submitForm() {
     }
     updateJgH5User({
       ...form.value,
+      ...expectedH5UserFinancialFields(form.value),
       vipExpiresAt: vipType > 0 ? vipExpiresAt : '',
       chatQuotaOverride: toNullableInteger(form.value.chatQuotaOverrideInput),
       imageQuotaOverride: toNullableInteger(form.value.imageQuotaOverrideInput)

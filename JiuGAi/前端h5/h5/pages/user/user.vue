@@ -60,41 +60,46 @@
 			</view>
 			<view class="wallet-actions">
 				<view class="wallet-soft-btn" @tap="goMyVip">{{ uiText.viewBenefits }}</view>
-				<view class="wallet-main-btn" @tap="goMyMoney">{{ uiText.rechargeNow }}</view>
+				<view v-if="rechargeEntryReady && rechargeEntryVisible" class="wallet-main-btn" @tap="goMyMoney">{{ uiText.rechargeNow }}</view>
+			</view>
+		</view>
+
+		<view v-if="hasToken && checkinEntryReady && checkinEntryVisible" class="checkin-entry" :class="{ 'is-claimable': checkinClaimable }" @tap="goCheckin">
+			<view class="checkin-entry-icon">
+				<image class="checkin-entry-icon-image" src="/static/user/checkin-calendar.png" mode="aspectFit"></image>
+			</view>
+			<view class="checkin-entry-copy">
+				<text class="checkin-entry-title">每日签到</text>
+				<text class="checkin-entry-sub">{{ checkinEntrySub }}</text>
+			</view>
+			<view class="checkin-entry-right">
+				<view v-if="checkinClaimable" class="checkin-dot"></view>
+				<text class="checkin-entry-action">{{ checkinClaimable ? '去领取' : (checkinLoaded ? '今日已领' : '查看') }}</text>
+				<text class="checkin-entry-arrow">›</text>
 			</view>
 		</view>
 
 		<view class="quota-grid">
 			<view class="quota-card">
 				<text class="quota-card-label">{{ todayChatCardLabel }}</text>
-				<text class="quota-card-value">{{ todayChatUsedDisplay }}</text>
+				<text class="quota-card-value">{{ todayChatUsedDisplay }} / {{ chatQuotaDisplay }}</text>
 				<text class="quota-card-note">{{ todayChatUsageNoteText }}</text>
 			</view>
 			<view class="quota-card quota-card--violet">
-				<text class="quota-card-label">{{ uiText.todayImageCard }}</text>
+				<text class="quota-card-label">{{ todayImageCardLabel }}</text>
 				<text class="quota-card-value">{{ imageQuotaDisplay }}</text>
-				<text class="quota-card-note">{{ uiText.imageQuotaNote }}</text>
+				<text class="quota-card-note">{{ todayImageNoteText }}</text>
 			</view>
 		</view>
 
-		<view class="benefit-card" @tap="goMyVip">
-			<image class="benefit-bg-art" src="/static/user/vipbgs.png" mode="aspectFill"></image>
-			<view class="benefit-copy">
-				<text class="benefit-title">{{ uiText.benefitsTitle }}</text>
-				<text class="benefit-desc">{{ uiText.benefitsDesc }}</text>
-			</view>
-			<view class="benefit-link">{{ uiText.goView }}</view>
-		</view>
-
-		<view class="illustration-site-card" @tap="openIllustrationSite">
-			<view class="illustration-site-glow"></view>
+		<view v-if="illustrationEntryEnabled" class="illustration-site-card" @tap="openIllustrationSite">
 			<view class="illustration-site-icon">
-				<text class="illustration-site-mark">✦</text>
+				<image class="illustration-site-icon-img" src="/static/user/u4.png" mode="aspectFit"></image>
 			</view>
 			<view class="illustration-site-copy">
 				<text class="illustration-site-kicker">相关站点</text>
 				<text class="illustration-site-title">四叶插画分享</text>
-				<text class="illustration-site-desc">上传作品、浏览画廊、查看插画灵感</text>
+				<text class="illustration-site-desc">上传作品、浏览画廊</text>
 			</view>
 			<view class="illustration-site-action">进入</view>
 		</view>
@@ -115,7 +120,6 @@
 						<image class="shortcut-icon" :src="item.iconPath" mode="aspectFit"></image>
 					</view>
 					<text class="shortcut-name">{{ item.name }}</text>
-					<text class="shortcut-desc">{{ item.desc }}</text>
 				</view>
 			</view>
 		</view>
@@ -191,40 +195,59 @@ const SERVICE_SUPPORT_COPY = {
 
 const AI_SETTINGS_COPY = {
 	'zh-cn': {
-		name: '模型配置',
-		desc: '选择官方 API，或使用自己的 API Key'
+		name: 'AI、语音与生图设置',
+		desc: '配置聊天模型、语音、生图平台和 API Key'
 	},
 	'zh-hk': {
-		name: '模型配置',
-		desc: '選擇官方 API，或使用自己的 API Key'
+		name: 'AI、語音與生圖設定',
+		desc: '設定聊天模型、語音、生圖平台和 API Key'
 	},
 	en: {
-		name: 'Model Config',
-		desc: 'Use official API or your own API key'
+		name: 'AI, Voice & Image',
+		desc: 'Configure chat, voice, image providers and API keys'
 	},
 	ko: {
-		name: '모델 설정',
-		desc: '공식 API 또는 내 API Key 사용'
+		name: 'AI, 음성 및 이미지 설정',
+		desc: '채팅, 음성, 이미지 플랫폼과 API Key 설정'
 	},
 	ja: {
-		name: 'モデル設定',
-		desc: '公式 API または自分の API Key を使用'
+		name: 'AI・音声・画像設定',
+		desc: 'チャット、音声、画像の API とモデルを設定'
 	}
 };
 
 export default {
 	data() {
+		const runtimeFeatureConfig = tavernApi.getRuntimeFeatureConfig();
 		return {
 			authUser: uni.getStorageSync('user') || {},
 			authSignature: '',
 			storeProfile: {},
 			tavernStats: { fav: 0, chats: 0, chars: 0 },
-			storeProfileAccessSignature: ''
+			storeProfileAccessSignature: '',
+			illustrationEntryEnabled: runtimeFeatureConfig.illustrationEntryEnabled !== false,
+			rechargeEntryVisible: runtimeFeatureConfig.rechargeEntryVisible !== false,
+			rechargeEntryReady: false,
+			checkinEntryVisible: runtimeFeatureConfig.checkinEntryVisible !== false,
+			// 先使用本地运行配置渲染，避免每次进入用户中心都等待网络后才出现。
+			checkinEntryReady: true,
+			checkinLoaded: false,
+			checkinClaimable: false,
+			checkinPreview: ''
 		};
 	},
 	computed: {
 		uiText() {
 			return getTavernUiText('user');
+		},
+		checkinEntrySub() {
+			if (!this.checkinLoaded) {
+				return '登录后领取今日钻石与次数';
+			}
+			if (this.checkinClaimable) {
+				return this.checkinPreview || '今日奖励待领取';
+			}
+			return this.checkinPreview || '今日已领取，明日再来';
 		},
 		hasToken() {
 			const u = this.authUser || {};
@@ -257,57 +280,73 @@ export default {
 		},
 		todayChatCounterLabel() {
 			const map = {
-				'zh-cn': '今日已聊天次数',
-				'zh-hk': '今日已聊天次數',
+				'zh-cn': '今日聊天',
+				'zh-hk': '今日聊天',
 				en: 'Today Chats',
-				ko: '오늘 채팅 횟수',
-				ja: '本日のチャット回数'
+				ko: '오늘 채팅',
+				ja: '本日チャット'
 			};
-			return this.uiText.todayChatCount || map[getLanguageCode()] || map['zh-cn'];
+			return map[getLanguageCode()] || map['zh-cn'];
 		},
 		todayChatQuotaTotalLabel() {
 			const map = {
-				'zh-cn': '\u4eca\u65e5\u603b\u53ef\u804a\u5929\u6b21\u6570',
-				'zh-hk': '\u4eca\u65e5\u7e3d\u53ef\u804a\u5929\u6b21\u6578',
-				en: 'Today Chat Quota',
-				ko: '\uc624\ub298 \ucd1d \ucc44\ud305 \uac00\ub2a5 \ud69f\uc218',
-				ja: '\u672c\u65e5\u306e\u5408\u8a08\u30c1\u30e3\u30c3\u30c8\u56de\u6570'
+				'zh-cn': '今日额度',
+				'zh-hk': '今日額度',
+				en: 'Today Quota',
+				ko: '오늘 한도',
+				ja: '本日の上限'
 			};
-			return this.uiText.todayChatQuotaTotal || map[getLanguageCode()] || map['zh-cn'];
+			return map[getLanguageCode()] || map['zh-cn'];
 		},
 		todayChatCardLabel() {
 			const map = {
-				'zh-cn': '今日已聊天次数统计',
-				'zh-hk': '今日已聊天次數統計',
-				en: 'Today Chat Count',
-				ko: '오늘 채팅 통계',
-				ja: '本日のチャット統計'
+				'zh-cn': '今日聊天',
+				'zh-hk': '今日聊天',
+				en: 'Today Chats',
+				ko: '오늘 채팅',
+				ja: '本日チャット'
 			};
-			return this.uiText.todayChatCountCard || map[getLanguageCode()] || map['zh-cn'];
+			return map[getLanguageCode()] || map['zh-cn'];
 		},
 		todayChatUsageNoteText() {
 			const map = {
-				'zh-cn': '今日聊天使用记录',
-				'zh-hk': '今日聊天使用紀錄',
-				en: 'Today chat usage',
-				ko: '오늘 채팅 사용량',
-				ja: '本日のチャット使用状況'
+				'zh-cn': '已用 / 总额',
+				'zh-hk': '已用 / 總額',
+				en: 'Used / Total',
+				ko: '사용 / 총량',
+				ja: '使用 / 合計'
 			};
-			return this.uiText.chatQuotaNote || this.uiText.todayChatCountNote || map[getLanguageCode()] || map['zh-cn'];
+			return map[getLanguageCode()] || map['zh-cn'];
+		},
+		todayImageCardLabel() {
+			const map = {
+				'zh-cn': '今日生图',
+				'zh-hk': '今日生圖',
+				en: 'Today Images',
+				ko: '오늘 이미지',
+				ja: '本日の画像'
+			};
+			return map[getLanguageCode()] || map['zh-cn'];
+		},
+		todayImageNoteText() {
+			const map = {
+				'zh-cn': '今日可用次数',
+				'zh-hk': '今日可用次數',
+				en: 'Available today',
+				ko: '오늘 사용 가능',
+				ja: '本日の利用可能数'
+			};
+			return map[getLanguageCode()] || map['zh-cn'];
 		},
 		todayChatUsedStatusText() {
 			const map = {
-				'zh-cn': '\u4eca\u65e5\u5df2\u804a\u5929 {used} / {total} \u6b21',
-				'zh-hk': '\u4eca\u65e5\u5df2\u804a\u5929 {used} / {total} \u6b21',
-				en: 'Today chats used: {used} / {total}',
-				ko: '\uc624\ub298 \ucc44\ud305 \uc0ac\uc6a9: {used} / {total}',
-				ja: '\u672c\u65e5\u306e\u30c1\u30e3\u30c3\u30c8\u4f7f\u7528: {used} / {total}'
+				'zh-cn': '今日聊天 {used} / {total}',
+				'zh-hk': '今日聊天 {used} / {total}',
+				en: 'Chats {used} / {total}',
+				ko: '채팅 {used} / {total}',
+				ja: 'チャット {used} / {total}'
 			};
-			const statusTpl =
-				this.uiText.todayChatCountStatusWithTotal ||
-				this.uiText.todayChatStatusWithTotal ||
-				map[getLanguageCode()] ||
-				map['zh-cn'];
+			const statusTpl = map[getLanguageCode()] || map['zh-cn'];
 			return formatLocaleText(statusTpl, {
 				used: this.todayChatUsedDisplay,
 				total: this.chatQuotaDisplay,
@@ -321,13 +360,17 @@ export default {
 			return Number(this.storeProfile.goldCoin || 0);
 		},
 		chatQuotaDisplay() {
-			return Number(this.storeProfile.dailyChatQuota || 0);
+			return Number(this.storeProfile.dailyChatQuota || 0) + Number(this.storeProfile.dailyChatBonus || 0);
 		},
 		todayChatUsedDisplay() {
 			return Number(this.storeProfile.dailyChatUsed || 0);
 		},
 		imageQuotaDisplay() {
-			return Number(this.storeProfile.dailyImageQuota || 0);
+			const remaining = this.storeProfile.dailyImageRemaining;
+			if (remaining != null && remaining !== '') {
+				return Number(remaining);
+			}
+			return Number(this.storeProfile.dailyImageQuota || 0) + Number(this.storeProfile.dailyImageBonus || 0) - Number(this.storeProfile.dailyImageUsed || 0);
 		},
 		walletSubtitleText() {
 			return formatLocaleText(this.uiText.walletSubtitle, { gold: this.goldDisplay });
@@ -337,38 +380,22 @@ export default {
 				{
 					key: 'favorites',
 					name: this.uiText.shortcutFavoritesName,
-					desc: this.uiText.shortcutFavoritesDesc,
 					iconPath: '/static/user/u4.png'
 				},
 				{
 					key: 'tavern',
 					name: this.uiText.shortcutTavernName,
-					desc: this.uiText.shortcutTavernDesc,
 					iconPath: '/static/user/u0.png'
 				},
 				{
 					key: 'live2dCompanion',
 					name: 'AI看板娘',
-					desc: '悬浮聊天助手',
 					iconPath: '/static/live2d/models/ug/icon.png'
 				},
 				{
 					key: 'games',
 					name: '小游戏',
-					desc: 'HTML 轻量娱乐',
 					iconPath: '/static/user/u6.png'
-				},
-				{
-					key: 'wallet',
-					name: this.uiText.shortcutWalletName,
-					desc: this.uiText.shortcutWalletDesc,
-					iconPath: '/static/user/qian.png'
-				},
-				{
-					key: 'vip',
-					name: this.uiText.shortcutVipName,
-					desc: this.uiText.shortcutVipDesc,
-					iconPath: '/static/user/guan.png'
 				}
 			];
 		},
@@ -418,8 +445,51 @@ export default {
 		syncTavernTabBar(this, 'pages/user/user', this.allText);
 		this.syncAuthUser();
 		this.loadPage();
+		this.syncIllustrationEntryVisibility(true);
+		this.syncRechargeEntryVisibility(true);
+		this.syncCheckinEntryVisibility(false);
+		try {
+			if (uni.getStorageSync('tavern_checkin_refresh_needed') === '1') {
+				uni.removeStorageSync('tavern_checkin_refresh_needed');
+				if (this.hasToken) {
+					this.loadCheckinStatus(tavernApi.getClientUid());
+					tavernApi.fetchStoreOverview(tavernApi.getClientUid()).then((res) => {
+						this.storeProfile = (res && res.profile) || {};
+					}).catch(() => {});
+				}
+			}
+		} catch (e) {}
 	},
 	methods: {
+		syncIllustrationEntryVisibility(forceRefresh) {
+			this.illustrationEntryEnabled = tavernApi.isIllustrationEntryEnabled();
+			return tavernApi.fetchAppRuntimeConfig(forceRefresh === true).then((config) => {
+				this.illustrationEntryEnabled = !(config && config.illustrationEntryEnabled === false);
+				return this.illustrationEntryEnabled;
+			});
+		},
+		syncRechargeEntryVisibility(forceRefresh) {
+			this.rechargeEntryVisible = tavernApi.isRechargeEntryVisible();
+			this.rechargeEntryReady = false;
+			return tavernApi.fetchAppRuntimeConfig(forceRefresh === true).then((config) => {
+				this.rechargeEntryVisible = !(config && config.rechargeEntryVisible === false);
+				this.rechargeEntryReady = true;
+				return this.rechargeEntryVisible;
+			}).catch(() => {
+				this.rechargeEntryReady = true;
+				return this.rechargeEntryVisible;
+			});
+		},
+		syncCheckinEntryVisibility(forceRefresh) {
+			this.checkinEntryVisible = tavernApi.isCheckinEntryVisible();
+			this.checkinEntryReady = true;
+			return tavernApi.fetchAppRuntimeConfig(forceRefresh === true).then((config) => {
+				this.checkinEntryVisible = !(config && config.checkinEntryVisible === false);
+				return this.checkinEntryVisible;
+			}).catch(() => {
+				return this.checkinEntryVisible;
+			});
+		},
 		syncAuthUser() {
 			const user = uni.getStorageSync('user') || {};
 			this.authUser = user && typeof user === 'object' ? user : {};
@@ -441,6 +511,9 @@ export default {
 				this.storeProfile = {};
 				this.tavernStats = { fav: 0, chats: 0, chars: 0 };
 				this.storeProfileAccessSignature = '';
+				this.checkinLoaded = false;
+				this.checkinClaimable = false;
+				this.checkinPreview = '';
 				return;
 			}
 			const clientUid = tavernApi.getClientUid();
@@ -459,6 +532,7 @@ export default {
 					this.storeProfile = {};
 					console.warn('store overview failed:', e && e.message ? e.message : e);
 				});
+			this.loadCheckinStatus(clientUid);
 			tavernApi
 				.fetchMeStats(clientUid)
 				.then((s) => {
@@ -489,7 +563,64 @@ export default {
 			uni.switchTab({ url: '/pages/tavern/tavern' });
 		},
 		goMyMoney() {
+			if (!this.rechargeEntryReady || !this.rechargeEntryVisible) return;
 			this.util.urlTo('/pages/user/mymoney');
+		},
+		goCheckin() {
+			if (!this.checkinEntryReady || !this.checkinEntryVisible) return;
+			if (!this.hasToken) {
+				uni.navigateTo({ url: tavernApi.buildLoginUrl ? tavernApi.buildLoginUrl() : '/pages/login/login' });
+				return;
+			}
+			const checkinUrl = '/pages/user/checkin';
+			uni.navigateTo({
+				url: checkinUrl,
+				fail: (navigateError) => {
+					console.warn('open checkin page with navigateTo failed:', navigateError);
+					uni.redirectTo({
+						url: checkinUrl,
+						fail: (redirectError) => {
+							console.error('open checkin page failed:', redirectError);
+							uni.showModal({
+								title: '无法打开每日签到',
+								content: '当前 APP 资源可能未完整更新，请彻底关闭后重新打开；仍无法打开时，请安装最新版本。',
+								showCancel: false,
+								confirmText: '知道了'
+							});
+						}
+					});
+				}
+			});
+		},
+		formatCheckinPreview(reward) {
+			const r = reward || {};
+			const parts = [];
+			if (Number(r.score) > 0) parts.push(`钻石${r.score}`);
+			if (Number(r.gold) > 0) parts.push(`金币${r.gold}`);
+			if (Number(r.chatBonus) > 0) parts.push(`聊天+${r.chatBonus}`);
+			if (Number(r.imageBonus) > 0) parts.push(`生图+${r.imageBonus}`);
+			return parts.join(' · ');
+		},
+		loadCheckinStatus(clientUid) {
+			tavernApi
+				.fetchCheckinStatus(clientUid)
+				.then((data) => {
+					this.checkinLoaded = true;
+					this.checkinClaimable = !!(data && data.enabled && !data.claimedToday);
+					this.checkinPreview = this.formatCheckinPreview(
+						data && (data.claimedToday ? data.tomorrowReward : data.todayReward)
+					);
+					if (data && data.claimedToday && this.checkinPreview) {
+						this.checkinPreview = '明日可领 ' + this.checkinPreview;
+					} else if (this.checkinClaimable && this.checkinPreview) {
+						this.checkinPreview = '今日可领 ' + this.checkinPreview;
+					}
+				})
+				.catch(() => {
+					this.checkinLoaded = false;
+					this.checkinClaimable = false;
+					this.checkinPreview = '';
+				});
 		},
 		goMyVip() {
 			this.util.urlTo('/pages/user/myvip');
@@ -788,6 +919,88 @@ export default {
 	box-shadow:
 		0 22rpx 48rpx rgba(6, 10, 20, 0.28),
 		inset 0 1rpx 0 rgba(255, 255, 255, 0.05);
+}
+
+.checkin-entry {
+	margin-top: 18rpx;
+	padding: 24rpx 26rpx;
+	border-radius: 28rpx;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16rpx;
+	background: rgba(24, 24, 30, 0.82);
+	border: 1rpx solid rgba(255, 255, 255, 0.08);
+	box-shadow:
+		0 18rpx 40rpx rgba(6, 10, 20, 0.2),
+		inset 0 1rpx 0 rgba(255, 255, 255, 0.04);
+}
+
+.checkin-entry-icon {
+	width: 66rpx;
+	height: 66rpx;
+	border-radius: 14rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	background: rgba(84, 181, 192, 0.12);
+	border: 1rpx solid rgba(84, 181, 192, 0.2);
+	box-shadow: 0 8rpx 18rpx rgba(47, 135, 150, 0.1);
+}
+
+.checkin-entry-icon-image {
+	width: 48rpx;
+	height: 48rpx;
+	display: block;
+}
+
+.checkin-entry-copy {
+	min-width: 0;
+	flex: 1;
+}
+
+.checkin-entry-title {
+	display: block;
+	font-size: 28rpx;
+	font-weight: 700;
+	color: #f8fafc;
+}
+
+.checkin-entry-sub {
+	display: block;
+	margin-top: 6rpx;
+	font-size: 22rpx;
+	color: rgba(241, 245, 249, 0.68);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.checkin-entry-right {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	flex-shrink: 0;
+}
+
+.checkin-dot {
+	width: 10rpx;
+	height: 10rpx;
+	border-radius: 50%;
+	background: rgba(226, 232, 240, 0.72);
+}
+
+.checkin-entry-action {
+	font-size: 24rpx;
+	font-weight: 600;
+	color: rgba(226, 232, 240, 0.78);
+}
+
+.checkin-entry-arrow {
+	font-size: 34rpx;
+	color: rgba(241, 245, 249, 0.42);
+	line-height: 1;
 }
 
 .wallet-copy {
@@ -1222,7 +1435,7 @@ export default {
 
 .hero-card,
 .wallet-card,
-.benefit-card,
+.checkin-entry,
 .section-card,
 .quota-card,
 .illustration-site-card {
@@ -1230,7 +1443,6 @@ export default {
 	overflow: visible;
 	border: 1rpx solid rgba(255, 255, 255, 0.38);
 	background: rgba(255, 255, 255, 0.36);
-	box-shadow: 0 14rpx 32rpx rgba(36, 70, 88, 0.1);
 	backdrop-filter: blur(18rpx);
 	-webkit-backdrop-filter: blur(18rpx);
 }
@@ -1239,7 +1451,18 @@ export default {
 .wallet-card {
 	padding: 30rpx;
 	border-radius: 30rpx;
-	background: rgba(255, 255, 255, 0.38);
+	background: rgba(255, 255, 255, 0.42);
+	border-color: rgba(255, 255, 255, 0.5);
+	box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.12);
+}
+
+.quota-card,
+.section-card,
+.illustration-site-card {
+	border-radius: 24rpx;
+	border-color: rgba(255, 255, 255, 0.32);
+	background: rgba(255, 255, 255, 0.28);
+	box-shadow: 0 6rpx 16rpx rgba(36, 70, 88, 0.05);
 }
 
 .hero-card::before,
@@ -1253,8 +1476,6 @@ export default {
 .hero-status-bar,
 .wallet-copy,
 .wallet-actions,
-.benefit-copy,
-.benefit-link,
 .section-head,
 .shortcut-grid,
 .service-list {
@@ -1274,7 +1495,6 @@ export default {
 .hero-status-text,
 .wallet-value,
 .quota-card-value,
-.benefit-title,
 .section-title,
 .shortcut-name,
 .service-name {
@@ -1286,7 +1506,6 @@ export default {
 .metric-label,
 .wallet-sub,
 .quota-card-note,
-.benefit-desc,
 .section-note,
 .shortcut-desc,
 .service-desc {
@@ -1303,7 +1522,7 @@ export default {
 .metric-pill {
 	background: rgba(255, 255, 255, 0.31);
 	border: 1rpx solid rgba(79, 147, 163, 0.13);
-	box-shadow: 0 8rpx 18rpx rgba(36, 70, 88, 0.08);
+	box-shadow: none;
 }
 
 .member-chip {
@@ -1342,17 +1561,16 @@ export default {
 	height: 140rpx;
 	border: 5rpx solid rgba(255, 255, 255, 0.92);
 	background: rgba(255, 255, 255, 0.72);
-	box-shadow: 0 14rpx 30rpx rgba(36, 70, 88, 0.14);
+	box-shadow: 0 12rpx 24rpx rgba(36, 70, 88, 0.12);
 }
 
 .edit-btn,
-.wallet-main-btn,
-.benefit-link {
+.wallet-main-btn {
 	color: #fff;
 	background: linear-gradient(135deg, #2f8796 0%, #54b5c0 100%);
 	border: 1rpx solid rgba(255, 255, 255, 0.55);
 	box-shadow:
-		0 14rpx 28rpx rgba(47, 135, 150, 0.2),
+		0 12rpx 24rpx rgba(47, 135, 150, 0.18),
 		inset 0 1rpx 0 rgba(255, 255, 255, 0.28);
 }
 
@@ -1382,11 +1600,11 @@ export default {
 .wallet-card {
 	min-height: auto;
 	overflow: hidden;
+	margin-top: 18rpx;
 }
 
 .wallet-bg-art,
-.wallet-right-art,
-.benefit-bg-art {
+.wallet-right-art {
 	position: absolute;
 	z-index: 1;
 	pointer-events: none;
@@ -1397,7 +1615,7 @@ export default {
 	top: 14rpx;
 	width: 430rpx;
 	height: 140rpx;
-	opacity: 0.18;
+	opacity: 0.14;
 }
 
 .wallet-right-art {
@@ -1405,15 +1623,230 @@ export default {
 	bottom: 20rpx;
 	width: 170rpx;
 	height: 86rpx;
-	opacity: 0.26;
+	opacity: 0.22;
 }
 
-.benefit-bg-art {
-	right: -120rpx;
-	bottom: -220rpx;
-	width: 360rpx;
-	height: 430rpx;
-	opacity: 0.14;
+.wallet-soft-btn {
+	color: #236f82;
+	background: rgba(63, 143, 159, 0.1);
+	border: 1rpx solid rgba(63, 143, 159, 0.16);
+	box-shadow: none;
+}
+
+.checkin-entry {
+	background: rgba(255, 255, 255, 0.34);
+	border-color: rgba(255, 255, 255, 0.42);
+	box-shadow: 0 8rpx 20rpx rgba(36, 70, 88, 0.07);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.checkin-entry.is-claimable {
+	background: rgba(244, 253, 253, 0.86);
+	border-color: rgba(84, 181, 192, 0.5);
+	box-shadow: 0 12rpx 28rpx rgba(47, 135, 150, 0.14);
+}
+
+.checkin-entry.is-claimable .checkin-entry-icon {
+	background: rgba(84, 181, 192, 0.18);
+	border-color: rgba(47, 135, 150, 0.32);
+	box-shadow: 0 8rpx 20rpx rgba(47, 135, 150, 0.16);
+}
+
+.checkin-entry-title {
+	color: #203846;
+}
+
+.checkin-entry-sub {
+	color: #5f7280;
+	font-weight: 500;
+}
+
+.checkin-entry-action {
+	color: #236f82;
+	padding: 10rpx 16rpx;
+	border-radius: 999rpx;
+	background: rgba(84, 181, 192, 0.12);
+}
+
+.checkin-entry-arrow {
+	color: #7d93a4;
+}
+
+.checkin-dot {
+	background: #54b5c0;
+	box-shadow: 0 0 0 6rpx rgba(84, 181, 192, 0.12);
+}
+
+.quota-grid {
+	gap: 14rpx;
+	margin-top: 16rpx;
+}
+
+.quota-card {
+	padding: 22rpx;
+	min-height: 168rpx;
+}
+
+.quota-card--violet {
+	background: rgba(255, 255, 255, 0.28);
+	border-color: rgba(79, 147, 163, 0.12);
+}
+
+.illustration-site-card {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	overflow: hidden;
+	margin-top: 16rpx;
+	padding: 20rpx 22rpx;
+	background: rgba(255, 255, 255, 0.28);
+}
+
+.illustration-site-icon {
+	width: 72rpx;
+	height: 72rpx;
+	border-radius: 20rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	background: rgba(63, 143, 159, 0.1);
+	border: 1rpx solid rgba(63, 143, 159, 0.14);
+}
+
+.illustration-site-icon-img {
+	width: 40rpx;
+	height: 40rpx;
+}
+
+.illustration-site-copy {
+	flex: 1;
+	min-width: 0;
+}
+
+.illustration-site-kicker {
+	display: block;
+	font-size: 20rpx;
+	font-weight: 700;
+	color: #247494;
+}
+
+.illustration-site-title {
+	display: block;
+	margin-top: 4rpx;
+	font-size: 28rpx;
+	font-weight: 800;
+	color: #244b66;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.illustration-site-desc {
+	display: block;
+	margin-top: 4rpx;
+	font-size: 22rpx;
+	color: #64798b;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.illustration-site-action {
+	flex-shrink: 0;
+	min-width: 96rpx;
+	height: 60rpx;
+	padding: 0 18rpx;
+	border-radius: 999rpx;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 22rpx;
+	font-weight: 700;
+	background: rgba(63, 143, 159, 0.12);
+	border: 1rpx solid rgba(63, 143, 159, 0.16);
+	color: #236f82;
+	box-shadow: none;
+}
+
+.section-card {
+	margin-top: 16rpx;
+	padding: 22rpx 20rpx;
+}
+
+.section-card + .section-card {
+	margin-top: 14rpx;
+}
+
+.section-head {
+	align-items: flex-start;
+	margin-bottom: 16rpx;
+}
+
+.section-title {
+	font-size: 28rpx;
+}
+
+.section-note {
+	max-width: 330rpx;
+	text-align: right;
+	font-size: 20rpx;
+}
+
+.shortcut-grid {
+	gap: 12rpx;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.shortcut-item,
+.service-item {
+	border-radius: 20rpx;
+	background: rgba(255, 255, 255, 0.26);
+	border: 1rpx solid rgba(255, 255, 255, 0.3);
+	box-shadow: none;
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+
+.shortcut-item {
+	min-height: 168rpx;
+	padding: 22rpx 16rpx;
+	box-sizing: border-box;
+}
+
+.shortcut-desc {
+	display: none;
+}
+
+.service-item {
+	padding: 18rpx 16rpx;
+}
+
+.shortcut-icon-shell,
+.service-icon-shell {
+	background: rgba(63, 143, 159, 0.1);
+	border-color: rgba(63, 143, 159, 0.12);
+	box-shadow: none;
+}
+
+.shortcut-icon,
+.service-icon {
+	opacity: 1;
+}
+
+.shortcut-name,
+.service-name {
+	font-weight: 700;
+}
+
+.shortcut-desc,
+.service-desc {
+	color: #6a7f90;
+}
+
+.service-arrow {
+	color: #7d93a4;
 }
 
 .wallet-copy {
@@ -1441,159 +1874,6 @@ export default {
 	height: 78rpx;
 	padding: 0 28rpx;
 	box-sizing: border-box;
-}
-
-.wallet-soft-btn {
-	color: #236f82;
-	background: rgba(63, 143, 159, 0.1);
-	border: 1rpx solid rgba(63, 143, 159, 0.16);
-	box-shadow: none;
-}
-
-.quota-grid {
-	gap: 16rpx;
-}
-
-.quota-card,
-.benefit-card,
-.section-card,
-.illustration-site-card {
-	background: rgba(255, 255, 255, 0.34);
-}
-
-.quota-card {
-	padding: 24rpx;
-	border-radius: 24rpx;
-	min-height: 188rpx;
-}
-
-.quota-card--violet {
-	background: rgba(255, 255, 255, 0.34);
-	border-color: rgba(79, 147, 163, 0.13);
-}
-
-.benefit-card {
-	padding: 28rpx;
-	border-radius: 28rpx;
-	min-height: auto;
-	overflow: hidden;
-}
-
-.illustration-site-card {
-	overflow: hidden;
-	padding: 24rpx;
-	border-radius: 28rpx;
-	background:
-		radial-gradient(circle at 92% 12%, rgba(248, 185, 213, 0.44), transparent 34%),
-		linear-gradient(135deg, rgba(255, 255, 255, 0.76) 0%, rgba(230, 249, 252, 0.7) 50%, rgba(255, 245, 250, 0.78) 100%);
-}
-
-.illustration-site-glow {
-	background: radial-gradient(circle, rgba(63, 143, 159, 0.22), transparent 68%);
-}
-
-.illustration-site-icon {
-	background: rgba(63, 143, 159, 0.12);
-	border-color: rgba(63, 143, 159, 0.16);
-}
-
-.illustration-site-mark {
-	color: #247494;
-}
-
-.illustration-site-kicker {
-	color: #247494;
-}
-
-.illustration-site-title {
-	color: #244b66;
-}
-
-.illustration-site-desc {
-	color: #64798b;
-}
-
-.illustration-site-action {
-	background: #236f82;
-	border-color: rgba(35, 111, 130, 0.12);
-	color: #fff;
-	box-shadow: 0 12rpx 24rpx rgba(35, 111, 130, 0.18);
-}
-
-.benefit-link {
-	min-width: 168rpx;
-	height: 72rpx;
-}
-
-.section-card {
-	padding: 26rpx 24rpx;
-	border-radius: 28rpx;
-}
-
-.section-head {
-	align-items: flex-start;
-}
-
-.section-title {
-	font-size: 30rpx;
-}
-
-.section-note {
-	max-width: 330rpx;
-	text-align: right;
-}
-
-.shortcut-grid {
-	gap: 16rpx;
-}
-
-.shortcut-item,
-.service-item {
-	border-radius: 24rpx;
-	background: rgba(255, 255, 255, 0.32);
-	border: 1rpx solid rgba(255, 255, 255, 0.36);
-	box-shadow: 0 10rpx 22rpx rgba(36, 70, 88, 0.08);
-	backdrop-filter: none;
-	-webkit-backdrop-filter: none;
-}
-
-.shortcut-item {
-	min-height: 212rpx;
-	padding: 24rpx 18rpx;
-	box-sizing: border-box;
-}
-
-.service-item {
-	padding: 22rpx 18rpx;
-}
-
-.shortcut-icon-shell,
-.service-icon-shell {
-	background: rgba(255, 255, 255, 0.38);
-	border: 1rpx solid rgba(79, 147, 163, 0.16);
-	box-shadow: 0 8rpx 18rpx rgba(36, 70, 88, 0.09);
-}
-
-.shortcut-icon,
-.service-icon {
-	opacity: 1;
-	filter: none;
-}
-
-.shortcut-name,
-.service-name {
-	font-weight: 800;
-}
-
-.shortcut-desc,
-.service-desc {
-	line-height: 1.5;
-}
-
-.service-arrow {
-	color: #236f82;
-	background: rgba(63, 143, 159, 0.1);
-	border-color: rgba(63, 143, 159, 0.16);
 }
 
 </style>

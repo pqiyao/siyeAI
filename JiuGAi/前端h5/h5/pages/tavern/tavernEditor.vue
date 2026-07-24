@@ -1,13 +1,7 @@
 ﻿<template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
-		<tavern-nav-bar :title="pageTitle" mode="dark" @back="goBack">
-			<template #right>
-				<text class="save-btn" :class="{ 'save-btn--disabled': saving || loading }" @tap="submit">
-					{{ saving ? texts.saving : texts.save }}
-				</text>
-			</template>
-		</tavern-nav-bar>
+		<tavern-nav-bar :title="pageTitle" mode="dark" @back="goBack"></tavern-nav-bar>
 
 		<view v-if="loading" class="state-box">
 			<text class="state-txt">{{ texts.loading }}</text>
@@ -15,7 +9,8 @@
 
 		<scroll-view v-else scroll-y class="scroll" :show-scrollbar="false" enable-back-to-top>
 			<view class="hero-card">
-				<text class="hero-title">{{ texts.editorTitle }}</text>
+				<text class="hero-title">{{ editorHeroTitle }}</text>
+				<text class="hero-tip hero-tip--muted">{{ texts.editorGuide }}</text>
 
 				<view class="upload-row">
 					<view class="upload-card upload-card--avatar" @tap="pickImage('avatarUrl')">
@@ -49,7 +44,7 @@
 					v-for="tab in tabs"
 					:key="tab.key"
 					class="tab-pill"
-					:class="{ 'tab-pill--on': activeTab === tab.key }"
+					:class="{ 'tab-pill--on': activeTab === tab.key, 'tab-pill--soft': tab.key === 'prompt' }"
 					@tap="activeTab = tab.key"
 				>
 					{{ tab.label }}
@@ -58,7 +53,10 @@
 
 			<view v-if="activeTab === 'base'" class="panel">
 				<view class="field-block">
-					<text class="field-label">{{ texts.name }}</text>
+					<view class="field-label-row">
+						<text class="field-label">{{ texts.name }}</text>
+						<text class="field-required">{{ texts.required }}</text>
+					</view>
 					<input
 						class="field-input"
 						v-model="form.name"
@@ -69,7 +67,10 @@
 				</view>
 
 				<view class="field-block">
-					<text class="field-label">{{ texts.tagline }}</text>
+					<view class="field-label-row">
+						<text class="field-label">{{ texts.tagline }}</text>
+						<text class="field-optional">{{ texts.optional }}</text>
+					</view>
 					<input
 						class="field-input"
 						v-model="form.tagline"
@@ -80,7 +81,10 @@
 				</view>
 
 				<view class="field-block">
-					<text class="field-label">bio</text>
+					<view class="field-label-row">
+						<text class="field-label">{{ texts.bio }}</text>
+						<text class="field-optional">{{ texts.optional }}</text>
+					</view>
 					<text class="field-hint">{{ texts.bioHint }}</text>
 					<textarea
 						class="field-area field-area--large"
@@ -95,7 +99,10 @@
 
 			<view v-else-if="activeTab === 'story'" class="panel">
 				<view class="field-block">
-					<text class="field-label">persona</text>
+					<view class="field-label-row">
+						<text class="field-label">{{ texts.persona }}</text>
+						<text class="field-optional">{{ texts.optional }}</text>
+					</view>
 					<text class="field-hint">{{ texts.personaHint }}</text>
 					<textarea
 						class="field-area"
@@ -108,7 +115,10 @@
 				</view>
 
 				<view class="field-block">
-					<text class="field-label">scenario</text>
+					<view class="field-label-row">
+						<text class="field-label">{{ texts.scenario }}</text>
+						<text class="field-optional">{{ texts.optional }}</text>
+					</view>
 					<text class="field-hint">{{ texts.scenarioHint }}</text>
 					<textarea
 						class="field-area"
@@ -121,7 +131,10 @@
 				</view>
 
 				<view class="field-block">
-					<text class="field-label">{{ texts.firstMessage }}</text>
+					<view class="field-label-row">
+						<text class="field-label">{{ texts.firstMessage }}</text>
+						<text class="field-suggest">{{ texts.suggested }}</text>
+					</view>
 					<text class="field-hint">{{ texts.firstHint }}</text>
 					<textarea
 						class="field-area"
@@ -136,7 +149,10 @@
 				<view class="field-block">
 					<view class="field-row">
 						<view>
-							<text class="field-label">{{ texts.altGreeting }}</text>
+							<view class="field-label-row">
+								<text class="field-label">{{ texts.altGreeting }}</text>
+								<text class="field-optional">{{ texts.optional }}</text>
+							</view>
 							<text class="field-hint">{{ texts.altHint }}</text>
 						</view>
 						<text class="field-link" @tap="addGreeting">{{ texts.addGreeting }}</text>
@@ -160,8 +176,12 @@
 			</view>
 
 			<view v-else class="panel">
+				<text class="panel-note">{{ texts.advancedNote }}</text>
 				<view class="field-block">
-					<text class="field-label">system_prompt</text>
+					<view class="field-label-row">
+						<text class="field-label">{{ texts.systemPrompt }}</text>
+						<text class="field-optional">{{ texts.optional }}</text>
+					</view>
 					<text class="field-hint">{{ texts.systemHint }}</text>
 					<textarea
 						class="field-area"
@@ -174,7 +194,10 @@
 				</view>
 
 				<view class="field-block">
-					<text class="field-label">post_history_instructions</text>
+					<view class="field-label-row">
+						<text class="field-label">{{ texts.postHistory }}</text>
+						<text class="field-optional">{{ texts.optional }}</text>
+					</view>
 					<text class="field-hint">{{ texts.postHint }}</text>
 					<textarea
 						class="field-area"
@@ -187,7 +210,10 @@
 				</view>
 
 				<view class="field-block">
-					<text class="field-label">mes_example</text>
+					<view class="field-label-row">
+						<text class="field-label">{{ texts.mesExample }}</text>
+						<text class="field-optional">{{ texts.optional }}</text>
+					</view>
 					<text class="field-hint">{{ texts.exampleHint }}</text>
 					<textarea
 						class="field-area field-area--large"
@@ -226,53 +252,65 @@ const TEXTS = Object.freeze({
 	loading: '\u52a0\u8f7d\u4e2d...',
 	pageCreate: '\u521b\u5efa\u89d2\u8272\u5361',
 	pageEdit: '\u7f16\u8f91\u89d2\u8272\u5361',
-	editorTitle: '\u89d2\u8272\u5361\u5185\u5bb9\u7f16\u8f91',
+	editorTitleCreate: '\u521b\u5efa\u4f60\u7684\u89d2\u8272',
+	editorTitleEdit: '\u7f16\u8f91\u4f60\u7684\u89d2\u8272',
+	editorGuide: '\u5148\u8d77\u540d\u5b57\u3001\u52a0\u5934\u50cf\uff0c\u518d\u5199\u5f00\u573a\u767d\u5c31\u80fd\u5f00\u59cb\u804a',
 	uploadAvatar: '\u4e0a\u4f20\u5934\u50cf',
 	uploadCover: '\u4e0a\u4f20\u5c01\u9762',
 	uploading: '\u4e0a\u4f20\u4e2d...',
 	avatar: '\u89d2\u8272\u5934\u50cf',
 	cover: '\u89d2\u8272\u5c01\u9762',
-	baseTab: '\u57fa\u7840\u4e0e\u5c55\u793a',
-	storyTab: '\u89d2\u8272\u4e0e\u5267\u60c5',
-	promptTab: '\u63d0\u793a\u8bcd\u4e0e\u793a\u4f8b',
+	baseTab: '\u57fa\u7840',
+	storyTab: '\u4eba\u8bbe\u4e0e\u5267\u60c5',
+	promptTab: '\u8fdb\u9636\uff08\u9009\u586b\uff09',
+	required: '\u5fc5\u586b',
+	optional: '\u9009\u586b',
+	suggested: '\u5efa\u8bae',
+	advancedNote: '\u8fd9\u4e9b\u4e00\u822c\u4e0d\u7528\u586b\u3002\u60f3\u66f4\u7cbe\u7ec6\u63a7\u5236\u89d2\u8272\u8868\u73b0\u65f6\u518d\u6765\u3002',
 	name: '\u89d2\u8272\u540d\u79f0',
-	namePh: '\u8bf7\u8f93\u5165\u89d2\u8272\u540d\u79f0',
-	tagline: '\u4e00\u53e5\u8bdd\u8bbe\u5b9a',
-	taglinePh: '\u5217\u8868\u77ed\u63cf\u8ff0\uff0c\u53ef\u7559\u7a7a\u81ea\u52a8\u4ece bio \u751f\u6210',
-	bioHint: '\u5bf9\u5e94\u540e\u53f0 description / \u53d1\u73b0\u9875\u8be6\u60c5\u4ecb\u7ecd\u957f\u6587',
-	bioPh: '\u89d2\u8272\u63cf\u8ff0 bio',
-	personaHint: '\u5bf9\u5e94\u540e\u53f0 personality\uff0c\u5199\u5165\u89d2\u8272\u4eba\u8bbe\u4e0e\u7cfb\u7edf\u4e0a\u4e0b\u6587',
-	personaPh: '\u6027\u683c\u4eba\u8bbe persona',
-	scenarioHint: '\u5bf9\u5e94\u540e\u53f0 scenario\uff0c\u586b\u5199\u5f53\u524d\u4e16\u754c\u6216\u5267\u60c5\u80cc\u666f',
-	scenarioPh: '\u60c5\u666f scenario',
-	firstMessage: '\u7b2c\u4e00\u6761\u6d88\u606f',
-	firstHint: '\u5bf9\u5e94\u540e\u53f0 first_mes\uff0c\u8fdb\u5165\u804a\u5929\u65f6\u53ef\u4f5c\u4e3a\u89d2\u8272\u5f00\u573a\u767d',
-	firstPh: '\u89d2\u8272\u5f00\u573a\u767d',
-	altGreeting: '\u5176\u4ed6\u5f00\u573a',
-	altHint: '\u5bf9\u5e94\u540e\u53f0 alternate_greetings\uff0c\u591a\u6761\u65f6\u540e\u7aef\u4f1a\u53c2\u4e0e\u968f\u673a\u5f00\u573a',
+	namePh: '\u7ed9\u89d2\u8272\u8d77\u4e2a\u540d\u5b57',
+	tagline: '\u4e00\u53e5\u8bdd\u4ecb\u7ecd',
+	taglinePh: '\u7528\u4e00\u53e5\u8bdd\u6982\u62ec\u8fd9\u4e2a\u89d2\u8272\uff08\u53ef\u7559\u7a7a\uff09',
+	bio: '\u89d2\u8272\u4ecb\u7ecd',
+	bioHint: '\u5199\u66f4\u8be6\u7ec6\u7684\u4ecb\u7ecd\uff0c\u4f1a\u51fa\u73b0\u5728\u89d2\u8272\u8be6\u60c5\u91cc',
+	bioPh: '\u4ed6/\u5979\u662f\u8c01\uff0c\u6709\u4ec0\u4e48\u6545\u4e8b\uff1f',
+	persona: '\u6027\u683c\u4e0e\u4eba\u8bbe',
+	personaHint: '\u4ed6/\u5979\u600e\u4e48\u8bf4\u8bdd\u3001\u6709\u4ec0\u4e48\u4e60\u60ef\u4e0e\u6027\u683c',
+	personaPh: '\u4f8b\u5982\uff1a\u6e29\u67d4\u3001\u7231\u5f00\u73a9\u7b11\uff0c\u8bf4\u8bdd\u504f\u53e3\u8bed\u5316',
+	scenario: '\u6545\u4e8b\u80cc\u666f',
+	scenarioHint: '\u4f60\u4eec\u73b0\u5728\u5904\u5728\u4ec0\u4e48\u60c5\u5883\u91cc',
+	scenarioPh: '\u4f8b\u5982\uff1a\u5728\u4e00\u5bb6\u96e8\u5929\u7684\u5496\u5561\u9986\u91cc\u5076\u9047',
+	firstMessage: '\u5f00\u573a\u767d',
+	firstHint: '\u8fdb\u5165\u804a\u5929\u65f6\uff0c\u89d2\u8272\u8bf4\u7684\u7b2c\u4e00\u53e5\u8bdd',
+	firstPh: '\u5199\u4e00\u53e5\u5f00\u573a\u767d\uff0c\u8ba9\u5bf9\u8bdd\u81ea\u7136\u5f00\u59cb',
+	altGreeting: '\u5907\u7528\u5f00\u573a\u767d',
+	altHint: '\u53ef\u9009\u3002\u6709\u591a\u6761\u65f6\uff0c\u4f1a\u968f\u673a\u9009\u4e00\u6761\u4f5c\u4e3a\u5f00\u573a',
 	addGreeting: '\u6dfb\u52a0\u5f00\u573a',
-	greetPh: '\u4e00\u6761\u5907\u7528\u5f00\u573a\u767d',
+	greetPh: '\u518d\u5199\u4e00\u6761\u5907\u7528\u5f00\u573a\u767d',
 	delete: '\u5220\u9664',
-	systemHint: '\u4e0d\u586b\u5219\u7531\u540e\u7aef\u6309\u89d2\u8272\u5b57\u6bb5\u62fc\u88c5\uff0c\u586b\u5199\u540e\u4f1a\u8986\u76d6\u9ed8\u8ba4 system \u63d0\u793a',
-	systemPh: '\u7cfb\u7edf\u63d0\u793a system_prompt',
-	postHint: '\u5bf9\u5e94\u540e\u53f0 post-history \u8ffd\u52a0\u8bf4\u660e',
-	postPh: 'post-history \u8bf4\u660e',
-	exampleHint: '\u53ef\u586b\u5199\u793a\u4f8b\u5bf9\u8bdd\uff0c\u5e2e\u52a9\u6a21\u578b\u7a33\u5b9a\u89d2\u8272\u8bed\u6c14\u4e0e\u98ce\u683c',
-	examplePh: '\u5bf9\u8bdd\u793a\u4f8b mes_example',
+	systemPrompt: '\u9ad8\u7ea7\u8bbe\u5b9a',
+	systemHint: '\u4e00\u822c\u4e0d\u7528\u586b\u3002\u586b\u4e86\u4f1a\u8986\u76d6\u9ed8\u8ba4\u89c4\u5219',
+	systemPh: '\u53ef\u9009\uff0c\u7528\u6765\u66f4\u5f3a\u5236\u5730\u7ea6\u675f\u89d2\u8272\u8868\u73b0',
+	postHistory: '\u5bf9\u8bdd\u8865\u5145\u8bf4\u660e',
+	postHint: '\u53ef\u9009\u3002\u63d0\u9192\u89d2\u8272\u5728\u5bf9\u8bdd\u4e2d\u8981\u6ce8\u610f\u4ec0\u4e48',
+	postPh: '\u4f8b\u5982\uff1a\u4fdd\u6301\u6e29\u67d4\uff0c\u4e0d\u8981\u7a81\u7136\u6539\u53d8\u4eba\u8bbe',
+	mesExample: '\u5bf9\u8bdd\u793a\u4f8b',
+	exampleHint: '\u53ef\u9009\u3002\u5199\u51e0\u53e5\u793a\u4f8b\u5bf9\u8bdd\uff0c\u8ba9\u8bed\u6c14\u66f4\u7a33',
+	examplePh: '\u53ef\u6309\u300c\u7528\u6237\uff1a...\u300d\u300c\u89d2\u8272\uff1a...\u300d\u7684\u683c\u5f0f\u5199',
 	saveCard: '\u4fdd\u5b58\u89d2\u8272\u5361',
-	backendOff: '\u540e\u7aef\u63a5\u53e3\u672a\u5f00\u542f',
+	backendOff: '\u6682\u65f6\u65e0\u6cd5\u4fdd\u5b58\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5',
 	loadFailed: '\u52a0\u8f7d\u5931\u8d25',
 	imageUploadSuccess: '\u56fe\u7247\u4e0a\u4f20\u6210\u529f',
 	imageUploadFail: '\u56fe\u7247\u4e0a\u4f20\u5931\u8d25',
 	imageOnly: '\u8bf7\u9009\u62e9\u56fe\u7247\u6587\u4ef6',
-	imageTooLarge: '\u56fe\u7247\u8fc7\u5927\uff0c\u5f53\u524d\u5355\u6587\u4ef6\u4e0a\u9650\u4e3a 28MB\uff0c\u8bf7\u538b\u7f29\u540e\u518d\u8bd5',
+	imageTooLarge: '\u56fe\u7247\u8fc7\u5927\uff0c\u5355\u6587\u4ef6\u6700\u591a 28MB\uff0c\u8bf7\u538b\u7f29\u540e\u518d\u8bd5',
 	saveSuccess: '\u4fdd\u5b58\u6210\u529f',
 	saveFail: '\u4fdd\u5b58\u5931\u8d25',
 	nameRequired: '\u8bf7\u8f93\u5165\u89d2\u8272\u540d\u79f0',
 	deleteCard: '\u5220\u9664\u89d2\u8272\u5361',
 	deleting: '\u5220\u9664\u4e2d...',
 	deleteTitle: '\u5220\u9664\u89d2\u8272\u5361',
-	deleteContent: '\u5220\u9664\u540e\u5c06\u4e00\u8d77\u6e05\u7406\u8fd9\u4e2a\u89d2\u8272\u7684\u804a\u5929\u8bb0\u5f55\u3001\u957f\u671f\u8bb0\u5fc6\u548c\u4e92\u52a8\u6570\u636e\uff0c\u786e\u5b9a\u7ee7\u7eed\u5417\uff1f',
+	deleteContent: '\u5220\u9664\u540e\uff0c\u8be5\u89d2\u8272\u7684\u804a\u5929\u8bb0\u5f55\u4e5f\u4f1a\u4e00\u8d77\u6e05\u9664\uff0c\u4e14\u4e0d\u53ef\u6062\u590d\u3002\u786e\u5b9a\u5220\u9664\u5417\uff1f',
 	deleteSuccess: '\u5220\u9664\u6210\u529f',
 	deleteFail: '\u5220\u9664\u5931\u8d25'
 });
@@ -335,6 +373,9 @@ export default {
 		},
 		pageTitle() {
 			return this.id ? this.texts.pageEdit : this.texts.pageCreate;
+		},
+		editorHeroTitle() {
+			return this.id ? this.texts.editorTitleEdit : this.texts.editorTitleCreate;
 		},
 		avatarPreview() {
 			return this.localPreviewUrls.avatarUrl || this.previewUrl(this.form.avatarUrl);
@@ -877,24 +918,43 @@ export default {
 
 .tab-pill {
 	flex: 1;
-	height: 66rpx;
+	min-height: 66rpx;
+	padding: 0 10rpx;
 	line-height: 66rpx;
 	text-align: center;
 	border-radius: 999rpx;
-	font-size: 24rpx;
+	font-size: 22rpx;
 	color: $tavern-muted-on-dark;
 	background: rgba(255, 255, 255, 0.05);
 	border: 1rpx solid rgba(255, 255, 255, 0.06);
+	box-sizing: border-box;
 }
 
 .tab-pill--on {
 	color: #fff;
 	background: $tavern-accent-gradient;
 	border-color: transparent;
+	font-weight: 700;
+}
+
+.tab-pill--soft:not(.tab-pill--on) {
+	opacity: 0.88;
 }
 
 .panel {
 	padding: 20rpx;
+}
+
+.panel-note {
+	display: block;
+	margin-bottom: 18rpx;
+	padding: 14rpx 16rpx;
+	border-radius: 14rpx;
+	font-size: 22rpx;
+	line-height: 1.45;
+	color: #4d6678;
+	background: rgba(220, 238, 250, 0.72);
+	border: 1rpx solid rgba(148, 183, 210, 0.28);
 }
 
 .field-block + .field-block {
@@ -908,11 +968,42 @@ export default {
 	gap: 12rpx;
 }
 
+.field-label-row {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	flex-wrap: wrap;
+}
+
 .field-label {
-	display: block;
 	font-size: 26rpx;
 	font-weight: 700;
 	color: $tavern-text-on-dark;
+}
+
+.field-required,
+.field-optional,
+.field-suggest {
+	font-size: 20rpx;
+	font-weight: 600;
+	line-height: 1;
+	padding: 6rpx 10rpx;
+	border-radius: 999rpx;
+}
+
+.field-required {
+	color: #b91c1c;
+	background: rgba(254, 226, 226, 0.9);
+}
+
+.field-optional {
+	color: #247494;
+	background: rgba(220, 238, 250, 0.95);
+}
+
+.field-suggest {
+	color: #a16207;
+	background: rgba(254, 243, 199, 0.95);
 }
 
 .field-hint {

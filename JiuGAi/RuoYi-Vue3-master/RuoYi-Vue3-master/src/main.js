@@ -1,10 +1,13 @@
-import { createApp } from 'vue'
+import { createApp, h } from 'vue'
 
 import Cookies from 'js-cookie'
 
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
+import { ElConfigProvider } from 'element-plus'
 import 'element-plus/theme-chalk/dark/css-vars.css'
+import 'element-plus/es/components/loading/style/css'
+import 'element-plus/es/components/message/style/css'
+import 'element-plus/es/components/message-box/style/css'
+import 'element-plus/es/components/notification/style/css'
 import locale from 'element-plus/es/locale/lang/zh-cn'
 
 import '@/assets/styles/index.scss'
@@ -29,7 +32,17 @@ import { parseTime, resetForm, addDateRange, handleTree, selectDictLabel, select
 import Pagination from '@/components/Pagination'
 import RightToolbar from '@/components/RightToolbar'
 
-const app = createApp(App)
+const app = createApp({
+  name: 'RootConfigProvider',
+  render: () => h(
+    ElConfigProvider,
+    {
+      locale,
+      size: Cookies.get('size') || 'default'
+    },
+    { default: () => h(App) }
+  )
+})
 
 app.config.globalProperties.useDict = useDict
 app.config.globalProperties.download = download
@@ -51,10 +64,5 @@ app.use(elementIcons)
 app.component('svg-icon', SvgIcon)
 
 directive(app)
-
-app.use(ElementPlus, {
-  locale,
-  size: Cookies.get('size') || 'default'
-})
 
 app.mount('#app')

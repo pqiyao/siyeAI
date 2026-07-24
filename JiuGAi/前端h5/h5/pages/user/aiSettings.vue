@@ -33,6 +33,25 @@
 					</view>
 				</view>
 
+				<view class="feature-status-list">
+					<view class="feature-status-item" :class="{ 'feature-status-item--off': !voiceFeatureAvailable }">
+						<view class="feature-status-icon">音</view>
+						<view class="feature-status-copy">
+							<text class="feature-status-title">语音功能</text>
+							<text class="feature-status-desc">{{ voiceFeatureStatusText }}</text>
+						</view>
+						<text class="feature-status-tag">{{ voiceFeatureStatusTag }}</text>
+					</view>
+					<view class="feature-status-item" :class="{ 'feature-status-item--off': !imageFeatureAvailable }">
+						<view class="feature-status-icon feature-status-icon--image">图</view>
+						<view class="feature-status-copy">
+							<text class="feature-status-title">聊天生图</text>
+							<text class="feature-status-desc">{{ imageFeatureStatusText }}</text>
+						</view>
+						<text class="feature-status-tag">{{ imageFeatureStatusTag }}</text>
+					</view>
+				</view>
+
 				<view v-if="form.mode === 'system'" class="official-card">
 					<text class="official-title">{{ copy.officialTitle }}</text>
 					<text class="official-desc">{{ copy.officialDesc }}</text>
@@ -1246,6 +1265,30 @@ export default {
 		},
 		showImageConfig() {
 			return this.viewState.imageEnabledGlobal !== false;
+		},
+		voiceFeatureAvailable() {
+			return this.viewState.voiceEnabledGlobal !== false && this.viewState.voiceCanUse !== false;
+		},
+		imageFeatureAvailable() {
+			return this.viewState.imageEnabledGlobal !== false && this.viewState.imageCanUse !== false;
+		},
+		voiceFeatureStatusTag() {
+			if (this.viewState.voiceEnabledGlobal === false) return '已关闭';
+			return this.viewState.voiceCanUse === false ? '暂不可用' : '已开启';
+		},
+		imageFeatureStatusTag() {
+			if (this.viewState.imageEnabledGlobal === false) return '已关闭';
+			return this.viewState.imageCanUse === false ? '暂不可用' : '已开启';
+		},
+		voiceFeatureStatusText() {
+			if (this.viewState.voiceEnabledGlobal === false) return '管理员已关闭语音入口。';
+			if (this.viewState.voiceCanUse === false) return this.viewState.voiceDenyReason || '需要开放自定义 API Key 权限后使用。';
+			return this.form.mode === 'custom' ? '可在下方配置识音模型、语音模型和音色。' : '已开放，切换到自定义模式后可配置模型和音色。';
+		},
+		imageFeatureStatusText() {
+			if (this.viewState.imageEnabledGlobal === false) return '管理员已关闭聊天生图入口。';
+			if (this.viewState.imageCanUse === false) return this.viewState.imageDenyReason || '需要开放自定义 API Key 权限后使用。';
+			return this.form.mode === 'custom' ? '可在下方配置生图平台、模型和 API Key。' : '已开放，切换到自定义模式后可配置平台和模型。';
 		},
 		currentTtsProviderModelItems() {
 			return this.form.ttsUseSeparateConfig ? this.ttsProviderModelItems : this.providerModelItems;
@@ -3365,6 +3408,85 @@ export default {
 
 .mode-row--inner {
 	margin: 16rpx 0 0;
+}
+
+.feature-status-list {
+	display: flex;
+	flex-direction: column;
+	gap: 12rpx;
+	margin: -6rpx 0 24rpx;
+}
+
+.feature-status-item {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	min-width: 0;
+	padding: 16rpx 18rpx;
+	border-radius: 16rpx;
+	background: rgba(238, 248, 249, 0.76);
+	border: 1rpx solid rgba(79, 147, 163, 0.14);
+}
+
+.feature-status-item--off {
+	background: rgba(246, 247, 248, 0.76);
+	border-color: rgba(100, 116, 139, 0.12);
+}
+
+.feature-status-icon {
+	flex: 0 0 48rpx;
+	width: 48rpx;
+	height: 48rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	background: #4f93a3;
+	color: #fff;
+	font-size: 22rpx;
+	font-weight: 700;
+}
+
+.feature-status-icon--image {
+	background: #d9799d;
+}
+
+.feature-status-item--off .feature-status-icon {
+	background: #94a3b8;
+}
+
+.feature-status-copy {
+	flex: 1;
+	min-width: 0;
+}
+
+.feature-status-title,
+.feature-status-desc {
+	display: block;
+}
+
+.feature-status-title {
+	color: #29485a;
+	font-size: 25rpx;
+	font-weight: 700;
+}
+
+.feature-status-desc {
+	margin-top: 3rpx;
+	color: #6b7f8d;
+	font-size: 21rpx;
+	line-height: 1.45;
+}
+
+.feature-status-tag {
+	flex-shrink: 0;
+	color: #2f7f96;
+	font-size: 21rpx;
+	font-weight: 700;
+}
+
+.feature-status-item--off .feature-status-tag {
+	color: #7c8995;
 }
 
 .mode-chip--mini {

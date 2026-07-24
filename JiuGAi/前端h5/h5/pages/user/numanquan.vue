@@ -97,15 +97,23 @@ export default {
 		confirm() {
 			this.util
 				.request('index/forever_exit', {
-					token: uni.getStorageSync('user').token
+					token: this.util.getStoredToken()
 				})
 				.then(() => {
-					uni.clearStorageSync();
-					setTimeout(() => {
-						uni.reLaunch({
-							url: '/pages/login/login'
-						});
-					}, 600);
+					const tavernApi = require('@/common/tavernApi.js');
+					const ownerKey = tavernApi.getClientUid();
+					let cleanupTask = Promise.resolve(false);
+					try {
+						cleanupTask = require('@/common/localMediaStore.js').removeByOwner(ownerKey);
+					} catch (e) {}
+					return Promise.resolve(cleanupTask).catch(() => false).then(() => {
+						uni.clearStorageSync();
+						setTimeout(() => {
+							uni.reLaunch({
+								url: '/pages/login/login'
+							});
+						}, 600);
+					});
 				});
 		}
 	}

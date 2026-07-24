@@ -70,8 +70,7 @@
 				this.languageChange();
 				refreshI18nViews(this.allText);
 
-				const user = uni.getStorageSync('user');
-				const token = user && user.token;
+				const token = this.util.getStoredToken();
 				if (token) {
 					this.util.request('user/updLang', { token, clang }).catch(() => {});
 				}

@@ -48,7 +48,7 @@
 				}
 				this.util
 					.request('friend/lahei_list', {
-						token: uni.getStorageSync('user').token,
+						token: this.util.getStoredToken(),
 						page: this.page
 					})
 					.then((res) => {
@@ -61,7 +61,7 @@
 					.request(
 						'mi/forbid_user',
 						{
-							token: uni.getStorageSync('user').token,
+							token: this.util.getStoredToken(),
 							uid: e
 						},
 						'POST'

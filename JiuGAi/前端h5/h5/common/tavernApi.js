@@ -2,6 +2,7 @@
  * 自研 JG 酒馆后端：角色列表 / 详情 / 聊天记录 / 持久化对话（无登录态，用 clientUid 区分设备）。
  */
 var api = require('./api.js');
+var viewerIdentity = require('./viewerIdentity.js');
 var CHARACTER_ACCESS_REFRESH_FLAG_KEY = 'tavern_character_access_refresh_needed';
 var VIEWER_MEMBERSHIP_SNAPSHOT_KEY = 'tavern_viewer_membership_snapshot';
 var RUNTIME_FEATURE_CONFIG_KEY = 'tavern_runtime_feature_config';
@@ -93,7 +94,11 @@ function getStoredUserId(user) {
 	if (raw == null || raw === '') {
 		return '';
 	}
-	return String(raw);
+	return String(raw).trim();
+}
+
+function hasValidStoredUserId(user) {
+	return /^[1-9][0-9]*$/.test(getStoredUserId(user));
 }
 
 function normalizeLocalScopeText(value) {
@@ -252,6 +257,9 @@ function cleanupLocalConversationArtifacts(context) {
 	removeStoredValueQuietly(imageKey);
 	removeStoredValueQuietly(legacyImageKey);
 	removeStoredValueQuietly(voiceKey);
+	try {
+		require('./localMediaStore.js').removeByConversation(clientUid, conversationId).catch(function () {});
+	} catch (e) {}
 	return true;
 }
 
@@ -330,17 +338,18 @@ function captureResponseDeviceToken(res) {
 	return saveDeviceToken(readHeaderCaseInsensitive(headers, 'X-Device-Token'));
 }
 
-function buildRequestHeaders(extraHeaders) {
+function buildRequestHeaders(extraHeaders, requestSession) {
 	var headers = Object.assign({}, extraHeaders || {});
-	var clientUid = getClientUid();
+	var captured = requestSession && requestSession.captured === true ? requestSession : null;
+	var clientUid = captured ? captured.clientUid : getClientUid();
 	if (clientUid) {
 		headers['X-Client-Uid'] = clientUid;
 	}
-	var deviceToken = getDeviceToken();
+	var deviceToken = captured ? captured.deviceToken : getDeviceToken();
 	if (deviceToken) {
 		headers['X-Device-Token'] = deviceToken;
 	}
-	var authToken = getStoredAuthToken();
+	var authToken = captured ? captured.authToken : getStoredAuthToken();
 	if (authToken) {
 		if (!headers.Authorization && !headers.authorization) {
 			headers.Authorization = 'Bearer ' + authToken;
@@ -624,7 +633,7 @@ function getClientUid() {
 	try {
 		var user = uni.getStorageSync('user');
 		var userId = getStoredUserId(user);
-		if (userId) {
+		if (hasValidStoredUserId(user)) {
 			return 'h5u_' + userId;
 		}
 	} catch (e) {}
@@ -647,24 +656,79 @@ function getStoredUser() {
 
 function getStoredAuthToken() {
 	var user = getStoredUser();
-	if (!user || typeof user !== 'object' || user.token == null) {
+	if (!user || typeof user !== 'object') {
 		return '';
 	}
-	return String(user.token).trim();
+	var userToken = user.token == null ? '' : String(user.token).trim();
+	if (userToken) {
+		return userToken;
+	}
+	if (!hasValidStoredUserId(user)) {
+		return '';
+	}
+	try {
+		return String(uni.getStorageSync('token') || '').trim();
+	} catch (e) {
+		return '';
+	}
 }
 
 function hasLoggedInUser() {
 	var user = getStoredUser();
-	return !!(getStoredUserId(user) && user && user.token);
+	return !!(hasValidStoredUserId(user) && getStoredAuthToken());
 }
 
 function getViewerStateSignature() {
 	var user = getStoredUser();
-	var userId = getStoredUserId(user);
+	var userId = hasValidStoredUserId(user) ? getStoredUserId(user) : '';
 	if (userId) {
-		return 'user:' + userId + '|token:' + String((user && user.token) || '');
+		return 'user:' + userId + '|token:' + getStoredAuthToken();
 	}
 	return 'guest:' + getClientUid();
+}
+
+/**
+ * 页面级身份边界。只使用稳定的用户/设备标识，不把认证令牌带入页面状态。
+ */
+function getViewerIdentitySignature() {
+	var user = getStoredUser();
+	var userId = hasValidStoredUserId(user) ? getStoredUserId(user) : '';
+	var clientUid = getClientUid();
+	return viewerIdentity.buildViewerIdentitySignature({
+		userId: userId,
+		clientUid: clientUid,
+		authenticated: !!(userId && getStoredAuthToken())
+	});
+}
+
+function captureRequestSession() {
+	var user = getStoredUser();
+	var userId = hasValidStoredUserId(user) ? getStoredUserId(user) : '';
+	var clientUid = getClientUid();
+	var authToken = getStoredAuthToken();
+	return Object.freeze({
+		captured: true,
+		ownerKey: userId ? 'user_' + userId : 'guest_' + clientUid,
+		viewerSignature: userId ? 'user:' + userId + '|token:' + authToken : 'guest:' + clientUid,
+		userId: userId,
+		clientUid: clientUid,
+		authToken: authToken,
+		deviceToken: getDeviceToken()
+	});
+}
+
+function isRequestSessionCurrent(requestSession) {
+	if (!requestSession || requestSession.captured !== true) {
+		return false;
+	}
+	return requestSession.viewerSignature === getViewerStateSignature();
+}
+
+function staleRequestSessionError() {
+	var error = new Error('request session changed');
+	error.code = 'STALE_SESSION';
+	error.staleSession = true;
+	return error;
 }
 
 function getProfileAccessSignature(profile) {
@@ -687,7 +751,11 @@ function normalizeRuntimeFeatureConfig(source) {
 		registerEnabled: raw.registerEnabled !== false,
 		userCharacterCreationEnabled: raw.userCharacterCreationEnabled !== false,
 		userByokEnabled: raw.userByokEnabled === true,
+		imageGenerationEnabled: raw.imageGenerationEnabled !== false,
 		voiceFeatureEnabled: raw.voiceFeatureEnabled !== false,
+		illustrationEntryEnabled: raw.illustrationEntryEnabled !== false,
+		rechargeEntryVisible: raw.rechargeEntryVisible !== false,
+		checkinEntryVisible: raw.checkinEntryVisible !== false,
 		userByokVipMinLevel: normalizeNonNegativeInt(raw.userByokVipMinLevel, 0)
 	};
 }
@@ -720,13 +788,8 @@ function fetchAppRuntimeConfig(forceRefresh) {
 		return Promise.resolve(getRuntimeFeatureConfig());
 	}
 	var stored = readStoredRuntimeFeatureConfig();
-	if (!forceRefresh) {
-		if (stored) {
-			return Promise.resolve(normalizeRuntimeFeatureConfig(stored));
-		}
-	}
 	if (
-		forceRefresh &&
+		!forceRefresh &&
 		stored &&
 		runtimeFeatureConfigFetchedAt > 0 &&
 		Date.now() - runtimeFeatureConfigFetchedAt < RUNTIME_FEATURE_CONFIG_CACHE_MS
@@ -767,6 +830,22 @@ function isUserByokEnabled() {
 
 function isVoiceFeatureEnabled() {
 	return getRuntimeFeatureConfig().voiceFeatureEnabled !== false;
+}
+
+function isImageGenerationEnabled() {
+	return getRuntimeFeatureConfig().imageGenerationEnabled !== false;
+}
+
+function isIllustrationEntryEnabled() {
+	return getRuntimeFeatureConfig().illustrationEntryEnabled !== false;
+}
+
+function isRechargeEntryVisible() {
+	return getRuntimeFeatureConfig().rechargeEntryVisible !== false;
+}
+
+function isCheckinEntryVisible() {
+	return getRuntimeFeatureConfig().checkinEntryVisible !== false;
 }
 
 function normalizeNonNegativeInt(value, fallback) {
@@ -1021,14 +1100,21 @@ function buildLoginUrl(redirectUrl) {
 	return url;
 }
 
-function requestJson(method, path, data, timeout) {
+function requestJson(method, path, data, timeout, requestOptions) {
 	return new Promise(function (resolve, reject) {
+		var options = requestOptions && typeof requestOptions === 'object' ? requestOptions : {};
+		var requestSession = options.session && options.session.captured === true ? options.session : null;
+		var requireCurrentSession = options.requireCurrentSession === true && requestSession;
 		var opts = {
 			url: baseUrl() + path,
 			method: method,
 			timeout: timeout || 20000,
-			header: buildRequestHeaders(),
+			header: buildRequestHeaders(null, requestSession),
 			success: function (res) {
+				if (requireCurrentSession && !isRequestSessionCurrent(requestSession)) {
+					reject(staleRequestSessionError());
+					return;
+				}
 				captureResponseDeviceToken(res);
 				var ok =
 					res.statusCode >= 200 &&
@@ -1038,7 +1124,7 @@ function requestJson(method, path, data, timeout) {
 				if (ok) {
 					resolve(res.data.data);
 				} else {
-					var msg = (res.data && res.data.msg) || 'request failed';
+					var msg = (res.data && res.data.msg) || ('请求失败(' + (res.statusCode || '?') + ')');
 					var error = new Error(msg);
 					error.statusCode = res.statusCode;
 					error.response = {
@@ -1050,15 +1136,35 @@ function requestJson(method, path, data, timeout) {
 				}
 			},
 			fail: function (err) {
+				if (requireCurrentSession && !isRequestSessionCurrent(requestSession)) {
+					reject(staleRequestSessionError());
+					return;
+				}
 				reject(err || new Error('network'));
 			}
 		};
 		if (method === 'POST' || method === 'PUT') {
-			opts.header = buildRequestHeaders({ 'Content-Type': 'application/json' });
+			opts.header = buildRequestHeaders({ 'Content-Type': 'application/json' }, requestSession);
 			opts.data = data || {};
 		}
 		uni.request(opts);
 	});
+}
+
+function requestH5PasswordReset(email) {
+	return requestJson('POST', '/api/app/auth/h5/password-reset/request', {
+		email: String(email || '').trim()
+	}, 20000);
+}
+
+function confirmH5PasswordReset(payload) {
+	var source = payload && typeof payload === 'object' ? payload : {};
+	return requestJson('POST', '/api/app/auth/h5/password-reset/confirm', {
+		requestId: String(source.requestId || '').trim(),
+		email: String(source.email || '').trim(),
+		code: String(source.code || '').trim(),
+		newPassword: String(source.newPassword || '')
+	}, 20000);
 }
 
 function buildCharacterListQuery(params, includeClientUid) {
@@ -1117,6 +1223,62 @@ function fetchCharacterTags() {
 
 function fetchAppNotices() {
 	return requestJson('GET', '/api/v1/app/notices', null, 15000);
+}
+
+function fetchInboxAd() {
+	return fetchInboxAds(1).then(function (list) {
+		return Array.isArray(list) && list.length ? list[0] : null;
+	});
+}
+
+function fetchInboxAds(limit) {
+	var l = Number(limit);
+	if (!isFinite(l) || l <= 0) l = 50;
+	if (l > 100) l = 100;
+	var q = '?limit=' + encodeURIComponent(String(l));
+	return requestJson('GET', '/api/v1/app/inbox-ads' + q, null, 15000).then(function (list) {
+		if (!Array.isArray(list)) return [];
+		return list
+			.map(function (data) {
+				if (!data || typeof data !== 'object') return null;
+				var id = data.id != null ? Number(data.id) : 0;
+				if (!isFinite(id) || id <= 0) return null;
+				return {
+					id: id,
+					title: data.title == null ? '' : String(data.title),
+					content: data.content == null ? '' : String(data.content),
+					imageUrl: data.imageUrl == null ? '' : String(data.imageUrl),
+					linkUrl: data.linkUrl == null ? '' : String(data.linkUrl),
+					createdAt: data.createdAt || '',
+					updatedAt: data.updatedAt || ''
+				};
+			})
+			.filter(Boolean);
+	});
+}
+
+function fetchInboxAdsUnread(clientUid) {
+	var q = '?clientUid=' + encodeURIComponent(clientUid || getClientUid());
+	return requestJson('GET', '/api/v1/app/inbox-ads/unread' + q, null, 15000).then(function (data) {
+		data = data && typeof data === 'object' ? data : {};
+		return {
+			unreadCount: Math.max(0, Number(data.unreadCount) || 0)
+		};
+	});
+}
+
+function markInboxAdsReadAll(clientUid) {
+	return requestJson(
+		'POST',
+		'/api/v1/app/inbox-ads/read-all',
+		{ clientUid: clientUid || getClientUid() },
+		15000
+	).then(function (data) {
+		data = data && typeof data === 'object' ? data : {};
+		return {
+			unreadCount: Math.max(0, Number(data.unreadCount) || 0)
+		};
+	});
 }
 
 function fetchUserMessages(clientUid, limit) {
@@ -1181,6 +1343,19 @@ function fetchStoreOverview(clientUid) {
 	return requestStoreOverview(clientUid).then(function (data) {
 		saveMembershipSnapshot(data && data.profile);
 		return data;
+	});
+}
+
+function fetchCheckinStatus(clientUid) {
+	var q = '?clientUid=' + encodeURIComponent(clientUid || '');
+	return requestJson('GET', '/api/v1/checkin/status' + q, null, 20000).then(function (res) {
+		return res && Object.prototype.hasOwnProperty.call(res, 'data') ? res.data : res;
+	});
+}
+
+function claimCheckin(clientUid) {
+	return requestJson('POST', '/api/v1/checkin/claim', { clientUid: clientUid || '' }, 20000).then(function (res) {
+		return res && Object.prototype.hasOwnProperty.call(res, 'data') ? res.data : res;
 	});
 }
 
@@ -1339,11 +1514,12 @@ function transcribeTavernAudio(filePath, clientUid, onProgress) {
 			return;
 		}
 		var safeClientUid = clientUid || getClientUid();
+		var sttRequestId = 'stt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
 		if (isBrowserFileObject(filePath)) {
 			uploadBrowserMultipart(
 				'/api/v1/tavern/chat/transcribe-audio',
 				filePath,
-				{ clientUid: safeClientUid },
+				{ clientUid: safeClientUid, sttRequestId: sttRequestId },
 				H5_BROWSER_UPLOAD_TIMEOUT,
 				'语音识别失败',
 				onProgress,
@@ -1357,7 +1533,8 @@ function transcribeTavernAudio(filePath, clientUid, onProgress) {
 			name: 'file',
 			header: buildRequestHeaders(),
 			formData: {
-				clientUid: safeClientUid
+				clientUid: safeClientUid,
+				sttRequestId: sttRequestId
 			},
 			success: function (res) {
 				captureResponseDeviceToken(res);
@@ -1781,6 +1958,26 @@ function fetchCharacter(id) {
 	});
 }
 
+function fetchChatPreferences(characterId, requestSession) {
+	var session = requestSession && requestSession.captured === true ? requestSession : captureRequestSession();
+	var q = '?clientUid=' + encodeURIComponent(session.clientUid);
+	if (characterId != null && Number(characterId) > 0) q += '&characterId=' + encodeURIComponent(String(characterId));
+	return requestJson('GET', '/api/v1/app/me/chat-preferences' + q, null, 15000, {
+		session: session,
+		requireCurrentSession: true
+	});
+}
+
+function saveChatPreferences(characterId, payload, requestSession) {
+	var session = requestSession && requestSession.captured === true ? requestSession : captureRequestSession();
+	var q = '?clientUid=' + encodeURIComponent(session.clientUid);
+	if (characterId != null && Number(characterId) > 0) q += '&characterId=' + encodeURIComponent(String(characterId));
+	return requestJson('PUT', '/api/v1/app/me/chat-preferences' + q, payload || {}, 15000, {
+		session: session,
+		requireCurrentSession: true
+	});
+}
+
 function fetchMyCharacters(clientUid, sortBy) {
 	var s = String(sortBy || 'recent').trim();
 	if (s !== 'name') s = 'recent';
@@ -1964,6 +2161,29 @@ function normalizeCharacterCard(card) {
 		return card;
 	}
 	var normalized = Object.assign({}, card);
+	normalized.public_summary = pickDefined(card.public_summary, card.publicSummary, '');
+	normalized.public_tags = Array.isArray(card.public_tags)
+		? card.public_tags
+		: Array.isArray(card.publicTags)
+			? card.publicTags
+			: [];
+	normalized.public_warnings = Array.isArray(card.public_warnings)
+		? card.public_warnings
+		: Array.isArray(card.publicWarnings)
+			? card.publicWarnings
+			: [];
+	normalized.public_profile = card.public_profile && typeof card.public_profile === 'object'
+		? Object.assign({}, card.public_profile)
+		: (card.publicProfile && typeof card.publicProfile === 'object' ? Object.assign({}, card.publicProfile) : {});
+	normalized.health_score = Math.max(0, Math.min(100, Math.floor(toSafeNumber(pickDefined(card.health_score, card.healthScore), 0))));
+	normalized.health_issues = Array.isArray(card.health_issues)
+		? card.health_issues
+		: Array.isArray(card.healthIssues)
+			? card.healthIssues
+			: [];
+	normalized.description = pickDefined(card.description, '');
+	normalized.tagline = pickDefined(card.tagline, '');
+	normalized.bio = pickDefined(card.bio, '');
 	normalized.creator_handle = pickDefined(card.creator_handle, card.creatorHandle, '');
 	normalized.owner_client_uid = pickDefined(card.owner_client_uid, card.ownerClientUid, '');
 	normalized.private_card = !!pickDefined(card.private_card, card.privateCard, false);
@@ -2189,6 +2409,26 @@ function postTavernChatStop(payload) {
 
 function postTavernMemoryRefresh(payload) {
 	return requestJson('POST', '/api/v1/tavern/memory/refresh', payload, 120000);
+}
+
+function postTavernMemoryEntries(payload) {
+	return requestJson('POST', '/api/v1/tavern/memory/entries', payload, 20000);
+}
+
+function postTavernMemoryDisableEntry(payload) {
+	return requestJson('POST', '/api/v1/tavern/memory/disable-entry', payload, 30000);
+}
+
+function postTavernMemorySetEntryEnabled(payload) {
+	return requestJson('POST', '/api/v1/tavern/memory/set-entry-enabled', payload, 30000);
+}
+
+function postTavernMemoryDeleteEntry(payload) {
+	return requestJson('POST', '/api/v1/tavern/memory/delete-entry', payload, 30000);
+}
+
+function postTavernMemorySync(payload) {
+	return requestJson('POST', '/api/v1/tavern/memory/sync', payload, 30000);
 }
 
 /** 删除与某角色的整段会话（消息 + 记忆 + 会话行） */
@@ -2437,6 +2677,8 @@ function postTavernXhrSseStream(path, payload, handlers, opts) {
 		}
 
 		xhr.open('POST', url, true);
+		var configuredTimeout = Number(opts && opts.timeout);
+		xhr.timeout = configuredTimeout > 0 ? configuredTimeout : CHAT_GENERATION_TIMEOUT;
 		var headers = buildRequestHeaders({ 'Content-Type': 'application/json', Accept: 'text/event-stream' });
 		Object.keys(headers).forEach(function (key) {
 			xhr.setRequestHeader(key, headers[key]);
@@ -2847,12 +3089,29 @@ function postTavernDeleteMessageBranch(payload) {
 	return requestJson('POST', '/api/v1/tavern/messages/delete-branch', payload, 15000);
 }
 
+function postTavernBranchList(payload) {
+	return requestJson('POST', '/api/v1/tavern/branches/list', payload, 15000);
+}
+
+function postTavernOpeningBranchSelect(payload) {
+	return requestJson('POST', '/api/v1/tavern/branches/opening/select', payload, 20000);
+}
+
+function postTavernBranchSwitch(payload) {
+	return requestJson('POST', '/api/v1/tavern/branches/switch', payload, 15000);
+}
+
+function postTavernBranchFork(payload) {
+	return requestJson('POST', '/api/v1/tavern/branches/fork', payload, 20000);
+}
+
 module.exports = {
 	jgEnabled: jgEnabled,
 	resolveJgAssetUrl: resolveJgAssetUrl,
 	jgStreamEnabled: jgStreamEnabled,
 	getClientUid: getClientUid,
 	getDeviceToken: getDeviceToken,
+	getStoredAuthToken: getStoredAuthToken,
 	getUploadMaxFileBytes: getUploadMaxFileBytes,
 	canUseBrowserFilePicker: canUseBrowserFilePicker,
 	pickBrowserImageFile: pickBrowserImageFile,
@@ -2861,6 +3120,9 @@ module.exports = {
 	getStoredUserId: getStoredUserId,
 	hasLoggedInUser: hasLoggedInUser,
 	getViewerStateSignature: getViewerStateSignature,
+	getViewerIdentitySignature: getViewerIdentitySignature,
+	captureRequestSession: captureRequestSession,
+	isRequestSessionCurrent: isRequestSessionCurrent,
 	getProfileAccessSignature: getProfileAccessSignature,
 	getRuntimeFeatureConfig: getRuntimeFeatureConfig,
 	fetchAppRuntimeConfig: fetchAppRuntimeConfig,
@@ -2868,19 +3130,31 @@ module.exports = {
 	isRegisterEnabled: isRegisterEnabled,
 	isUserCharacterCreationEnabled: isUserCharacterCreationEnabled,
 	isUserByokEnabled: isUserByokEnabled,
+	isImageGenerationEnabled: isImageGenerationEnabled,
 	isVoiceFeatureEnabled: isVoiceFeatureEnabled,
+	isIllustrationEntryEnabled: isIllustrationEntryEnabled,
+	isRechargeEntryVisible: isRechargeEntryVisible,
+	isCheckinEntryVisible: isCheckinEntryVisible,
 	markCharacterAccessRefreshNeeded: markCharacterAccessRefreshNeeded,
 	consumeCharacterAccessRefreshNeeded: consumeCharacterAccessRefreshNeeded,
 	buildLoginUrl: buildLoginUrl,
+	requestH5PasswordReset: requestH5PasswordReset,
+	confirmH5PasswordReset: confirmH5PasswordReset,
 	fetchCharacterList: fetchCharacterList,
 	fetchCharacterTags: fetchCharacterTags,
 	fetchAppNotices: fetchAppNotices,
+	fetchInboxAd: fetchInboxAd,
+	fetchInboxAds: fetchInboxAds,
+	fetchInboxAdsUnread: fetchInboxAdsUnread,
+	markInboxAdsReadAll: markInboxAdsReadAll,
 	fetchUserMessages: fetchUserMessages,
 	fetchInboxUnreadState: fetchInboxUnreadState,
 	markInboxReadAll: markInboxReadAll,
 	markNoticeRead: markNoticeRead,
 	fetchMeStats: fetchMeStats,
 	fetchStoreOverview: fetchStoreOverview,
+	fetchCheckinStatus: fetchCheckinStatus,
+	claimCheckin: claimCheckin,
 	fetchStoreProducts: fetchStoreProducts,
 	fetchStoreOrders: fetchStoreOrders,
 	fetchSupportMeta: fetchSupportMeta,
@@ -2901,6 +3175,8 @@ module.exports = {
 	prepareLocalChatImage: prepareLocalChatImage,
 	persistGeneratedChatImage: persistGeneratedChatImage,
 	fetchCharacter: fetchCharacter,
+	fetchChatPreferences: fetchChatPreferences,
+	saveChatPreferences: saveChatPreferences,
 	fetchMyCharacters: fetchMyCharacters,
 	fetchMyCharacterCreationAccess: fetchMyCharacterCreationAccess,
 	fetchMyCharacterEditor: fetchMyCharacterEditor,
@@ -2916,6 +3192,10 @@ module.exports = {
 	postTavernSwipeSelect: postTavernSwipeSelect,
 	postTavernEditUserBranch: postTavernEditUserBranch,
 	postTavernDeleteMessageBranch: postTavernDeleteMessageBranch,
+	postTavernBranchList: postTavernBranchList,
+	postTavernOpeningBranchSelect: postTavernOpeningBranchSelect,
+	postTavernBranchSwitch: postTavernBranchSwitch,
+	postTavernBranchFork: postTavernBranchFork,
 	getTavernProfile: getTavernProfile,
 	putTavernProfile: putTavernProfile,
 	fetchTavernChatPresets: fetchTavernChatPresets,
@@ -2928,6 +3208,11 @@ module.exports = {
 	postTavernContinue: postTavernContinue,
 	postTavernChatStop: postTavernChatStop,
 	postTavernMemoryRefresh: postTavernMemoryRefresh,
+	postTavernMemoryEntries: postTavernMemoryEntries,
+	postTavernMemoryDisableEntry: postTavernMemoryDisableEntry,
+	postTavernMemorySetEntryEnabled: postTavernMemorySetEntryEnabled,
+	postTavernMemoryDeleteEntry: postTavernMemoryDeleteEntry,
+	postTavernMemorySync: postTavernMemorySync,
 	postTavernSessionDelete: postTavernSessionDelete,
 	postTavernSessionRestart: postTavernSessionRestart,
 	cleanupLocalConversationArtifacts: cleanupLocalConversationArtifacts,

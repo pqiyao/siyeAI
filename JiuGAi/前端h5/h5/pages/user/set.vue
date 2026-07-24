@@ -8,6 +8,10 @@
 					<text class="cell-txt">{{ pageCopy.persona }}</text>
 					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
 				</view>
+				<view class="cell" @tap="openChatAppearance">
+					<text class="cell-txt">聊天显示与气泡</text>
+					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
+				</view>
 				<view class="cell" @tap="util.urlTo('/pages/user/supportCreate')">
 					<text class="cell-txt">{{ pageCopy.support }}</text>
 					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
@@ -92,7 +96,12 @@ export default {
 		},
 		hasLogin() {
 			const stateUser = this.$store && this.$store.state ? this.$store.state.user : null;
-			const storedUser = uni.getStorageSync('user') || {};
+			let storedUser = {};
+			try {
+				storedUser = uni.getStorageSync('user') || {};
+			} catch (e) {
+				console.error('[settings] load stored user failed', e);
+			}
 			const user = stateUser && typeof stateUser === 'object' && stateUser.token ? stateUser : storedUser;
 			return !!(user && user.token);
 		}
@@ -100,6 +109,22 @@ export default {
 	methods: {
 		goBack() {
 			uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/user/user' }) });
+		},
+		openChatAppearance() {
+			const url = '/pages/user/chatAppearanceSetting';
+			uni.navigateTo({
+				url,
+				fail: (error) => {
+					console.error('[chat-appearance] navigateTo failed', error);
+					uni.redirectTo({
+						url,
+						fail: (fallbackError) => {
+							console.error('[chat-appearance] redirectTo failed', fallbackError);
+							uni.showToast({ title: '页面打开失败，请更新后重试', icon: 'none' });
+						}
+					});
+				}
+			});
 		},
 		outlogin() {
 			if (!this.hasLogin) {

@@ -56,13 +56,16 @@
 					>
 						<view
 							class="card-disc"
-							:class="{ 'card-disc--hover': hoverId === item.id }"
+							:class="[cardTierClass(item), { 'card-disc--hover': hoverId === item.id }]"
 							@mouseenter="setHover(item.id)"
 							@mouseleave="clearHover"
 							@touchstart="setHover(item.id)"
 							@touchend="clearHover"
 							@touchcancel="clearHover"
 						>
+							<view class="card-grade">
+								<text class="card-grade-label">{{ cardTierLabel(item) }}</text>
+							</view>
 							<view class="card-visual">
 								<image class="card2-bg" :class="{ 'card2-bg--blur': isPreviewBlurActive(item) }" :src="coverUrl(item)" mode="aspectFill" lazy-load></image>
 								<view
@@ -74,39 +77,29 @@
 									<view class="preview-blur-pill">{{ previewBlurBadgeText(item) }}</view>
 									<text class="preview-blur-note">{{ previewBlurHintText(item) }}</text>
 								</view>
-								<view class="card-float-top">
-									<text class="hdl">{{ displayHandle(item) }}</text>
-									<view class="like-badge">
-										<text class="heart sm">❤</text>
-										<text>{{ formatCount(item.like_count) }}</text>
-									</view>
-								</view>
-								<view class="card-float-tags" v-if="safeLabels(item).length">
-									<text
-										v-for="(label, idx) in safeLabels(item)"
-										:key="item.id + '_label_' + idx"
-										class="float-tag"
-										:class="'tone-' + (idx % 3)"
-									>{{ label.code }}</text>
-								</view>
+								<view class="card-shade" aria-hidden="true"></view>
 								<view class="card-visual-copy">
 									<text class="card-visual-title">{{ item.nickname }}</text>
-									<text class="card-visual-desc">{{ cardHeroCopy(item) }}</text>
-								</view>
-							</view>
-							<view class="card-meta">
-								<view v-if="cardMetaBadges(item).length" class="meta-badges">
-									<text
-										v-for="(badge, index) in cardMetaBadges(item)"
-										:key="item.id + '_badge_' + index"
-										class="meta-badge"
-										:class="'meta-badge--' + badge.tone"
-									>{{ badge.text }}</text>
-								</view>
-								<text class="meta-desc">{{ cardPreview(item) }}</text>
-								<view class="meta-foot">
-									<text class="meta-handle">{{ displayHandle(item) }}</text>
-									<text class="meta-cta" @tap.stop="handleCardAction(item)">{{ item.unlocked === false ? discoverUi.openVip : discoverUi.viewDetail }}</text>
+									<text class="card-visual-desc">{{ cardPreview(item) || cardHeroCopy(item) }}</text>
+									<view class="card-float-tags" v-if="safeLabels(item).length">
+										<text
+											v-for="(label, idx) in safeLabels(item)"
+											:key="item.id + '_label_' + idx"
+											class="float-tag"
+										>{{ label.code }}</text>
+									</view>
+									<view class="card-inline-foot">
+										<text class="card-inline-handle">{{ displayHandle(item) }}</text>
+										<text
+											v-if="item.unlocked === false"
+											class="card-inline-unlock"
+											@tap.stop="handleCardAction(item)"
+										>{{ discoverUi.openVip }}</text>
+										<view v-else class="card-inline-heat">
+											<text class="heart sm">❤</text>
+											<text>{{ formatCount(item.like_count) }}</text>
+										</view>
+									</view>
 								</view>
 							</view>
 						</view>
@@ -458,10 +451,36 @@ export default {
 			return badges.slice(0, 3);
 		},
 		cardHeroCopy(item) {
-			return this.truncate(this.normalizeText(item && (item.tagline || item.bio || item.description)), 34);
+			return this.truncate(this.normalizeText(item && (item.public_summary || item.publicSummary || item.tagline || item.bio || item.description)), 34);
+		},
+		cardVisualTier(item) {
+			if (!item || typeof item !== 'object') {
+				return 'standard';
+			}
+			const requiredLevel = Math.max(
+				0,
+				Math.min(2, Math.floor(Number(item.preview_blur_vip_level || item.previewBlurVipLevel || 0) || 0))
+			);
+			if (requiredLevel >= 2) {
+				return 'svip';
+			}
+			if (requiredLevel >= 1 || item.vip_only || item.vipOnly) {
+				return 'vip';
+			}
+			return 'standard';
+		},
+		cardTierClass(item) {
+			return 'card-tier--' + this.cardVisualTier(item);
+		},
+		cardTierLabel(item) {
+			const tier = this.cardVisualTier(item);
+			if (tier === 'svip') return 'SVIP';
+			if (tier === 'vip') return 'VIP';
+			return 'R';
 		},
 		cardPreview(item) {
 			const candidates = [
+				item && (item.public_summary || item.publicSummary),
 				item && item.description,
 				item && item.bio,
 				item && item.gameplay_type,
@@ -618,19 +637,97 @@ export default {
 }
 
 .card-disc {
+	--tier-rim: linear-gradient(145deg, #f3f4f6 0%, #9ca3af 40%, #e5e7eb 60%, #6b7280 100%);
+	--tier-ink-a: 156, 163, 175;
+	position: relative;
 	width: 100%;
-	border-radius: 28rpx;
-	overflow: hidden;
-	background: rgba(17, 19, 31, 0.94);
-	border: 1rpx solid rgba(255, 255, 255, 0.06);
-	box-shadow: 0 22rpx 44rpx rgba(6, 8, 16, 0.28);
+	border-radius: 0;
+	overflow: visible;
+	background: transparent;
+	border: none;
+	box-shadow: none;
+}
+
+.card-tier--vip {
+	--tier-rim: linear-gradient(135deg, #e0f2fe 0%, #38bdf8 25%, #60a5fa 50%, #7dd3fc 75%, #bae6fd 100%);
+	--tier-ink-a: 56, 189, 248;
+}
+
+.card-tier--svip {
+	--tier-rim: linear-gradient(125deg, #f9a8d4 0%, #c084fc 20%, #818cf8 40%, #67e8f9 60%, #fde047 80%, #fb7185 100%);
+	--tier-ink-a: 192, 132, 252;
+}
+
+.card-grade {
+	position: absolute;
+	top: -2rpx;
+	left: -2rpx;
+	z-index: 8;
+	padding: 12rpx 16rpx 8rpx 10rpx;
+	pointer-events: none;
+	transform: rotate(-6deg);
+	transform-origin: 0 0;
+}
+
+.card-tier--vip .card-grade {
+	transform: rotate(-4deg);
+}
+
+.card-disc:not(.card-tier--vip):not(.card-tier--svip) .card-grade {
+	transform: rotate(-3deg);
+	top: 2rpx;
+	left: 2rpx;
+}
+
+.card-grade-label {
+	font-family: Georgia, 'Times New Roman', 'Noto Serif SC', serif;
+	font-size: 44rpx;
+	font-weight: 900;
+	font-style: italic;
+	line-height: 0.85;
+	color: #e5e7eb;
+	text-shadow: 0 2rpx 2rpx rgba(0, 0, 0, 0.75), 0 0 12rpx rgba(var(--tier-ink-a), 0.7);
+}
+
+.card-tier--vip .card-grade-label {
+	font-size: 40rpx;
+	color: #bae6fd;
+}
+
+.card-tier--svip .card-grade-label {
+	font-size: 48rpx;
+	color: #f5d0fe;
 }
 
 .card-visual {
 	position: relative;
-	height: 592rpx;
+	isolation: isolate;
+	height: 550rpx;
 	overflow: hidden;
-	background: #141726;
+	border-radius: 36rpx;
+	background: transparent;
+}
+
+.card-visual::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: 36rpx;
+	padding: 3rpx;
+	background: var(--tier-rim);
+	background-size: 200% 200%;
+	-webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+	-webkit-mask-composite: xor;
+	mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+	mask-composite: exclude;
+	pointer-events: none;
+	z-index: 6;
+	opacity: 0.95;
+}
+
+.card-tier--vip .card-visual::before,
+.card-tier--svip .card-visual::before {
+	padding: 4rpx;
 }
 
 .card2-bg {
@@ -640,8 +737,8 @@ export default {
 	width: 100%;
 	height: 100%;
 	z-index: 0;
-	background: #141726;
-	transition: transform 0.4s ease, filter 0.4s ease;
+	background: transparent;
+	transition: transform 0.45s ease;
 	/* #ifdef H5 */
 	object-fit: cover;
 	object-position: center top;
@@ -665,13 +762,18 @@ export default {
 	opacity: 1;
 }
 
-.card-visual::after {
-	content: '';
+.card-shade {
 	position: absolute;
 	inset: 0;
-	background:
-		linear-gradient(180deg, rgba(10, 12, 20, 0.02) 0%, rgba(10, 12, 20, 0.12) 35%, rgba(10, 12, 20, 0.9) 100%),
-		linear-gradient(135deg, rgba(173, 104, 255, 0.12), transparent 42%);
+	z-index: 2;
+	pointer-events: none;
+	background: linear-gradient(
+		180deg,
+		rgba(0, 0, 0, 0.02) 0%,
+		rgba(0, 0, 0, 0.04) 42%,
+		rgba(0, 0, 0, 0.38) 68%,
+		rgba(0, 0, 0, 0.78) 100%
+	);
 }
 
 /* #ifdef H5 */
@@ -680,28 +782,16 @@ export default {
 	cursor: pointer;
 }
 
-.card-disc:hover .card2-bg,
-.card-disc--hover .card2-bg,
-.card-disc:active .card2-bg {
-	transform: translateY(-28rpx) scale(1.14);
-	filter: brightness(1.08) saturate(1.08);
+.card-disc:hover .card2-bg:not(.card2-bg--blur),
+.card-disc--hover .card2-bg:not(.card2-bg--blur),
+.card-disc:active .card2-bg:not(.card2-bg--blur) {
+	transform: scale(1.04);
 }
 
-.card-disc:hover .card2-bg--blur,
-.card-disc--hover .card2-bg--blur,
-.card-disc:active .card2-bg--blur {
-	filter: blur(18rpx) scale(1.14) brightness(0.74);
+.card-disc:active {
+	transform: scale(0.975);
 }
 /* #endif */
-
-.card-float-top,
-.card-float-tags,
-.card-visual-copy {
-	position: absolute;
-	left: 18rpx;
-	right: 18rpx;
-	z-index: 4;
-}
 
 .preview-blur-layer {
 	position: absolute;
@@ -725,9 +815,6 @@ export default {
 	color: #fff7ed;
 	background: rgba(15, 23, 42, 0.46);
 	border: 1rpx solid rgba(253, 186, 116, 0.34);
-	box-shadow: 0 12rpx 24rpx rgba(8, 10, 18, 0.22);
-	backdrop-filter: blur(18px);
-	-webkit-backdrop-filter: blur(18px);
 }
 
 .preview-blur-note {
@@ -738,153 +825,118 @@ export default {
 	color: rgba(255, 244, 230, 0.92);
 }
 
-.card-float-top {
-	top: 18rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 14rpx;
-}
-
-.hdl,
-.like-badge {
-	background: rgba(8, 10, 18, 0.48);
-	border: 1rpx solid rgba(255, 255, 255, 0.08);
-	backdrop-filter: blur(20rpx);
-	-webkit-backdrop-filter: blur(20rpx);
-}
-
-.hdl {
-	max-width: 66%;
-	padding: 10rpx 16rpx;
-	border-radius: 999rpx;
-	font-size: 22rpx;
-	color: #fff;
-}
-
-.like-badge {
-	display: inline-flex;
-	align-items: center;
-	gap: 8rpx;
-	padding: 10rpx 16rpx;
-	border-radius: 999rpx;
-	font-size: 22rpx;
-	color: #fbe1ff;
-}
-
-.heart.sm {
-	color: #ff79c8;
-}
-
-.card-float-tags {
-	bottom: 108rpx;
-	display: flex;
-	flex-wrap: wrap;
-	gap: 10rpx;
-}
-
-.float-tag {
-	padding: 8rpx 14rpx;
-	border-radius: 16rpx;
-	font-size: 20rpx;
-	color: #f6ebff;
-	background: rgba(255, 255, 255, 0.08);
-	border: 1rpx solid rgba(255, 255, 255, 0.1);
-}
-
-.tone-0 { background: rgba(59, 130, 246, 0.22); }
-.tone-1 { background: rgba(236, 72, 153, 0.22); }
-.tone-2 { background: rgba(168, 85, 247, 0.22); }
-
 .card-visual-copy {
-	bottom: 20rpx;
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 4;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+	padding: 24rpx 20rpx 18rpx;
+	pointer-events: none;
 }
 
 .card-visual-title {
-	display: block;
-	font-size: 42rpx;
-	font-weight: 700;
-	line-height: 1.12;
 	color: #fff;
+	font-size: 30rpx;
+	font-weight: 800;
+	line-height: 1.25;
+	text-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.55);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .card-visual-desc {
-	display: block;
-	margin-top: 10rpx;
-	font-size: 24rpx;
-	line-height: 1.52;
-	color: rgba(241, 245, 249, 0.86);
+	color: rgba(255, 255, 255, 0.84);
+	font-size: 21rpx;
+	line-height: 1.4;
+	text-shadow: 0 1rpx 8rpx rgba(0, 0, 0, 0.45);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
 }
 
-.card-meta {
-	padding: 22rpx 20rpx 20rpx;
-}
-
-.meta-badges {
+.card-float-tags {
+	position: static;
 	display: flex;
 	flex-wrap: wrap;
-	gap: 10rpx;
+	gap: 6rpx;
+	margin-top: 4rpx;
 }
 
-.meta-badge {
-	padding: 8rpx 14rpx;
+.float-tag {
+	padding: 3rpx 12rpx;
 	border-radius: 999rpx;
-	font-size: 20rpx;
-	font-weight: 600;
+	font-size: 18rpx;
+	font-weight: 650;
+	color: rgba(255, 244, 214, 0.96);
+	background: rgba(0, 0, 0, 0.28);
+	border: 1rpx solid rgba(255, 255, 255, 0.16);
 }
 
-.meta-badge--mode {
-	color: #ede9fe;
-	background: rgba(91, 33, 182, 0.24);
-}
-
-.meta-badge--vip {
-	color: #fff7ed;
-	background: rgba(249, 115, 22, 0.24);
-}
-
-.meta-badge--blur {
-	color: #fed7aa;
-	background: rgba(249, 115, 22, 0.18);
-	border: 1rpx solid rgba(251, 146, 60, 0.24);
-}
-
-.meta-badge--new {
-	color: #ecfeff;
-	background: rgba(13, 148, 136, 0.24);
-}
-
-.meta-desc {
-	display: block;
-	margin-top: 16rpx;
-	font-size: 24rpx;
-	line-height: 1.65;
-	color: rgba(226, 232, 240, 0.78);
-	min-height: 120rpx;
-}
-
-.meta-foot {
+.card-inline-foot {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 18rpx;
-	margin-top: 18rpx;
-	padding-top: 16rpx;
-	border-top: 1rpx solid rgba(255, 255, 255, 0.08);
+	gap: 12rpx;
+	margin-top: 6rpx;
+	padding-top: 10rpx;
+	border-top: 1rpx solid rgba(255, 255, 255, 0.12);
+	pointer-events: auto;
 }
 
+.card-inline-handle {
+	flex: 1;
+	min-width: 0;
+	font-size: 20rpx;
+	font-weight: 650;
+	color: rgba(255, 255, 255, 0.78);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.card-inline-heat {
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 6rpx;
+	font-size: 20rpx;
+	font-weight: 700;
+	color: rgba(255, 214, 120, 0.92);
+}
+
+.card-inline-unlock {
+	flex-shrink: 0;
+	padding: 4rpx 12rpx;
+	border-radius: 999rpx;
+	font-size: 18rpx;
+	font-weight: 700;
+	color: #fff6d6;
+	background: rgba(150, 100, 28, 0.42);
+	border: 1rpx solid rgba(255, 220, 140, 0.28);
+}
+
+.heart.sm {
+	color: rgba(255, 214, 120, 0.92);
+}
+
+.card-meta,
+.card-float-top,
+.hdl,
+.like-badge,
+.meta-badges,
+.meta-badge,
+.meta-desc,
+.meta-foot,
 .meta-handle,
 .meta-cta {
-	font-size: 22rpx;
-}
-
-.meta-handle {
-	color: rgba(226, 232, 240, 0.62);
-}
-
-.meta-cta {
-	color: #f9a8d4;
-	font-weight: 700;
+	display: none;
 }
 
 .state-block {
@@ -946,7 +998,6 @@ export default {
 }
 
 .search-panel,
-.card-disc,
 .state-block,
 .list-more {
 	background: rgba(255, 255, 255, 0.88);
@@ -962,7 +1013,6 @@ export default {
 .inp,
 .section-title,
 .result-title,
-.meta-desc,
 .state-title {
 	color: #244b66;
 }
@@ -982,34 +1032,13 @@ export default {
 	box-shadow: 0 12rpx 26rpx rgba(52, 143, 184, 0.18);
 }
 
-.card-visual,
-.card2-bg {
-	background: #eef8fb;
+.card-disc {
+	background: transparent;
+	border: none;
+	box-shadow: none;
 }
 
-.card-visual::after {
-	background:
-		linear-gradient(180deg, rgba(21, 48, 64, 0) 0%, rgba(21, 48, 64, 0.12) 46%, rgba(21, 48, 64, 0.78) 100%);
-}
-
-.meta-badge--mode,
-.meta-badge--new {
-	color: #247494;
-	background: rgba(220, 247, 251, 0.9);
-}
-
-.meta-badge--vip,
-.meta-badge--blur {
-	color: #9a6b18;
-	background: rgba(255, 246, 220, 0.82);
-}
-
-.meta-handle,
 .list-more-text {
 	color: #687f92;
-}
-
-.meta-cta {
-	color: #247494;
 }
 </style>

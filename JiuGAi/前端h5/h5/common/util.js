@@ -30,10 +30,20 @@ function clearStoragePreserve(keys = PERSISTENT_KEYS) {
   }
 }
 
+function getStoredUser() {
+	try {
+		const user = uni.getStorageSync('user');
+		return user && typeof user === 'object' ? user : null;
+	} catch (e) {
+		return null;
+	}
+}
 
-/**
- * request 普通请求
- */
+function getStoredToken() {
+	const user = getStoredUser();
+	return user && user.token != null ? String(user.token).trim() : '';
+}
+
 
 /**
  * request 普通请求
@@ -55,8 +65,7 @@ function request(url, data = {}, dataType = '', method = "POST") {
 				}
 			}
 		}
-		const userStore = uni.getStorageSync('user');
-		const userToken = (userStore && userStore.token) || '';
+		const userToken = getStoredToken();
 		uni.request({
 			url: api.path + url,
 			data: data,
@@ -567,29 +576,55 @@ function getDistrict(latitude, longitude) {
  上传文件uploadFile
  */
 function uploadFile(img) {
+	const languageList = ['zh-hk', 'zh-cn', 'en', 'ko', 'ja'];
+	const copy = {
+		'zh-cn': { loading: '上传中', failed: '上传失败，请重试', invalid: '服务器返回了无效数据' },
+		'zh-hk': { loading: '上傳中', failed: '上傳失敗，請重試', invalid: '伺服器回傳了無效資料' },
+		en: { loading: 'Uploading', failed: 'Upload failed. Please try again.', invalid: 'The server returned invalid data.' },
+		ko: { loading: '업로드 중', failed: '업로드에 실패했습니다. 다시 시도해 주세요.', invalid: '서버가 잘못된 데이터를 반환했습니다.' },
+		ja: { loading: 'アップロード中', failed: 'アップロードに失敗しました。もう一度お試しください。', invalid: 'サーバーから無効なデータが返されました。' }
+	};
+	const storedLanguage = uni.getStorageSync('languageType');
+	const languageCodeMap = { 'zh-hk': 0, 'zh-cn': 1, en: 2, ko: 3, ja: 4 };
+	let languageIndex = typeof storedLanguage === 'string' && languageCodeMap[storedLanguage] !== undefined
+		? languageCodeMap[storedLanguage]
+		: Number(storedLanguage);
+	if (!Number.isInteger(languageIndex) || !languageList[languageIndex]) languageIndex = 1;
+	const text = copy[languageList[languageIndex]] || copy['zh-cn'];
 	uni.showLoading({
-		title: '上传中'
+		title: text.loading
 	});
-	let _this = this;
-	const token = uni.getStorageSync('user').token;
+	const token = getStoredToken();
 	return new Promise(function(resolve, reject) {
 		uni.uploadFile({
 			url: api.path + 'common/upload',
 			filePath: img,
 			name: 'file',
+			timeout: 60000,
 			formData: {
 				token: token
-				// token: 'd4b8bb87-9c27-4a89-a024-5b1e3d942124'
 			},
 			success: (uploadFileRes) => {
-				console.log(uploadFileRes)
-				let up = JSON.parse(uploadFileRes.data);
-				if (up.code == 1) {
-					resolve(up.data);
-					uni.hideLoading();
-				} else {
-					_this.showToast(up.msg);
+				try {
+					const up = typeof uploadFileRes.data === 'string' ? JSON.parse(uploadFileRes.data) : uploadFileRes.data;
+					if (uploadFileRes.statusCode >= 200 && uploadFileRes.statusCode < 300 && up && Number(up.code) === 1) {
+						resolve(up.data);
+						return;
+					}
+					const message = (up && up.msg) || text.failed;
+					showToast(message);
+					reject(new Error(message));
+				} catch (error) {
+					showToast(text.invalid);
+					reject(error instanceof Error ? error : new Error(text.invalid));
 				}
+			},
+			fail: (error) => {
+				showToast(text.failed);
+				reject(error || new Error(text.failed));
+			},
+			complete: () => {
+				uni.hideLoading();
 			}
 		});
 	});
@@ -787,6 +822,8 @@ function getMapApp(mapType, lat, lng, address) {
 }
 module.exports = {
 	request,
+	getStoredUser,
+	getStoredToken,
 	toLogin,
 	showToast,
 	showMsg,

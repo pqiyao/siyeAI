@@ -6,7 +6,7 @@
 		<scroll-view scroll-y class="scroll" :show-scrollbar="false">
 			<view class="summary-card">
 				<text class="summary-title">{{ product.name || copy.productFallback }}</text>
-				<text class="summary-price">楼{{ product.priceYuan || '--' }}</text>
+				<text class="summary-price">¥{{ product.priceYuan || '--' }}</text>
 				<text class="summary-subtitle">{{ product.subtitle || copy.summaryFallback }}</text>
 			</view>
 
@@ -64,14 +64,14 @@
 
 			<view v-if="paymentMessage" class="message-card">{{ paymentMessage }}</view>
 
-			<view class="action-stack">
+			<view v-if="rechargeEntryReady && rechargeEntryVisible" class="action-stack">
 				<view class="primary-btn" @tap="payNow">{{ payButtonText }}</view>
 				<view class="ghost-btn" @tap="rebuildOrder">{{ copy.rebuildOrder }}</view>
 				<view class="ghost-btn ghost-btn--soft" @tap="openSupport">{{ supportButtonText }}</view>
 			</view>
 			<u-gap height="48"></u-gap>
 		</scroll-view>
-		<view class="project-notice-mask">
+		<view v-if="rechargeEntryReady && !rechargeEntryVisible" class="project-notice-mask">
 			<view class="project-notice-card">
 				<text class="project-notice-tag">NOTICE</text>
 				<text class="project-notice-title">{{ projectNotice.title }}</text>
@@ -293,7 +293,10 @@ export default {
 			paying: false,
 			creating: false,
 			lastPayment: null,
-			profileAccessSignature: ''
+			profileAccessSignature: '',
+			rechargeEntryVisible: tavernApi.isRechargeEntryVisible(),
+			rechargeEntryReady: false,
+			rechargeConfigRequestVersion: 0
 		};
 	},
 	computed: {
@@ -338,16 +341,50 @@ export default {
 		this.productCode = options && options.productCode ? String(options.productCode) : '';
 	},
 	onShow() {
-		this.initProjectShell();
+		this.syncRechargeEntryVisibility(true);
+	},
+	onUnload() {
+		this.rechargeConfigRequestVersion += 1;
+		this.rechargeEntryReady = false;
 	},
 	methods: {
 		initProjectShell() {
+			this.product = {};
+			this.profile = {};
 			this.channels = [];
+			this.selectedChannel = '';
 			this.order = {};
 			this.lastPayment = null;
 		},
+		canPurchase() {
+			return this.rechargeEntryReady && this.rechargeEntryVisible;
+		},
+		syncRechargeEntryVisibility(forceRefresh) {
+			const requestVersion = ++this.rechargeConfigRequestVersion;
+			this.rechargeEntryVisible = tavernApi.isRechargeEntryVisible();
+			this.rechargeEntryReady = false;
+			return tavernApi
+				.fetchAppRuntimeConfig(forceRefresh === true)
+				.then((config) => {
+					if (requestVersion !== this.rechargeConfigRequestVersion) return false;
+					this.rechargeEntryVisible = !(config && config.rechargeEntryVisible === false);
+					this.rechargeEntryReady = true;
+					if (this.rechargeEntryVisible) {
+						this.loadPage();
+					} else {
+						this.initProjectShell();
+					}
+					return this.rechargeEntryVisible;
+				})
+				.catch(() => {
+					if (requestVersion !== this.rechargeConfigRequestVersion) return false;
+					this.rechargeEntryReady = true;
+					if (this.rechargeEntryVisible) this.loadPage();
+					return this.rechargeEntryVisible;
+				});
+		},
 		openProjectContact() {
-			uni.navigateTo({ url: '/pages/user/aboutmy' });
+			uni.navigateTo({ url: '/pages/user/lianxiwomen/lianxiwomen' });
 		},
 		requireH5Login() {
 			if (tavernApi.hasLoggedInUser()) {
@@ -368,10 +405,12 @@ export default {
 			return false;
 		},
 		loadPage() {
+			if (!this.canPurchase()) return;
 			const clientUid = tavernApi.getClientUid();
 			tavernApi
 				.fetchStoreOverview(clientUid)
 				.then((res) => {
+					if (!this.canPurchase()) return;
 					const nextProfile = (res && res.profile) || {};
 					const nextAccessSignature = tavernApi.getProfileAccessSignature(nextProfile);
 					if (this.profileAccessSignature && this.profileAccessSignature !== nextAccessSignature) {
@@ -394,6 +433,7 @@ export default {
 					}
 				})
 				.catch((e) => {
+					if (!this.canPurchase()) return;
 					uni.showToast({ title: (e && e.message) || this.copy.loadError, icon: 'none' });
 				});
 		},
@@ -411,6 +451,7 @@ export default {
 			uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/user/user' }) });
 		},
 		selectChannel(code) {
+			if (!this.canPurchase()) return;
 			if (!code || this.selectedChannel === code) return;
 			this.selectedChannel = code;
 			this.order = {};
@@ -419,6 +460,7 @@ export default {
 			this.createOrder();
 		},
 		createOrder() {
+			if (!this.canPurchase()) return;
 			if (!this.requireH5Login()) return;
 			if (this.creating || !this.productCode || !this.selectedChannel) return;
 			this.creating = true;
@@ -429,11 +471,13 @@ export default {
 					paymentChannel: this.selectedChannel
 				})
 				.then((res) => {
+					if (!this.canPurchase()) return;
 					this.order = (res && res.order) || {};
 					this.lastPayment = (res && res.payment) || null;
 					this.channels = (res && res.channels) || this.channels;
 				})
 				.catch((e) => {
+					if (!this.canPurchase()) return;
 					this.order = {};
 					this.lastPayment = null;
 					uni.showToast({ title: (e && e.message) || this.copy.createOrderError, icon: 'none' });
@@ -443,6 +487,7 @@ export default {
 				});
 		},
 		rebuildOrder() {
+			if (!this.canPurchase()) return;
 			if (!this.requireH5Login()) return;
 			this.order = {};
 			this.lastPayment = null;
@@ -458,6 +503,7 @@ export default {
 			uni.navigateTo({ url });
 		},
 		payNow() {
+			if (!this.canPurchase()) return;
 			if (!this.requireH5Login()) return;
 			if (this.paying) return;
 			if (!this.order.orderNo) {
@@ -471,11 +517,13 @@ export default {
 					orderNo: this.order.orderNo
 				})
 				.then((res) => {
+					if (!this.canPurchase()) return;
 					this.order = (res && res.order) || this.order;
 					this.lastPayment = (res && res.payment) || this.lastPayment;
 					return this.dispatchPaymentAction(this.lastPayment);
 				})
 				.catch((e) => {
+					if (!this.canPurchase()) return;
 					uni.showToast({ title: (e && e.message) || this.copy.payError, icon: 'none' });
 				})
 				.finally(() => {
@@ -483,6 +531,7 @@ export default {
 				});
 		},
 		dispatchPaymentAction(payment) {
+			if (!this.canPurchase()) return Promise.resolve();
 			const action = payment && payment.action;
 			if (action === 'mock_pay') {
 				return this.finishMockPay();
@@ -505,6 +554,7 @@ export default {
 					orderNo: this.order.orderNo
 				})
 				.then((res) => {
+					if (!this.canPurchase()) return;
 					this.order = (res && res.order) || this.order;
 					const nextProfile = (res && res.profile) || this.profile;
 					const nextAccessSignature = tavernApi.getProfileAccessSignature(nextProfile);

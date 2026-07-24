@@ -95,7 +95,8 @@ try {
 					route: '',
 					overrideLayout: {},
 					config: companionStore.getConfig(),
-					timer: null
+					routeEventHandler: null,
+					focusEventHandler: null
 				}
 			},
 			created: function () {
@@ -108,19 +109,34 @@ try {
 					self.overrideLayout = Object.assign({}, self.overrideLayout, layout || {})
 					self.refreshLayout()
 				})
+				uni.$on(companionStore.EVENTS.routeChanged, function () {
+					self.scheduleRefreshLayout()
+				})
 			},
 			mounted: function () {
-				var self = this
 				this.refreshLayout()
-				this.timer = setInterval(function () {
-					self.refreshLayout()
-				}, 350)
+				this.routeEventHandler = this.scheduleRefreshLayout.bind(this)
+				this.focusEventHandler = this.scheduleRefreshLayout.bind(this)
+				window.addEventListener('hashchange', this.routeEventHandler, false)
+				window.addEventListener('popstate', this.routeEventHandler, false)
+				window.addEventListener('pageshow', this.routeEventHandler, false)
+				document.addEventListener('focusin', this.focusEventHandler, true)
+				document.addEventListener('focusout', this.focusEventHandler, true)
 			},
 			beforeDestroy: function () {
-				if (this.timer) clearInterval(this.timer)
-				this.timer = null
+				window.removeEventListener('hashchange', this.routeEventHandler, false)
+				window.removeEventListener('popstate', this.routeEventHandler, false)
+				window.removeEventListener('pageshow', this.routeEventHandler, false)
+				document.removeEventListener('focusin', this.focusEventHandler, true)
+				document.removeEventListener('focusout', this.focusEventHandler, true)
 			},
 			methods: {
+				scheduleRefreshLayout: function () {
+					var self = this
+					this.$nextTick(function () {
+						self.refreshLayout()
+					})
+				},
 				currentRoute: function () {
 					try {
 						var pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []

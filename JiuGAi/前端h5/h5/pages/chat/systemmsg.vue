@@ -87,7 +87,9 @@ export default {
 			list: [],
 			loadFailed: false,
 			loadErrorText: '',
-			loading: false
+			loading: false,
+			viewerIdentitySignature: '',
+			loadRequestVersion: 0
 		};
 	},
 	computed: {
@@ -104,6 +106,9 @@ export default {
 	},
 	onShow() {
 		this.load();
+	},
+	onUnload() {
+		this.loadRequestVersion += 1;
 	},
 	methods: {
 		goBack() {
@@ -126,17 +131,55 @@ export default {
 				pad(d.getMinutes())
 			);
 		},
+		getViewerIdentitySignature() {
+			try {
+				if (typeof tavernApi.getViewerIdentitySignature === 'function') {
+					return String(tavernApi.getViewerIdentitySignature() || '');
+				}
+				return 'client:' + String(tavernApi.getClientUid() || '');
+			} catch (e) {
+				return 'unknown';
+			}
+		},
+		prepareViewerIdentity() {
+			const currentIdentity = this.getViewerIdentitySignature();
+			if (this.viewerIdentitySignature && this.viewerIdentitySignature !== currentIdentity) {
+				this.loadRequestVersion += 1;
+				this.list = [];
+				const tavernInboxBadge = require('@/common/tavernInboxBadge.js');
+				tavernInboxBadge
+					.refreshCombinedInboxBadge(this, tavernApi, { noticeUnread: 0, adUnread: 0 })
+					.catch(() => {});
+			}
+			this.viewerIdentitySignature = currentIdentity;
+			return currentIdentity;
+		},
+		isLoadRequestCurrent(identitySignature, requestVersion) {
+			return (
+				this.loadRequestVersion === requestVersion &&
+				this.viewerIdentitySignature === identitySignature &&
+				this.getViewerIdentitySignature() === identitySignature
+			);
+		},
 		load() {
+			const identitySignature = this.prepareViewerIdentity();
+			const requestVersion = ++this.loadRequestVersion;
 			this.loading = true;
 			this.loadFailed = false;
 			this.loadErrorText = '';
 			if (!tavernApi.jgEnabled()) {
 				this.list = [];
 				this.loading = false;
+				const tavernInboxBadge = require('@/common/tavernInboxBadge.js');
+				tavernInboxBadge.refreshCombinedInboxBadge(this, null, {
+					noticeUnread: 0,
+					adUnread: 0
+				});
 				return;
 			}
 			Promise.all([tavernApi.fetchAppNotices(), tavernApi.fetchUserMessages(tavernApi.getClientUid(), 30)])
 				.then(([notices, messages]) => {
+					if (!this.isLoadRequestCurrent(identitySignature, requestVersion)) return;
 					const systemRows = (Array.isArray(notices) ? notices : []).map((item) => ({
 						...item,
 						tagType: 'system',
@@ -156,30 +199,31 @@ export default {
 						return tb - ta;
 					});
 					const tavernNoticeState = require('@/common/tavernNoticeState.js');
-					const { syncTavernInboxBadge } = require('@/common/tavernTabBar.js');
-					tavernNoticeState
+					const tavernInboxBadge = require('@/common/tavernInboxBadge.js');
+					return tavernNoticeState
 						.markAllAsRead(tavernApi)
 						.then((state) => {
+							if (!this.isLoadRequestCurrent(identitySignature, requestVersion)) return;
 							const count = Math.max(0, Number(state && state.unreadCount) || 0);
-							try {
-								this.$store.commit('setUnreadTotal', count);
-							} catch (e) {}
-							syncTavernInboxBadge(this, count);
+							return tavernInboxBadge.refreshCombinedInboxBadge(this, tavernApi, {
+								noticeUnread: count
+							});
 						})
 						.catch(() => {
-							try {
-								this.$store.commit('setUnreadTotal', 0);
-							} catch (e) {}
-							syncTavernInboxBadge(this, 0);
+							if (!this.isLoadRequestCurrent(identitySignature, requestVersion)) return;
+							return tavernInboxBadge.refreshCombinedInboxBadge(this, tavernApi);
 						});
 				})
 				.catch((e) => {
+					if (!this.isLoadRequestCurrent(identitySignature, requestVersion)) return;
 					this.list = [];
 					this.loadFailed = true;
 					this.loadErrorText = tavernErrors.getTavernErrorMessage(e, this.uiText.loadFailed);
 				})
 				.finally(() => {
-					this.loading = false;
+					if (this.isLoadRequestCurrent(identitySignature, requestVersion)) {
+						this.loading = false;
+					}
 				});
 		}
 	}

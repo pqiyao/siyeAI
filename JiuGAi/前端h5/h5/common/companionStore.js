@@ -22,7 +22,8 @@ const EVENTS = {
 	reply: 'live2d-companion:reply',
 	error: 'live2d-companion:error',
 	configChanged: 'live2d-companion:config-changed',
-	layoutChanged: 'live2d-companion:layout-changed'
+	layoutChanged: 'live2d-companion:layout-changed',
+	routeChanged: 'live2d-companion:route-changed'
 };
 
 function clampNumber(value, min, max, fallback) {
@@ -97,6 +98,10 @@ function emitLayout(layout) {
 	uni.$emit(EVENTS.layoutChanged, layout && typeof layout === 'object' ? layout : {});
 }
 
+function emitRouteChanged() {
+	uni.$emit(EVENTS.routeChanged);
+}
+
 module.exports = {
 	STORAGE_KEY,
 	DEFAULT_CONFIG,
@@ -108,5 +113,6 @@ module.exports = {
 	emitReplying,
 	emitReply,
 	emitError,
-	emitLayout
+	emitLayout,
+	emitRouteChanged
 };

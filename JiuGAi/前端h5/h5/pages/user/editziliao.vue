@@ -75,15 +75,33 @@ const COPY = {
 		noteTitle: '溫馨提示',
 		noteBody: '目前資料會在 H5 帳號與已綁定身份中共用，用於識別你的帳戶，不影響聊天角色設定。'
 	},
-	en: {
+		en: {
 		title: 'Manage Your Tavern Identity',
 		subtitle: 'Your nickname, avatar, and bio appear in orders, support, and profile pages without changing your current roleplay settings.',
 		avatarTitle: 'Avatar',
 		avatarTip: 'A clear avatar makes your account easier to identify during support and order handling.',
 		avatarAction: 'Tap to upload avatar',
 		noteTitle: 'Note',
-		noteBody: 'This profile is shared across your H5 account and linked identities for account recognition only.'
-	}
+			noteBody: 'This profile is shared across your H5 account and linked identities for account recognition only.'
+		},
+		ko: {
+			title: '내 프로필 관리',
+			subtitle: '닉네임, 아바타와 소개는 주문, 고객지원 및 프로필에 표시되며 현재 롤플레이 설정은 변경하지 않습니다.',
+			avatarTitle: '아바타',
+			avatarTip: '선명한 아바타를 사용하면 주문과 고객지원에서 계정을 쉽게 확인할 수 있습니다.',
+			avatarAction: '눌러서 아바타 업로드',
+			noteTitle: '안내',
+			noteBody: '이 프로필은 계정 확인을 위해 H5 계정과 연결된 로그인에서 함께 사용됩니다.'
+		},
+		ja: {
+			title: 'プロフィール管理',
+			subtitle: 'ニックネーム、アバター、紹介文は注文・サポート・プロフィールに表示され、現在のロールプレイ設定は変更しません。',
+			avatarTitle: 'アバター',
+			avatarTip: '鮮明なアバターを使用すると、注文やサポートでアカウントを確認しやすくなります。',
+			avatarAction: 'タップしてアバターをアップロード',
+			noteTitle: 'ご案内',
+			noteBody: 'このプロフィールはアカウント確認のため、H5アカウントと連携済みログインで共有されます。'
+		}
 };
 
 export default {
@@ -129,13 +147,13 @@ export default {
 			this.util.addImg().then((data) => {
 				this.util.uploadFile(data).then((res) => {
 					this.avatar = res.url;
-				});
-			});
+				}).catch(() => {});
+			}).catch(() => {});
 		},
 		myuser() {
 			this.util
 				.request('user/user_info', {
-					token: uni.getStorageSync('user').token
+					token: this.util.getStoredToken()
 				})
 				.then((res) => {
 					this.avatar = res.avatar || this.avatar;
@@ -172,7 +190,7 @@ export default {
 					relation: this.relation_id,
 					occupation: this.occupation_id,
 					label: this.label_id,
-					token: uni.getStorageSync('user').token,
+					token: this.util.getStoredToken(),
 					gender: this.gender
 				})
 				.then(() => {

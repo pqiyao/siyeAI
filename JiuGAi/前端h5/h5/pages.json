@@ -60,6 +60,18 @@
 			}
 		},
 		{
+			"path": "pages/tavern/sessionManage",
+			"style": {
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/tavern/inboxAds",
+			"style": {
+				"navigationStyle": "custom"
+			}
+		},
+		{
 			"path": "pages/tavern/charDetail",
 			"style": {
 				"navigationStyle": "custom"
@@ -111,6 +123,12 @@
 			}
 		},
 		{
+			"path": "pages/user/checkin",
+			"style": {
+				"navigationStyle": "custom"
+			}
+		},
+		{
 			"path": "pages/user/editziliao",
 			"style": {
 				"navigationStyle": "custom"
@@ -118,6 +136,12 @@
 		},
 		{
 			"path": "pages/user/set",
+			"style": {
+				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/user/chatAppearanceSetting",
 			"style": {
 				"navigationStyle": "custom"
 			}

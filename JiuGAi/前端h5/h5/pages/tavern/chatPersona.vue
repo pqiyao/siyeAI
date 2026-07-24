@@ -2,7 +2,8 @@
 	<view class="page">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
 		<tavern-nav-bar title="聊天设定" mode="dark" @back="goBack" />
-		<view class="body">
+		<scroll-view class="body-scroll" scroll-y>
+			<view class="body">
 			<!-- <view class="card card--hint">
 				<text class="hint-title">名字现在分三层管理</text>
 				<text class="hint-text">
@@ -108,7 +109,8 @@
 				<view class="btn btn--ghost" :class="{ dis: saving }" @tap="resetPersona">清空设定</view>
 				<view class="btn" :class="{ dis: saving }" @tap="save">{{ saving ? '保存中...' : '保存' }}</view>
 			</view>
-		</view>
+			</view>
+		</scroll-view>
 	</view>
 </template>
 
@@ -324,6 +326,7 @@
 
 <style scoped lang="scss">
 	.page {
+		height: 100vh;
 		min-height: 100vh;
 		background: transparent;
 		display: flex;
@@ -333,6 +336,13 @@
 		color: #203846;
 	}
 
+	.body-scroll {
+		position: relative;
+		z-index: 1;
+		flex: 1;
+		min-height: 0;
+	}
+
 	.page::before,
 	.page::after {
 		display: none;
@@ -340,7 +350,7 @@
 
 	.body {
 		position: relative;
-		z-index: 1;
+		box-sizing: border-box;
 		padding: 22rpx 24rpx calc(40rpx + env(safe-area-inset-bottom));
 		display: flex;
 		flex-direction: column;

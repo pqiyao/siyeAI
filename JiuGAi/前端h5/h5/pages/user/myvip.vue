@@ -10,7 +10,7 @@
 				<text class="hero-subtitle">{{ vipSummary }}</text>
 			</view>
 
-			<view class="section-card">
+			<view v-if="rechargeEntryReady && rechargeEntryVisible" class="section-card">
 				<text class="section-title">{{ copy.benefitTitle }}</text>
 				<text class="section-subtitle">{{ copy.benefitSubtitle }}</text>
 				<view class="benefit-list">
@@ -47,7 +47,11 @@
 						</view>
 						<view class="product-side">
 							<text class="product-price">¥{{ item.priceYuan }}</text>
-							<view class="buy-btn" @tap="goPay(item.code)">{{ copy.buyNow }}</view>
+							<view
+								v-if="rechargeEntryReady && rechargeEntryVisible"
+								class="buy-btn"
+								@tap="goPay(item.code)"
+							>{{ copy.buyNow }}</view>
 						</view>
 					</view>
 					<view v-if="!vipProducts.length" class="empty-box">
@@ -56,23 +60,12 @@
 				</view>
 			</view>
 
-			<view class="note-card">
+			<view v-if="rechargeEntryReady && rechargeEntryVisible" class="note-card">
 				<text class="note-title">{{ copy.noteTitle }}</text>
 				<text class="note-text">{{ copy.note }}</text>
 			</view>
 			<u-gap height="48"></u-gap>
 		</scroll-view>
-		<view class="project-notice-mask">
-			<view class="project-notice-card">
-				<text class="project-notice-tag">NOTICE</text>
-				<text class="project-notice-title">{{ projectNotice.title }}</text>
-				<text class="project-notice-desc">{{ projectNotice.message }}</text>
-				<view class="project-notice-actions">
-					<view class="project-notice-btn project-notice-btn--ghost" @tap="goBack">{{ projectNotice.backText }}</view>
-					<view class="project-notice-btn project-notice-btn--primary" @tap="openProjectContact">{{ projectNotice.contactText }}</view>
-				</view>
-			</view>
-		</view>
 	</view>
 </template>
 
@@ -81,7 +74,6 @@ import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 
 const tavernApi = require('@/common/tavernApi.js');
 const { getLanguageCode } = require('@/common/tavernUiI18n.js');
-const { getProjectNoticeCopy } = require('@/common/tavernProjectNotice.js');
 
 const COPY = {
 	'zh-cn': {
@@ -212,15 +204,14 @@ export default {
 		return {
 			profile: {},
 			vipProducts: [],
-			profileAccessSignature: ''
+			profileAccessSignature: '',
+			rechargeEntryVisible: tavernApi.isRechargeEntryVisible(),
+			rechargeEntryReady: false
 		};
 	},
 	computed: {
 		copy() {
 			return COPY[getLanguageCode()] || COPY.en;
-		},
-		projectNotice() {
-			return getProjectNoticeCopy(getLanguageCode());
 		},
 		vipSummary() {
 			if (this.profile.vipActive && this.profile.vipExpiresAt) {
@@ -230,17 +221,27 @@ export default {
 		}
 	},
 	onShow() {
-		this.initProjectShell();
+		this.loadPage();
+		this.syncRechargeEntryVisibility(true);
 	},
 	methods: {
-		initProjectShell() {
-			this.profile = {};
-			this.vipProducts = [];
-		},
-		openProjectContact() {
-			uni.navigateTo({ url: '/pages/user/aboutmy' });
+		syncRechargeEntryVisibility(forceRefresh) {
+			this.rechargeEntryVisible = tavernApi.isRechargeEntryVisible();
+			this.rechargeEntryReady = false;
+			return tavernApi
+				.fetchAppRuntimeConfig(forceRefresh === true)
+				.then((config) => {
+					this.rechargeEntryVisible = !(config && config.rechargeEntryVisible === false);
+					this.rechargeEntryReady = true;
+					return this.rechargeEntryVisible;
+				})
+				.catch(() => {
+					this.rechargeEntryReady = true;
+					return this.rechargeEntryVisible;
+				});
 		},
 		ensureLoginForPayment(productCode) {
+			if (!this.rechargeEntryReady || !this.rechargeEntryVisible) return;
 			if (tavernApi.hasLoggedInUser()) {
 				this.util.urlTo('/pages/user/pay?productCode=' + encodeURIComponent(productCode));
 				return;
@@ -284,6 +285,7 @@ export default {
 			uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/user/user' }) });
 		},
 		goPay(productCode) {
+			if (!this.rechargeEntryReady || !this.rechargeEntryVisible) return;
 			this.ensureLoginForPayment(productCode);
 		},
 		formatDate(value) {

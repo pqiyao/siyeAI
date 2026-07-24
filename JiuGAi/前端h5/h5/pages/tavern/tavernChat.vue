@@ -1,7 +1,22 @@
 ﻿<template>
-	<view class="wrap" :class="{ focused: inputFocus, 'wrap--with-bg': hasChatBackground, 'wrap--app-plus': isAppPlus }" :style="wrapStyle">
+	<view
+		class="wrap"
+		:class="[localeFontClass, {
+			focused: inputFocus,
+			'wrap--with-bg': hasChatBackground,
+			'wrap--app-plus': isAppPlus,
+			'wrap--appearance-custom': chatBubbleAppearanceEnabled,
+			'wrap--segment-labels': chatAppearanceSegmentLabelsEnabled,
+			'wrap--read-novel': chatAppearanceReadMode === 'novel',
+			'wrap--read-speech-only': chatAppearanceReadMode === 'speechOnly',
+			'wrap--read-hide-thought': chatAppearanceReadMode === 'hideThought',
+			'wrap--read-soft-action': chatAppearanceReadMode === 'softAction'
+		}]"
+		:style="wrapStyle"
+	>
 		<image class="chat-default-bg" :src="defaultChatBackgroundUrl" mode="aspectFill"></image>
 		<image v-if="hasCustomChatBackground" class="chat-role-bg" :src="chatBackgroundUrl" mode="aspectFill"></image>
+		<view v-if="chatBubbleAppearanceEnabled && normalizedChatAppearanceConfig.backdropStrength > 0" class="chat-readable-overlay" :style="chatReadableOverlayStyle"></view>
 		<tavern-nav-bar :title="title" mode="dark" @back="goBack">
 			<template #right>
 				<view v-if="jgOn" class="nav-right-tools">
@@ -25,6 +40,9 @@
 					>
 						<image class="nav-voice-config-icon" :src="characterVoiceIcon" mode="aspectFit"></image>
 					</view>
+					<view class="nav-appearance-config" title="聊天显示" @tap="goAppearanceSetting">
+						<u-icon name="setting" size="34" color="#ffffff"></u-icon>
+					</view>
 					<text class="nav-link" @tap="goPersona">{{ chatUi.settings }}</text>
 				</view>
 			</template>
@@ -46,6 +64,7 @@
 				<text class="tool-i" :class="{ 'tool-i--disabled': !assistantTailActionState().ok }" @tap="onContinue">{{ chatUi.continue }}</text>
 				<text class="tool-i" @tap="onRestart">{{ chatUi.restart }}</text>
 				<text class="tool-i" @tap="onMem">{{ chatUi.memory }}</text>
+				<text class="tool-i" :class="{ 'tool-i--active': branchPanel.visible }" @tap="openBranchPanel">{{ tx('branch_panel_title', '分支') }}</text>
 				<text
 					v-if="canShowReplyHelpTrigger()"
 					class="tool-i tool-i--reply"
@@ -86,54 +105,63 @@
 					v-for="m in messages"
 					:key="m.id"
 					:id="'m-' + m.id"
-					class="msg-row"
-					:class="[m.role === 'user' ? 'me' : 'them', { 'msg-row--app-plus': isAppPlus }]"
+					class="chat-message-row"
+					:class="[
+						m.role === 'user' ? 'chat-message-row--user' : 'chat-message-row--assistant',
+						{
+							'chat-message-row--read-empty': !messageVisibleInReadMode(m)
+						}
+					]"
 				>
 					<image
 						v-if="m.role !== 'user'"
-						class="av av--char"
+						class="chat-message-avatar chat-message-avatar--character"
 						:src="charAvatar"
 						mode="aspectFill"
 						lazy-load
 						@tap.stop="openCharImagePreview"
 						@longpress.stop="applyCharacterNameToDraft"
 					></image>
-					<view
-						class="bubble"
-						:style="messageBubbleInlineStyle(m)"
-						:class="{
-							'bubble--char': m.role !== 'user',
-							'bubble--me': m.role === 'user',
-							'bubble--them': m.role !== 'user',
-							'bubble--app-plus': isAppPlus,
-							'bubble--streaming': isStreamingAssistantRow(m),
-							'bubble--has-image': m.imageUrls && m.imageUrls.length,
-							'bubble--image-only': m.imageUrls && m.imageUrls.length && !String(m.text || '').trim(),
-							'bubble--text-only': (!m.imageUrls || !m.imageUrls.length) && String(m.text || '').trim()
-						}"
+					<message-bubble
+						:bubble-style="messageBubbleInlineStyle(m)"
+						:bubble-class="messageBubbleClass(m)"
 					>
-						<view v-if="m.imageUrls && m.imageUrls.length" class="msg-image-list">
-							<image
-								v-for="(img, imgIndex) in m.imageUrls"
-								:key="imgIndex"
-								class="msg-image"
-								:src="img"
-								mode="aspectFill"
-								lazy-load
-								@tap.stop="previewChatMessageImages(m, imgIndex)"
-							></image>
-						</view>
-						<view v-if="m.localKind === 'image_generation' && m.localPrompt" class="local-image-prompt-row">
-							<text class="local-image-prompt-text">{{ m.localPrompt }}</text>
-						</view>
-						<view v-if="messageQuoteMeta(m)" class="msg-quote-preview" :class="{ 'msg-quote-preview--me': m.role === 'user' }">
-							<text class="msg-quote-preview-speaker">{{ messageQuoteMeta(m).speaker }}</text>
-							<text class="msg-quote-preview-text">{{ messageQuoteMeta(m).text }}</text>
-						</view>
+						<message-content
+							:image-urls="m.imageUrls"
+							:local-kind="m.localKind"
+							:local-prompt="m.localPrompt"
+							:quote-meta="messageQuoteMeta(m)"
+							:is-user="m.role === 'user'"
+							:has-text="!!String(m.text || '').trim()"
+							@preview-image="previewChatMessageImages(m, $event)"
+						>
 						<!-- #ifdef H5 -->
 						<view
-							v-if="isAssistantMessage(m)"
-							class="md-inner"
+							v-if="shouldRenderSplitBubbles(m)"
+							class="chat-message-split-list"
+						>
+							<view
+								v-for="(chunk, chunkIndex) in assistantBubbleChunks(m)"
+								:key="String(m.id) + '-split-' + chunkIndex"
+								class="chat-message-split-part"
+								:style="assistantSplitBubbleStyle(m, chunkIndex)"
+							>
+								<view
+									class="chat-message-markdown"
+									:style="assistantMessageTextStyle(m)"
+									v-html="mdHtml(chunk)"
+									@tap="onMarkdownTap"
+									@touchstart="startMessageActionPress(m, $event)"
+									@touchmove="moveMessageActionPress($event)"
+									@touchend="endMessageActionPress"
+									@touchcancel="endMessageActionPress"
+								></view>
+							</view>
+						</view>
+						<view
+							v-else-if="isAssistantMessage(m)"
+							class="chat-message-markdown"
+							:style="assistantMessageTextStyle(m)"
 							v-html="mdHtml(m.text)"
 							@tap="onMarkdownTap"
 							@touchstart="startMessageActionPress(m, $event)"
@@ -142,35 +170,25 @@
 							@touchcancel="endMessageActionPress"
 						></view>
 						<template v-else>
-							<view v-if="shouldShowUserVoiceCard(m)" class="user-voice-row">
-								<view
-									class="user-voice-card"
-									:class="userVoiceCardClass(m)"
-									@tap.stop="toggleUserVoice(m)"
-								>
-									<view class="user-voice-wave">
-										<text v-for="n in 4" :key="'user_voice_bar_' + m.id + '_' + n" class="user-voice-bar"></text>
-									</view>
-									<text class="user-voice-duration">{{ userVoiceDurationLabel(m) }}</text>
-								</view>
-								<view v-if="userVoiceTranscriptText(m)" class="user-voice-transcript-wrap">
-									<text
-										class="user-voice-transcript"
-										@touchstart="startMessageActionPress(m, $event)"
-										@touchmove="moveMessageActionPress($event)"
-										@touchend="endMessageActionPress"
-										@touchcancel="endMessageActionPress"
-									>{{ userVoiceTranscriptText(m) }}</text>
-									<text
-										v-if="canEditUserMessage(m)"
-										class="user-edit-tag user-edit-tag--voice"
-										@tap.stop="openEditUserMessage(m)"
-									>{{ chatUi.edit }}</text>
-								</view>
-							</view>
+							<voice-message-card
+								v-if="shouldShowUserVoiceCard(m)"
+								:message-id="m.id"
+								:card-class="userVoiceCardClass(m)"
+								:duration-label="userVoiceDurationLabel(m)"
+								:transcript-text="userVoiceTranscriptText(m)"
+								:can-edit="canEditUserMessage(m)"
+								:edit-label="chatUi.edit"
+								@toggle="toggleUserVoice(m)"
+								@edit="openEditUserMessage(m)"
+								@press-start="startMessageActionPress(m, $event)"
+								@press-move="moveMessageActionPress($event)"
+								@press-end="endMessageActionPress"
+								@press-cancel="endMessageActionPress"
+							></voice-message-card>
 							<template v-else>
 								<text
-									class="txt"
+									class="chat-message-user-text"
+									:style="userMessageTextStyle(m)"
 									@touchstart="startMessageActionPress(m, $event)"
 									@touchmove="moveMessageActionPress($event)"
 									@touchend="endMessageActionPress"
@@ -182,8 +200,43 @@
 						<!-- #endif -->
 						<!-- #ifndef H5 -->
 						<view
-							v-if="isAssistantMessage(m)"
-							class="md-inner md-inner--native"
+							v-if="shouldRenderSplitBubbles(m)"
+							class="chat-message-split-list"
+						>
+							<view
+								v-for="(chunk, chunkIndex) in assistantBubbleChunks(m)"
+								:key="String(m.id) + '-split-' + chunkIndex"
+								class="chat-message-split-part"
+								:style="assistantSplitBubbleStyle(m, chunkIndex)"
+								@touchstart="startMessageActionPress(m, $event)"
+								@touchmove="moveMessageActionPress($event)"
+								@touchend="endMessageActionPress"
+								@touchcancel="endMessageActionPress"
+							>
+								<view :class="nativeMessageContentClass()">
+									<view
+										v-for="(seg, si) in mdSegments(chunk)"
+										:key="si"
+										:class="nativeSegmentClass(seg)"
+										:style="nativeSegmentWrapStyle(seg)"
+									>
+										<view :class="nativeSegmentLineClass()" :style="nativeSegmentLineStyle()">
+											<view
+												v-if="chatAppearanceSegmentLabelsEnabled"
+												:class="nativeSegmentLabelClass(seg)"
+												:style="nativeSegmentLabelStyle(seg)"
+											>
+												<text :class="nativeSegmentLabelTextClass()" :style="nativeSegmentLabelTextStyle(seg)">{{ nativeSegmentLabelText(seg) }}</text>
+											</view>
+											<text :class="nativeSegmentTextClass(seg)" :style="nativeSegmentTextStyle(seg)">{{ seg.text }}</text>
+										</view>
+									</view>
+								</view>
+							</view>
+						</view>
+						<view
+							v-else-if="isAssistantMessage(m)"
+							:class="nativeMessageContentClass()"
 							@touchstart="startMessageActionPress(m, $event)"
 							@touchmove="moveMessageActionPress($event)"
 							@touchend="endMessageActionPress"
@@ -192,58 +245,60 @@
 							<view
 								v-for="(seg, si) in mdSegments(m.text)"
 								:key="si"
-								class="st-chat-seg-native"
-								:class="'st-chat-seg-native--' + seg.type"
+								:class="nativeSegmentClass(seg)"
 								:style="nativeSegmentWrapStyle(seg)"
 							>
-								<text
-									v-if="seg.type === 'speech'"
-									class="st-chat-seg-text st-chat-seg-text--speech"
-								>{{ seg.text }}</text>
-								<text
-									v-else-if="seg.type === 'action'"
-									class="st-chat-seg-text st-chat-seg-text--action"
-								>{{ seg.text }}</text>
-								<text
-									v-else-if="seg.type === 'thought'"
-									class="st-chat-seg-text st-chat-seg-text--thought"
-								>{{ seg.text }}</text>
-								<text
-									v-else
-									class="st-chat-seg-text st-chat-seg-text--narration"
-								>{{ seg.text }}</text>
+								<view :class="nativeSegmentLineClass()" :style="nativeSegmentLineStyle()">
+									<view
+										v-if="chatAppearanceSegmentLabelsEnabled"
+										:class="nativeSegmentLabelClass(seg)"
+										:style="nativeSegmentLabelStyle(seg)"
+									>
+										<text :class="nativeSegmentLabelTextClass()" :style="nativeSegmentLabelTextStyle(seg)">{{ nativeSegmentLabelText(seg) }}</text>
+									</view>
+									<text
+										v-if="seg.type === 'speech'"
+										:class="nativeSegmentTextClass(seg)"
+										:style="nativeSegmentTextStyle(seg)"
+									>{{ seg.text }}</text>
+									<text
+										v-else-if="seg.type === 'action'"
+										:class="nativeSegmentTextClass(seg)"
+										:style="nativeSegmentTextStyle(seg)"
+									>{{ seg.text }}</text>
+									<text
+										v-else-if="seg.type === 'thought'"
+										:class="nativeSegmentTextClass(seg)"
+										:style="nativeSegmentTextStyle(seg)"
+									>{{ seg.text }}</text>
+									<text
+										v-else
+										:class="nativeSegmentTextClass(seg)"
+										:style="nativeSegmentTextStyle(seg)"
+									>{{ seg.text }}</text>
+								</view>
 							</view>
 						</view>
 						<view v-else>
-							<view v-if="shouldShowUserVoiceCard(m)" class="user-voice-row">
-								<view
-									class="user-voice-card"
-									:class="userVoiceCardClass(m)"
-									@tap.stop="toggleUserVoice(m)"
-								>
-									<view class="user-voice-wave">
-										<text v-for="n in 4" :key="'user_voice_native_bar_' + m.id + '_' + n" class="user-voice-bar"></text>
-									</view>
-									<text class="user-voice-duration">{{ userVoiceDurationLabel(m) }}</text>
-								</view>
-								<view v-if="userVoiceTranscriptText(m)" class="user-voice-transcript-wrap">
-									<text
-										class="user-voice-transcript"
-										@touchstart="startMessageActionPress(m, $event)"
-										@touchmove="moveMessageActionPress($event)"
-										@touchend="endMessageActionPress"
-										@touchcancel="endMessageActionPress"
-									>{{ userVoiceTranscriptText(m) }}</text>
-									<text
-										v-if="canEditUserMessage(m)"
-										class="user-edit-tag user-edit-tag--voice"
-										@tap.stop="openEditUserMessage(m)"
-									>{{ chatUi.edit }}</text>
-								</view>
-							</view>
+							<voice-message-card
+								v-if="shouldShowUserVoiceCard(m)"
+								:message-id="m.id"
+								:card-class="userVoiceCardClass(m)"
+								:duration-label="userVoiceDurationLabel(m)"
+								:transcript-text="userVoiceTranscriptText(m)"
+								:can-edit="canEditUserMessage(m)"
+								:edit-label="chatUi.edit"
+								@toggle="toggleUserVoice(m)"
+								@edit="openEditUserMessage(m)"
+								@press-start="startMessageActionPress(m, $event)"
+								@press-move="moveMessageActionPress($event)"
+								@press-end="endMessageActionPress"
+								@press-cancel="endMessageActionPress"
+							></voice-message-card>
 							<template v-else>
 								<text
-									class="txt"
+									:class="nativeUserMessageTextClass()"
+									:style="userMessageTextStyle(m)"
 									@touchstart="startMessageActionPress(m, $event)"
 									@touchmove="moveMessageActionPress($event)"
 									@touchend="endMessageActionPress"
@@ -253,57 +308,35 @@
 							</template>
 						</view>
 						<!-- #endif -->
-						<view v-if="isStreamingAssistantRow(m)" class="stream-inline" :class="{ 'stream-inline--app-plus': isAppPlus }">
-							<view class="stream-inline-wave">
-								<text v-for="n in 3" :key="'stream_inline_' + m.id + '_' + n" class="stream-inline-bar"></text>
-							</view>
-							<text class="stream-inline-text">{{ streamingAssistantStatusText(m) }}</text>
-						</view>
-						<view v-if="shouldShowAssistantVoicePill(m)" class="assistant-voice-row">
-							<view
-								class="assistant-voice-pill"
-								:class="assistantVoicePillClass(m)"
-								@tap.stop="toggleAssistantVoice(m)"
-							>
-								<view class="assistant-voice-pill-dot"></view>
-								<text class="assistant-voice-pill-text">{{ assistantVoiceLabel(m) }}</text>
-							</view>
-						</view>
-						<view v-if="isAssistantMessage(m) && m.swipes && m.swipes.length > 1" class="swipe-row">
-							<text class="swipe-btn" @tap.stop="swipeCharMessage(m, -1)">&lt;</text>
-							<text class="swipe-num">{{ swipeLabel(m) }}</text>
-							<text class="swipe-btn" @tap.stop="swipeCharMessage(m, 1)">&gt;</text>
-						</view>
-						<view v-if="recoveryForMessage(m)" class="generation-recovery">
-							<view class="generation-recovery-copy">
-								<text class="generation-recovery-title">{{ recoveryForMessage(m).title }}</text>
-								<text class="generation-recovery-message">{{ recoveryForMessage(m).message }}</text>
-							</view>
-							<view class="generation-recovery-actions">
-								<text class="generation-recovery-btn generation-recovery-btn--primary" @tap.stop="runGenerationRecoveryPrimary">
-									{{ recoveryPrimaryLabel() }}
-								</text>
-								<text
-									v-if="recoveryForMessage(m).canRegen"
-									class="generation-recovery-btn"
-									@tap.stop="runGenerationRecoveryRegen"
-								>
-									{{ tx('regen', '重新生成') }}
-								</text>
-								<text
-									v-if="String(m.text || '').trim()"
-									class="generation-recovery-btn"
-									@tap.stop="copyGenerationRecoveryText(m)"
-								>
-									{{ tx('copy', '复制') }}
-								</text>
-								<text class="generation-recovery-close" @tap.stop="clearGenerationRecovery">×</text>
-							</view>
-						</view>
-					</view>
+						<message-actions
+							v-if="messageActionsVisible(m)"
+							:message-id="m.id"
+							:is-app-plus="isAppPlus"
+							:streaming="isStreamingAssistantRow(m)"
+							:streaming-status-text="streamingAssistantStatusText(m)"
+							:show-assistant-voice="shouldShowAssistantVoicePill(m)"
+							:assistant-voice-label="assistantVoiceLabel(m)"
+							:assistant-voice-pill-class="assistantVoicePillClass(m)"
+							:show-swipe-controls="isAssistantMessage(m) && !m.openingMessage && m.swipes && m.swipes.length > 1"
+							:swipe-label="swipeLabel(m)"
+							:recovery="recoveryForMessage(m)"
+							:recovery-primary-label="recoveryPrimaryLabel()"
+							:recovery-regen-label="tx('regen', '重新生成')"
+							:recovery-copy-label="tx('copy', '复制')"
+							:can-copy-recovery="!!String(m.text || '').trim()"
+							@assistant-voice-toggle="toggleAssistantVoice(m)"
+							@swipe-previous="swipeCharMessage(m, -1)"
+							@swipe-next="swipeCharMessage(m, 1)"
+							@recovery-primary="runGenerationRecoveryPrimary"
+							@recovery-regen="runGenerationRecoveryRegen"
+							@recovery-copy="copyGenerationRecoveryText(m)"
+							@recovery-close="clearGenerationRecovery"
+						></message-actions>
+						</message-content>
+					</message-bubble>
 					<image
 						v-if="m.role === 'user'"
-						class="av"
+						class="chat-message-avatar"
 						:src="resolvedUserAvatar"
 						mode="aspectFill"
 						lazy-load
@@ -386,7 +419,7 @@
 				<view
 					v-if="messageActionSheet.canDelete"
 					class="message-action-item message-action-item--danger"
-					:class="{ 'message-action-item--disabled': messageActionSheet.deleting }"
+					:class="{ 'message-action-item--disabled': messageActionSheet.deleting || messageActionSheet.forking }"
 					@tap="confirmDeleteMessageAction"
 				>
 					<text class="message-action-item-label">{{ messageActionSheet.deleting ? tx('deleting', '删除中...') : tx('delete', '删除') }}</text>
@@ -397,6 +430,241 @@
 				>
 					<text class="message-action-item-label">{{ tx('message_action_empty', '暂无可操作项') }}</text>
 				</view>
+			</view>
+		</view>
+		<view v-if="branchPanel.visible" class="branch-mask" @tap="closeBranchPanel">
+			<view class="branch-sheet" @tap.stop>
+				<view class="branch-head">
+					<view class="branch-head-copy">
+						<text class="branch-title">{{ tx('branch_opening_title', '开场剧情') }}</text>
+						<text class="branch-sub">{{ branchPanel.loading ? tx('loading', '加载中...') : (branchPanelRows.length ? tx('branch_opening_count', '共 {n} 个开场').replace('{n}', String(branchPanelRows.length)) : tx('branch_opening_empty', '角色卡暂无开场剧情')) }}</text>
+					</view>
+					<view
+						class="branch-close"
+						:title="tx('close', '关闭')"
+						:aria-label="tx('close', '关闭')"
+						@tap="closeBranchPanel"
+					>
+						<u-icon name="close" color="#64748b" size="30"></u-icon>
+					</view>
+				</view>
+				<scroll-view class="branch-scroll" scroll-y :show-scrollbar="false">
+					<view v-if="branchPanel.loading" class="branch-empty">
+						<text class="branch-empty-title">{{ tx('loading', '加载中...') }}</text>
+					</view>
+					<view v-else-if="branchPanel.error" class="branch-empty">
+						<text class="branch-empty-title">{{ tx('branch_load_failed', '分支加载失败') }}</text>
+						<text class="branch-empty-sub" @tap.stop="loadBranchPanel">{{ branchPanel.error }}</text>
+					</view>
+					<view v-else-if="!branchPanelRows.length" class="branch-empty">
+						<text class="branch-empty-title">{{ tx('branch_opening_empty_title', '暂无其他开场') }}</text>
+						<text class="branch-empty-sub">{{ tx('branch_opening_empty_sub', '这张角色卡只配置了一个开场剧情') }}</text>
+					</view>
+					<view
+						v-for="row in branchPanelRows"
+						:key="'branch_row_' + row.id"
+						class="branch-row"
+						:class="{
+							'branch-row--active': row.active,
+							'branch-row--switching': branchPanel.switchingBranchId === row.id
+						}"
+						@tap.stop="switchBranch(row)"
+					>
+						<view class="branch-row-head">
+							<view class="branch-row-title-wrap">
+								<text class="branch-row-title">{{ row.title }}</text>
+								<text class="branch-row-preview">{{ row.preview || tx('branch_no_preview', '暂无消息') }}</text>
+							</view>
+							<text class="branch-row-current">{{ row.active ? tx('branch_current', '当前') : (row.created ? tx('branch_continue', '继续') : tx('branch_start', '开始')) }}</text>
+						</view>
+						<view class="branch-row-meta">
+							<text v-if="row.created" class="branch-row-meta-text">{{ tx('branch_message_count', '{n} 条消息').replace('{n}', String(row.messageCount || 0)) }}</text>
+							<text v-else class="branch-row-meta-text">{{ tx('branch_new_story', '新剧情') }}</text>
+						</view>
+					</view>
+				</scroll-view>
+			</view>
+		</view>
+		<view v-if="memoryPanel.visible" class="memory-mask" @tap="closeMemoryPanel">
+			<view class="memory-sheet" @tap.stop>
+				<view class="memory-head">
+					<view class="memory-head-copy">
+						<text class="memory-title">{{ tx('memory_panel_title', '长期记忆') }}</text>
+						<text class="memory-sub">{{ memoryStatusLabel(memoryPanel.detail && memoryPanel.detail.syncStatus) }}</text>
+					</view>
+					<view
+						class="memory-close"
+						:title="tx('close', '关闭')"
+						:aria-label="tx('close', '关闭')"
+						@tap="closeMemoryPanel"
+					>
+						<u-icon name="close" color="#64748b" size="30"></u-icon>
+					</view>
+				</view>
+				<view class="memory-stats">
+					<view class="memory-stat">
+						<text class="memory-stat-label">{{ tx('memory_enabled', '启用') }}</text>
+						<text class="memory-stat-value">{{ memoryPanel.detail && memoryPanel.detail.enabledEntryCount != null ? memoryPanel.detail.enabledEntryCount : 0 }}</text>
+					</view>
+					<view class="memory-stat">
+						<text class="memory-stat-label">{{ tx('memory_total', '总数') }}</text>
+						<text class="memory-stat-value">{{ memoryPanelTotalCount }}</text>
+					</view>
+					<view class="memory-stat">
+						<text class="memory-stat-label">{{ tx('memory_facts', '事实') }}</text>
+						<text class="memory-stat-value">{{ memoryPanel.detail && memoryPanel.detail.factsCount != null ? memoryPanel.detail.factsCount : 0 }}</text>
+					</view>
+				</view>
+				<text v-if="memoryPanel.detail && memoryPanel.detail.summaryPreview" class="memory-summary">
+					{{ memoryPanel.detail.summaryPreview }}
+				</text>
+				<view class="memory-actions">
+					<text class="memory-guide">{{ memoryPanelGuideText() }}</text>
+					<view class="memory-action-row">
+						<view
+							v-if="memoryPanel.detail && String(memoryPanel.detail.syncStatus || '').toUpperCase() === 'FAILED'"
+							class="memory-icon-button memory-icon-button--secondary"
+							:class="{ 'memory-icon-button--disabled': memoryPanelBusy }"
+							:title="tx('memory_sync_retry', '重试同步')"
+							:aria-label="tx('memory_sync_retry', '重试同步')"
+							@tap="retryMemorySync"
+						>
+							<u-icon name="server-fill" color="#35556a" size="30" :class="{ 'memory-icon--spin': memoryPanel.syncing }"></u-icon>
+						</view>
+						<view
+							class="memory-icon-button memory-icon-button--primary"
+							:class="{ 'memory-icon-button--disabled': memoryPanelBusy }"
+							:title="tx('memory_refresh', '重新整理')"
+							:aria-label="tx('memory_refresh', '重新整理')"
+							@tap="refreshMemoryPanel"
+						>
+							<u-icon name="reload" color="#ffffff" size="30" :class="{ 'memory-icon--spin': memoryPanel.refreshing }"></u-icon>
+						</view>
+					</view>
+				</view>
+				<text v-if="memoryPanel.error" class="memory-error">{{ memoryPanel.error }}</text>
+				<text v-else-if="memoryPanel.detail && memoryPanel.detail.syncError" class="memory-error">
+					{{ tx('memory_sync_error_prefix', '记忆同步异常：') }}{{ memoryPanel.detail.syncError }}
+				</text>
+				<view class="memory-filters">
+					<view
+						v-for="filter in memoryPanelFilterOptions"
+						:key="'memory_filter_' + filter.key"
+						class="memory-filter"
+						:class="{ 'memory-filter--active': memoryPanel.filter === filter.key }"
+						:title="filter.label"
+						:aria-label="filter.label"
+						@tap="setMemoryPanelFilter(filter.key)"
+					>
+						<u-icon :name="filter.icon" :color="memoryPanel.filter === filter.key ? '#ffffff' : '#5f7182'" size="25"></u-icon>
+						<text class="memory-filter-label">{{ filter.label }}</text>
+						<text class="memory-filter-count">{{ filter.count }}</text>
+					</view>
+				</view>
+				<scroll-view
+					class="memory-scroll"
+					scroll-y
+					:show-scrollbar="false"
+					:lower-threshold="80"
+					@scrolltolower="loadMoreMemoryPanel"
+				>
+					<view v-if="memoryPanel.loading && !memoryPanel.entries.length" class="memory-empty">
+						<text class="memory-empty-title">{{ tx('loading', '加载中...') }}</text>
+					</view>
+					<view v-else-if="!memoryPanel.entries.length" class="memory-empty">
+						<text class="memory-empty-title">{{ memoryPanelFilterEmptyTitle }}</text>
+						<text class="memory-empty-sub">{{ memoryPanelFilterEmptyText }}</text>
+					</view>
+					<view v-if="memoryPanel.entries.length" class="memory-list">
+						<view
+							v-for="entry in memoryPanel.entries"
+							:key="'memory_entry_' + memoryPanelEntryIdentity(entry)"
+							class="memory-entry"
+							:class="{
+								'memory-entry--disabled': !entry.enabled && !entry.archived,
+								'memory-entry--archived': entry.archived
+							}"
+						>
+							<view class="memory-entry-head">
+								<view class="memory-entry-title-wrap">
+									<text class="memory-entry-type">{{ memoryTypeLabel(entry.memoryType) }}</text>
+									<text class="memory-entry-title">{{ entry.title || tx('memory_untitled', '记忆要点') }}</text>
+								</view>
+								<text
+									class="memory-entry-status"
+									:class="{
+										'memory-entry-status--disabled': !entry.enabled && !entry.archived,
+										'memory-entry-status--archived': entry.archived
+									}"
+								>
+									{{ entry.archived ? tx('memory_archived', '已归档') : (entry.enabled ? tx('enabled', '启用') : (entry.manualDisabled ? tx('memory_user_disabled', '用户停用') : tx('disabled', '已停用'))) }}
+								</text>
+							</view>
+							<text class="memory-entry-content">{{ entry.content }}</text>
+							<text v-if="entry.archived" class="memory-entry-archive-reason">{{ memoryArchiveReasonText(entry) }}</text>
+							<view v-if="entry.keywords.length || entry.secondaryKeywords.length" class="memory-keywords">
+								<text
+									v-for="(keyword, idx) in entry.keywords"
+									:key="'memory_kw_' + entry.id + '_' + idx"
+									class="memory-keyword"
+								>{{ keyword }}</text>
+								<text
+									v-for="(keyword, idx) in entry.secondaryKeywords"
+									:key="'memory_skw_' + entry.id + '_' + idx"
+									class="memory-keyword memory-keyword--secondary"
+								>{{ keyword }}</text>
+							</view>
+							<view class="memory-entry-foot">
+								<text v-if="memoryEntryMetaText(entry)" class="memory-entry-meta">{{ memoryEntryMetaText(entry) }}</text>
+								<view v-if="entry.id" class="memory-entry-buttons">
+									<view
+										class="memory-entry-icon"
+										:class="{
+											'memory-entry-icon--disable': entry.enabled,
+											'memory-entry-icon--enable': !entry.enabled,
+											'memory-entry-icon--busy': memoryPanel.updatingEntryId === String(entry.id || '')
+										}"
+										:title="entry.enabled ? tx('disable', '停用') : tx('enable', '重新启用')"
+										:aria-label="entry.enabled ? tx('disable', '停用') : tx('enable', '重新启用')"
+										@tap.stop="toggleMemoryPanelEntry(entry)"
+									>
+										<u-icon
+											:name="memoryPanel.updatingEntryId === String(entry.id || '') ? 'reload' : (entry.enabled ? 'eye-off' : 'checkmark-circle')"
+											:color="entry.enabled ? '#b42318' : '#177245'"
+											size="27"
+											:class="{ 'memory-icon--spin': memoryPanel.updatingEntryId === String(entry.id || '') }"
+										></u-icon>
+									</view>
+									<view
+										class="memory-entry-icon memory-entry-icon--delete"
+										:class="{ 'memory-entry-icon--busy': memoryPanel.deletingEntryId === String(entry.id || '') }"
+										:title="tx('delete', '删除')"
+										:aria-label="tx('delete', '删除')"
+										@tap.stop="deleteMemoryPanelEntry(entry)"
+									>
+										<u-icon
+											:name="memoryPanel.deletingEntryId === String(entry.id || '') ? 'reload' : 'trash'"
+											color="#9f2d28"
+											size="27"
+											:class="{ 'memory-icon--spin': memoryPanel.deletingEntryId === String(entry.id || '') }"
+										></u-icon>
+									</view>
+								</view>
+							</view>
+						</view>
+						<view v-if="memoryPanel.loadingMore" class="memory-page-state">
+							<u-icon name="reload" color="#5f7182" size="24" class="memory-icon--spin"></u-icon>
+							<text>{{ tx('memory_loading_more', '正在加载更多记忆') }}</text>
+						</view>
+						<view v-else-if="memoryPanel.loadMoreError" class="memory-page-state memory-page-state--error" @tap="loadMoreMemoryPanel">
+							<u-icon name="reload" color="#b42318" size="24"></u-icon>
+							<text>{{ memoryPanel.loadMoreError }}</text>
+						</view>
+						<view v-else-if="memoryPanel.entries.length && !memoryPanel.hasMore" class="memory-page-state">
+							<text>{{ tx('memory_loaded_all', '已加载当前分类的全部记忆') }}</text>
+						</view>
+					</view>
+				</scroll-view>
 			</view>
 		</view>
 		<view v-if="commercialPrompt.visible" class="commercial-mask" @tap="closeCommercialPrompt">
@@ -626,9 +894,13 @@
 					<text class="composer-image-mask-text">
 						{{ item.error || (item.progress > 0 ? item.progress + '%' : tx('uploading', '上传中')) }}
 					</text>
+					<text v-if="item.error" class="composer-image-retry" @tap.stop="retryComposerImage(item)">
+						{{ tx('retry', '重试') }}
+					</text>
 				</view>
 				<text class="composer-image-remove" @tap.stop="removeComposerImage(item.id)">×</text>
 			</view>
+			<text class="composer-image-hint">{{ tx('chat_image_compressed_hint', '已压缩处理 · 最多 4 张') }}</text>
 		</view>
 		<view v-if="voiceFeatureEnabledGlobal !== false && (voiceRecording || voiceStopping || voiceTranscribing)" class="voice-status-card" :class="{ 'voice-status-card--recording': voiceRecording }">
 			<view class="voice-status-main">
@@ -787,93 +1059,48 @@
 				</view>
 			</view>
 		</view>
-		<view class="input-bar">
-			<view v-if="attachmentMenuVisible" class="attach-fab-menu" @tap.stop>
-				<view
-					v-if="voiceFeatureEnabledGlobal !== false"
-					class="attach-fab-item"
-					:class="{ 'attach-fab-item--active': voiceRecording || voiceTranscribing || pendingVoiceStartTimer }"
-					@tap.stop="toggleVoiceInput"
-				>
-					<view class="attach-fab-badge">
-						<image class="attach-fab-icon" :src="attachmentVoiceIcon" mode="aspectFit"></image>
-					</view>
-				</view>
-				<view
-					v-if="characterImageGlobalState.imageEnabledGlobal !== false"
-					class="attach-fab-item"
-					:class="{ 'attach-fab-item--active': characterImagePanel.visible }"
-					@tap.stop="openCharacterImagePanel"
-				>
-					<view class="attach-fab-badge">
-						<image class="attach-fab-icon" :src="attachmentImageIcon" mode="aspectFit"></image>
-					</view>
-				</view>
-				<view class="attach-fab-item" @tap.stop="pickChatImages('camera')">
-					<view class="attach-fab-badge">
-						<image class="attach-fab-icon" :src="attachmentCameraIcon" mode="aspectFit"></image>
-					</view>
-				</view>
-				<view class="attach-fab-item" @tap.stop="pickChatImages('album')">
-					<view class="attach-fab-badge">
-						<image class="attach-fab-icon" :src="attachmentAlbumIcon" mode="aspectFit"></image>
-					</view>
-				</view>
-			</view>
-			<view v-if="atChatBottom" class="input-pill" :class="{ 'input-pill--with-quote': composerQuote.visible }">
-				<view v-if="draftRestoredNoticeVisible" class="draft-restore-bar">
-					<text class="draft-restore-text">{{ tx('draft_restored', '已恢复上次未发送内容') }}</text>
-					<text class="draft-restore-action" @tap.stop="clearRestoredDraft">{{ tx('clear', '清空') }}</text>
-					<text class="draft-restore-close" @tap.stop="dismissDraftRestoredNotice">×</text>
-				</view>
-				<view v-if="composerQuote.visible" class="composer-quote-bar">
-					<view class="composer-quote-copy">
-						<text class="composer-quote-speaker">{{ composerQuote.speaker }}</text>
-						<text class="composer-quote-text">{{ composerQuote.text }}</text>
-					</view>
-					<text class="composer-quote-close" @tap="clearComposerQuote">×</text>
-				</view>
-				<view class="input-main">
-					<textarea
-						class="inp"
-						placeholder-class="inp-ph"
-						v-model="draft"
-						:placeholder="tx('input_message', '输入消息...')"
-						confirm-type="send"
-						auto-height
-						:maxlength="-1"
-						:show-confirm-bar="false"
-						:cursor-spacing="isAppPlus ? 96 : 18"
-						:adjust-position="true"
-						:disabled="sending"
-						@focus="onInputFocus"
-						@blur="onInputBlur"
-						@confirm="send"
-					></textarea>
-					<view class="input-actions">
-						<view class="expression-trigger" @tap="openExpressionPanel">
-							<image class="input-action-icon" :src="inputExpressionIcon" mode="aspectFit"></image>
-						</view>
-						<view class="attach-btn" :class="{ 'attach-btn--active': attachmentMenuVisible }" @tap.stop="openChatAttachmentMenu">
-							<image class="input-action-icon" :src="inputPlusIcon" mode="aspectFit"></image>
-						</view>
-					</view>
-				</view>
-			</view>
-			<view v-else class="scroll-bottom-pill" @tap="scrollChatToBottom({ immediate: true })">
-				<text class="scroll-bottom-pill-text">{{ tx('chat_bottom', '回到底部') }}</text>
-			</view>
-			<view
-				class="send send--icon"
-				:class="{
-					senddisabled: sending
-				}"
-				v-if="atChatBottom"
-				@tap="onPrimaryAction"
-			>
-				<image class="send-icon" :src="sendUpIcon" mode="aspectFit"></image>
-			</view>
-		</view>
+		<chat-composer
+			v-model="draft"
+			:attachment-menu-visible="attachmentMenuVisible"
+			:show-voice-action="voiceFeatureEnabledGlobal !== false"
+			:voice-action-active="voiceRecording || voiceTranscribing || pendingVoiceStartTimer"
+			:voice-action-label="tx('voice_input', '语音输入')"
+			:show-image-generation-action="imageGenerationEnabledGlobal !== false && characterImageGlobalState.imageEnabledGlobal !== false"
+			:image-generation-active="characterImagePanel.visible"
+			:image-generation-action-label="tx('chat_image_generate', '聊天生图')"
+			:camera-action-label="tx('camera', '相机')"
+			:album-action-label="tx('album', '相册')"
+			:at-chat-bottom="atChatBottom"
+			:quote="composerQuote"
+			:draft-restored-notice-visible="draftRestoredNoticeVisible"
+			:draft-restored-text="tx('draft_restored', '已恢复上次未发送内容')"
+			:clear-text="tx('clear', '清空')"
+			:placeholder="tx('input_message', '输入消息...')"
+			:scroll-bottom-text="chatScrollBottomText"
+			:cursor-spacing="isAppPlus ? 96 : 18"
+			:disabled="sending || jgIdentityReloading || jgChatLoadState !== 'ready'"
+			:attachment-voice-icon="attachmentVoiceIcon"
+			:attachment-image-icon="attachmentImageIcon"
+			:attachment-camera-icon="attachmentCameraIcon"
+			:attachment-album-icon="attachmentAlbumIcon"
+			:input-expression-icon="inputExpressionIcon"
+			:input-plus-icon="inputPlusIcon"
+			:send-up-icon="sendUpIcon"
+			@toggle-voice-input="toggleVoiceInput"
+			@open-character-image-panel="openCharacterImagePanel"
+			@pick-camera="pickChatImages('camera')"
+			@pick-album="pickChatImages('album')"
+			@clear-restored-draft="clearRestoredDraft"
+			@dismiss-draft-restored-notice="dismissDraftRestoredNotice"
+			@clear-composer-quote="clearComposerQuote"
+			@open-expression-panel="openExpressionPanel"
+			@open-attachment-menu="openChatAttachmentMenu"
+			@scroll-bottom="scrollChatToBottom({ immediate: true })"
+			@primary-action="onPrimaryAction"
+			@focus="onInputFocus"
+			@blur="onInputBlur"
+			@confirm="send"
+		></chat-composer>
 		</template>
 		<!-- #ifdef APP-PLUS -->
 		<live2d-companion :avoid-bottom="inputFocus ? 150 : 92" :compact="inputFocus" />
@@ -883,8 +1110,16 @@
 
 <script>
 	import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
+	import MessageBubble from '@/components/tavern/message-bubble.vue';
+	import MessageContent from '@/components/tavern/message-content.vue';
+	import MessageActions from '@/components/tavern/message-actions.vue';
+	import VoiceMessageCard from '@/components/tavern/voice-message-card.vue';
+	import ChatComposer from '@/components/tavern/chat-composer.vue';
 	const { getTavernUiText, formatLocaleText } = require('@/common/tavernUiI18n.js');
 	const companionStore = require('@/common/companionStore.js');
+	const chatAppearance = require('@/common/chatAppearance.js');
+	const structuredContent = require('@/common/chatStructuredContent.js');
+	const viewerIdentity = require('@/common/viewerIdentity.js');
 	const DEFAULT_CHAT_BACKGROUND_URL = '/static/login.png';
 
 	function buildInlineSvgDataUrl(svg) {
@@ -944,11 +1179,8 @@
 	const ASSISTANT_VOICE_OFF_ICON = '/static/chat/voice-mute.png';
 	const LOCAL_CHAT_IMAGE_CACHE_PREFIX = 'tavern_local_chat_images_';
 	const LOCAL_CHAT_IMAGE_CACHE_VERSION = 1;
-	const LOCAL_CHAT_IMAGE_CACHE_LIMIT = 80;
-	const LOCAL_CHAT_IMAGE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 	const LOCAL_CHAT_IMAGE_PENDING_KEEP_MS = 10 * 60 * 1000;
 	const LOCAL_CHAT_IMAGE_DATA_URL_MAX_LENGTH = 1200 * 1024;
-	const LOCAL_CHAT_IMAGE_CACHE_MAX_TOTAL_LENGTH = 6 * 1024 * 1024;
 	const LOCAL_USER_VOICE_CACHE_PREFIX = 'tavern_local_user_voice_';
 	const LOCAL_USER_VOICE_CACHE_VERSION = 1;
 	const LOCAL_USER_VOICE_CACHE_LIMIT = 24;
@@ -976,10 +1208,10 @@
 	const MESSAGE_ACTION_MOVE_THRESHOLD_PX = 10;
 	const MIN_VOICE_RECORD_DURATION_MS = 800;
 	const VOICE_STOP_CALLBACK_TIMEOUT_MS = 10000;
-	const ASSISTANT_VOICE_SEGMENT_MAX = 6;
-	const ASSISTANT_VOICE_SEGMENT_TARGET_LENGTH = 42;
-	const ASSISTANT_VOICE_SEGMENT_SOFT_MIN = 18;
-	const ASSISTANT_VOICE_SEGMENT_SHORT_LENGTH = 8;
+	const ASSISTANT_VOICE_SEGMENT_TARGET_LENGTH = 500;
+	const ASSISTANT_VOICE_SEGMENT_HARD_MAX = 900;
+	const ASSISTANT_VOICE_SEGMENT_SOFT_MIN = 260;
+	const ASSISTANT_VOICE_SEGMENT_SHORT_LENGTH = 48;
 	const ASSISTANT_EXPRESSION_MARKER_REGEX = /\[\[\s*expr\s*:\s*([^[\]]+?)\s*\]\]/gi;
 	const LOCAL_EXPRESSION_RECENT_AVOID_LIMIT = 4;
 	const OPENAI_TTS_VOICE_PRESETS = Object.freeze(['alloy', 'nova', 'shimmer', 'echo', 'fable', 'onyx']);
@@ -1190,7 +1422,9 @@
 			role: '',
 			text: '',
 			canDelete: false,
+			canFork: false,
 			deleting: false,
+			forking: false,
 			leftPx: 12,
 			topPx: 12,
 			imageUrls: [],
@@ -1209,8 +1443,50 @@
 		};
 	}
 
+	function createBranchPanelState() {
+		return {
+			visible: false,
+			loading: false,
+			error: '',
+			items: [],
+			switchingBranchId: '',
+			forkingMessageId: ''
+		};
+	}
+
+	const MEMORY_PANEL_PAGE_SIZE = 40;
+	let memoryPanelRequestSeed = 0;
+	let memoryPanelListRequestSeed = 0;
+
+	function createMemoryPanelState() {
+		return {
+			visible: false,
+			clientUid: '',
+			characterId: '',
+			conversationId: '',
+			activeBranchId: '',
+			loading: false,
+			refreshing: false,
+			syncing: false,
+			updatingEntryId: '',
+			deletingEntryId: '',
+			filter: 'all',
+			page: 0,
+			pageSize: MEMORY_PANEL_PAGE_SIZE,
+			totalEntries: 0,
+			hasMore: false,
+			loadingMore: false,
+			loadMoreError: '',
+			requestToken: ++memoryPanelRequestSeed,
+			listRequestToken: ++memoryPanelListRequestSeed,
+			error: '',
+			detail: null,
+			entries: []
+		};
+	}
+
 	export default {
-		components: { TavernNavBar },
+		components: { TavernNavBar, MessageBubble, MessageContent, MessageActions, VoiceMessageCard, ChatComposer },
 		data() {
 			return {
 				cid: '',
@@ -1228,11 +1504,16 @@
 				streamingAssistantMessageId: '',
 				streamingAssistantMode: '',
 				stopRefreshTimer: null,
+				stopSyncVersion: 0,
 				followBottom: true,
 				atChatBottom: true,
+				chatUnreadCount: 0,
+				chatUnreadMessageKeyMap: {},
 				chatUserTouching: false,
 				lastChatScrollTop: 0,
 				chatAutoScrollAt: 0,
+				chatProgrammaticScroll: false,
+				chatProgrammaticScrollTimer: null,
 				chatFollowScrollTimer: null,
 				chatScrollWithAnimation: true,
 				chatViewportReady: false,
@@ -1241,6 +1522,8 @@
 				editOverlay: createEditOverlayState(),
 				messageActionSheet: createMessageActionSheetState(),
 				messagePressState: createMessagePressState(),
+				branchPanel: createBranchPanelState(),
+				memoryPanel: createMemoryPanelState(),
 				commercialPrompt: {
 					visible: false,
 					kind: '',
@@ -1255,9 +1538,11 @@
 				jgChatLoadState: 'idle',
 				jgChatErrorMsg: '',
 				jgConversationId: '',
+				jgActiveBranchId: '',
 				jgMemory: null,
 				jgTavernMeta: null,
 				memoryRefreshing: false,
+				memoryRefreshStatusToken: 0,
 				messageHistoryHasMore: false,
 				messageHistoryLoading: false,
 				messageHistoryNextBeforeId: '',
@@ -1265,6 +1550,9 @@
 				jgLoadRetryTimer: null,
 				jgLoadAutoRetried: false,
 				jgLoadRequestToken: 0,
+				jgViewerIdentitySignature: '',
+				jgIdentityReloading: false,
+				jgRuntimeRequestVersion: 0,
 				replySuggest: {
 					visible: false,
 					loading: false,
@@ -1319,6 +1607,8 @@
 				userVoicePlayingMessageId: '',
 				userVoiceStateMap: {},
 				voiceFeatureEnabledGlobal: true,
+				imageGenerationEnabledGlobal: true,
+				rechargeEntryVisible: true,
 				voiceInputAiState: {
 					loadedAt: 0,
 					mode: 'system',
@@ -1331,6 +1621,8 @@
 				assistantVoicePlayerReady: false,
 				assistantVoicePlayingMessageId: '',
 				assistantVoiceStateMap: {},
+				assistantVoiceRestorePendingMap: {},
+				localChatImageHydratePending: false,
 				assistantVoiceAutoEnabled: false,
 				characterVoiceConfig: createDefaultCharacterVoiceConfig(),
 				characterVoicePanel: createCharacterVoicePanelState(),
@@ -1353,12 +1645,61 @@
 				inputPlusIcon: INPUT_PLUS_ICON,
 				sendUpIcon: SEND_UP_ICON,
 				sendDownIcon: SEND_DOWN_ICON,
-				isAppPlus: false
+				isAppPlus: false,
+				chatAppearanceConfig: chatAppearance.loadConfig(),
+				chatAppearanceChangeHandler: null,
+				chatAppearanceRequestGuard: null,
+				chatAppearanceRequestVersion: 0,
+				chatAppearanceDisposed: false
 			};
 		},
 		computed: {
 			chatUi() {
 				return getTavernUiText('chat');
+			},
+			memoryPanelBusy() {
+				const panel = this.memoryPanel || {};
+				return !!(panel.loading || panel.loadingMore || panel.refreshing || panel.syncing || panel.updatingEntryId || panel.deletingEntryId);
+			},
+			memoryPanelTotalCount() {
+				const detail = this.memoryPanel && this.memoryPanel.detail || {};
+				return Math.max(0, Number(detail.entryCount || 0)) + Math.max(0, Number(detail.archivedEntryCount || 0));
+			},
+			memoryPanelFilterOptions() {
+				const panel = this.memoryPanel || {};
+				const detail = panel.detail || {};
+				const archived = Math.max(0, Number(detail.archivedEntryCount || 0));
+				const enabled = Math.max(0, Number(detail.enabledEntryCount || 0));
+				const disabled = Math.max(0, Number(detail.disabledEntryCount || 0));
+				const active = detail.entryCount != null
+					? Math.max(0, Number(detail.entryCount || 0))
+					: enabled + disabled;
+				return [
+					{ key: 'all', icon: 'list', label: this.tx('memory_filter_all', '全部'), count: active + archived },
+					{ key: 'enabled', icon: 'checkmark-circle', label: this.tx('memory_filter_enabled', '启用'), count: enabled },
+					{ key: 'disabled', icon: 'pause-circle', label: this.tx('memory_filter_disabled', '停用'), count: disabled },
+					{ key: 'archived', icon: 'bookmark', label: this.tx('memory_filter_archived', '归档'), count: archived }
+				];
+			},
+			memoryPanelFilterEmptyTitle() {
+				if (this.memoryPanel && this.memoryPanel.error) {
+					return this.tx('memory_load_failed_title', '暂时无法读取记忆');
+				}
+				const filter = String(this.memoryPanel && this.memoryPanel.filter || 'all');
+				if (filter === 'enabled') return this.tx('memory_empty_enabled', '暂无启用记忆');
+				if (filter === 'disabled') return this.tx('memory_empty_disabled', '暂无停用记忆');
+				if (filter === 'archived') return this.tx('memory_empty_archived', '暂无归档记忆');
+				return this.tx('memory_empty_title', '暂无长期记忆');
+			},
+			memoryPanelFilterEmptyText() {
+				if (this.memoryPanel && this.memoryPanel.error) {
+					return this.tx('memory_load_failed_sub', '请稍后重试，或关闭面板后重新打开');
+				}
+				const filter = String(this.memoryPanel && this.memoryPanel.filter || 'all');
+				if (filter === 'enabled') return this.tx('memory_empty_enabled_sub', '可重新启用停用条目，或继续聊天后重新整理');
+				if (filter === 'disabled') return this.tx('memory_empty_disabled_sub', '当前没有被用户或系统停用的条目');
+				if (filter === 'archived') return this.tx('memory_empty_archived_sub', '低价值记忆达到容量上限后会保留在这里');
+				return this.tx('memory_empty_sub', '聊天足够后可重新整理生成');
 			},
 			memoryBarText() {
 				if (!this.jgOn || this.jgChatLoadState !== 'ready') {
@@ -1404,6 +1745,14 @@
 				}
 				return line;
 			},
+			branchPanelRows() {
+				const items = Array.isArray(this.branchPanel && this.branchPanel.items)
+					? this.branchPanel.items
+					: [];
+				return items
+					.map((item) => this.normalizeBranchPanelRow(item))
+					.filter((item) => item && item.id);
+			},
 			showStopStream() {
 				try {
 					const tavernApi = require('@/common/tavernApi.js');
@@ -1411,6 +1760,14 @@
 				} catch (e) {
 					return false;
 				}
+			},
+			chatScrollBottomText() {
+				const count = Number(this.chatUnreadCount || 0);
+				if (count > 0) {
+					const displayCount = count > 99 ? '99+' : String(count);
+					return this.tx('chat_new_messages', '{count} 条新消息').replace('{count}', displayCount);
+				}
+				return this.tx('chat_bottom', '回到底部');
 			},
 			t() {
 				return (this.allText && this.allText['酒馆页']) || {};
@@ -1462,10 +1819,34 @@
 			},
 			wrapStyle() {
 				const url = this.chatBackgroundUrl;
-				if (!url) return {};
-				return {
-					'--chat-bg-image': "url('" + String(url).replace(/'/g, '%27') + "')"
-				};
+				const style = {};
+				if (url) {
+					style['--chat-bg-image'] = "url('" + String(url).replace(/'/g, '%27') + "')";
+				}
+				Object.assign(style, chatAppearance.buildCssVars(this.chatAppearanceConfig));
+				return style;
+			},
+			chatReadableOverlayStyle() {
+				const strength = Math.max(0, Math.min(55, Number(this.normalizedChatAppearanceConfig.backdropStrength || 0)));
+				return { backgroundColor: 'rgba(0,0,0,' + (strength / 100).toFixed(3) + ')' };
+			},
+			normalizedChatAppearanceConfig() {
+				return chatAppearance.normalizeConfig(this.chatAppearanceConfig);
+			},
+			chatBubbleAppearanceEnabled() {
+				return chatAppearance.isBubbleCustomized(this.chatAppearanceConfig);
+			},
+			chatAppearanceEnabled() {
+				return this.chatBubbleAppearanceEnabled;
+			},
+			chatAppearanceReadMode() {
+				return this.normalizedChatAppearanceConfig.readMode || 'original';
+			},
+			chatAppearanceSegmentLabelsEnabled() {
+				return this.normalizedChatAppearanceConfig.showSegmentLabels === true;
+			},
+			chatReplySplitMode() {
+				return this.normalizedChatAppearanceConfig.replySplitMode || 'none';
 			},
 			defaultChatBackgroundUrl() {
 				return DEFAULT_CHAT_BACKGROUND_URL;
@@ -1514,7 +1895,10 @@
 			this.isAppPlus = true;
 			// #endif
 			this.cid = (q && q.id) || '';
+			this.chatAppearanceDisposed = false;
+			this.chatAppearanceRequestGuard = chatAppearance.createRequestGuard();
 			const tavernApi = require('@/common/tavernApi.js');
+			this.jgViewerIdentitySignature = tavernApi.getViewerIdentitySignature();
 			if (!tavernApi.jgEnabled()) {
 				this.jgOn = true;
 				this.char = null;
@@ -1527,6 +1911,15 @@
 			this.jgChatLoadState = 'loading';
 			this.jgChatErrorMsg = '';
 			this.applyVoiceFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
+			this.applyImageGenerationFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
+			this.applyRechargeEntryConfig(tavernApi.getRuntimeFeatureConfig());
+			this.chatAppearanceChangeHandler = () => {
+				this.refreshChatAppearanceConfig();
+			};
+			if (uni && typeof uni.$on === 'function') {
+				uni.$on('tavern-chat-appearance-changed', this.chatAppearanceChangeHandler);
+			}
+			this.refreshChatAppearanceConfig();
 			this.refreshUserAvatar();
 			this.refreshLocalExpressionLibrary();
 			this.refreshAssistantVoiceAutoPreference();
@@ -1534,21 +1927,28 @@
 			this.refreshCharacterImageConfig();
 			this.refreshCharacterImageGlobalSummary(false, false);
 			this.refreshVoiceFeatureGlobalState(false);
-			this.loadJgSession();
+			this.loadJgSession({ identitySignature: this.jgViewerIdentitySignature });
 		},
 		onShow() {
 			companionStore.emitLayout({ avoidBottom: this.inputFocus ? 150 : 92, compact: this.inputFocus === true });
 			if (this.jgOn) {
 				const tavernApi = require('@/common/tavernApi.js');
+				const identityChanged = this.handleJgIdentityChangeOnShow(tavernApi);
 				this.applyVoiceFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
+				this.applyImageGenerationFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
+				this.applyRechargeEntryConfig(tavernApi.getRuntimeFeatureConfig());
+				this.refreshChatAppearanceConfig();
+				this.syncChatAppearanceFromCloud();
 				this.refreshUserAvatar();
 				this.refreshLocalExpressionLibrary();
 				this.refreshAssistantVoiceAutoPreference();
 				this.refreshCharacterVoiceConfig();
 				this.refreshCharacterImageConfig();
-				this.refreshCharacterImageGlobalSummary(false, false);
-				this.refreshVoiceFeatureGlobalState(false);
-				this.maybeRecoverJgSessionOnShow();
+				this.refreshCharacterImageGlobalSummary(true, false);
+				this.refreshVoiceFeatureGlobalState(true);
+				if (!identityChanged) {
+					this.maybeRecoverJgSessionOnShow();
+				}
 			}
 		},
 		onHide() {
@@ -1557,6 +1957,19 @@
 		},
 		onUnload() {
 			companionStore.emitLayout({ avoidBottom: 92, compact: false });
+			if (this.sending || this.streamAbortController) {
+				this.stopGeneration({ silent: true, skipSync: true });
+			}
+			this.chatAppearanceDisposed = true;
+			this.chatAppearanceRequestVersion += 1;
+			if (this.chatAppearanceRequestGuard && typeof this.chatAppearanceRequestGuard.cancel === 'function') {
+				this.chatAppearanceRequestGuard.cancel();
+			}
+			this.chatAppearanceRequestGuard = null;
+			if (this.chatAppearanceChangeHandler && uni && typeof uni.$off === 'function') {
+				uni.$off('tavern-chat-appearance-changed', this.chatAppearanceChangeHandler);
+			}
+			this.chatAppearanceChangeHandler = null;
 			this.flushDraftSave();
 			this.clearJgLoadRetryTimer();
 			this.clearDraftSaveTimer();
@@ -1576,6 +1989,44 @@
 				const v = key ? dict[key] : '';
 				if (v != null && String(v).trim() !== '') return v;
 				return fallback || '';
+			},
+			compactPanelText(value, maxLength) {
+				const limit = Math.max(12, Number(maxLength || 80));
+				const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+				if (text.length <= limit) return text;
+				return text.slice(0, limit).trim() + '...';
+			},
+			refreshChatAppearanceConfig() {
+				try {
+					this.chatAppearanceConfig = chatAppearance.loadConfig(this.cid);
+				} catch (e) {
+					this.chatAppearanceConfig = chatAppearance.normalizeConfig(null);
+				}
+			},
+			syncChatAppearanceFromCloud() {
+				if (this.chatAppearanceDisposed) return;
+				if (!this.chatAppearanceRequestGuard || this.chatAppearanceRequestGuard.active === false) {
+					this.chatAppearanceRequestGuard = chatAppearance.createRequestGuard();
+				}
+				const requestVersion = ++this.chatAppearanceRequestVersion;
+				const characterId = String(this.cid || '');
+				const tavernApi = require('@/common/tavernApi.js');
+				const ownerSignature = tavernApi.getViewerStateSignature();
+				chatAppearance.syncFromCloud(characterId || null, { guard: this.chatAppearanceRequestGuard }).then((config) => {
+					if (this.chatAppearanceDisposed || requestVersion !== this.chatAppearanceRequestVersion) return;
+					if (String(this.cid || '') !== characterId) return;
+					if (tavernApi.getViewerStateSignature() !== ownerSignature) return;
+					this.chatAppearanceConfig = chatAppearance.normalizeConfig(config);
+				});
+			},
+			buildChatAppearancePayloadFields() {
+				const config = chatAppearance.normalizeConfig(this.chatAppearanceConfig);
+				if (!config.replySplitMode || config.replySplitMode === 'none') {
+					return {};
+				}
+				return {
+					replySplitMode: config.replySplitMode
+				};
 			},
 			jgErrMsg(e, fallback) {
 				const tavernErrors = require('@/common/tavernErrors.js');
@@ -1669,7 +2120,9 @@
 			},
 			resolveCommercialPrompt(e) {
 				const tavernErrors = require('@/common/tavernErrors.js');
-				return tavernErrors.resolveCommercialPrompt(e);
+				return tavernErrors.resolveCommercialPrompt(e, {
+					rechargeEntryVisible: this.rechargeEntryVisible !== false
+				});
 			},
 			showErrorToast(message) {
 				const text = String(message || '').trim();
@@ -2285,11 +2738,40 @@
 					this.applyVoiceFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
 					return Promise.resolve(tavernApi.fetchAppRuntimeConfig(force)).then((config) => {
 						this.applyVoiceFeatureGlobalConfig(config);
+						this.applyImageGenerationFeatureGlobalConfig(config);
+						this.applyRechargeEntryConfig(config);
 						return this.voiceFeatureEnabledGlobal;
 					}).catch(() => this.voiceFeatureEnabledGlobal);
 				} catch (e) {
 					return Promise.resolve(this.voiceFeatureEnabledGlobal);
 				}
+			},
+			applyImageGenerationFeatureGlobalConfig(config) {
+				const enabled = !(config && config.imageGenerationEnabled === false);
+				this.imageGenerationEnabledGlobal = enabled;
+				if (!enabled) {
+					this.characterImagePanel = Object.assign(createCharacterImagePanelState(), { visible: false });
+				}
+				return enabled;
+			},
+			applyRechargeEntryConfig(config) {
+				const visible = !(config && config.rechargeEntryVisible === false);
+				this.rechargeEntryVisible = visible;
+				if (
+					!visible &&
+					this.commercialPrompt &&
+					this.commercialPrompt.visible &&
+					this.commercialPrompt.kind !== 'chat_quota'
+				) {
+					this.commercialPrompt = Object.assign({}, this.commercialPrompt, {
+						message: '充值与会员购买入口暂未开放，请稍后再试或联系客服。',
+						primaryText: '联系客服',
+						primaryUrl: '/pages/user/lianxiwomen/lianxiwomen',
+						secondaryText: '',
+						secondaryUrl: ''
+					});
+				}
+				return visible;
 			},
 			refreshVoiceInputAiState(force) {
 				const current = this.voiceInputAiState || this.normalizeVoiceInputAiState(null);
@@ -3234,17 +3716,25 @@
 			openCommercialPrompt(prompt, rawMessage) {
 				const data = prompt || {};
 				const isChatQuota = data.kind === 'chat_quota';
+				const showRechargeEntry = this.rechargeEntryVisible !== false;
+				const purchaseUnavailableMessage = '充值与会员购买入口暂未开放，请稍后再试或联系客服。';
 				this.commercialPrompt = {
 					visible: true,
 					kind: data.kind || '',
 					title: isChatQuota ? '今日聊天次数已用完' : (data.title || this.tx('membership_title', '会员权益提示')),
 					message: isChatQuota
 						? '今天的官方模型聊天次数已经用完。你可以配置自己的 API Key 继续聊天，或联系作者获取协助。'
-						: (data.message || rawMessage || this.tx('membership_message', '当前操作需要更高权益，请先开通会员或充值。')),
-					primaryText: isChatQuota ? '配置 API Key' : (data.primaryText || this.chatUi.openVip),
-					primaryUrl: isChatQuota ? '/pages/user/aiSettings' : (data.primaryUrl || '/pages/user/myvip'),
-					secondaryText: isChatQuota ? '联系作者' : (data.secondaryText || this.chatUi.recharge),
-					secondaryUrl: isChatQuota ? '/pages/user/lianxiwomen/lianxiwomen' : (data.secondaryUrl || '/pages/user/pay')
+						: (showRechargeEntry
+							? (data.message || rawMessage || this.tx('membership_message', '当前操作需要更高权益，请先开通会员或充值。'))
+							: purchaseUnavailableMessage),
+					primaryText: isChatQuota ? '配置 API Key' : (showRechargeEntry ? (data.primaryText || this.chatUi.openVip) : '联系客服'),
+					primaryUrl: isChatQuota ? '/pages/user/aiSettings' : (showRechargeEntry ? (data.primaryUrl || '/pages/user/myvip') : '/pages/user/lianxiwomen/lianxiwomen'),
+					secondaryText: isChatQuota
+						? '联系作者'
+						: (showRechargeEntry ? (data.secondaryText || this.chatUi.recharge) : ''),
+					secondaryUrl: isChatQuota
+						? '/pages/user/lianxiwomen/lianxiwomen'
+						: (showRechargeEntry ? (data.secondaryUrl || '/pages/user/pay') : '')
 				};
 			},
 			closeCommercialPrompt() {
@@ -3489,7 +3979,8 @@
 				if (!message) return;
 				const text = String(message.text || '').trim();
 				const canDelete = this.canBranchDeleteChatMessage(message);
-				if (!text && !canDelete) return;
+				const canFork = this.canForkChatBranchFromMessage(message);
+				if (!text && !canDelete && !canFork) return;
 				const point = this.extractMessageActionPoint(event) || { x: 0, y: 0 };
 				this.clearMessageActionPressState();
 				const messageId = this.normalizeDbMessageId(message.id || message.messageId);
@@ -3550,14 +4041,14 @@
 				} catch (e) {}
 				return { width, height, safeAreaBottom };
 			},
-			resolveMessageActionMenuPosition(message, event, hasText, canDelete) {
+			resolveMessageActionMenuPosition(message, event, hasText, canDelete, canFork) {
 				const point = this.extractMessageActionPoint(event);
 				const viewport = this.getMessageActionViewport();
 				const pxPerRpx = viewport.width / 750;
 				const margin = 12;
 				const offset = 10;
 				const menuWidth = Math.max(118, Math.round(236 * pxPerRpx));
-				const rowCount = (hasText ? 2 : 0) + (canDelete ? 1 : 0);
+				const rowCount = (hasText ? 2 : 0) + (canFork ? 1 : 0) + (canDelete ? 1 : 0);
 				const rowHeight = Math.max(45, Math.round(90 * pxPerRpx));
 				const menuHeight = Math.max(rowHeight, rowCount * rowHeight + 2);
 				let left = message && message.role === 'user'
@@ -3594,20 +4085,29 @@
 				if (!id || id.indexOf('db_') !== 0) return false;
 				return message.role === 'user' || message.role === 'char';
 			},
+			canForkChatBranchFromMessage(message) {
+				if (!this.jgOn || !message || this.sending) return false;
+				const id = this.normalizeDbMessageId(message.id);
+				if (!id || id.indexOf('db_') !== 0) return false;
+				return message.role === 'user' || message.role === 'char';
+			},
 			openMessageActionSheet(message, event) {
 				if (!message) return;
 				this.clearMessageActionPressState();
 				const text = String(message.text || '').trim();
 				const canDelete = this.canBranchDeleteChatMessage(message);
-				if (!text && !canDelete) return;
-				const position = this.resolveMessageActionMenuPosition(message, event, !!text, canDelete);
+				const canFork = this.canForkChatBranchFromMessage(message);
+				if (!text && !canDelete && !canFork) return;
+				const position = this.resolveMessageActionMenuPosition(message, event, !!text, canDelete, canFork);
 				this.messageActionSheet = {
 					visible: true,
 					messageId: this.normalizeDbMessageId(message.id),
 					role: message.role || '',
 					text,
 					canDelete,
+					canFork,
 					deleting: false,
+					forking: false,
 					leftPx: position.leftPx,
 					topPx: position.topPx,
 					imageUrls: Array.isArray(message.imageUrls) ? message.imageUrls.slice() : [],
@@ -3616,7 +4116,11 @@
 				};
 			},
 			closeMessageActionSheet(force) {
-				if (this.messageActionSheet && this.messageActionSheet.deleting && force !== true) return;
+				if (
+					this.messageActionSheet &&
+					(this.messageActionSheet.deleting || this.messageActionSheet.forking) &&
+					force !== true
+				) return;
 				this.clearMessageActionPressState();
 				this.messageActionSheet = createMessageActionSheetState();
 			},
@@ -3687,7 +4191,7 @@
 					});
 			},
 			confirmDeleteMessageAction() {
-				if (this.messageActionSheet.deleting) return;
+				if (this.messageActionSheet.deleting || this.messageActionSheet.forking) return;
 				if (this.sending) {
 					this.showErrorToast(this.tx('message_delete_wait', '等这轮回复完成后再删除'));
 					return;
@@ -3778,6 +4282,7 @@
 				var mem = null;
 				var meta = null;
 				var conversationId = '';
+				var activeBranchId = '';
 				var page = null;
 				if (Array.isArray(pack)) {
 					rows = pack;
@@ -3786,6 +4291,7 @@
 					mem = pack.memory != null ? pack.memory : null;
 					meta = pack.tavernMeta != null ? pack.tavernMeta : null;
 					conversationId = pack.conversationId != null ? pack.conversationId : '';
+					activeBranchId = pack.activeBranchId != null ? pack.activeBranchId : '';
 					page = pack.page && typeof pack.page === 'object' ? pack.page : null;
 				}
 				return {
@@ -3793,6 +4299,7 @@
 					mem,
 					meta,
 					conversationId,
+					activeBranchId,
 					page
 				};
 			},
@@ -3841,7 +4348,13 @@
 				const opts = options && typeof options === 'object' ? options : {};
 				const envelope = this.normalizeMessagesEnvelope(pack);
 				const normalizedRows = envelope.rows.map((row) => this.normalizeChatRow(row));
+				const trackIncomingUnread = opts.trackIncomingUnread === true && !opts.prependHistory;
+				const previousChatMessageKeyMap = trackIncomingUnread
+					? this.collectChatMessageKeyMap(this.messages)
+					: {};
+				let incomingRows = [];
 				this.syncLocalChatConversationId(envelope.conversationId);
+				this.jgActiveBranchId = envelope.activeBranchId == null ? '' : String(envelope.activeBranchId);
 				if (opts.prependHistory) {
 					const currentRows = Array.isArray(this.messages) ? this.messages.slice() : [];
 					this.messages = this.mergeLocalChatImagesIntoRows(
@@ -3849,6 +4362,11 @@
 					);
 				} else {
 					this.messages = this.mergeLocalChatImagesIntoRows(normalizedRows);
+				}
+				if (trackIncomingUnread) {
+					incomingRows = (Array.isArray(this.messages) ? this.messages : []).filter((row) => {
+						return this.shouldCountUnreadChatRow(row) && !this.chatUnreadRowExistsInMap(row, previousChatMessageKeyMap);
+					});
 				}
 				if (this.streamingAssistantMessageId) {
 					const exists = this.messages.some(
@@ -3867,6 +4385,121 @@
 				if (opts.invalidateReplySuggestions !== false) {
 					this.invalidateReplySuggestions();
 				}
+				if (trackIncomingUnread && incomingRows.length) {
+					this.handleIncomingChatRows(incomingRows);
+				}
+				return incomingRows;
+			},
+			currentJgViewerIdentitySignature(tavernApi) {
+				const api = tavernApi || require('@/common/tavernApi.js');
+				return String(api.getViewerIdentitySignature() || '').trim();
+			},
+			isJgViewerIdentityCurrent(identitySignature) {
+				const expected = String(identitySignature || this.jgViewerIdentitySignature || '').trim();
+				return !!expected && expected === this.currentJgViewerIdentitySignature();
+			},
+			isJgRuntimeRequestCurrent(version, identitySignature) {
+				return (
+					Number(version) === Number(this.jgRuntimeRequestVersion) &&
+					String(identitySignature || '') === String(this.jgViewerIdentitySignature || '') &&
+					this.isJgViewerIdentityCurrent(identitySignature)
+				);
+			},
+			ensureJgIdentityReadyForAction() {
+				const currentIdentity = this.currentJgViewerIdentitySignature();
+				if (!this.jgViewerIdentitySignature) {
+					this.jgViewerIdentitySignature = currentIdentity;
+				}
+				if (currentIdentity !== this.jgViewerIdentitySignature) {
+					this.reloadJgSessionForIdentity(currentIdentity);
+					return false;
+				}
+				return !this.jgIdentityReloading && this.jgChatLoadState === 'ready';
+			},
+			handleJgIdentityChangeOnShow(tavernApi) {
+				const currentIdentity = this.currentJgViewerIdentitySignature(tavernApi);
+				if (!this.jgViewerIdentitySignature) {
+					this.jgViewerIdentitySignature = currentIdentity;
+					return false;
+				}
+				if (!viewerIdentity.shouldReloadViewerIdentity(this.jgViewerIdentitySignature, currentIdentity)) {
+					return false;
+				}
+				this.reloadJgSessionForIdentity(currentIdentity);
+				return true;
+			},
+			reloadJgSessionForIdentity(identitySignature) {
+				const nextIdentity = String(identitySignature || this.currentJgViewerIdentitySignature()).trim();
+				if (!nextIdentity || (nextIdentity === this.jgViewerIdentitySignature && this.jgIdentityReloading)) {
+					return false;
+				}
+				this.jgIdentityReloading = true;
+				this.jgViewerIdentitySignature = nextIdentity;
+				this.jgRuntimeRequestVersion += 1;
+				this.jgLoadRequestToken = Date.now() + Math.random();
+				this.memoryRefreshStatusToken += 1;
+				this.clearJgLoadRetryTimer();
+				this.clearDraftSaveTimer();
+				this.clearStopSyncTimer();
+				this.clearChatUiTimers();
+				this.clearMessageActionPressState();
+				if (this.streamAbortController) {
+					const controller = this.streamAbortController;
+					this.streamAbortController = null;
+					try {
+						controller.abort();
+					} catch (e) {}
+				}
+				this.disposeVoiceRecorder(true);
+				this.disposeUserVoicePlayer();
+				this.disposeAssistantVoicePlayer();
+				this.resetConversationVoiceRuntimeState();
+				this.finishSendingState();
+				this.streamingAssistantMessageId = '';
+				this.streamingAssistantMode = '';
+				this.char = null;
+				this.messages = [];
+				this.draft = '';
+				this.draftHydrated = false;
+				this.draftRestoredNoticeVisible = false;
+				this.composerImages = [];
+				this.composerQuote = createComposerQuoteState();
+				this.editOverlay = createEditOverlayState();
+				this.messageActionSheet = createMessageActionSheetState();
+				this.branchPanel = createBranchPanelState();
+				this.memoryPanel = createMemoryPanelState();
+				this.invalidateReplySuggestions();
+				this.clearGenerationRecovery();
+				this.closeCommercialPrompt();
+				this.attachmentMenuVisible = false;
+				this.expressionPanelVisible = false;
+				this.expressionLibrary = [];
+				this.expressionUploadBusy = false;
+				this.inputFocus = false;
+				this.charImagePreviewVisible = false;
+				this.characterVoiceConfig = createDefaultCharacterVoiceConfig();
+				this.characterVoicePanel = createCharacterVoicePanelState();
+				this.characterImageConfig = createDefaultCharacterImageConfig();
+				this.characterImagePanel = createCharacterImagePanelState();
+				this.resetCharacterImageReferencePreparedCache();
+				this.jgConversationId = '';
+				this.jgActiveBranchId = '';
+				this.jgMemory = null;
+				this.jgTavernMeta = null;
+				this.memoryRefreshing = false;
+				this.messageHistoryHasMore = false;
+				this.messageHistoryLoading = false;
+				this.messageHistoryNextBeforeId = '';
+				this.messageHistoryLoadAt = 0;
+				this.chatViewportReady = false;
+				this.resetChatUnreadState();
+				this.jgChatLoadState = 'loading';
+				this.jgChatErrorMsg = '';
+				this.loadJgSession({
+					identityReload: true,
+					identitySignature: nextIdentity
+				});
+				return true;
 			},
 			clearJgLoadRetryTimer() {
 				if (this.jgLoadRetryTimer) {
@@ -3911,6 +4544,19 @@
 				const opts = options && typeof options === 'object' ? options : {};
 				const tavernApi = require('@/common/tavernApi.js');
 				if (!tavernApi.jgEnabled()) return;
+				const loadIdentitySignature = String(
+					opts.identitySignature || this.jgViewerIdentitySignature || tavernApi.getViewerIdentitySignature() || ''
+				).trim();
+				if (!this.jgViewerIdentitySignature) {
+					this.jgViewerIdentitySignature = loadIdentitySignature;
+				}
+				if (
+					!loadIdentitySignature ||
+					loadIdentitySignature !== this.jgViewerIdentitySignature ||
+					!this.isJgViewerIdentityCurrent(loadIdentitySignature)
+				) {
+					return;
+				}
 				const requestToken = Date.now() + Math.random();
 				this.jgLoadRequestToken = requestToken;
 				if (!opts.keepAutoRetryState) {
@@ -3931,12 +4577,13 @@
 				this.chatScrollWithAnimation = false;
 				this.followBottom = true;
 				this.atChatBottom = true;
+				this.resetChatUnreadState();
 				this.lastChatScrollTop = 0;
 				this.scrollTo = '';
 				tavernApi
 					.fetchCharacter(this.cid)
 					.then((c) => {
-						if (this.jgLoadRequestToken !== requestToken) {
+						if (this.jgLoadRequestToken !== requestToken || !this.isJgViewerIdentityCurrent(loadIdentitySignature)) {
 							return Promise.reject({ __stale: true });
 						}
 						if (!c) {
@@ -3956,7 +4603,7 @@
 						});
 					})
 					.then((pack) => {
-						if (this.jgLoadRequestToken !== requestToken) {
+						if (this.jgLoadRequestToken !== requestToken || !this.isJgViewerIdentityCurrent(loadIdentitySignature)) {
 							return;
 						}
 						this.applyMessagesEnvelope(pack);
@@ -3964,16 +4611,21 @@
 						this.followBottom = true;
 						this.atChatBottom = true;
 						this.jgChatLoadState = 'ready';
+						this.jgIdentityReloading = false;
 						this.jgLoadAutoRetried = false;
 						this.scrollChatToBottom({ immediate: true, reveal: true });
 					})
 					.catch((e) => {
 						if ((e && e.__stale) || this.jgLoadRequestToken !== requestToken) return;
-						if (e && e.message === 'vip') return;
+						if (e && e.message === 'vip') {
+							this.jgIdentityReloading = false;
+							return;
+						}
 						if (opts.autoRetry !== false && this.scheduleJgLoadAutoRetry(e)) {
 							return;
 						}
 						this.jgChatLoadState = 'error';
+						this.jgIdentityReloading = false;
 						this.jgChatErrorMsg = this.jgErrMsg(
 							e,
 							this.tx('chat_load_failed', '网络异常，请重试')
@@ -4202,12 +4854,16 @@
 				const now = Date.now();
 				const createdAt = isFinite(createdAtRaw) && createdAtRaw > 0 ? createdAtRaw : now;
 				const updatedAt = isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : createdAt;
+				const mediaKeys = Array.isArray(entry.mediaKeys)
+					? entry.mediaKeys.map((item) => String(item || '').trim()).filter(Boolean)
+					: [];
 				return {
 					messageId: messageId || (assistantMessageId ? 'local_' + assistantMessageId : ''),
 					assistantMessageId: assistantMessageId && assistantMessageId.startsWith('db_') ? assistantMessageId : '',
 					text,
 					signature: role === 'user' ? this.buildLocalChatUserSignature(text) : '',
 					imageUrls,
+					mediaKeys,
 					role,
 					kind,
 					prompt,
@@ -4215,25 +4871,6 @@
 					createdAt,
 					updatedAt
 				};
-			},
-			calcLocalChatImageEntrySize(entry) {
-				if (!entry || !Array.isArray(entry.imageUrls)) return 0;
-				return entry.imageUrls.reduce((total, item) => total + String(item == null ? '' : item).trim().length, 0);
-			},
-			capLocalChatImageEntriesByStorageBudget(entries) {
-				const source = (Array.isArray(entries) ? entries : []).slice().sort((a, b) => a.createdAt - b.createdAt);
-				const kept = [];
-				let totalSize = 0;
-				for (let i = source.length - 1; i >= 0; i--) {
-					const entry = source[i];
-					if (!entry) continue;
-					const entrySize = this.calcLocalChatImageEntrySize(entry);
-					if (!kept.length || totalSize + entrySize <= LOCAL_CHAT_IMAGE_CACHE_MAX_TOTAL_LENGTH) {
-						kept.unshift(entry);
-						totalSize += entrySize;
-					}
-				}
-				return kept;
 			},
 			readLocalChatImageEntries(conversationId) {
 				const key = this.localChatImageStorageKey(conversationId);
@@ -4247,20 +4884,17 @@
 							: Array.isArray(raw)
 								? raw
 								: [];
-					const now = Date.now();
 					const entries = source
 						.map((item) => this.normalizeLocalChatImageEntry(item))
-						.filter((item) => item && now - item.updatedAt <= LOCAL_CHAT_IMAGE_CACHE_TTL_MS)
+						.filter(Boolean)
 						.sort((a, b) => a.createdAt - b.createdAt);
-					const cappedEntries = this.capLocalChatImageEntriesByStorageBudget(entries);
 					if (
 						(raw && typeof raw === 'object' && raw.version !== LOCAL_CHAT_IMAGE_CACHE_VERSION) ||
-						entries.length !== source.length ||
-						cappedEntries.length !== entries.length
+						entries.length !== source.length
 					) {
-						this.writeLocalChatImageEntries(cappedEntries, conversationId);
+						this.writeLocalChatImageEntries(entries, conversationId);
 					}
-					return cappedEntries;
+					return entries;
 				} catch (e) {
 					return [];
 				}
@@ -4278,16 +4912,15 @@
 						uni.removeStorageSync(key);
 						return;
 					}
-					const countCapped = normalized.slice(Math.max(0, normalized.length - LOCAL_CHAT_IMAGE_CACHE_LIMIT));
-					const capped = this.capLocalChatImageEntriesByStorageBudget(countCapped);
 					uni.setStorageSync(key, {
 						version: LOCAL_CHAT_IMAGE_CACHE_VERSION,
 						updatedAt: Date.now(),
-						entries: capped.map((item) => ({
+						entries: normalized.map((item) => ({
 							messageId: item.messageId,
 							assistantMessageId: item.assistantMessageId,
 							text: item.text,
 							imageUrls: item.imageUrls,
+							mediaKeys: item.mediaKeys,
 							role: item.role,
 							kind: item.kind,
 							prompt: item.prompt,
@@ -4392,11 +5025,12 @@
 					entry && entry.assistantMessageId
 						? 'local_user_before_' + entry.assistantMessageId
 						: 'local_user_' + Date.now();
+				const indexedMedia = !!(entry && Array.isArray(entry.mediaKeys) && entry.mediaKeys.length);
 				return this.normalizeChatRow({
 					id: entry && entry.messageId ? entry.messageId : fallbackId,
 					role: entry && entry.role === 'char' ? 'char' : 'user',
 					text: entry && entry.text ? entry.text : '',
-					imageUrls: entry && entry.imageUrls ? entry.imageUrls : [],
+					imageUrls: indexedMedia ? [] : entry && entry.imageUrls ? entry.imageUrls : [],
 					localKind: entry && entry.kind ? entry.kind : '',
 					localPrompt: entry && entry.prompt ? entry.prompt : '',
 					localOnly: true
@@ -4426,16 +5060,73 @@
 						rowIds[row.id] = true;
 					}
 				});
-				const now = Date.now();
 				return (Array.isArray(entries) ? entries : []).filter((entry) => {
 					if (!entry || !entry.imageUrls || !entry.imageUrls.length) return false;
 					if (entry._used) return true;
 					if (entry.messageId && rowIds[entry.messageId]) return true;
 					if (entry.assistantMessageId && rowIds[entry.assistantMessageId]) return true;
-					if (entry.role === 'char') {
-						return now - entry.updatedAt <= LOCAL_CHAT_IMAGE_CACHE_TTL_MS;
+					if (entry.role === 'char') return true;
+					return String(entry.messageId || '').indexOf('u_') === 0 && Date.now() - entry.updatedAt <= LOCAL_CHAT_IMAGE_PENDING_KEEP_MS;
+				});
+			},
+			hydrateLocalChatImageMedia(entries) {
+				if (this.localChatImageHydratePending) return;
+				const targets = (Array.isArray(entries) ? entries : []).filter(
+					(item) => item && Array.isArray(item.mediaKeys) && item.mediaKeys.length
+				);
+				if (!targets.length) return;
+				this.localChatImageHydratePending = true;
+				const localMediaStore = require('@/common/localMediaStore.js');
+				Promise.all(targets.map((entry) => Promise.all(
+					entry.mediaKeys.map((key) => localMediaStore.get(key).catch(() => null))
+				).then((stored) => {
+					const available = stored.map((item, index) => ({
+						item,
+						key: entry.mediaKeys[index]
+					})).filter((row) => row.item && String(row.item.url || '').trim());
+					return {
+						entry,
+						keys: available.map((row) => row.key),
+						urls: available.map((row) => String(row.item.url || '').trim())
+					};
+				})
+				)).then((resolved) => {
+					let changed = false;
+					const removedMessageIds = {};
+					resolved.forEach((item) => {
+						if (!item.urls.length) {
+							if (item.entry.messageId) removedMessageIds[item.entry.messageId] = true;
+							item.entry.imageUrls = [];
+							item.entry.mediaKeys = [];
+							changed = true;
+							return;
+						}
+						item.entry.imageUrls = item.urls;
+						item.entry.mediaKeys = item.keys;
+						item.entry.updatedAt = Date.now();
+						changed = true;
+					});
+					if (!changed) return;
+					for (let i = entries.length - 1; i >= 0; i -= 1) {
+						if (entries[i] && removedMessageIds[entries[i].messageId]) entries.splice(i, 1);
 					}
-					return String(entry.messageId || '').indexOf('u_') === 0 && now - entry.updatedAt <= LOCAL_CHAT_IMAGE_PENDING_KEEP_MS;
+					this.writeLocalChatImageEntries(entries);
+					const byMessage = {};
+					entries.forEach((entry) => {
+						if (entry && entry.messageId && entry.imageUrls && entry.imageUrls.length) {
+							byMessage[entry.messageId] = entry.imageUrls.slice();
+						}
+					});
+					this.messages = (Array.isArray(this.messages) ? this.messages : []).map((row) => {
+						if (row && byMessage[row.id]) return Object.assign({}, row, { imageUrls: byMessage[row.id] });
+						if (row && removedMessageIds[row.id]) {
+							if (row.localOnly && row.localKind === 'image_generation') return null;
+							return Object.assign({}, row, { imageUrls: [] });
+						}
+						return row;
+					}).filter(Boolean);
+				}).catch(() => {}).finally(() => {
+					this.localChatImageHydratePending = false;
 				});
 			},
 			mergeLocalChatImagesIntoRows(rows) {
@@ -4444,6 +5135,7 @@
 				if (!entries.length) {
 					return safeRows;
 				}
+				this.hydrateLocalChatImageMedia(entries);
 				const nextRows = [];
 				safeRows.forEach((row) => {
 					if (!row) return;
@@ -4481,7 +5173,12 @@
 							matchedEntry.updatedAt = Date.now();
 						}
 					}
-					if (matchedEntry && matchedEntry.imageUrls && matchedEntry.imageUrls.length) {
+					if (
+						matchedEntry &&
+						(!Array.isArray(matchedEntry.mediaKeys) || !matchedEntry.mediaKeys.length) &&
+						matchedEntry.imageUrls &&
+						matchedEntry.imageUrls.length
+					) {
 						mergedRow = Object.assign({}, row, {
 							imageUrls:
 								row.imageUrls && row.imageUrls.length ? row.imageUrls.slice() : matchedEntry.imageUrls.slice()
@@ -5094,11 +5791,16 @@
 					icon: 'none'
 				});
 			},
-			buildCharacterVoiceTtsPayload(text) {
+			buildCharacterVoiceTtsPayload(text, requestId, segmentIndex, segmentCount) {
 				const payload = {
 					clientUid: require('@/common/tavernApi.js').getClientUid(),
 					content: text
 				};
+				if (requestId) {
+					payload.ttsRequestId = requestId;
+					payload.ttsSegmentIndex = segmentIndex;
+					payload.ttsSegmentCount = segmentCount;
+				}
 				const config = this.currentCharacterVoiceConfig();
 				if (config.ttsModelName) {
 					payload.ttsModelName = config.ttsModelName;
@@ -5109,6 +5811,82 @@
 					payload.ttsVoiceName = config.ttsVoiceName;
 				}
 				return payload;
+			},
+			localMediaSignature(value) {
+				const source = String(value || '');
+				let hash = 2166136261;
+				for (let i = 0; i < source.length; i += 1) {
+					hash ^= source.charCodeAt(i);
+					hash = Math.imul(hash, 16777619);
+				}
+				return (hash >>> 0).toString(16);
+			},
+			assistantVoiceLocalMediaKey(messageId, segmentIndex) {
+				const ownerKey = this.resolveLocalExpressionViewerKey();
+				const conversationId = this.resolveLocalChatConversationId();
+				return ['tts', ownerKey, conversationId, this.normalizeDbMessageId(messageId), segmentIndex].join(':');
+			},
+			persistAssistantVoiceSegment(messageId, segmentIndex, sentenceText, taskId, audioDataUrl) {
+				const safeMessageId = this.normalizeDbMessageId(messageId);
+				const ownerKey = this.resolveLocalExpressionViewerKey();
+				const conversationId = this.resolveLocalChatConversationId();
+				if (!safeMessageId || !ownerKey || !conversationId) return Promise.resolve(audioDataUrl);
+				const localMediaStore = require('@/common/localMediaStore.js');
+				return localMediaStore.putDataUrl({
+					key: this.assistantVoiceLocalMediaKey(safeMessageId, segmentIndex),
+					ownerKey,
+					conversationId,
+					messageId: safeMessageId,
+					kind: 'assistant_tts',
+					taskId: String(taskId || '').trim(),
+					segmentIndex,
+					signature: this.localMediaSignature(sentenceText)
+				}, audioDataUrl).then((stored) => stored && stored.url ? stored.url : audioDataUrl);
+			},
+			restoreAssistantVoiceEntry(row) {
+				const messageId = this.assistantVoiceMessageId(row);
+				if (!messageId || !messageId.startsWith('db_') || this.assistantVoiceRestorePendingMap[messageId]) {
+					return Promise.resolve(null);
+				}
+				const speechText = this.extractAssistantSpeechText(row && row.text);
+				const sentenceTexts = this.splitAssistantSpeechIntoSentences(speechText);
+				if (!speechText || !sentenceTexts.length) return Promise.resolve(null);
+				this.$set(this.assistantVoiceRestorePendingMap, messageId, true);
+				const localMediaStore = require('@/common/localMediaStore.js');
+				return localMediaStore.list({
+					ownerKey: this.resolveLocalExpressionViewerKey(),
+					conversationId: this.resolveLocalChatConversationId(),
+					messageId,
+					kind: 'assistant_tts'
+				}).then((stored) => {
+					const audioSegments = new Array(sentenceTexts.length).fill('');
+					(Array.isArray(stored) ? stored : []).forEach((item) => {
+						const index = Math.max(0, Number(item.segmentIndex) || 0);
+						if (index >= sentenceTexts.length) return;
+						if (String(item.signature || '') !== this.localMediaSignature(sentenceTexts[index])) return;
+						audioSegments[index] = String(item.url || '').trim();
+					});
+					if (!audioSegments.some((item) => item)) return null;
+					const storedTaskId = (Array.isArray(stored) ? stored : [])
+						.map((item) => String(item && item.taskId || '').trim())
+						.find((item) => item) || ('tts_' + messageId);
+					return this.setAssistantVoiceEntry(messageId, {
+						speechText,
+						preparedSentenceKey: this.assistantVoiceSentenceKey(sentenceTexts),
+						sentenceTexts,
+						sentenceAudioUrls: audioSegments,
+						audioDataUrl: audioSegments[0] || '',
+						state: audioSegments[0] ? 'ready' : 'idle',
+						taskId: storedTaskId,
+						requestKey: '',
+						error: '',
+						playingIndex: -1,
+						waitingForSegmentIndex: -1,
+						autoPlayPending: false
+					});
+				}).catch(() => null).finally(() => {
+					this.$delete(this.assistantVoiceRestorePendingMap, messageId);
+				});
 			},
 			normalizeCharacterImageText(value, maxLength) {
 				const limit = Math.max(0, Math.floor(Number(maxLength) || 255));
@@ -5400,6 +6178,9 @@
 				}
 			},
 			openCharacterImagePanel() {
+				if (this.imageGenerationEnabledGlobal === false) {
+					return;
+				}
 				if (this.characterImageGlobalState && this.characterImageGlobalState.imageEnabledGlobal === false) {
 					return;
 				}
@@ -5704,6 +6485,14 @@
 			},
 			generateCharacterImage() {
 				if (!this.characterImagePanel || this.characterImagePanel.generating) return;
+				if (this.imageGenerationEnabledGlobal === false) {
+					this.characterImagePanel = Object.assign(createCharacterImagePanelState(), { visible: false });
+					return;
+				}
+				if (this.characterImageGlobalState && this.characterImageGlobalState.imageEnabledGlobal === false) {
+					this.characterImagePanel = Object.assign(createCharacterImagePanelState(), { visible: false });
+					return;
+				}
 				if (this.sending) {
 					this.showErrorToast(this.tx('character_image_wait_reply', '等这轮回复完成后再生图'));
 					return;
@@ -5726,39 +6515,60 @@
 							this.tx('character_image_unavailable', '当前账号暂不可用聊天内生图')
 						);
 					}
-					if (String(state.mode || '').trim() !== 'custom') {
-						throw new Error(this.tx('character_image_need_custom_mode', '先去 AI 设置页切到“我的 API Key”再使用聊天内生图'));
-					}
-					if (!state.apiKeyConfigured) {
-						throw new Error(this.tx('character_image_need_key', '先去 AI 设置页填写生图 API Key'));
-					}
-					const resolvedModelName = this.normalizeCharacterImageText(state.imageModelName, 255);
-					if (!resolvedModelName) {
-						throw new Error(this.tx('character_image_need_model', '先去 AI 设置页选择生图模型'));
-					}
-					if (!this.isCharacterImageModelUsable(resolvedModelName)) {
-						throw new Error(this.tx('character_image_need_image_model', '当前选择的模型不是生图模型，请先去 AI 设置页点“获取列表”，再从返回列表里选文生图模型'));
+					const customMode = String(state.mode || '').trim() === 'custom';
+					const resolvedModelName = customMode
+						? this.normalizeCharacterImageText(state.imageModelName, 255)
+						: '';
+					if (customMode) {
+						if (!state.apiKeyConfigured) {
+							throw new Error(this.tx('character_image_need_key', '先去 AI 设置页填写生图 API Key'));
+						}
+						if (!resolvedModelName) {
+							throw new Error(this.tx('character_image_need_model', '先去 AI 设置页选择生图模型'));
+						}
+						if (!this.isCharacterImageModelUsable(resolvedModelName)) {
+							throw new Error(this.tx('character_image_need_image_model', '当前选择的模型不是生图模型，请先去 AI 设置页点“获取列表”，再从返回列表里选文生图模型'));
+						}
 					}
 					const aspectRatio = this.normalizeCharacterImageAspectRatio(this.currentCharacterImageConfig().aspectRatio);
-					const payload = {
-						clientUid: tavernApi.getClientUid(),
-						prompt: this.buildCharacterImageGenerationPrompt(displayPrompt),
-						userPrompt: displayPrompt,
-						count: 1,
-						aspectRatio,
-						modelName: resolvedModelName,
-						providerSource: this.normalizeCharacterImageText(state.providerSource, 80),
-						characterId: '',
-						characterName: '',
-						referenceImageUrl: '',
-						referenceMode: '',
-						referencePolicy: 'prompt_first'
-					};
-					return tavernApi.postImageGenerate(payload).then((data) => ({
-						data,
-						aspectRatio,
-						fallbackWarning: ''
-					}));
+					const consistencyMode = this.normalizeCharacterImageConsistencyMode(
+						state.imageCharacterConsistencyMode
+					);
+					const referenceSourceMode = this.normalizeCharacterImageReferenceSourceMode(
+						state.imageReferenceSourceMode
+					);
+					const characterId = Number(this.char && this.char.id) || Number(this.cid) || 0;
+					const referenceTask = consistencyMode === 'free'
+						? Promise.resolve('')
+						: this.prepareCharacterImageReferencePayload(false, state);
+					return referenceTask.then((referenceImageUrl) => {
+						const payload = {
+							clientUid: tavernApi.getClientUid(),
+							imageRequestId: 'image_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10),
+							prompt: this.buildCharacterImageGenerationPrompt(displayPrompt),
+							userPrompt: displayPrompt,
+							recentSceneHint: this.resolveCharacterImageRecentSceneHint(displayPrompt),
+							count: 1,
+							aspectRatio,
+							...(customMode ? {
+								modelName: resolvedModelName,
+								providerSource: this.normalizeCharacterImageText(state.providerSource, 80)
+							} : {}),
+							characterId,
+							characterName: this.normalizeCharacterImageText(this.char && this.char.name, 120),
+							referenceImageUrl: referenceImageUrl || '',
+							referenceMode: consistencyMode,
+							referenceSourceMode,
+							referencePolicy: consistencyMode === 'strong'
+								? 'reference_only'
+								: consistencyMode === 'balanced' ? 'balanced' : 'prompt_first'
+						};
+						return tavernApi.postImageGenerate(payload).then((data) => ({
+							data,
+							aspectRatio,
+							fallbackWarning: this.normalizeCharacterImageText(data && data.warning, 200)
+						}));
+					});
 				}).then(({ data, aspectRatio, fallbackWarning }) => {
 					const images = Array.isArray(data && data.images) ? data.images : [];
 					const first = images[0] && typeof images[0] === 'object' ? images[0] : null;
@@ -5766,6 +6576,7 @@
 					if (!imageUrl) {
 						throw new Error(this.tx('character_image_failed', '生图失败，请稍后再试'));
 					}
+					const localMessageId = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 					return Promise.resolve(
 						tavernApi.persistGeneratedChatImage(imageUrl, {
 							fileNamePrefix: 'tavern_image_' + Date.now()
@@ -5785,17 +6596,44 @@
 							url: imageUrl,
 							persisted: false
 						};
-					}).then((persisted) => ({
-						aspectRatio,
-						imageUrl: persisted && persisted.url ? String(persisted.url).trim() : imageUrl,
-						warning: this.normalizeCharacterImageText(
-							(data && data.warning) || fallbackWarning,
-							120
-						)
-					}));
-				}).then(({ imageUrl, aspectRatio, warning }) => {
+					}).then((persisted) => {
+						const persistedUrl = persisted && persisted.url ? String(persisted.url).trim() : imageUrl;
+						const localMediaStore = require('@/common/localMediaStore.js');
+						const mediaKey = ['image', this.resolveLocalExpressionViewerKey(), this.resolveLocalChatConversationId(), localMessageId, 0].join(':');
+						const meta = {
+							key: mediaKey,
+							ownerKey: this.resolveLocalExpressionViewerKey(),
+							conversationId: this.resolveLocalChatConversationId(),
+							messageId: localMessageId,
+							kind: 'generated_image',
+							segmentIndex: 0,
+							signature: this.localMediaSignature(displayPrompt)
+						};
+						const saveTask = this.isLocalInlineImageUrl(persistedUrl)
+							? localMediaStore.putDataUrl(meta, persistedUrl)
+							: localMediaStore.registerLocalUrl(meta, persistedUrl, Math.floor(imageUrl.length * 0.75), 'image/png');
+						return saveTask.then((stored) => ({
+							aspectRatio,
+							messageId: localMessageId,
+							imageUrl: stored && stored.url ? String(stored.url).trim() : persistedUrl,
+							mediaKeys: [mediaKey],
+							warning: this.normalizeCharacterImageText((data && data.warning) || fallbackWarning, 120)
+						})).catch((error) => {
+							if (!this.isAppPlus && imageUrl.length <= LOCAL_CHAT_IMAGE_DATA_URL_MAX_LENGTH) {
+								return {
+									aspectRatio,
+									messageId: localMessageId,
+									imageUrl,
+									mediaKeys: [],
+									warning: this.normalizeCharacterImageText((data && data.warning) || fallbackWarning, 120)
+								};
+							}
+							throw error;
+						});
+					});
+				}).then(({ imageUrl, aspectRatio, warning, messageId, mediaKeys }) => {
 					const entry = this.upsertLocalChatImageEntry({
-						messageId: 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+						messageId,
 						assistantMessageId: this.resolveCharacterImageAnchorMessageId(),
 						role: 'char',
 						kind: 'image_generation',
@@ -5803,6 +6641,7 @@
 						aspectRatio,
 						text: '',
 						imageUrls: [imageUrl],
+						mediaKeys,
 						createdAt: Date.now(),
 						updatedAt: Date.now()
 					});
@@ -6542,6 +7381,15 @@
 						});
 					});
 			},
+			retryComposerImage(item) {
+				if (!item || !item.id || !item.uploadFile || item.uploading) return;
+				this.updateComposerImage(item.id, {
+					uploading: true,
+					progress: 0,
+					error: ''
+				});
+				this.uploadComposerImage(item.id, item.uploadFile);
+			},
 			removeComposerImage(id) {
 				this.composerImages = this.composerImages.filter((item) => item && item.id !== id);
 			},
@@ -6570,8 +7418,10 @@
 				const imageUrls = this.normalizeChatImageUrls(m.imageUrls || m.images || []);
 				return {
 					id: this.normalizeDbMessageId(m.id),
+					branchId: m.branchId == null ? '' : String(m.branchId),
 					role: m.role,
 					text,
+					openingMessage: m.openingMessage === true,
 					quote: quotePayload.quote,
 					messageKind: String(m.messageKind || 'NORMAL').trim().toUpperCase() === 'CONTINUATION' ? 'CONTINUATION' : 'NORMAL',
 					continueFromMessageId: this.normalizeDbMessageId(m.continueFromMessageId),
@@ -6832,6 +7682,11 @@
 					clearTimeout(this.chatRevealTimer);
 					this.chatRevealTimer = null;
 				}
+				if (this.chatProgrammaticScrollTimer) {
+					clearTimeout(this.chatProgrammaticScrollTimer);
+					this.chatProgrammaticScrollTimer = null;
+				}
+				this.chatProgrammaticScroll = false;
 				this.clearPendingFollowScroll();
 				this.clearPendingVoiceStart();
 				this.clearVoiceRecordTimer();
@@ -6841,6 +7696,96 @@
 					clearTimeout(this.chatFollowScrollTimer);
 					this.chatFollowScrollTimer = null;
 				}
+			},
+			resetChatUnreadState() {
+				this.chatUnreadCount = 0;
+				this.chatUnreadMessageKeyMap = {};
+			},
+			chatUnreadMessageKeys(row) {
+				if (!row) return [];
+				const id = this.normalizeDbMessageId(row.id);
+				const keys = [];
+				if (id) keys.push('id:' + id);
+				const role = row.role ? String(row.role) : 'msg';
+				const kind = row.messageKind ? String(row.messageKind) : '';
+				const continueFrom = this.normalizeDbMessageId(row.continueFromMessageId);
+				const text = String(row.text || '').slice(0, 240);
+				const imageCount = Array.isArray(row.imageUrls) ? row.imageUrls.length : 0;
+				const voiceUrl = this.normalizeVoiceMessageUrl(row.voiceUrl);
+				const signature = [role, kind, continueFrom, text, imageCount, voiceUrl].join(':');
+				if (kind || continueFrom || text || imageCount > 0 || voiceUrl) {
+					keys.push('sig:' + signature);
+				}
+				return keys;
+			},
+			chatUnreadRowExistsInMap(row, map) {
+				const source = map && typeof map === 'object' ? map : {};
+				return this.chatUnreadMessageKeys(row).some((key) => !!source[key]);
+			},
+			collectChatMessageKeyMap(rows) {
+				const map = {};
+				(Array.isArray(rows) ? rows : []).forEach((row) => {
+					this.chatUnreadMessageKeys(row).forEach((key) => {
+						if (key) map[key] = true;
+					});
+				});
+				return map;
+			},
+			shouldCountUnreadChatRow(row) {
+				return !!row && row.role !== 'user';
+			},
+			rememberChatUnreadRows(rows) {
+				const source = Array.isArray(rows) ? rows : rows ? [rows] : [];
+				if (!source.length || this.atChatBottom || this.followBottom) return;
+				const map = Object.assign({}, this.chatUnreadMessageKeyMap || {});
+				let changed = false;
+				source.forEach((row) => {
+					if (!this.shouldCountUnreadChatRow(row)) return;
+					this.chatUnreadMessageKeys(row).forEach((key) => {
+						if (!key || map[key]) return;
+						map[key] = true;
+						changed = true;
+					});
+				});
+				if (changed) {
+					this.chatUnreadMessageKeyMap = map;
+				}
+			},
+			markChatUnreadRows(rows) {
+				const source = Array.isArray(rows) ? rows : rows ? [rows] : [];
+				if (!source.length) return 0;
+				if (this.atChatBottom || this.followBottom) {
+					this.resetChatUnreadState();
+					return 0;
+				}
+				const map = Object.assign({}, this.chatUnreadMessageKeyMap || {});
+				let added = 0;
+				source.forEach((row) => {
+					if (!this.shouldCountUnreadChatRow(row)) return;
+					const keys = this.chatUnreadMessageKeys(row);
+					if (!keys.length || this.chatUnreadRowExistsInMap(row, map)) return;
+					keys.forEach((key) => {
+						map[key] = true;
+					});
+					added += 1;
+				});
+				if (added > 0) {
+					this.chatUnreadMessageKeyMap = map;
+					this.chatUnreadCount = Math.min(999, Number(this.chatUnreadCount || 0) + added);
+				}
+				return added;
+			},
+			handleIncomingChatRows(rows, options) {
+				const opts = options && typeof options === 'object' ? options : {};
+				if (this.atChatBottom || this.followBottom) {
+					this.followScrollNextTick();
+					return;
+				}
+				if (opts.alreadyCounted) {
+					this.rememberChatUnreadRows(rows);
+					return;
+				}
+				this.markChatUnreadRows(rows);
 			},
 			scrollChatToBottom(options) {
 				const opts = options || {};
@@ -6857,8 +7802,10 @@
 				}
 				this.followBottom = true;
 				this.atChatBottom = true;
+				this.resetChatUnreadState();
 				this.lastChatScrollTop = Number.MAX_SAFE_INTEGER;
 				this.markChatAutoScroll();
+				this.markChatProgrammaticScroll();
 				this.chatScrollWithAnimation = !immediate;
 				this.scrollTo = '';
 				this.$nextTick(() => {
@@ -6953,10 +7900,24 @@
 					this.streamingAssistantMode = '';
 				}
 			},
+			finalizeAssistantStreamRequest(controller) {
+				if (!controller || this.streamAbortController !== controller) return;
+				this.finishAssistantStreaming();
+				this.streamAbortController = null;
+				this.finishSendingState();
+			},
 			isStreamingAssistantRow(row) {
 				if (!row || row.role !== 'char') return false;
 				const messageId = this.normalizeDbMessageId(row.id);
 				return !!messageId && messageId === this.streamingAssistantMessageId;
+			},
+			messageActionsVisible(row) {
+				return (
+					this.isStreamingAssistantRow(row) ||
+					this.shouldShowAssistantVoicePill(row) ||
+					(this.isAssistantMessage(row) && row.swipes && row.swipes.length > 1) ||
+					!!this.recoveryForMessage(row)
+				);
 			},
 			streamingAssistantStatusText(row) {
 				const mode = String(this.streamingAssistantMode || 'generate').trim();
@@ -6996,6 +7957,16 @@
 			markChatAutoScroll() {
 				this.chatAutoScrollAt = Date.now();
 			},
+			markChatProgrammaticScroll() {
+				this.chatProgrammaticScroll = true;
+				if (this.chatProgrammaticScrollTimer) {
+					clearTimeout(this.chatProgrammaticScrollTimer);
+				}
+				this.chatProgrammaticScrollTimer = setTimeout(() => {
+					this.chatProgrammaticScroll = false;
+					this.chatProgrammaticScrollTimer = null;
+				}, 240);
+			},
 			onChatTouchStart() {
 				this.chatUserTouching = true;
 			},
@@ -7018,7 +7989,7 @@
 				const fallbackManualMove = !hasTop && typeof d.deltaY === 'number' && Math.abs(d.deltaY) > 2;
 				const isManualWindow = Date.now() - this.chatAutoScrollAt > 180;
 				const likelyUserScrollUp = this.chatUserTouching && (movedUp || fallbackManualMove);
-				if (likelyUserScrollUp || (isManualWindow && movedUp)) {
+				if (likelyUserScrollUp || (isManualWindow && movedUp && !this.chatProgrammaticScroll)) {
 					this.followBottom = false;
 					this.atChatBottom = false;
 					this.clearPendingFollowScroll();
@@ -7029,6 +8000,7 @@
 					if (distanceToBottom <= 64) {
 						this.followBottom = true;
 						this.atChatBottom = true;
+						this.resetChatUnreadState();
 					}
 				}
 				if (hasTop) {
@@ -7044,6 +8016,7 @@
 			onChatScrollToLower() {
 				this.followBottom = true;
 				this.atChatBottom = true;
+				this.resetChatUnreadState();
 			},
 			normalizeDbMessageId(id) {
 				if (id == null) return '';
@@ -7134,6 +8107,7 @@
 				return false;
 			},
 			clearStopSyncTimer() {
+				this.stopSyncVersion = Number(this.stopSyncVersion || 0) + 1;
 				if (this.stopRefreshTimer) {
 					clearTimeout(this.stopRefreshTimer);
 					this.stopRefreshTimer = null;
@@ -7142,14 +8116,22 @@
 			queueStopSync(delay) {
 				if (!this.jgOn || !this.char) return;
 				this.clearStopSyncTimer();
-				this.stopRefreshTimer = setTimeout(() => {
-					this.stopRefreshTimer = null;
-					this.refreshJgMessages()
-						.then(() => {
-							this.followScrollNextTick();
-						})
-						.catch(() => {});
-				}, typeof delay === 'number' ? delay : 700);
+				const syncVersion = this.stopSyncVersion;
+				const firstDelay = typeof delay === 'number' ? delay : 700;
+				const retryDelays = [firstDelay, 1500, 3000];
+				let retryIndex = 0;
+				const scheduleNext = () => {
+					if (syncVersion !== this.stopSyncVersion || retryIndex >= retryDelays.length) return;
+					const retryDelay = retryDelays[retryIndex++];
+					this.stopRefreshTimer = setTimeout(() => {
+						this.stopRefreshTimer = null;
+						Promise.resolve()
+							.then(() => this.refreshJgMessages({ trackIncomingUnread: true }))
+							.catch(() => {})
+							.finally(scheduleNext);
+					}, retryDelay);
+				};
+				scheduleNext();
 			},
 			clearPendingVoiceStart() {
 				if (this.pendingVoiceStartTimer) {
@@ -7270,12 +8252,18 @@
 					this.markSilentGenerationInterrupt(opts.silentDurationMs);
 				}
 				this.interruptAssistantVoiceRound({ stopUserVoice: false });
-				this.queueStopSync(700);
-				if (this.streamAbortController) {
-					try {
-						this.streamAbortController.abort();
-					} catch (err) {}
+				if (!opts.skipSync) {
+					this.queueStopSync(700);
+				}
+				const streamController = this.streamAbortController;
+				const streamingMessageId = this.streamingAssistantMessageId;
+				if (streamController) {
 					this.streamAbortController = null;
+					try {
+						streamController.abort();
+					} catch (err) {}
+					this.finishAssistantStreaming(streamingMessageId);
+					this.finishSendingState();
 				}
 				try {
 					const tavernApi = require('@/common/tavernApi.js');
@@ -7287,11 +8275,712 @@
 								clientUid: tavernApi.getClientUid()
 							})
 							.finally(() => {
-								this.queueStopSync(900);
+								if (!opts.skipSync) {
+									this.queueStopSync(900);
+								}
 							})
 							.catch(function () {});
 					}
 				} catch (e) {}
+			},
+			openBranchPanel() {
+				if (!this.jgOn || this.jgChatLoadState !== 'ready') {
+					this.showErrorToast(this.tx('chat_not_ready', '聊天还没有准备好'));
+					return;
+				}
+				this.closeMemoryPanel();
+				this.branchPanel = Object.assign({}, this.branchPanel, {
+					visible: true,
+					error: '',
+					switchingBranchId: ''
+				});
+				this.loadBranchPanel();
+			},
+			closeBranchPanel() {
+				this.branchPanel = createBranchPanelState();
+			},
+			branchPanelPayload() {
+				const tavernApi = require('@/common/tavernApi.js');
+				const cid = Number(this.char && this.char.id) || Number(this.cid);
+				return {
+					characterId: cid,
+					clientUid: tavernApi.getClientUid()
+				};
+			},
+			normalizeBranchPanelRow(item) {
+				const source = item && typeof item === 'object' ? item : {};
+				const variantIndex = Number(source.variantIndex);
+				const safeVariantIndex = isFinite(variantIndex) && variantIndex >= 0 ? Math.floor(variantIndex) : -1;
+				const branchId = source.branchId == null ? '' : String(source.branchId);
+				const id = safeVariantIndex >= 0 ? 'opening_' + safeVariantIndex : branchId;
+				const title = this
+					.tx('branch_opening_item', '开场 {n}')
+					.replace('{n}', String(safeVariantIndex >= 0 ? safeVariantIndex + 1 : ''));
+				return {
+					id,
+					branchId,
+					variantIndex: safeVariantIndex,
+					title,
+					active: source.active === true || (branchId && branchId === String(this.jgActiveBranchId || '')),
+					created: source.created === true || !!branchId,
+					messageCount: Number(source.messageCount || 0),
+					preview: this.compactPanelText(source.preview || '', 180),
+					updatedAt: source.updatedAt || ''
+				};
+			},
+			applyBranchEnvelope(data) {
+				const source = data && typeof data === 'object' ? data : {};
+				const items = Array.isArray(source.openings) ? source.openings : [];
+				this.jgActiveBranchId = source.activeBranchId == null ? this.jgActiveBranchId : String(source.activeBranchId);
+				if (this.branchPanel && this.branchPanel.visible) {
+					this.$set(this.branchPanel, 'items', items);
+					this.$set(this.branchPanel, 'error', '');
+				}
+				return items;
+			},
+			loadBranchPanel() {
+				if (!this.jgOn || !this.char) return Promise.resolve(false);
+				const tavernApi = require('@/common/tavernApi.js');
+				if (this.branchPanel && this.branchPanel.visible) {
+					this.$set(this.branchPanel, 'loading', true);
+					this.$set(this.branchPanel, 'error', '');
+				}
+				return tavernApi
+					.postTavernBranchList(this.branchPanelPayload())
+					.then((data) => {
+						this.applyBranchEnvelope(data);
+						return true;
+					})
+					.catch((e) => {
+						const msg = this.jgErrMsg(e, this.tx('branch_load_failed_retry', '加载失败，点这里重试'));
+						if (this.branchPanel && this.branchPanel.visible) {
+							this.$set(this.branchPanel, 'error', msg);
+						}
+						return false;
+					})
+					.finally(() => {
+						if (this.branchPanel && this.branchPanel.visible) {
+							this.$set(this.branchPanel, 'loading', false);
+						}
+					});
+			},
+			resetMessageHistoryForBranch() {
+				this.jgLoadRequestToken = Date.now() + Math.random();
+				this.messageHistoryHasMore = false;
+				this.messageHistoryLoading = false;
+				this.messageHistoryNextBeforeId = '';
+				this.messageHistoryLoadAt = Date.now();
+				this.chatUnreadCount = 0;
+				this.chatUnreadMessageKeyMap = {};
+			},
+			switchBranch(row) {
+				if (!row || row.active || this.sending) {
+					if (row && row.active) {
+						this.closeBranchPanel();
+					}
+					return Promise.resolve(false);
+				}
+				const variantIndex = Number(row.variantIndex);
+				if (!isFinite(variantIndex) || variantIndex < 0) return Promise.resolve(false);
+				const tavernApi = require('@/common/tavernApi.js');
+				this.$set(this.branchPanel, 'switchingBranchId', String(row.id || ''));
+				return tavernApi
+					.postTavernOpeningBranchSelect(Object.assign({}, this.branchPanelPayload(), { variantIndex }))
+					.then((data) => {
+						this.applyBranchEnvelope(data);
+						this.resetMessageHistoryForBranch();
+						return this.refreshJgMessages({ invalidateReplySuggestions: true });
+					})
+					.then(() => {
+						this.closeBranchPanel();
+						this.followBottom = true;
+						this.atChatBottom = true;
+						this.scrollChatToBottom({ immediate: true });
+						return true;
+					})
+					.catch((e) => {
+						this.showErrorToast(this.jgErrMsg(e, this.tx('branch_switch_failed', '分支切换失败')));
+						return false;
+					})
+					.finally(() => {
+						if (this.branchPanel && this.branchPanel.visible) {
+							this.$set(this.branchPanel, 'switchingBranchId', '');
+						}
+					});
+			},
+			forkBranchFromMessage(messageId, options) {
+				if (this.sending) {
+					this.showErrorToast(this.tx('branch_fork_wait', '等这轮回复完成后再开分支'));
+					return Promise.resolve(false);
+				}
+				const safeId = this.normalizeDbMessageId(messageId);
+				if (!safeId) return Promise.resolve(false);
+				const opts = options && typeof options === 'object' ? options : {};
+				const tavernApi = require('@/common/tavernApi.js');
+				const payload = Object.assign({}, this.branchPanelPayload(), {
+					messageId: safeId
+				});
+				if (opts.variantIndex != null) {
+					payload.variantIndex = opts.variantIndex;
+				}
+				if (opts.title) {
+					payload.title = opts.title;
+				}
+				if (this.branchPanel && this.branchPanel.visible) {
+					this.$set(this.branchPanel, 'forkingMessageId', safeId);
+				}
+				return tavernApi
+					.postTavernBranchFork(payload)
+					.then((data) => {
+						this.applyBranchEnvelope(data);
+						this.resetMessageHistoryForBranch();
+						return this.refreshJgMessages({ invalidateReplySuggestions: true });
+					})
+					.then(() => {
+						this.closeBranchPanel();
+						this.followBottom = true;
+						this.atChatBottom = true;
+						this.scrollChatToBottom({ immediate: true });
+						uni.showToast({ title: this.tx('branch_fork_success', '已开新分支'), icon: 'none' });
+						return true;
+					})
+					.catch((e) => {
+						this.showErrorToast(this.jgErrMsg(e, this.tx('branch_fork_failed', '开分支失败')));
+						return false;
+					})
+					.finally(() => {
+						if (this.branchPanel && this.branchPanel.visible) {
+							this.$set(this.branchPanel, 'forkingMessageId', '');
+						}
+					});
+			},
+			forkMessageActionBranch() {
+				if (!this.messageActionSheet || this.messageActionSheet.forking) return;
+				const messageId = this.normalizeDbMessageId(this.messageActionSheet.messageId);
+				const message = this.findMessageById(messageId);
+				if (!message || !this.canForkChatBranchFromMessage(message)) {
+					this.showErrorToast(this.tx('branch_fork_unavailable', '这条消息暂时不能开分支'));
+					return;
+				}
+				this.$set(this.messageActionSheet, 'forking', true);
+				const variantIndex = message.role === 'char' && typeof message.swipeIndex === 'number'
+					? message.swipeIndex
+					: null;
+				this.forkBranchFromMessage(messageId, { variantIndex })
+					.finally(() => {
+						if (this.messageActionSheet && this.messageActionSheet.messageId === messageId) {
+							this.$set(this.messageActionSheet, 'forking', false);
+						}
+						this.closeMessageActionSheet(true);
+					});
+			},
+			findMessageByPanelId(messageId) {
+				const safeId = this.normalizeDbMessageId(messageId);
+				if (!safeId) return null;
+				return (this.messages || []).find((row) => this.normalizeDbMessageId(row && row.id) === safeId) || null;
+			},
+			jumpToBranchMessage(messageId) {
+				const safeId = this.normalizeDbMessageId(messageId);
+				if (!safeId) return;
+				this.restoreChatViewportAtMessage(safeId);
+			},
+			memoryPanelPayload(overrides) {
+				const panel = this.memoryPanel || {};
+				const options = overrides && typeof overrides === 'object' ? overrides : {};
+				const filter = ['all', 'enabled', 'disabled', 'archived'].includes(String(options.filter || panel.filter || 'all'))
+					? String(options.filter || panel.filter || 'all')
+					: 'all';
+				const requestedPage = Number(options.page != null ? options.page : panel.page || 1);
+				const requestedPageSize = Number(options.pageSize != null ? options.pageSize : panel.pageSize || MEMORY_PANEL_PAGE_SIZE);
+				return {
+					clientUid: String(panel.clientUid || ''),
+					characterId: Number(panel.characterId) || 0,
+					conversationId: Number(panel.conversationId) || 0,
+					branchId: Number(panel.activeBranchId) || 0,
+					entryFilter: filter,
+					filter,
+					page: isFinite(requestedPage) && requestedPage > 0 ? Math.floor(requestedPage) : 1,
+					pageSize: isFinite(requestedPageSize) && requestedPageSize > 0 ? Math.floor(requestedPageSize) : MEMORY_PANEL_PAGE_SIZE
+				};
+			},
+			normalizeMemoryPanelEntry(raw) {
+				const source = raw && typeof raw === 'object' ? raw : {};
+				const keywords = Array.isArray(source.keywords) ? source.keywords : [];
+				const secondaryKeywords = Array.isArray(source.secondaryKeywords) ? source.secondaryKeywords : [];
+				const archiveReason = String(source.archiveReason || source.archivedReason || source.retiredReason || '');
+				const archivedAt = source.archivedAt || source.retiredAt || '';
+				const archived = source.archived === true
+					|| source.retired === true
+					|| !!archiveReason
+					|| !!archivedAt
+					|| String(source.status || '').toUpperCase() === 'ARCHIVED';
+				return {
+					id: source.id,
+					entryKey: String(source.entryKey || ''),
+					memoryType: String(source.memoryType || 'event'),
+					title: String(source.title || ''),
+					content: String(source.content || ''),
+					keywords: keywords.map((item) => String(item || '')).filter((item) => item),
+					secondaryKeywords: secondaryKeywords.map((item) => String(item || '')).filter((item) => item),
+					priority: Number(source.priority || 0),
+					position: String(source.position || ''),
+					constantInjection: source.constantInjection === true,
+					selective: source.selective === true,
+					enabled: source.enabled === true,
+					manualDisabled: source.manualDisabled === true,
+					manualPinned: source.manualPinned === true,
+					archived,
+					archiveReason,
+					archivedAt,
+					confidence: source.confidence == null ? null : Number(source.confidence),
+					sourceMessageFromId: source.sourceMessageFromId,
+					sourceMessageToId: source.sourceMessageToId
+				};
+			},
+			memoryPanelEntryIdentity(entry) {
+				const source = entry && typeof entry === 'object' ? entry : {};
+				if (source.id != null && String(source.id)) return 'id:' + String(source.id);
+				if (source.entryKey) return 'key:' + String(source.entryKey);
+				return 'content:' + String(source.memoryType || '') + ':' + String(source.content || source.title || '').trim().toLowerCase();
+			},
+			mergeMemoryPanelEntries(currentEntries, incomingEntries) {
+				const merged = [];
+				const indexes = Object.create(null);
+				const append = (entry) => {
+					if (!entry) return;
+					const identity = this.memoryPanelEntryIdentity(entry);
+					if (Object.prototype.hasOwnProperty.call(indexes, identity)) {
+						const index = indexes[identity];
+						merged.splice(index, 1, Object.assign({}, merged[index], entry));
+						return;
+					}
+					indexes[identity] = merged.length;
+					merged.push(entry);
+				};
+				(Array.isArray(currentEntries) ? currentEntries : []).forEach(append);
+				(Array.isArray(incomingEntries) ? incomingEntries : []).forEach(append);
+				return merged;
+			},
+			filterLegacyMemoryEntries(entries, filter) {
+				const safeEntries = Array.isArray(entries) ? entries : [];
+				if (filter === 'archived') return safeEntries.filter((entry) => entry && entry.archived);
+				if (filter === 'enabled') return safeEntries.filter((entry) => entry && !entry.archived && entry.enabled);
+				if (filter === 'disabled') return safeEntries.filter((entry) => entry && !entry.archived && !entry.enabled);
+				return safeEntries;
+			},
+			applyMemoryPanelMetadata(detail) {
+				const source = detail && typeof detail === 'object' ? detail : {};
+				const previous = this.memoryPanel && this.memoryPanel.detail && typeof this.memoryPanel.detail === 'object'
+					? this.memoryPanel.detail
+					: {};
+				const metadata = Object.assign({}, previous, source);
+				delete metadata.entries;
+				this.$set(this.memoryPanel, 'detail', metadata);
+				this.jgMemory = Object.assign({}, this.jgMemory || {}, {
+					summaryPreview: metadata.summaryPreview || '',
+					factsCount: metadata.factsCount || 0,
+					entryCount: metadata.entryCount || 0,
+					enabledEntryCount: metadata.enabledEntryCount || 0,
+					memoryWorldName: metadata.memoryWorldName || '',
+					syncStatus: metadata.syncStatus || '',
+					syncError: metadata.syncError || '',
+					updatedAt: metadata.updatedAt || ''
+				});
+			},
+			applyMemoryPanelDetail(detail, options) {
+				const source = detail && typeof detail === 'object' ? detail : {};
+				const opts = options && typeof options === 'object' ? options : {};
+				const filter = ['all', 'enabled', 'disabled', 'archived'].includes(String(opts.filter || ''))
+					? String(opts.filter)
+					: String(this.memoryPanel && this.memoryPanel.filter || 'all');
+				const normalizedEntries = Array.isArray(source.entries)
+					? source.entries.map((item) => this.normalizeMemoryPanelEntry(item)).filter((item) => item.content || item.title)
+					: [];
+				const hasPagination = source.entryPage != null
+					|| source.entryPageSize != null
+					|| source.entryTotal != null
+					|| typeof source.entryHasMore === 'boolean'
+					|| source.page != null
+					|| source.pageSize != null
+					|| source.totalEntries != null
+					|| typeof source.hasMore === 'boolean';
+				const pageEntries = hasPagination
+					? normalizedEntries
+					: this.filterLegacyMemoryEntries(normalizedEntries, filter);
+				const entries = opts.append
+					? this.mergeMemoryPanelEntries(this.memoryPanel.entries, pageEntries)
+					: pageEntries;
+				const requestedPage = Number(opts.page || 1);
+				const responsePage = Number(source.entryPage != null ? source.entryPage : source.page);
+				const responsePageSize = Number(source.entryPageSize != null ? source.entryPageSize : source.pageSize);
+				const responseTotal = Number(source.entryTotal != null ? source.entryTotal : source.totalEntries);
+				const page = hasPagination && isFinite(responsePage) && responsePage > 0
+					? Math.floor(responsePage)
+					: (hasPagination ? Math.max(1, Math.floor(requestedPage || 1)) : 1);
+				const pageSize = hasPagination && isFinite(responsePageSize) && responsePageSize > 0
+					? Math.floor(responsePageSize)
+					: Number(this.memoryPanel.pageSize || MEMORY_PANEL_PAGE_SIZE);
+				const totalEntries = hasPagination && isFinite(responseTotal) && responseTotal >= 0
+					? Math.floor(responseTotal)
+					: entries.length;
+				const responseHasMore = typeof source.entryHasMore === 'boolean' ? source.entryHasMore : source.hasMore;
+				const hasMore = hasPagination
+					? (typeof responseHasMore === 'boolean' ? responseHasMore : page * pageSize < totalEntries)
+					: false;
+				const metadata = Object.assign({}, source);
+				if (!hasPagination) {
+					const archived = normalizedEntries.filter((entry) => entry.archived).length;
+					const activeEntries = normalizedEntries.filter((entry) => !entry.archived);
+					const enabled = activeEntries.filter((entry) => entry.enabled).length;
+					if (metadata.entryCount == null) metadata.entryCount = activeEntries.length;
+					if (metadata.enabledEntryCount == null) metadata.enabledEntryCount = enabled;
+					if (metadata.disabledEntryCount == null) metadata.disabledEntryCount = activeEntries.filter((entry) => !entry.enabled).length;
+					if (metadata.archivedEntryCount == null) metadata.archivedEntryCount = archived;
+				}
+				this.applyMemoryPanelMetadata(metadata);
+				this.$set(this.memoryPanel, 'entries', entries);
+				this.$set(this.memoryPanel, 'page', page);
+				this.$set(this.memoryPanel, 'pageSize', pageSize);
+				this.$set(this.memoryPanel, 'totalEntries', totalEntries);
+				this.$set(this.memoryPanel, 'hasMore', hasMore);
+			},
+			openMemoryPanel() {
+				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing) {
+					return;
+				}
+				if (!this.jgOn || this.jgChatLoadState !== 'ready' || !this.char) {
+					this.showErrorToast(this.tx('chat_not_ready', '聊天还没有准备好'));
+					return;
+				}
+				const tavernApi = require('@/common/tavernApi.js');
+				const clientUid = String(tavernApi.getClientUid() || '').trim();
+				const characterId = Number(this.char && this.char.id) || Number(this.cid);
+				const conversationId = Number(this.jgConversationId);
+				const activeBranchId = Number(this.jgActiveBranchId);
+				if (!clientUid || !characterId || !conversationId || !activeBranchId) {
+					this.showErrorToast(this.tx('chat_not_ready', '聊天还没有准备好'));
+					return;
+				}
+				this.closeBranchPanel();
+				this.memoryPanel = Object.assign(createMemoryPanelState(), {
+					visible: true,
+					clientUid,
+					characterId,
+					conversationId,
+					activeBranchId,
+					error: ''
+				});
+				this.loadMemoryPanel();
+			},
+			closeMemoryPanel() {
+				this.memoryPanel = createMemoryPanelState();
+			},
+			isMemoryPanelRequestCurrent(requestToken) {
+				return !!(
+					this.memoryPanel
+					&& this.memoryPanel.visible
+					&& this.memoryPanel.requestToken === requestToken
+				);
+			},
+			isMemoryPanelListRequestCurrent(requestToken, listRequestToken, filter) {
+				return !!(
+					this.isMemoryPanelRequestCurrent(requestToken)
+					&& this.memoryPanel.listRequestToken === listRequestToken
+					&& String(this.memoryPanel.filter || 'all') === String(filter || 'all')
+				);
+			},
+			loadMemoryPanel(options) {
+				if (!this.memoryPanel || !this.memoryPanel.visible) return Promise.resolve(false);
+				const opts = options && typeof options === 'object' ? options : {};
+				const append = opts.append === true;
+				if (append && (this.memoryPanel.loading || this.memoryPanel.loadingMore || !this.memoryPanel.hasMore)) {
+					return Promise.resolve(false);
+				}
+				const tavernApi = require('@/common/tavernApi.js');
+				const requestToken = this.memoryPanel.requestToken;
+				const filter = String(this.memoryPanel.filter || 'all');
+				const targetPage = append ? Math.max(1, Number(this.memoryPanel.page || 0) + 1) : 1;
+				const listRequestToken = ++memoryPanelListRequestSeed;
+				this.$set(this.memoryPanel, 'listRequestToken', listRequestToken);
+				if (append) {
+					this.$set(this.memoryPanel, 'loadingMore', true);
+					this.$set(this.memoryPanel, 'loadMoreError', '');
+				} else {
+					this.$set(this.memoryPanel, 'loading', true);
+					this.$set(this.memoryPanel, 'error', '');
+					this.$set(this.memoryPanel, 'loadMoreError', '');
+					this.$set(this.memoryPanel, 'entries', []);
+					this.$set(this.memoryPanel, 'page', 0);
+					this.$set(this.memoryPanel, 'totalEntries', 0);
+					this.$set(this.memoryPanel, 'hasMore', false);
+				}
+				return tavernApi.postTavernMemoryEntries(this.memoryPanelPayload({
+					filter,
+					page: targetPage,
+					pageSize: this.memoryPanel.pageSize || MEMORY_PANEL_PAGE_SIZE
+				}))
+					.then((detail) => {
+						if (!this.isMemoryPanelListRequestCurrent(requestToken, listRequestToken, filter)) return false;
+						this.applyMemoryPanelDetail(detail || {}, { append, page: targetPage, filter });
+						return true;
+					})
+					.catch((e) => {
+						if (!this.isMemoryPanelListRequestCurrent(requestToken, listRequestToken, filter)) return false;
+						if (append) {
+							const message = this.jgErrMsg(e, this.tx('memory_load_more_failed', '更多记忆加载失败，轻触此处重试'));
+							this.$set(this.memoryPanel, 'loadMoreError', message);
+						} else {
+							const message = this.jgErrMsg(e, this.tx('memory_load_failed', '记忆读取失败'));
+							this.$set(this.memoryPanel, 'error', message);
+						}
+						return false;
+					})
+					.finally(() => {
+						if (this.isMemoryPanelListRequestCurrent(requestToken, listRequestToken, filter)) {
+							this.$set(this.memoryPanel, append ? 'loadingMore' : 'loading', false);
+						}
+					});
+			},
+			loadMoreMemoryPanel() {
+				if (!this.memoryPanel || !this.memoryPanel.visible || this.memoryPanelBusy || !this.memoryPanel.hasMore) {
+					return Promise.resolve(false);
+				}
+				return this.loadMemoryPanel({ append: true });
+			},
+			setMemoryPanelFilter(filter) {
+				if (!this.memoryPanel || !this.memoryPanel.visible) return Promise.resolve(false);
+				if (this.memoryPanel.refreshing || this.memoryPanel.syncing || this.memoryPanel.updatingEntryId || this.memoryPanel.deletingEntryId) {
+					return Promise.resolve(false);
+				}
+				const safeFilter = ['all', 'enabled', 'disabled', 'archived'].includes(String(filter || '')) ? String(filter) : 'all';
+				if (safeFilter === this.memoryPanel.filter && this.memoryPanel.page > 0) return Promise.resolve(true);
+				this.$set(this.memoryPanel, 'filter', safeFilter);
+				return this.loadMemoryPanel({ append: false });
+			},
+			refreshMemoryPanel() {
+				if (!this.memoryPanel || this.memoryPanelBusy) return;
+				const tavernApi = require('@/common/tavernApi.js');
+				const requestToken = this.memoryPanel.requestToken;
+				this.$set(this.memoryPanel, 'refreshing', true);
+				this.$set(this.memoryPanel, 'error', '');
+				this.memoryRefreshing = true;
+				this.memoryRefreshStatusToken = requestToken;
+				tavernApi.postTavernMemoryRefresh(this.memoryPanelPayload())
+					.then((memory) => {
+						if (!this.isMemoryPanelRequestCurrent(requestToken)) return false;
+						if (memory && typeof memory === 'object') {
+							this.jgMemory = Object.assign({}, this.jgMemory || {}, memory);
+						}
+						return this.loadMemoryPanel();
+					})
+					.then((loaded) => {
+						if (loaded && this.isMemoryPanelRequestCurrent(requestToken)) {
+							uni.showToast({ title: this.tx('memory_refresh_success_lorebook', '已整理长期记忆'), icon: 'none' });
+						}
+					})
+					.catch((e) => {
+						if (!this.isMemoryPanelRequestCurrent(requestToken)) return;
+						const message = this.jgErrMsg(e, this.tx('memory_refresh_failed', '记忆刷新失败'));
+						this.$set(this.memoryPanel, 'error', message);
+						uni.showToast({ title: message, icon: 'none', duration: 3200 });
+					})
+					.finally(() => {
+						if (this.memoryRefreshStatusToken === requestToken) {
+							this.memoryRefreshing = false;
+							this.memoryRefreshStatusToken = 0;
+						}
+						if (this.isMemoryPanelRequestCurrent(requestToken)) {
+							this.$set(this.memoryPanel, 'refreshing', false);
+						}
+					});
+			},
+			toggleMemoryPanelEntry(entry) {
+				if (!entry || !entry.id || this.memoryPanelBusy) return;
+				const nextEnabled = !entry.enabled;
+				uni.showModal({
+					title: nextEnabled ? this.tx('memory_enable_title', '重新启用这条记忆？') : this.tx('memory_disable_title', '停用这条记忆？'),
+					content: nextEnabled
+						? this.tx('memory_enable_desc', '启用后，这条记忆会重新参与当前剧情分支的后续回复。')
+						: this.tx('memory_disable_desc', '停用后，它不会继续影响当前剧情分支的后续回复，历史聊天不会改变。'),
+					confirmText: nextEnabled ? this.tx('enable', '启用') : this.tx('disable', '停用'),
+					cancelText: this.tx('cancel', '取消'),
+					success: (res) => {
+						if (!res || !res.confirm) return;
+						const tavernApi = require('@/common/tavernApi.js');
+						const requestToken = this.memoryPanel.requestToken;
+						this.$set(this.memoryPanel, 'updatingEntryId', String(entry.id || ''));
+						tavernApi.postTavernMemorySetEntryEnabled(Object.assign({}, this.memoryPanelPayload(), {
+							entryId: entry.id,
+							enabled: nextEnabled
+						}))
+							.then((detail) => {
+								if (!this.isMemoryPanelRequestCurrent(requestToken)) return false;
+								this.applyMemoryPanelMetadata(detail || {});
+								return this.loadMemoryPanel({ append: false }).then(() => {
+									if (!this.isMemoryPanelRequestCurrent(requestToken)) return false;
+									uni.showToast({
+										title: nextEnabled ? this.tx('memory_enabled_done', '已重新启用') : this.tx('memory_disabled', '已停用'),
+										icon: 'none'
+									});
+									return true;
+								});
+							})
+							.catch((e) => {
+								if (!this.isMemoryPanelRequestCurrent(requestToken)) return;
+								uni.showToast({
+									title: this.jgErrMsg(e, nextEnabled ? this.tx('memory_enable_failed', '启用失败') : this.tx('memory_disable_failed', '停用失败')),
+									icon: 'none',
+									duration: 3200
+								});
+							})
+							.finally(() => {
+								if (this.isMemoryPanelRequestCurrent(requestToken)) {
+									this.$set(this.memoryPanel, 'updatingEntryId', '');
+								}
+							});
+					}
+				});
+			},
+			deleteMemoryPanelEntry(entry) {
+				if (!entry || !entry.id || this.memoryPanelBusy) return;
+				uni.showModal({
+					title: this.tx('memory_delete_title', '删除这条记忆？'),
+					content: this.tx('memory_delete_desc', '删除后，这条记忆会从当前剧情分支移除并停止参与后续回复。历史聊天不会改变，删除操作不能在面板中恢复。'),
+					confirmText: this.tx('delete', '删除'),
+					confirmColor: '#b42318',
+					cancelText: this.tx('cancel', '取消'),
+					success: (res) => {
+						if (!res || !res.confirm) return;
+						const tavernApi = require('@/common/tavernApi.js');
+						const requestToken = this.memoryPanel.requestToken;
+						this.$set(this.memoryPanel, 'deletingEntryId', String(entry.id || ''));
+						tavernApi.postTavernMemoryDeleteEntry(Object.assign({}, this.memoryPanelPayload(), {
+							entryId: entry.id
+						}))
+							.then((detail) => {
+								if (!this.isMemoryPanelRequestCurrent(requestToken)) return false;
+								this.applyMemoryPanelMetadata(detail || {});
+								const status = String(detail && detail.syncStatus || '').toUpperCase();
+								return this.loadMemoryPanel({ append: false }).then(() => {
+									if (!this.isMemoryPanelRequestCurrent(requestToken)) return false;
+									uni.showToast({
+										title: status === 'FAILED'
+											? this.tx('memory_deleted_sync_failed', '已删除，同步待重试')
+											: this.tx('memory_deleted', '已删除'),
+										icon: 'none',
+										duration: status === 'FAILED' ? 3200 : 1800
+									});
+									return true;
+								});
+							})
+							.catch((e) => {
+								if (!this.isMemoryPanelRequestCurrent(requestToken)) return;
+								uni.showToast({
+									title: this.jgErrMsg(e, this.tx('memory_delete_failed', '删除失败')),
+									icon: 'none',
+									duration: 3200
+								});
+							})
+							.finally(() => {
+								if (this.isMemoryPanelRequestCurrent(requestToken)) {
+									this.$set(this.memoryPanel, 'deletingEntryId', '');
+								}
+							});
+					}
+				});
+			},
+			retryMemorySync() {
+				if (!this.memoryPanel || this.memoryPanelBusy) return;
+				const tavernApi = require('@/common/tavernApi.js');
+				const requestToken = this.memoryPanel.requestToken;
+				this.$set(this.memoryPanel, 'syncing', true);
+				this.$set(this.memoryPanel, 'error', '');
+				tavernApi.postTavernMemorySync(this.memoryPanelPayload())
+					.then((detail) => {
+						if (!this.isMemoryPanelRequestCurrent(requestToken)) return;
+						this.applyMemoryPanelMetadata(detail || {});
+						const status = String(detail && detail.syncStatus || '').toUpperCase();
+						if (status === 'SUCCESS' || status === 'SKIPPED') {
+							uni.showToast({ title: this.tx('memory_sync_retry_success', '记忆同步已恢复'), icon: 'none' });
+						} else {
+							uni.showToast({ title: this.tx('memory_sync_retry_failed', '同步仍未成功，请稍后再试'), icon: 'none', duration: 3200 });
+						}
+					})
+					.catch((e) => {
+						if (!this.isMemoryPanelRequestCurrent(requestToken)) return;
+						const message = this.jgErrMsg(e, this.tx('memory_sync_retry_failed', '记忆同步失败'));
+						this.$set(this.memoryPanel, 'error', message);
+						uni.showToast({ title: message, icon: 'none', duration: 3200 });
+					})
+					.finally(() => {
+						if (this.isMemoryPanelRequestCurrent(requestToken)) {
+							this.$set(this.memoryPanel, 'syncing', false);
+						}
+					});
+			},
+			memoryPanelGuideText() {
+				const visibleCount = (this.messages || []).filter((item) => item && !item.hidden).length;
+				if (visibleCount < 6) {
+					return this.tx('memory_guide_short', '再聊几轮后即可整理（至少 6 条消息）');
+				}
+				const cooldown = Number(this.memoryPanel && this.memoryPanel.detail && this.memoryPanel.detail.manualRefreshCooldownSeconds || 0);
+				if (cooldown > 0) {
+					return this.tx('memory_guide_ready_cooldown', '仅影响当前剧情分支，整理后需等待 {n} 秒').replace('{n}', String(cooldown));
+				}
+				return this.tx('memory_guide_ready', '仅影响当前剧情分支，历史消息不会被改写');
+			},
+			memoryTypeLabel(type) {
+				const key = String(type || '').trim();
+				const labels = {
+					identity: '身份',
+					relationship: '关系',
+					preference: '偏好',
+					promise: '约定',
+					event: '事件',
+					setting: '设定',
+					boundary: '边界'
+				};
+				return labels[key] || '记忆';
+			},
+			memoryStatusLabel(status) {
+				const key = String(status || '').trim().toUpperCase();
+				if (this.memoryPanel && this.memoryPanel.refreshing) {
+					return this.tx('memory_refreshing', '记忆整理中');
+				}
+				if (this.memoryPanel && this.memoryPanel.loading) {
+					return this.tx('memory_loading', '读取中');
+				}
+				if (key === 'SUCCESS') return this.tx('memory_sync_status_success', '同步成功');
+				if (key === 'PENDING') return this.tx('memory_sync_status_pending', '等待同步');
+				if (key === 'FAILED') return this.tx('memory_sync_status_failed', '同步失败');
+				if (key === 'SKIPPED') return this.tx('memory_sync_status_skipped', '暂无启用记忆');
+				if (key === 'STOPPED') return this.tx('memory_sync_status_stopped', '已停止注入');
+				return this.tx('memory_sync_status_empty', '未生成');
+			},
+			memoryEntryMetaText(entry) {
+				const parts = [];
+				if (entry.manualPinned) parts.push(this.tx('memory_manual_pinned', '手动保留'));
+				if (entry.constantInjection) parts.push(this.tx('memory_constant', '固定'));
+				if (entry.selective) parts.push(this.tx('memory_selective', '关键词'));
+				if (entry.priority) parts.push(this.tx('memory_priority', '优先级') + ' ' + entry.priority);
+				if (entry.confidence != null && isFinite(entry.confidence)) {
+					parts.push(Math.round(entry.confidence * 100) + '%');
+				}
+				return parts.join(' · ');
+			},
+			memoryArchiveReasonText(entry) {
+				const reason = String(entry && entry.archiveReason || '').trim();
+				const key = reason.toUpperCase();
+				const labels = {
+					CAPACITY: this.tx('memory_archive_reason_capacity', '达到当前剧情分支的记忆容量上限'),
+					LOW_VALUE: this.tx('memory_archive_reason_low_value', '长期未使用且价值较低'),
+					DUPLICATE: this.tx('memory_archive_reason_duplicate', '已由更完整的同类记忆替代'),
+					SUPERSEDED: this.tx('memory_archive_reason_superseded', '已由新的事实或状态替代'),
+					REPLACED: this.tx('memory_archive_reason_replaced', '已由新的事实替代'),
+					HISTORY_CHANGED: this.tx('memory_archive_reason_history', '相关历史消息已发生变化')
+				};
+				const text = labels[key] || reason || this.tx('memory_archive_reason_default', '为控制记忆容量而自动归档');
+				return this.tx('memory_archive_reason_prefix', '归档原因：') + text;
 			},
 			swipeLabel(m) {
 				const s = (m && m.swipes) || [];
@@ -7319,10 +9008,14 @@
 				return base + ext;
 			},
 			swipeCharMessage(m, delta) {
-				if (this.sending || !this.jgOn || !m || m.role !== 'char') return;
+				if (this.sending || !this.jgOn || !m || m.role !== 'char') return Promise.resolve(false);
+				if (m.openingMessage) {
+					this.openBranchPanel();
+					return Promise.resolve(false);
+				}
 				const tavernApi = require('@/common/tavernApi.js');
 				const cid = Number(this.char && this.char.id) || Number(this.cid);
-				tavernApi
+				return tavernApi
 					.postTavernSwipeSelect({
 						characterId: cid,
 						clientUid: tavernApi.getClientUid(),
@@ -7335,6 +9028,7 @@
 							id: d.id || m.id,
 							role: d.role || 'char',
 							text: d.text,
+							openingMessage: d.openingMessage === true || m.openingMessage === true,
 							messageKind: d.messageKind || m.messageKind,
 							continueFromMessageId: d.continueFromMessageId || m.continueFromMessageId,
 							swipes: d.swipes,
@@ -7345,18 +9039,25 @@
 						if (idx >= 0) {
 							this.$set(this.messages, idx, row);
 						}
+						return true;
 					})
 					.catch((e) => {
 						uni.showToast({ title: this.jgErrMsg(e, this.tx('swipe_failed', '切换失败')), icon: 'none' });
+						return false;
 					});
 			},
-			refreshJgMessages() {
+			refreshJgMessages(options) {
+				const opts = options && typeof options === 'object' ? options : {};
 				const tavernApi = require('@/common/tavernApi.js');
 				const cid = Number(this.char && this.char.id) || Number(this.cid);
+				const requestToken = this.jgLoadRequestToken;
 				return tavernApi.fetchTavernMessages(cid, tavernApi.getClientUid(), {
 					limit: TAVERN_MESSAGES_INITIAL_LIMIT
 				}).then((pack) => {
-					this.applyMessagesEnvelope(pack);
+					if (this.jgLoadRequestToken !== requestToken) {
+						return [];
+					}
+					return this.applyMessagesEnvelope(pack, opts);
 				});
 			},
 			canEditUserMessage(m) {
@@ -7473,6 +9174,9 @@
 				const query = this.cid ? '?id=' + encodeURIComponent(this.cid) : '';
 				uni.navigateTo({ url: '/pages/tavern/chatPersona' + query });
 			},
+			goAppearanceSetting() {
+				uni.navigateTo({ url: '/pages/user/chatAppearanceSetting?characterId=' + encodeURIComponent(String(this.cid || '')) });
+			},
 			isAssistantMessage(message) {
 				if (!message) {
 					return false;
@@ -7480,30 +9184,87 @@
 				const role = String(message.role || '').toLowerCase();
 				return role !== 'user' && role !== 'me' && role !== 'human';
 			},
+			assistantDisplayText(text) {
+				return String(text == null ? '' : text);
+			},
+			assistantBubbleChunks(message) {
+				if (!message || !this.isAssistantMessage(message)) return [];
+				const chunks = chatAppearance.splitReplyBubbleTexts(message.text, this.chatReplySplitMode);
+				if (this.chatAppearanceReadMode !== 'speechOnly') {
+					return chunks;
+				}
+				return chunks.filter((chunk) => this.textHasSpeechSegment(chunk) || this.textHasRichSegment(chunk));
+			},
+			textHasSpeechSegment(text) {
+				const source = String(text || '').trim();
+				if (!source) return false;
+				try {
+					const { extractChatSpeechSegments, splitChatSegments } = require('@/common/chatMarkdown.js');
+					const segments = typeof extractChatSpeechSegments === 'function'
+						? extractChatSpeechSegments(source)
+						: (typeof splitChatSegments === 'function' ? splitChatSegments(source) : []);
+					return segments.some((item) => item && item.type === 'speech' && String(item.text || '').trim());
+				} catch (e) {
+					return /[“"「『][^”"」』]{2,}[”"」』]/.test(source);
+				}
+			},
+			textHasRichSegment(text) {
+				try {
+					const { splitChatSegments } = require('@/common/chatMarkdown.js');
+					const segments = typeof splitChatSegments === 'function' ? splitChatSegments(text) : [];
+					return segments.some((item) => item && item.type === 'rich' && String(item.text || '').trim());
+				} catch (e) {
+					return false;
+				}
+			},
+			messageVisibleInReadMode(message) {
+				if (!message || !this.isAssistantMessage(message) || this.chatAppearanceReadMode !== 'speechOnly') {
+					return true;
+				}
+				if (Array.isArray(message.imageUrls) && message.imageUrls.length) {
+					return true;
+				}
+				const text = this.assistantDisplayText(message.text);
+				return this.textHasSpeechSegment(text) || this.textHasRichSegment(text);
+			},
+			shouldRenderSplitBubbles(message) {
+				if (this.chatReplySplitMode !== 'bubble' || !message || !this.isAssistantMessage(message)) {
+					return false;
+				}
+				if (Array.isArray(message.imageUrls) && message.imageUrls.length) {
+					return false;
+				}
+				return this.assistantBubbleChunks(message).length > 1;
+			},
+			assistantSplitHostStyle() {
+				const config = chatAppearance.normalizeConfig(this.chatAppearanceConfig);
+				return chatAppearance.buildSplitHostStyleObject(config);
+			},
+			assistantSplitBubbleStyle(message, index) {
+				return chatAppearance.buildSplitBubbleStyleObject(this.chatAppearanceConfig);
+			},
 			mdHtml(text) {
 				const { renderChatMarkdown } = require('@/common/chatMarkdown.js');
-				return renderChatMarkdown(text);
+				const config = this.normalizedChatAppearanceConfig;
+				return renderChatMarkdown(this.assistantDisplayText(text), {
+					readMode: this.chatAppearanceReadMode,
+					showSegmentLabels: this.chatAppearanceSegmentLabelsEnabled,
+					replySplitMode: this.chatReplySplitMode,
+					segmentColors: chatAppearance.buildSegmentColors(config),
+					segmentWeights: chatAppearance.buildSegmentWeights(config),
+					thoughtItalic: config.thoughtItalic
+				});
 			},
 			mdSegments(text) {
-				const fallbackList = this.splitNativeFallbackSegments(text);
-				if (fallbackList.length) {
-					const normalizedFallback = fallbackList.map((item) => {
-						const type = this.normalizeNativeSegmentType(item);
-						return {
-							type,
-							text: this.normalizeNativeSegmentText(item, type)
-						};
-					}).filter((item) => item.text);
-					return this.ensureNativeSegmentContrast(normalizedFallback);
-				}
+				const displayText = this.assistantDisplayText(text);
 				let list = [];
 				try {
 					const { splitChatSegments } = require('@/common/chatMarkdown.js');
-					list = typeof splitChatSegments === 'function' ? splitChatSegments(text) : [];
+					list = typeof splitChatSegments === 'function' ? splitChatSegments(displayText) : [];
 				} catch (e) {
 					list = [];
 				}
-				const source = this.normalizeNativeSegmentSource(list, text);
+				const source = list.length ? this.expandNativeStructuredSegments(list) : this.splitNativeFallbackSegments(displayText);
 				if (!source.length) {
 					return [];
 				}
@@ -7514,7 +9275,35 @@
 						text: this.normalizeNativeSegmentText(item, type)
 					};
 				}).filter((item) => item.text);
-				return this.ensureNativeSegmentContrast(normalized);
+				return this.applyNativeReadModeSegments(normalized);
+			},
+			expandNativeStructuredSegments(list) {
+				return (Array.isArray(list) ? list : []).reduce((acc, item) => {
+					if (!item) return acc;
+					if (item.type === 'rich-content') {
+						try {
+							const { splitChatSegments, structuredTextForSemantics } = require('@/common/chatMarkdown.js');
+							const plainText = typeof structuredTextForSemantics === 'function'
+								? structuredTextForSemantics(item.text)
+								: structuredContent.stripStructuredMarkupToText(item.text);
+							if (!plainText) return acc;
+							const nested = typeof splitChatSegments === 'function' ? splitChatSegments(plainText) : [];
+							acc.push.apply(acc, nested.length ? nested : [{ type: 'narration', text: plainText }]);
+						} catch (e) {
+							const plainText = structuredContent.stripStructuredMarkupToText(item.text);
+							if (!plainText) return acc;
+							acc.push({ type: 'narration', text: plainText });
+						}
+						return acc;
+					}
+					if (item.type === 'rich-pending') {
+						const pendingText = structuredContent.stripStructuredMarkupToText(item.text);
+						if (pendingText) acc.push({ type: 'narration', text: pendingText });
+						return acc;
+					}
+					acc.push(item);
+					return acc;
+				}, []);
 			},
 			normalizeNativeSegmentSource(list, text) {
 				if (!Array.isArray(list) || !list.length) {
@@ -7587,124 +9376,200 @@
 			},
 			normalizeNativeSegmentType(item) {
 				const sourceType = item && item.type ? String(item.type) : 'narration';
-				if (sourceType !== 'narration') {
-					return sourceType;
-				}
-				const text = String((item && item.text) || '').trim();
-				if (/^[^：:\n]{1,20}[：:]\s*\S/.test(text)) {
-					return 'speech';
-				}
-				if (/^[“"「『].+[”"」』]$/.test(text) || /[“"「『][^”"」』]{2,}[”"」』]/.test(text)) {
-					return 'speech';
-				}
-				if (/^\*[^*]{2,}\*$/.test(text) || /^（.+）$/.test(text) || /^\(.+\)$/.test(text)) {
-					return /心里|心想|想着|想道|内心|念头|暗想|默念/.test(text) ? 'thought' : 'action';
-				}
-				return 'narration';
+				if (sourceType === 'rich-content' || sourceType === 'rich-pending') return 'narration';
+				return ['speech', 'action', 'thought', 'narration', 'rich'].indexOf(sourceType) >= 0
+					? sourceType
+					: 'narration';
 			},
 			normalizeNativeSegmentText(item, normalizedType) {
 				const type = normalizedType || (item && item.type ? item.type : 'narration');
 				let text = String((item && item.text) || '').trim();
+				if (type === 'rich' || type === 'rich-content' || type === 'rich-pending') {
+					return structuredContent.stripStructuredMarkupToText(text);
+				}
 				if (type === 'action' && text.length > 1 && text.charAt(0) === '*' && text.charAt(text.length - 1) === '*') {
 					text = text.slice(1, -1).trim();
 				}
 				return text;
 			},
 			ensureNativeSegmentContrast(list) {
-				if (!Array.isArray(list) || !list.length) {
-					return [];
+				return Array.isArray(list) ? list.filter((item) => item && item.text) : [];
+			},
+			applyNativeReadModeSegments(list) {
+				const source = Array.isArray(list) ? list.filter((item) => item && item.text) : [];
+				if (this.chatAppearanceReadMode === 'speechOnly') {
+					return source.filter((item) => item.type === 'speech' || item.type === 'rich');
 				}
-				const hasStyledSegment = list.some((item) => item && item.type && item.type !== 'narration');
-				if (hasStyledSegment) {
-					return list;
+				if (this.chatAppearanceReadMode === 'hideThought') {
+					return source.filter((item) => item.type !== 'thought');
 				}
-				if (list.length === 1) {
-					const only = list[0];
-					return [{
-						type: 'speech',
-						text: only.text
-					}];
-				}
-				return list.map((item, index) => ({
-					type: index === list.length - 1 ? 'speech' : 'narration',
-					text: item.text
-				}));
+				return source;
+			},
+			nativeMessageContentClass() {
+				return 'chat-message-native';
+			},
+			nativeSegmentClass(segment) {
+				const type = segment && segment.type ? String(segment.type) : 'narration';
+				return ['chat-message-segment', 'chat-message-segment--' + type];
+			},
+			nativeSegmentLineClass() {
+				return 'chat-message-segment-line';
+			},
+			nativeSegmentLabelClass(segment) {
+				const type = segment && segment.type ? String(segment.type) : 'narration';
+				return ['chat-message-segment-label', 'chat-message-segment-label--' + type];
+			},
+			nativeSegmentLabelTextClass() {
+				return 'chat-message-segment-label-text';
+			},
+			nativeUserMessageTextClass() {
+				return 'chat-message-user-text';
 			},
 			nativeSegmentWrapStyle(segment) {
 				if (!segment) {
-					return '';
+					return {};
 				}
-				return [
-					'margin:0 0 8rpx',
-					'padding:0',
-					'background:transparent !important',
-					'border-left:0 !important',
-					'border-radius:0',
-					'box-shadow:none',
-					'box-sizing:border-box'
-				].join(';') + ';';
+				const type = segment.type || 'narration';
+				if (this.chatAppearanceReadMode === 'speechOnly' && type !== 'speech' && type !== 'rich') {
+					return { display: 'none' };
+				}
+				if (this.chatAppearanceReadMode === 'hideThought' && type === 'thought') {
+					return { display: 'none' };
+				}
+				const rich = type === 'rich';
+				return {
+					display: 'block',
+					width: '100%',
+					minWidth: '0',
+					margin: '0 0 8rpx',
+					padding: rich ? '10rpx 0 0' : '0',
+					background: 'transparent',
+					borderTop: rich ? '1rpx solid rgba(255,255,255,0.18)' : '0',
+					borderLeft: '0',
+					borderRadius: '0',
+					boxShadow: 'none',
+					boxSizing: 'border-box',
+					opacity: chatAppearance.buildSegmentTextStyleObject(type, this.normalizedChatAppearanceConfig).opacity
+				};
+			},
+			nativeSegmentLabelText(segment) {
+				const type = segment && segment.type ? String(segment.type) : 'narration';
+				return chatAppearance.segmentLabel(type);
+			},
+			nativeSegmentLineStyle() {
+				return {
+					display: this.chatAppearanceSegmentLabelsEnabled ? 'flex' : 'block',
+					flexDirection: 'row',
+					alignItems: 'flex-start',
+					width: '100%',
+					minWidth: '0',
+					boxSizing: 'border-box'
+				};
+			},
+			nativeSegmentLabelStyle(segment) {
+				const type = segment && segment.type ? String(segment.type) : 'narration';
+				const colors = chatAppearance.buildSegmentAccentSurface(type, this.normalizedChatAppearanceConfig);
+				return {
+					display: 'flex',
+					flexShrink: '0',
+					alignItems: 'center',
+					justifyContent: 'center',
+					margin: '3rpx 10rpx 0 0',
+					padding: '0 10rpx',
+					minWidth: '58rpx',
+					height: '34rpx',
+					borderRadius: '999rpx',
+					border: '1rpx solid ' + colors.border,
+					background: colors.background,
+					boxSizing: 'border-box'
+				};
+			},
+			nativeSegmentLabelTextStyle(segment) {
+				const type = segment && segment.type ? String(segment.type) : 'narration';
+				const colors = chatAppearance.buildSegmentAccentSurface(type, this.normalizedChatAppearanceConfig);
+				return {
+					display: 'block',
+					color: colors.text,
+					WebkitTextFillColor: colors.text,
+					fontSize: '21rpx',
+					lineHeight: '32rpx',
+					fontWeight: colors.fontWeight,
+					textAlign: 'center',
+					whiteSpace: 'nowrap'
+				};
 			},
 			nativeSegmentTextClass(segment) {
 				const type = segment && segment.type ? String(segment.type) : 'narration';
-				return 'st-chat-seg-text--' + type;
+				return ['chat-message-segment-text', 'chat-message-segment-text--' + type];
+			},
+			messageBubbleClass(message) {
+				const hasImage = !!(message && message.imageUrls && message.imageUrls.length);
+				const hasText = !!String((message && message.text) || '').trim();
+				const isUser = message && message.role === 'user';
+				return {
+					'chat-message-bubble--assistant': !isUser,
+					'chat-message-bubble--user': isUser,
+					'chat-message-bubble--split-host': this.shouldRenderSplitBubbles(message),
+					'chat-message-bubble--streaming': this.isStreamingAssistantRow(message),
+					'chat-message-bubble--has-image': hasImage,
+					'chat-message-bubble--image-only': hasImage && !hasText,
+					'chat-message-bubble--text-only': !hasImage && hasText
+				};
 			},
 			messageBubbleInlineStyle(message) {
-				if (!this.isAppPlus || !message) {
+				if (!message) {
 					return '';
+				}
+				if (this.shouldRenderSplitBubbles(message)) {
+					return this.assistantSplitHostStyle();
 				}
 				const hasImage = Array.isArray(message.imageUrls) && message.imageUrls.length;
 				const hasText = String(message.text || '').trim();
 				if (hasImage && !hasText) {
-					return '';
+					return chatAppearance.buildImageBubbleStyleObject(this.chatAppearanceConfig);
 				}
-				if (message.role === 'user') {
-					return [
-						'max-width:72% !important',
-						'padding:15rpx 20rpx !important',
-						'border-radius:20rpx 20rpx 8rpx 20rpx !important',
-						'background:linear-gradient(180deg,rgba(38,65,72,0.64) 0%,rgba(28,52,59,0.58) 100%)!important',
-						'border:1rpx solid rgba(224,252,255,0.18)!important',
-						'border-right:4rpx solid rgba(128,230,222,0.34)!important',
-						'box-shadow:0 8rpx 22rpx rgba(0,0,0,0.16),inset 0 1rpx 0 rgba(255,255,255,0.13),inset 0 -1rpx 0 rgba(0,0,0,0.1)!important',
-						'color:#f4fbff!important'
-					].join(';') + ';';
+				return chatAppearance.buildBubbleStyleObject(message, this.chatAppearanceConfig);
+			},
+			userMessageTextStyle(message) {
+				if (!message || message.role !== 'user') {
+					return {};
 				}
-				return [
-					'max-width:78% !important',
-					'padding:15rpx 20rpx !important',
-					'border-radius:20rpx 20rpx 20rpx 8rpx !important',
-					'background:linear-gradient(180deg,rgba(32,34,42,0.64) 0%,rgba(23,25,33,0.58) 100%)!important',
-					'border:1rpx solid rgba(255,255,255,0.17)!important',
-					'border-left:4rpx solid rgba(255,193,220,0.42)!important',
-					'box-shadow:0 8rpx 22rpx rgba(0,0,0,0.18),inset 0 1rpx 0 rgba(255,255,255,0.12),inset 0 -1rpx 0 rgba(0,0,0,0.12)!important',
-					'color:#f2f4f7!important'
-				].join(';') + ';';
+				return chatAppearance.buildMessageTextStyleObject('user', this.chatAppearanceConfig);
+			},
+			assistantMessageTextStyle(message) {
+				if (!message || message.role === 'user') {
+					return {};
+				}
+				return chatAppearance.buildMessageTextStyleObject('assistant', this.chatAppearanceConfig);
 			},
 			nativeSegmentTextStyle(segment) {
 				if (!segment) {
-					return '';
+					return {};
 				}
 				const type = segment.type || 'narration';
-				let color = '#f2f4f7';
-				let weight = '500';
-				if (type === 'speech') {
-					color = '#ffd1e4';
-					weight = '700';
-				} else if (type === 'action') {
-					color = '#9cebd0';
-				} else if (type === 'thought') {
-					color = '#c6b6ff';
-				}
-				return [
-					'color:' + color + ' !important',
-					'-webkit-text-fill-color:' + color + ' !important',
-					'font-size:28rpx !important',
-					'line-height:1.66 !important',
-					'font-style:normal !important',
-					'font-weight:' + weight + ' !important',
-					'letter-spacing:0 !important',
-					'text-shadow:none !important'
-				].join(';') + ';';
+				const appearanceConfig = this.normalizedChatAppearanceConfig;
+				const segmentStyle = chatAppearance.buildSegmentTextStyleObject(type, appearanceConfig);
+				const messageTextStyle = chatAppearance.buildMessageTextStyleObject('assistant', appearanceConfig);
+				let fontSize = messageTextStyle['font-size'];
+				let lineHeight = messageTextStyle['line-height'];
+				return {
+					display: 'block',
+					flex: this.chatAppearanceSegmentLabelsEnabled ? '1 1 auto' : 'none',
+					width: this.chatAppearanceSegmentLabelsEnabled ? 'auto' : '100%',
+					maxWidth: '100%',
+					minWidth: '0',
+					color: segmentStyle.color,
+					WebkitTextFillColor: segmentStyle.color,
+					fontSize: fontSize,
+					lineHeight: lineHeight,
+					fontStyle: segmentStyle.fontStyle,
+					fontWeight: segmentStyle.fontWeight,
+					letterSpacing: '0',
+					textShadow: 'none',
+					wordBreak: 'break-word',
+					overflowWrap: 'break-word',
+					whiteSpace: 'pre-wrap'
+				};
 			},
 			assistantVoiceMessageId(row) {
 				return this.normalizeDbMessageId(row && row.id);
@@ -7727,8 +9592,10 @@
 				return value;
 			},
 			extractAssistantSpeechText(text) {
-				const { splitChatSegments } = require('@/common/chatMarkdown.js');
-				const list = typeof splitChatSegments === 'function' ? splitChatSegments(text) : [];
+				const { extractChatSpeechSegments, splitChatSegments } = require('@/common/chatMarkdown.js');
+				const list = typeof extractChatSpeechSegments === 'function'
+					? extractChatSpeechSegments(text)
+					: (typeof splitChatSegments === 'function' ? splitChatSegments(text) : []);
 				if (!Array.isArray(list) || !list.length) return '';
 				return list
 					.filter((item) => item && item.type === 'speech')
@@ -7766,7 +9633,7 @@
 					buffer += ch;
 					if (
 						(buffer.length >= ASSISTANT_VOICE_SEGMENT_SOFT_MIN && softBreakMap[ch]) ||
-						buffer.length >= ASSISTANT_VOICE_SEGMENT_TARGET_LENGTH
+						buffer.length >= ASSISTANT_VOICE_SEGMENT_HARD_MAX
 					) {
 						pushBuffer();
 					}
@@ -7837,17 +9704,15 @@
 					}
 					const lastIndex = merged.length - 1;
 					const prev = merged[lastIndex];
-					if (next.length <= ASSISTANT_VOICE_SEGMENT_SHORT_LENGTH && prev.length < ASSISTANT_VOICE_SEGMENT_TARGET_LENGTH) {
-						merged.splice(lastIndex, 1, prev + next);
+					if (
+						prev.length + next.length + 1 <= ASSISTANT_VOICE_SEGMENT_TARGET_LENGTH ||
+						(next.length <= ASSISTANT_VOICE_SEGMENT_SHORT_LENGTH && prev.length + next.length + 1 <= ASSISTANT_VOICE_SEGMENT_HARD_MAX)
+					) {
+						merged.splice(lastIndex, 1, prev + ' ' + next);
 						return;
 					}
 					merged.push(next);
 				});
-				if (merged.length > ASSISTANT_VOICE_SEGMENT_MAX) {
-					const capped = merged.slice(0, ASSISTANT_VOICE_SEGMENT_MAX - 1);
-					capped.push(merged.slice(ASSISTANT_VOICE_SEGMENT_MAX - 1).join(' '));
-					return capped;
-				}
 				return merged;
 			},
 			assistantVoiceSentenceKey(sentenceTexts) {
@@ -7881,10 +9746,32 @@
 				}
 				return source;
 			},
+			assistantVoiceMissingSegmentIndexes(entry) {
+				const segments = this.assistantVoiceAudioSegments(entry);
+				const missing = [];
+				segments.forEach((item, index) => {
+					if (!this.isAssistantVoiceAudioUrl(item)) missing.push(index);
+				});
+				return missing;
+			},
+			assistantVoiceIsComplete(entry) {
+				const total = Array.isArray(entry && entry.sentenceTexts) ? entry.sentenceTexts.length : 0;
+				return total > 0 && this.assistantVoiceMissingSegmentIndexes(entry).length === 0;
+			},
+			isAssistantVoiceAudioUrl(value) {
+				const url = String(value || '').trim();
+				return !!url && (
+					url.indexOf('data:audio/') === 0 ||
+					url.indexOf('blob:') === 0 ||
+					url.indexOf('_doc/') === 0 ||
+					url.indexOf('file://') === 0 ||
+					url.indexOf('content://') === 0
+				);
+			},
 			firstAssistantVoiceAudio(entry) {
 				const list = this.assistantVoiceAudioSegments(entry);
 				const first = list.length ? String(list[0] || '').trim() : '';
-				return first && first.indexOf('data:audio/') === 0 ? first : '';
+				return this.isAssistantVoiceAudioUrl(first) ? first : '';
 			},
 			assistantVoiceHasPlayableAudio(entry) {
 				return !!this.firstAssistantVoiceAudio(entry);
@@ -7933,6 +9820,15 @@
 				if (this.assistantVoicePlayingMessageId === fromId) {
 					this.assistantVoicePlayingMessageId = nextId;
 				}
+				try {
+					const localMediaStore = require('@/common/localMediaStore.js');
+					localMediaStore.moveMessage(
+						this.resolveLocalExpressionViewerKey(),
+						this.resolveLocalChatConversationId(),
+						fromId,
+						nextId
+					).catch(() => {});
+				} catch (e) {}
 			},
 			clearAssistantVoiceEntry(messageId) {
 				const safeId = this.normalizeDbMessageId(messageId);
@@ -7944,7 +9840,8 @@
 			},
 			syncAssistantVoiceEntries() {
 				const next = {};
-				(Array.isArray(this.messages) ? this.messages : []).forEach((row) => {
+				const rows = Array.isArray(this.messages) ? this.messages : [];
+				rows.forEach((row) => {
 					const messageId = this.assistantVoiceMessageId(row);
 					if (!messageId) return;
 					const entry = this.assistantVoiceStateMap && this.assistantVoiceStateMap[messageId];
@@ -7959,6 +9856,14 @@
 				this.assistantVoiceStateMap = next;
 				if (this.assistantVoicePlayingMessageId && !next[this.assistantVoicePlayingMessageId]) {
 					this.assistantVoicePlayingMessageId = '';
+				}
+				if (this.isVoiceFeatureEnabledGlobal() && this.isCharacterVoiceEnabled()) {
+					rows.forEach((row) => {
+						const messageId = this.assistantVoiceMessageId(row);
+						if (row && row.role === 'char' && messageId && !next[messageId]) {
+							this.restoreAssistantVoiceEntry(row);
+						}
+					});
 				}
 			},
 			syncUserVoiceEntries() {
@@ -8008,6 +9913,7 @@
 				const state = entry && entry.state ? entry.state : 'idle';
 				if (state === 'loading') return this.tx('assistant_voice_loading', '语音生成中');
 				if (state === 'playing') return this.tx('assistant_voice_stop', '停止语音');
+				if (state === 'partial') return this.tx('assistant_voice_complete', '补全语音');
 				if (state === 'error') return this.tx('assistant_voice_retry', '重试语音');
 				return this.tx('assistant_voice_play', '播放台词');
 			},
@@ -8017,6 +9923,7 @@
 				return {
 					'assistant-voice-pill--loading': state === 'loading',
 					'assistant-voice-pill--playing': state === 'playing',
+					'assistant-voice-pill--partial': state === 'partial',
 					'assistant-voice-pill--error': state === 'error'
 				};
 			},
@@ -8135,7 +10042,11 @@
 				if (messageId && this.assistantVoiceStateMap[messageId]) {
 					const entry = this.assistantVoiceStateMap[messageId];
 					this.setAssistantVoiceEntry(messageId, {
-						state: entry && entry.requestKey ? 'loading' : this.assistantVoiceHasPlayableAudio(entry) ? 'ready' : 'idle',
+						state: entry && entry.requestKey
+							? 'loading'
+							: this.assistantVoiceHasPlayableAudio(entry)
+								? (this.assistantVoiceIsComplete(entry) ? 'ready' : 'partial')
+								: 'idle',
 						playingIndex: -1,
 						waitingForSegmentIndex: -1,
 						autoPlayPending: false
@@ -8164,7 +10075,7 @@
 				if (!entry || typeof entry !== 'object') return false;
 				const audioSegments = this.assistantVoiceAudioSegments(entry);
 				const audioDataUrl = String(sourceUrl || audioSegments[segmentIndex] || '').trim();
-				if (!audioDataUrl || audioDataUrl.indexOf('data:audio/') !== 0) {
+				if (!this.isAssistantVoiceAudioUrl(audioDataUrl)) {
 					if (entry.requestKey) {
 						this.assistantVoicePlayingMessageId = safeId;
 						this.setAssistantVoiceEntry(safeId, {
@@ -8231,14 +10142,14 @@
 					return;
 				}
 				const nextAudio = String(audioSegments[nextIndex] || '').trim();
-				if (nextAudio && nextAudio.indexOf('data:audio/') === 0) {
+				if (this.isAssistantVoiceAudioUrl(nextAudio)) {
 					this.playAssistantVoiceByMessageId(safeId, nextIndex, nextAudio);
 					return;
 				}
 				if (!entry.requestKey) {
 					this.assistantVoicePlayingMessageId = '';
 					this.setAssistantVoiceEntry(safeId, {
-						state: this.assistantVoiceHasPlayableAudio(entry) ? 'ready' : 'idle',
+						state: this.assistantVoiceHasPlayableAudio(entry) ? 'partial' : 'idle',
 						playingIndex: -1,
 						waitingForSegmentIndex: -1,
 						autoPlayPending: false
@@ -8293,7 +10204,11 @@
 							this.setAssistantVoiceEntry(safeId, {
 								requestKey: '',
 								state: this.assistantVoicePlayingMessageId === safeId ? 'playing' : this.assistantVoiceHasPlayableAudio(latest) ? 'ready' : 'idle',
-								autoPlayPending: false
+								autoPlayPending: false,
+								missingIndexes: [],
+								failedIndex: -1,
+								isComplete: true,
+								retryable: false
 							});
 						}
 						return Promise.resolve(firstAudioDataUrl || null);
@@ -8301,14 +10216,19 @@
 					const latestBeforeRequest = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
 					const existingSegments = this.assistantVoiceAudioSegments(latestBeforeRequest);
 					const existingAudio = String(existingSegments[index] || '').trim();
-					if (existingAudio && existingAudio.indexOf('data:audio/') === 0) {
+					if (this.isAssistantVoiceAudioUrl(existingAudio)) {
 						if (!firstAudioDataUrl) {
 							firstAudioDataUrl = existingAudio;
 						}
 						return run(index + 1);
 					}
 					return tavernApi
-						.postTavernSpeech(this.buildCharacterVoiceTtsPayload(sentenceTexts[index]))
+						.postTavernSpeech(this.buildCharacterVoiceTtsPayload(
+							sentenceTexts[index],
+							requestKey,
+							index,
+							sentenceTexts.length
+						))
 						.then((data) => {
 							const latest = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
 							if (!latest || latest.requestKey !== requestKey) {
@@ -8318,36 +10238,44 @@
 							if (!audioDataUrl || audioDataUrl.indexOf('data:audio/') !== 0) {
 								throw new Error(this.tx('assistant_voice_failed', '语音生成失败'));
 							}
-							const audioSegments = this.assistantVoiceAudioSegments(latest);
-							audioSegments[index] = audioDataUrl;
-							if (!firstAudioDataUrl) {
-								firstAudioDataUrl = audioDataUrl;
-							}
-							this.setAssistantVoiceEntry(safeId, {
-								audioDataUrl: audioSegments[0] || audioDataUrl,
-								sentenceAudioUrls: audioSegments,
-								state: this.assistantVoicePlayingMessageId === safeId ? 'playing' : 'ready',
-								error: ''
-							});
-							const fresh = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
-							if (fresh && fresh.autoPlayPending && index === 0) {
-								const latestRow = this.findMessageRowById(safeId);
-								if (latestRow) {
-									this.playAssistantVoice(latestRow);
-								}
-							} else if (fresh && fresh.waitingForSegmentIndex === index && this.assistantVoicePlayingMessageId === safeId) {
-								this.playAssistantVoiceByMessageId(safeId, index, audioDataUrl);
-							}
-							return run(index + 1);
+							return this.persistAssistantVoiceSegment(safeId, index, sentenceTexts[index], requestKey, audioDataUrl)
+								.catch(() => audioDataUrl)
+								.then((playableAudioUrl) => {
+									const freshEntry = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
+									if (!freshEntry || freshEntry.requestKey !== requestKey) {
+										return firstAudioDataUrl || null;
+									}
+									const audioSegments = this.assistantVoiceAudioSegments(freshEntry);
+									audioSegments[index] = playableAudioUrl;
+									if (!firstAudioDataUrl) firstAudioDataUrl = playableAudioUrl;
+									this.setAssistantVoiceEntry(safeId, {
+										audioDataUrl: audioSegments[0] || playableAudioUrl,
+										sentenceAudioUrls: audioSegments,
+										state: this.assistantVoicePlayingMessageId === safeId ? 'playing' : 'ready',
+										error: ''
+									});
+									const fresh = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
+									if (fresh && fresh.autoPlayPending && index === 0) {
+										const latestRow = this.findMessageRowById(safeId);
+										if (latestRow) this.playAssistantVoice(latestRow);
+									} else if (fresh && fresh.waitingForSegmentIndex === index && this.assistantVoicePlayingMessageId === safeId) {
+										this.playAssistantVoiceByMessageId(safeId, index, playableAudioUrl);
+									}
+									return run(index + 1);
+								});
 						})
 						.catch((error) => {
 							const latest = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
 							if (latest && latest.requestKey === requestKey) {
 								this.setAssistantVoiceEntry(safeId, {
 									requestKey: '',
-									state: firstAudioDataUrl ? 'ready' : 'error',
+									state: firstAudioDataUrl ? 'partial' : 'error',
 									autoPlayPending: false,
 									waitingForSegmentIndex: -1,
+									missingIndexes: this.assistantVoiceMissingSegmentIndexes(latest),
+									failedIndex: index,
+									isComplete: false,
+									retryable: true,
 									error: this.jgErrMsg(error, this.tx('assistant_voice_failed', '语音生成失败'))
 								});
 								if (!firstAudioDataUrl) {
@@ -8420,12 +10348,12 @@
 				}
 				const previousTexts = Array.isArray(current && current.sentenceTexts) ? current.sentenceTexts : [];
 				const previousAudioSegments = this.assistantVoiceAudioSegments(current);
-				const reusableCount = opts.force === true ? 0 : this.countAssistantVoiceSentencePrefix(previousTexts, sentenceTexts);
+				const reusableCount = this.countAssistantVoiceSentencePrefix(previousTexts, sentenceTexts);
 				const nextAudioSegments = new Array(sentenceTexts.length).fill('');
 				for (let i = 0; i < reusableCount; i += 1) {
 					nextAudioSegments[i] = previousAudioSegments[i] || '';
 				}
-				const requestKey = 'tts_' + messageId + '_' + Date.now();
+				const requestKey = String(current && (current.taskId || current.requestKey) || '').trim() || ('tts_' + messageId);
 				this.setAssistantVoiceEntry(messageId, {
 					speechText,
 					preparedSentenceKey: preparedSentenceKey,
@@ -8434,8 +10362,13 @@
 					state: reusableCount < sentenceTexts.length ? 'loading' : this.assistantVoiceHasPlayableAudio({ sentenceTexts, sentenceAudioUrls: nextAudioSegments }) ? 'ready' : 'idle',
 					audioDataUrl: nextAudioSegments[0] || '',
 					error: '',
+					taskId: requestKey,
 					requestKey: reusableCount < sentenceTexts.length ? requestKey : '',
 					autoPlayPending: !!opts.autoplay,
+					missingIndexes: nextAudioSegments.map((item, index) => this.isAssistantVoiceAudioUrl(item) ? -1 : index).filter((index) => index >= 0),
+					failedIndex: -1,
+					isComplete: reusableCount >= sentenceTexts.length,
+					retryable: false,
 					playingIndex: -1,
 					waitingForSegmentIndex: -1
 				});
@@ -8449,6 +10382,37 @@
 					toastOnError: !!opts.toastOnError
 				});
 			},
+			resumeAssistantVoiceSegments(row, options) {
+				const messageId = this.assistantVoiceMessageId(row);
+				const entry = this.getAssistantVoiceEntry(row);
+				if (!messageId || !entry) return Promise.resolve(null);
+				const missingIndexes = this.assistantVoiceMissingSegmentIndexes(entry);
+				if (!missingIndexes.length) {
+					this.setAssistantVoiceEntry(messageId, { state: 'ready', isComplete: true, retryable: false });
+					this.playAssistantVoice(row);
+					return Promise.resolve(this.firstAssistantVoiceAudio(entry));
+				}
+				if (entry.requestKey) {
+					this.playAssistantVoice(row);
+					return Promise.resolve(null);
+				}
+				const requestKey = String(entry.taskId || ('tts_' + messageId)).trim();
+				this.setAssistantVoiceEntry(messageId, {
+					requestKey,
+					state: 'loading',
+					missingIndexes,
+					failedIndex: -1,
+					retryable: false,
+					error: ''
+				});
+				const firstAudio = this.firstAssistantVoiceAudio(entry);
+				if (firstAudio && options && options.autoplay) {
+					this.playAssistantVoiceByMessageId(messageId, 0, firstAudio);
+				}
+				return this.preloadAssistantVoiceSegments(messageId, requestKey, {
+					toastOnError: !firstAudio
+				});
+			},
 			toggleAssistantVoice(row) {
 				if (!this.isVoiceFeatureEnabledGlobal()) return;
 				const messageId = this.assistantVoiceMessageId(row);
@@ -8456,6 +10420,10 @@
 				if (!messageId || !this.shouldShowAssistantVoicePill(row) || !this.isCharacterVoiceEnabled()) return;
 				if (entry && entry.state === 'playing') {
 					this.stopAssistantVoicePlayback();
+					return;
+				}
+				if (entry && (entry.state === 'partial' || this.assistantVoiceMissingSegmentIndexes(entry).length > 0) && !entry.requestKey) {
+					this.resumeAssistantVoiceSegments(row, { autoplay: true });
 					return;
 				}
 				if (entry && entry.audioDataUrl) {
@@ -8482,9 +10450,12 @@
 				});
 			},
 			onRegen() {
+				if (!this.ensureJgIdentityReadyForAction()) return;
 				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing || !this.jgOn || !this.char) return;
 				this.closeReplySuggestions();
 				const tavernApi = require('@/common/tavernApi.js');
+				const runtimeRequestVersion = this.jgRuntimeRequestVersion;
+				const runtimeIdentitySignature = this.jgViewerIdentitySignature;
 				const cid = Number(this.char && this.char.id) || Number(this.cid);
 				const n = this.messages.length;
 				if (n === 0 || this.messages[n - 1].role !== 'char') {
@@ -8513,7 +10484,8 @@
 						clientUid: tavernApi.getClientUid(),
 						targetAssistantMessageId: anchor.targetAssistantMessageId
 					},
-					this.buildAssistantExpressionPayloadFields()
+					this.buildAssistantExpressionPayloadFields(),
+					this.buildChatAppearancePayloadFields()
 				);
 				this.beginSendingState();
 
@@ -8522,13 +10494,15 @@
 					let started = false;
 					this.beginAssistantStreaming(last.id, 'regenerate');
 					this.notifyCompanionReplying('regenerate');
-					this.streamAbortController = this.createStreamAbortController();
+					const streamController = this.createStreamAbortController();
+					this.streamAbortController = streamController;
 					this.followBottom = true;
 					tavernApi
 						.postTavernRegenerateStream(
 							payload,
 							{
 								onDelta: (piece) => {
+									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									if (!started) {
 										started = true;
 										this.$set(last, 'text', piece);
@@ -8536,10 +10510,10 @@
 										const next = (last.text || '') + piece;
 										this.$set(last, 'text', next);
 									}
-									this.prepareStreamingAssistantVoice(last).catch(() => {});
-									this.followScrollNextTick();
+									this.handleIncomingChatRows(last);
 								},
 								onDone: (data) => {
+									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									const cancelled = data && data.cancelled;
 									const c = data && data.content != null ? String(data.content).trim() : '';
 									if (cancelled && !c) {
@@ -8557,16 +10531,26 @@
 											this.$set(last, 'swipeIndex', data.swipeIndex);
 										}
 									}
-									if (cancelled && c) {
-										this.showGenerationStopToast('stopped_keep', '已停止，已保留本次生成的内容');
+									if (cancelled) {
+										this.showGenerationStopToast('stopped', '已停止');
 										this.queueStopSync(700);
 									}
 									this.finishAssistantStreaming(last.id);
+									if (!cancelled) {
+										this.prepareAssistantVoiceForRow(last, {
+											autoplay: this.shouldAutoPlayAssistantVoice(),
+											force: true,
+											toastOnError: false,
+											allowStreaming: true,
+											includeTrailingPartial: true
+										}).catch(() => {});
+									}
 									this.notifyCompanionReply(last.text);
 									this.applyAssistantExpressionForRow(last);
-									this.followScrollNextTick();
+									this.handleIncomingChatRows(last, { alreadyCounted: started });
 								},
 								onAbort: () => {
+									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									if (!started) {
 										this.$set(last, 'text', backup);
 									}
@@ -8575,6 +10559,7 @@
 									this.showGenerationStopToast('stopped', '已停止');
 								},
 								onError: (e) => {
+									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									const result = this.handleCommercialError(e, this.tx('regen_failed', '重新生成失败'), {
 										skipToastWhenPrompted: true
 									});
@@ -8591,12 +10576,10 @@
 									this.finishAssistantStreaming(last.id);
 								}
 							},
-							{ signal: this.streamAbortController.signal }
+							{ signal: streamController.signal }
 						)
 						.finally(() => {
-							this.finishAssistantStreaming(last.id);
-							this.streamAbortController = null;
-							this.finishSendingState();
+							this.finalizeAssistantStreamRequest(streamController);
 						});
 					return;
 				}
@@ -8609,17 +10592,17 @@
 				tavernApi
 					.postTavernRegenerate(payload)
 					.then((d) => {
+						if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 						if (d && d.content != null) {
 							this.$set(last, 'text', String(d.content));
 						}
 						this.applyAssistantExpressionForRow(last);
 						this.notifyCompanionReply(last.text);
+						this.handleIncomingChatRows(last);
 						return this.refreshJgMessages();
 					})
-					.then(() => {
-						this.scrollChatToBottom({ immediate: true });
-					})
 					.catch((e) => {
+						if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 						const result = this.handleCommercialError(e, this.tx('regen_failed', '重新生成失败'), {
 							skipToastWhenPrompted: true
 						});
@@ -8627,14 +10610,14 @@
 						if (!result.prompted) {
 							this.showErrorToast(result.message);
 						}
-						const recoveryMessageId = appPendingContinueRow && appPendingContinueRow.id ? appPendingContinueRow.id : last.id;
-						this.markGenerationRecovery(recoveryMessageId, {
+						this.markGenerationRecovery(last.id, {
 							message: result.message,
-							partialText: appPendingContinueRow ? '' : (last && last.text),
+							partialText: last && last.text,
 							canRegen: true
 						});
 					})
 					.finally(() => {
+						if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 						if (this.isAppPlus) {
 							this.finishAssistantStreaming(last.id);
 						}
@@ -8642,9 +10625,12 @@
 					});
 			},
 			onContinue() {
+				if (!this.ensureJgIdentityReadyForAction()) return;
 				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing || !this.jgOn || !this.char) return;
 				this.closeReplySuggestions();
 				const tavernApi = require('@/common/tavernApi.js');
+				const runtimeRequestVersion = this.jgRuntimeRequestVersion;
+				const runtimeIdentitySignature = this.jgViewerIdentitySignature;
 				const cid = Number(this.char && this.char.id) || Number(this.cid);
 				const n = this.messages.length;
 				if (n === 0 || this.messages[n - 1].role !== 'char') {
@@ -8673,7 +10659,8 @@
 						clientUid: tavernApi.getClientUid(),
 						targetAssistantMessageId: anchor.targetAssistantMessageId
 					},
-					this.buildAssistantExpressionPayloadFields()
+					this.buildAssistantExpressionPayloadFields(),
+					this.buildChatAppearancePayloadFields()
 				);
 				this.beginSendingState();
 
@@ -8689,27 +10676,30 @@
 						swipeIndex: 0
 					});
 					let acc = '';
+					let streamed = false;
 					this.beginAssistantStreaming(rid, 'continue');
 					this.notifyCompanionReplying('continue');
-					this.streamAbortController = this.createStreamAbortController();
+					const streamController = this.createStreamAbortController();
+					this.streamAbortController = streamController;
 					this.followBottom = true;
 					tavernApi
 						.postTavernContinueStream(
 							payload,
 							{
 								onDelta: (piece) => {
+									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									acc += piece;
 									const row = this.messages.find((item) => item && item.id === rid);
 									if (row) {
 										this.$set(row, 'text', acc);
-										this.prepareStreamingAssistantVoice(row).catch(() => {});
+										streamed = true;
+										this.handleIncomingChatRows(row);
 									}
-									this.followScrollNextTick();
 								},
 								onDone: (data) => {
+									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									const row = this.messages.find((item) => item && item.id === rid);
 									if (!row) {
-										this.followScrollNextTick();
 										return;
 									}
 									if (data && data.content != null) {
@@ -8737,13 +10727,21 @@
 										this.queueStopSync(700);
 									}
 									this.finishAssistantStreaming(row.id);
+									this.prepareAssistantVoiceForRow(row, {
+										autoplay: this.shouldAutoPlayAssistantVoice(),
+										force: true,
+										toastOnError: false,
+										allowStreaming: true,
+										includeTrailingPartial: true
+									}).catch(() => {});
 									this.notifyCompanionReply(row.text);
 									this.applyAssistantExpressionForRow(row);
 									// 商用一致性：流式续写完成后也刷新一次消息列表，避免本地临时文本被状态刷新覆盖
 									this.refreshJgMessages().catch(() => {});
-									this.followScrollNextTick();
+									this.handleIncomingChatRows(row, { alreadyCounted: streamed });
 								},
 								onAbort: () => {
+									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									const row = this.messages.find((item) => item && item.id === rid);
 									if (row && !String(row.text || '').trim()) {
 										this.messages = this.messages.filter((item) => item && item.id !== rid);
@@ -8753,6 +10751,7 @@
 									this.showGenerationStopToast('stopped', '已停止');
 								},
 								onError: (e) => {
+									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									const result = this.handleCommercialError(e, this.tx('continue_failed', '续写失败'), {
 										skipToastWhenPrompted: true
 									});
@@ -8772,12 +10771,10 @@
 									this.finishAssistantStreaming(rid);
 								}
 							},
-							{ signal: this.streamAbortController.signal }
+							{ signal: streamController.signal }
 						)
 						.finally(() => {
-							this.finishAssistantStreaming(rid);
-							this.streamAbortController = null;
-							this.finishSendingState();
+							this.finalizeAssistantStreamRequest(streamController);
 						});
 					return;
 				}
@@ -8802,11 +10799,12 @@
 				tavernApi
 					.postTavernContinue(payload)
 					.then((d) => {
+						if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 						const aid = d && d.messageId ? this.normalizeDbMessageId(d.messageId) : '';
 						const rid = aid || appPendingContinueId || 'cont_' + Date.now();
 						const raw = d && d.content;
 						const reply =
-							raw != null && String(raw).trim() !== ''
+							raw != null
 								? String(raw).trim()
 								: this.tx('empty_ai', '模型未返回内容');
 						const sw =
@@ -8838,12 +10836,11 @@
 						const appendedRow = appPendingContinueRow || this.messages[this.messages.length - 1];
 						this.applyAssistantExpressionForRow(appendedRow);
 						this.notifyCompanionReply(appendedRow.text);
+						this.handleIncomingChatRows(appendedRow);
 						return this.refreshJgMessages();
 					})
-					.then(() => {
-						this.scrollChatToBottom({ immediate: true });
-					})
 					.catch((e) => {
+						if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 						const result = this.handleCommercialError(e, this.tx('continue_failed', '续写失败'), {
 							skipToastWhenPrompted: true
 						});
@@ -8858,6 +10855,7 @@
 						});
 					})
 					.finally(() => {
+						if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 						if (appPendingContinueId) {
 							this.finishAssistantStreaming(appPendingContinueRow && appPendingContinueRow.id ? appPendingContinueRow.id : appPendingContinueId);
 						}
@@ -8865,6 +10863,7 @@
 					});
 			},
 			onRestart() {
+				if (!this.ensureJgIdentityReadyForAction()) return;
 				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing || !this.jgOn || !this.char) return;
 				this.closeReplySuggestions();
 				const tavernApi = require('@/common/tavernApi.js');
@@ -8876,21 +10875,28 @@
 					cancelText: this.tx('cancel', '取消'),
 					success: (res) => {
 						if (!res.confirm) return;
+						if (!this.ensureJgIdentityReadyForAction()) return;
+						const runtimeRequestVersion = this.jgRuntimeRequestVersion;
+						const runtimeIdentitySignature = this.jgViewerIdentitySignature;
+						const requestClientUid = tavernApi.getClientUid();
+						const localConversationId = this.resolveLocalChatConversationId();
 						this.beginSendingState();
 						tavernApi
 							.postTavernSessionRestart({
 								characterId: cid,
-								clientUid: tavernApi.getClientUid()
+								clientUid: requestClientUid
 							})
 							.then(() => {
+								if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 								tavernApi.cleanupLocalConversationArtifacts({
-									clientUid: tavernApi.getClientUid(),
-									conversationId: this.localChatConversationId
+									clientUid: requestClientUid,
+									conversationId: localConversationId
 								});
 								this.resetConversationVoiceRuntimeState();
 								return this.refreshJgMessages();
 							})
 							.then(() => {
+								if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 								this.scrollChatToBottom({ immediate: true });
 								uni.showToast({
 									title: this.tx('restart_success', '已清空，可重新对话'),
@@ -8898,6 +10904,7 @@
 								});
 							})
 							.catch((e) => {
+								if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 								uni.showToast({
 									title: this.jgErrMsg(e, this.tx('restart_failed', '操作失败')),
 									icon: 'none',
@@ -8905,51 +10912,21 @@
 								});
 							})
 							.finally(() => {
+								if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 								this.finishSendingState();
 							});
 					}
 				});
 			},
 			onMem() {
-				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing || !this.jgOn || !this.char) return;
-				const tavernApi = require('@/common/tavernApi.js');
-				const cid = Number(this.char && this.char.id) || Number(this.cid);
-				this.beginSendingState();
-				this.memoryRefreshing = true;
-				var refreshResult = null;
-				tavernApi
-					.postTavernMemoryRefresh({ characterId: cid, clientUid: tavernApi.getClientUid() })
-					.then((memory) => {
-						if (memory && typeof memory === 'object') {
-							refreshResult = memory;
-							this.jgMemory = Object.assign({}, this.jgMemory || {}, memory);
-						}
-						return this.refreshJgMessages();
-					})
-					.then(() => {
-						const syncStatus = String((refreshResult && refreshResult.syncStatus) || '').trim().toUpperCase();
-						uni.showToast({
-							title:
-								syncStatus === 'FAILED'
-									? this.tx('memory_sync_failed_retry', '记忆同步失败 · 点击重试')
-									: this.tx('memory_refresh_success_lorebook', '已整理长期记忆'),
-							icon: 'none'
-						});
-					})
-					.catch((e) => {
-						uni.showToast({
-							title: this.jgErrMsg(e, this.tx('memory_refresh_failed', '记忆刷新失败')),
-							icon: 'none',
-							duration: 3200
-						});
-					})
-					.finally(() => {
-						this.finishSendingState();
-						this.memoryRefreshing = false;
-					});
+				if (this.voiceRecording || this.voiceStopping || this.voiceTranscribing) return;
+				this.openMemoryPanel();
 			},
 			submitOutgoingMessage(rawText, rawImageUrls, options) {
 				const opts = options || {};
+				if (!this.ensureJgIdentityReadyForAction()) return false;
+				const runtimeRequestVersion = this.jgRuntimeRequestVersion;
+				const runtimeIdentitySignature = this.jgViewerIdentitySignature;
 				const allowWhenNotAtBottom = opts && opts.allowWhenNotAtBottom === true;
 				if (!this.atChatBottom && !allowWhenNotAtBottom) {
 					this.scrollChatToBottom({ immediate: true });
@@ -9043,14 +11020,17 @@
 							voiceDurationMs: userVoiceMeta.durationMs,
 							temperature: 0.85
 						},
-						this.buildAssistantExpressionPayloadFields()
+						this.buildAssistantExpressionPayloadFields(),
+						this.buildChatAppearancePayloadFields()
 					);
 
 					if (tavernApi.jgStreamEnabled()) {
 						const rid = 'r_' + Date.now();
+						let replyStreamed = false;
 						this.beginAssistantStreaming(rid, 'generate');
 						this.notifyCompanionReplying('generate');
-						this.streamAbortController = this.createStreamAbortController();
+						const streamController = this.createStreamAbortController();
+						this.streamAbortController = streamController;
 						this.messages = this.messages.concat({
 							id: rid,
 							role: 'char',
@@ -9063,18 +11043,19 @@
 								payload,
 								{
 									onDelta: (piece) => {
+										if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 										const last = this.messages[this.messages.length - 1];
 										if (last && last.id === rid) {
 											const next = (last.text || '') + piece;
 											this.$set(last, 'text', next);
-											this.prepareStreamingAssistantVoice(last).catch(() => {});
+											replyStreamed = true;
+											this.handleIncomingChatRows(last);
 										}
-										this.followScrollNextTick();
 									},
 									onDone: (data) => {
+										if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 										const row = this.messages[this.messages.length - 1];
 										if (!row || row.id !== rid) {
-											this.followScrollNextTick();
 											return;
 										}
 										if (data && data.content != null) {
@@ -9102,18 +11083,18 @@
 										}
 										this.finishAssistantStreaming(row.id);
 										this.notifyCompanionReply(row.text);
-										if (!String(row.id || '').startsWith('db_')) {
-											this.prepareAssistantVoiceForRow(row, {
-												autoplay: this.shouldAutoPlayAssistantVoice(),
-												toastOnError: false,
-												allowStreaming: true,
-												includeTrailingPartial: true
-											}).catch(() => {});
-										}
+									this.prepareAssistantVoiceForRow(row, {
+										autoplay: this.shouldAutoPlayAssistantVoice(),
+										force: true,
+										toastOnError: false,
+										allowStreaming: true,
+										includeTrailingPartial: true
+									}).catch(() => {});
 										this.applyAssistantExpressionForRow(row);
-										this.followScrollNextTick();
+										this.handleIncomingChatRows(row, { alreadyCounted: replyStreamed });
 									},
 									onAbort: () => {
+										if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 										const last = this.messages[this.messages.length - 1];
 										if (last && last.id === rid && !String(last.text || '').trim()) {
 											this.messages = this.messages.filter((x) => x.id !== rid);
@@ -9123,6 +11104,7 @@
 										this.showGenerationStopToast('stopped', '已停止');
 									},
 									onError: (e) => {
+										if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 										const result = this.handleCommercialError(e, this.tx('chat_failed', '对话失败'), {
 											skipToastWhenPrompted: true
 										});
@@ -9147,12 +11129,10 @@
 										this.finishAssistantStreaming(rid);
 									}
 								},
-								{ signal: this.streamAbortController.signal }
+								{ signal: streamController.signal }
 							)
 							.finally(() => {
-								this.finishAssistantStreaming(rid);
-								this.streamAbortController = null;
-								this.finishSendingState();
+								this.finalizeAssistantStreamRequest(streamController);
 							});
 						return true;
 					}
@@ -9175,13 +11155,14 @@
 					tavernApi
 						.postTavernChat(payload)
 						.then((data) => {
+							if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 							this.patchLastOptimisticUserId(data && data.userMessageId, data && data.messageId);
 							const aid =
 								data && data.messageId ? this.normalizeDbMessageId(data.messageId) : '';
 							const rid = aid || appPendingReplyId || 'r_' + Date.now();
 							const raw = data && data.content;
 							const reply =
-								raw != null && String(raw).trim() !== ''
+								raw != null
 									? String(raw).trim()
 									: this.tx('empty_ai', '模型未返回内容');
 							const sw =
@@ -9209,9 +11190,10 @@
 							const appendedRow = appPendingReplyRow || this.messages[this.messages.length - 1];
 							this.applyAssistantExpressionForRow(appendedRow);
 							this.notifyCompanionReply(appendedRow.text);
-							this.scrollChatToBottom({ immediate: true });
+							this.handleIncomingChatRows(appendedRow);
 						})
 						.catch((e) => {
+							if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 							const rid = appPendingReplyId || 'r_' + Date.now();
 							const result = this.handleCommercialError(e, this.tx('chat_failed', '对话失败'), {
 								skipToastWhenPrompted: true
@@ -9221,12 +11203,14 @@
 							if (!result.prompted) {
 								this.showErrorToast(msg);
 							}
-							if (!appPendingReplyRow) {
+							let recoveryRow = appPendingReplyRow;
+							if (!recoveryRow) {
 								this.messages = this.messages.concat({
 									id: rid,
 									role: 'char',
 									text: ''
 								});
+								recoveryRow = this.messages[this.messages.length - 1];
 							}
 							this.markGenerationRecovery(rid, {
 								message: msg,
@@ -9234,9 +11218,10 @@
 								canRegen: false,
 								retryText: text
 							});
-							this.scrollChatToBottom({ immediate: true });
+							this.handleIncomingChatRows(recoveryRow);
 						})
 						.finally(() => {
+							if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 							if (appPendingReplyId) {
 								this.finishAssistantStreaming(appPendingReplyRow && appPendingReplyRow.id ? appPendingReplyRow.id : appPendingReplyId);
 							}
@@ -9340,6 +11325,13 @@
 	z-index: 0;
 }
 
+.wrap > .chat-readable-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	pointer-events: none;
+}
+
 	.chat-fill {
 		flex: 1;
 		display: flex;
@@ -9388,6 +11380,17 @@
 		display: flex;
 		align-items: center;
 		gap: 12rpx;
+	}
+
+	.nav-appearance-config {
+		width: 64rpx;
+		height: 64rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 18rpx;
+		background: rgba(14, 23, 36, 0.24);
+		border: 1rpx solid rgba(255, 255, 255, 0.12);
 	}
 
 	.nav-voice-toggle {
@@ -9510,9 +11513,62 @@
 		transition: opacity 0.12s ease;
 	}
 
+	.chat-scroll-content {
+		width: 100%;
+		max-width: 820px;
+		margin: 0 auto;
+		box-sizing: border-box;
+	}
+
 	.chat-scroll--preparing {
 		opacity: 0;
 		pointer-events: none;
+	}
+
+	.chat-message-row {
+		display: flex;
+		align-items: flex-end;
+		gap: 10rpx;
+		width: 100%;
+		min-width: 0;
+		margin-bottom: 22rpx;
+		box-sizing: border-box;
+	}
+
+	.chat-message-row--assistant {
+		justify-content: flex-start;
+	}
+
+	.chat-message-row--user {
+		justify-content: flex-end;
+	}
+
+	.chat-message-row--read-empty {
+		display: none;
+	}
+
+	.chat-message-avatar {
+		display: block;
+		width: 72rpx;
+		min-width: 72rpx;
+		max-width: 72rpx;
+		height: 72rpx;
+		min-height: 72rpx;
+		max-height: 72rpx;
+		flex: 0 0 72rpx;
+		border: 2rpx solid rgba(255, 255, 255, 0.18);
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.12);
+		box-shadow: 0 10rpx 22rpx rgba(15, 23, 42, 0.14);
+		box-sizing: border-box;
+		overflow: hidden;
+		object-fit: cover;
+		line-height: 0;
+	}
+
+	.chat-message-avatar--character:hover {
+		transform: translateY(-2rpx) scale(1.03);
+		box-shadow: 0 12rpx 20rpx rgba(12, 18, 34, 0.26);
 	}
 
 	.chat-history-banner {
@@ -9539,472 +11595,6 @@
 		border-color: rgba(125, 211, 252, 0.32);
 	}
 
-	.msg-row {
-		display: flex;
-		align-items: flex-end;
-		gap: 10rpx;
-		margin-bottom: 28rpx;
-
-		&.them {
-			justify-content: flex-start;
-		}
-
-		&.me {
-			justify-content: flex-end;
-		}
-	}
-
-	.av {
-		width: 72rpx;
-		height: 72rpx;
-		border-radius: 50%;
-		flex-shrink: 0;
-		overflow: hidden;
-		border: 2rpx solid rgba(255, 255, 255, 0.18);
-		box-shadow: 0 10rpx 22rpx rgba(15, 23, 42, 0.14);
-		background: rgba(255, 255, 255, 0.12);
-		/* #ifdef H5 */
-		object-fit: cover;
-		/* #endif */
-	}
-
-	.av--char {
-		/* #ifdef H5 */
-		cursor: zoom-in;
-		transition: transform 0.22s ease, box-shadow 0.22s ease;
-		/* #endif */
-	}
-
-	/* #ifdef H5 */
-	.av--char:hover {
-		transform: translateY(-2rpx) scale(1.03);
-		box-shadow: 0 12rpx 20rpx rgba(12, 18, 34, 0.26);
-	}
-	/* #endif */
-
-	.bubble {
-		position: relative;
-		max-width: 70%;
-		margin: 0 8rpx;
-		padding: 22rpx 24rpx 20rpx;
-		border-radius: 28rpx 28rpx 28rpx 14rpx;
-		background: linear-gradient(180deg, rgba(10, 12, 18, 0.52) 0%, rgba(10, 12, 18, 0.34) 100%);
-		backdrop-filter: blur(12rpx);
-		border: 1rpx solid rgba(255, 255, 255, 0.08);
-		box-shadow:
-			0 14rpx 30rpx rgba(15, 23, 42, 0.16),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
-		overflow: visible;
-	}
-
-	.bubble::before {
-		content: '';
-		position: absolute;
-		left: 14rpx;
-		right: 14rpx;
-		top: 2rpx;
-		height: 16rpx;
-		border-radius: 999rpx;
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 100%);
-		opacity: 0.72;
-		pointer-events: none;
-	}
-
-	.bubble::after {
-		content: '';
-		position: absolute;
-		bottom: 14rpx;
-		width: 18rpx;
-		height: 18rpx;
-		transform: rotate(45deg);
-		pointer-events: none;
-	}
-
-	.msg-image-list {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 12rpx;
-		margin-bottom: 14rpx;
-	}
-
-	.msg-image {
-		width: 188rpx;
-		height: 188rpx;
-		border-radius: 22rpx;
-		background: rgba(255, 255, 255, 0.14);
-		border: 1rpx solid rgba(255, 255, 255, 0.12);
-		box-shadow: 0 8rpx 18rpx rgba(15, 23, 42, 0.12);
-	}
-
-	.msg-row.me .bubble {
-		background: linear-gradient(135deg, rgba(124, 58, 237, 0.44) 0%, rgba(219, 39, 119, 0.3) 100%);
-		backdrop-filter: blur(18rpx);
-		border: 1rpx solid rgba(255, 255, 255, 0.12);
-		border-radius: 28rpx 28rpx 14rpx 28rpx;
-	}
-
-	.msg-row.them .bubble::after {
-		left: -8rpx;
-		background: inherit;
-		border-left: 1rpx solid rgba(255, 255, 255, 0.1);
-		border-bottom: 1rpx solid rgba(255, 255, 255, 0.1);
-	}
-
-	.msg-row.me .bubble::after {
-		right: -8rpx;
-		background: inherit;
-		border-right: 1rpx solid rgba(255, 255, 255, 0.12);
-		border-top: 1rpx solid rgba(255, 255, 255, 0.12);
-	}
-
-	.msg-row.them .bubble {
-		max-width: 78%;
-		padding: 20rpx 22rpx 18rpx;
-	}
-
-.bubble--has-image {
-	padding-top: 18rpx;
-}
-
-.local-image-prompt-row {
-	margin: 10rpx 4rpx 2rpx;
-}
-
-.local-image-prompt-text {
-	display: block;
-	font-size: 24rpx;
-	line-height: 1.55;
-	color: rgba(255, 255, 255, 0.92);
-	word-break: break-word;
-}
-
-.bubble--image-only {
-	padding: 10rpx;
-	background: rgba(255, 255, 255, 0.08);
-}
-
-	.bubble--image-only::before {
-		opacity: 0.46;
-		left: 10rpx;
-		right: 10rpx;
-	}
-
-	.bubble--image-only .msg-image-list {
-		margin-bottom: 0;
-	}
-
-	.bubble--image-only .msg-image {
-		width: 210rpx;
-		height: 210rpx;
-	}
-
-	.txt {
-		font-size: 28rpx;
-		color: $text;
-		line-height: 1.58;
-		letter-spacing: 0.15rpx;
-		word-break: break-word;
-	}
-
-	.msg-quote-preview {
-		margin-bottom: 16rpx;
-		padding: 14rpx 16rpx;
-		border-radius: 18rpx;
-		background: rgba(255, 255, 255, 0.12);
-		border-left: 6rpx solid rgba(255, 255, 255, 0.34);
-	}
-
-	.msg-row.me .msg-quote-preview {
-		background: rgba(255, 255, 255, 0.78);
-		border-left-color: rgba(52, 143, 184, 0.42);
-	}
-
-	.msg-quote-preview-speaker {
-		display: block;
-		font-size: 21rpx;
-		font-weight: 700;
-		line-height: 1.4;
-		color: rgba(255, 255, 255, 0.76);
-	}
-
-	.msg-row.me .msg-quote-preview-speaker {
-		color: #34617b;
-	}
-
-	.msg-quote-preview-text {
-		display: block;
-		margin-top: 6rpx;
-		font-size: 23rpx;
-		line-height: 1.55;
-		color: rgba(255, 255, 255, 0.92);
-		word-break: break-word;
-	}
-
-	.msg-row.me .msg-quote-preview-text {
-		color: #1f3f56;
-	}
-
-	.generation-recovery {
-		margin-top: 16rpx;
-		padding: 16rpx;
-		border-radius: 20rpx;
-		background: rgba(255, 255, 255, 0.12);
-		border: 1rpx solid rgba(255, 255, 255, 0.16);
-		box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
-	}
-
-	.generation-recovery-copy {
-		display: flex;
-		flex-direction: column;
-		gap: 6rpx;
-	}
-
-	.generation-recovery-title {
-		font-size: 23rpx;
-		font-weight: 700;
-		color: rgba(255, 255, 255, 0.95);
-	}
-
-	.generation-recovery-message {
-		font-size: 22rpx;
-		line-height: 1.5;
-		color: rgba(255, 255, 255, 0.76);
-		word-break: break-word;
-	}
-
-	.generation-recovery-actions {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 10rpx;
-		margin-top: 14rpx;
-	}
-
-	.generation-recovery-btn {
-		height: 48rpx;
-		padding: 0 18rpx;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 999rpx;
-		font-size: 21rpx;
-		font-weight: 700;
-		color: #1f5f76;
-		background: rgba(255, 255, 255, 0.86);
-	}
-
-	.generation-recovery-btn--primary {
-		color: #fff;
-		background: linear-gradient(135deg, #348fb8 0%, #76d2dd 100%);
-	}
-
-	.generation-recovery-close {
-		width: 48rpx;
-		height: 48rpx;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 999rpx;
-		font-size: 24rpx;
-		color: rgba(255, 255, 255, 0.8);
-		background: rgba(15, 23, 42, 0.2);
-	}
-
-	.md-inner {
-		font-size: 30rpx;
-		color: rgba(255, 255, 255, 0.94);
-		line-height: 1.76;
-		word-break: break-word;
-		overflow-wrap: break-word;
-		min-width: 0;
-		text-shadow: 0 1rpx 7rpx rgba(0, 0, 0, 0.18);
-	}
-
-	.md-inner--native {
-		display: flex;
-		flex-direction: column;
-		gap: 10rpx;
-	}
-
-	.st-chat-seg-native {
-		display: block;
-	}
-
-	.st-chat-seg-text {
-		display: block;
-		max-width: 100%;
-		font-size: 29rpx;
-		line-height: 1.78;
-		word-break: break-word;
-		overflow-wrap: break-word;
-		white-space: pre-wrap;
-	}
-
-	.st-chat-seg-native--speech .st-chat-seg-text {
-		color: #c05781;
-		font-weight: 700;
-		letter-spacing: 0.08rpx;
-	}
-
-	.st-chat-seg-native--thought .st-chat-seg-text {
-		color: #4e6678;
-		font-style: italic;
-		font-size: 28rpx;
-	}
-
-	.st-chat-seg-native--thought {
-		padding-left: 12rpx;
-		border-left: 4rpx solid rgba(52, 143, 184, 0.34);
-	}
-
-	.st-chat-seg-native--action .st-chat-seg-text {
-		color: #3d5c70;
-		font-style: italic;
-		font-size: 28rpx;
-	}
-
-	.st-chat-seg-native--narration .st-chat-seg-text {
-		color: #17344b;
-		font-weight: 400;
-	}
-
-	.md-inner >>> .st-chat-render {
-		display: flex;
-		flex-direction: column;
-		gap: 10rpx;
-	}
-
-	.md-inner >>> .st-chat-seg {
-		display: block;
-		max-width: 100%;
-		min-width: 0;
-		word-break: break-word;
-		overflow-wrap: break-word;
-	}
-
-	.md-inner >>> .st-chat-seg > *:first-child {
-		margin-top: 0;
-	}
-
-	.md-inner >>> .st-chat-seg > *:last-child {
-		margin-bottom: 0;
-	}
-
-	.md-inner >>> .st-chat-seg--speech {
-		color: #ffc2d3;
-		font-weight: 700;
-		font-size: 29rpx;
-		line-height: 1.72;
-		letter-spacing: 0.08rpx;
-		text-shadow: 0 1rpx 10rpx rgba(0, 0, 0, 0.24);
-	}
-
-	.md-inner >>> .st-chat-seg--speech p {
-		color: inherit;
-		display: block;
-	}
-
-	.md-inner >>> .st-chat-seg--thought,
-	.md-inner >>> .st-chat-seg--action {
-		color: rgba(255, 255, 255, 0.82);
-		font-weight: 400;
-		font-size: 28rpx;
-		line-height: 1.84;
-	}
-
-	.md-inner >>> .st-chat-seg--thought p,
-	.md-inner >>> .st-chat-seg--action p {
-		color: inherit;
-	}
-
-	.md-inner >>> .st-chat-seg--thought {
-		font-style: italic;
-		color: rgba(240, 228, 255, 0.94);
-		padding-left: 12rpx;
-		border-left: 4rpx solid rgba(240, 228, 255, 0.18);
-	}
-
-	.md-inner >>> .st-chat-seg--action {
-		font-style: italic;
-		letter-spacing: 0.12rpx;
-		padding-left: 12rpx;
-	}
-
-	.md-inner >>> .st-chat-seg--narration {
-		color: rgba(255, 255, 255, 0.98);
-		font-weight: 400;
-		font-size: 29rpx;
-		line-height: 1.82;
-	}
-
-	.md-inner >>> p {
-		margin: 0.14em 0;
-	}
-
-	.md-inner >>> p:first-child {
-		margin-top: 0;
-	}
-
-	.md-inner >>> p:last-child {
-		margin-bottom: 0;
-	}
-
-	.md-inner >>> ul,
-	.md-inner >>> ol {
-		margin: 0.28em 0;
-		padding-left: 1.35em;
-	}
-
-	.md-inner >>> li {
-		margin: 0.12em 0;
-	}
-
-	.md-inner >>> blockquote {
-		margin: 0.36em 0;
-		padding-left: 14rpx;
-	}
-
-	.md-inner >>> code {
-		background: rgba(255, 255, 255, 0.12);
-		padding: 2rpx 8rpx;
-		border-radius: 6rpx;
-		font-size: 26rpx;
-		color: rgba(255, 255, 255, 0.96);
-		white-space: pre-wrap;
-		word-break: break-word;
-		overflow-wrap: break-word;
-	}
-
-	.md-inner >>> pre {
-		background: rgba(0, 0, 0, 0.24);
-		padding: 16rpx;
-		border-radius: 12rpx;
-		max-width: 100%;
-		overflow-x: auto;
-		margin: 0.4em 0;
-		white-space: pre-wrap;
-		word-break: break-word;
-		overflow-wrap: break-word;
-		/* #ifdef H5 */
-		cursor: pointer;
-		/* #endif */
-	}
-
-	.md-inner >>> table {
-		display: block;
-		max-width: 100%;
-		overflow-x: auto;
-		border-collapse: collapse;
-	}
-
-	.md-inner >>> th,
-	.md-inner >>> td {
-		padding: 6rpx 10rpx;
-		vertical-align: top;
-		word-break: break-word;
-		overflow-wrap: break-word;
-	}
-
 	.user-edit-tag {
 		display: block;
 		margin-top: 12rpx;
@@ -10012,7 +11602,7 @@
 		color: rgba(255, 255, 255, 0.55);
 	}
 
-	.msg-row.me .user-edit-tag {
+	.chat-message-row--user .user-edit-tag {
 		text-align: right;
 	}
 
@@ -10097,6 +11687,539 @@
 		height: calc(100vh - 120rpx);
 		border-radius: 24rpx;
 		background: rgba(255, 255, 255, 0.03);
+	}
+
+	.branch-mask,
+	.memory-mask {
+		position: fixed;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		z-index: 2330;
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		padding: 32rpx 20rpx calc(env(safe-area-inset-bottom) + 24rpx);
+		background: rgba(10, 18, 24, 0.32);
+		box-sizing: border-box;
+	}
+
+	.memory-mask {
+		z-index: 2340;
+	}
+
+	.branch-sheet,
+	.memory-sheet {
+		width: 100%;
+		max-width: 760rpx;
+		max-height: calc(82vh - env(safe-area-inset-bottom));
+		min-height: 420rpx;
+		padding: 26rpx;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+		border-radius: 32rpx;
+		background: rgba(255, 255, 255, 0.95);
+		border: 1rpx solid rgba(255, 255, 255, 0.72);
+		box-shadow: 0 20rpx 52rpx rgba(15, 23, 42, 0.16);
+		box-sizing: border-box;
+	}
+
+	.branch-sheet {
+		height: calc(82vh - env(safe-area-inset-bottom));
+	}
+
+	.memory-sheet {
+		height: calc(82vh - env(safe-area-inset-bottom));
+	}
+
+	.branch-head,
+	.memory-head {
+		flex-shrink: 0;
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 20rpx;
+	}
+
+	.branch-head-copy,
+	.memory-head-copy {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 8rpx;
+	}
+
+	.branch-title,
+	.memory-title {
+		font-size: 32rpx;
+		line-height: 1.25;
+		font-weight: 800;
+		color: #17344b;
+	}
+
+	.branch-sub,
+	.memory-sub {
+		font-size: 23rpx;
+		line-height: 1.45;
+		color: #64748b;
+	}
+
+	.branch-close,
+	.memory-close {
+		flex-shrink: 0;
+		width: 58rpx;
+		height: 58rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		color: #64748b;
+		background: rgba(241, 245, 249, 0.86);
+	}
+
+	.branch-scroll,
+	.memory-scroll {
+		flex: 1;
+		min-height: 0;
+		margin-top: 20rpx;
+	}
+
+	.branch-scroll {
+		height: 0;
+		width: 100%;
+		overflow: hidden;
+	}
+
+	.memory-scroll {
+		height: 0;
+		width: 100%;
+		overflow: hidden;
+	}
+
+	.memory-list {
+		padding-bottom: 8rpx;
+		box-sizing: border-box;
+	}
+
+	.branch-empty,
+	.memory-empty {
+		min-height: 220rpx;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 10rpx;
+		padding: 24rpx;
+		box-sizing: border-box;
+	}
+
+	.branch-empty-title,
+	.memory-empty-title {
+		font-size: 28rpx;
+		font-weight: 700;
+		color: #334155;
+	}
+
+	.branch-empty-sub,
+	.memory-empty-sub {
+		font-size: 23rpx;
+		line-height: 1.5;
+		color: #7a8796;
+		text-align: center;
+	}
+
+	.branch-row,
+	.memory-entry {
+		padding: 22rpx;
+		border-radius: 24rpx;
+		background: rgba(248, 250, 252, 0.92);
+		border: 1rpx solid rgba(203, 213, 225, 0.52);
+		box-sizing: border-box;
+	}
+
+	.branch-row--active {
+		background: rgba(235, 252, 255, 0.94);
+		border-color: rgba(79, 147, 163, 0.46);
+		box-shadow: 0 10rpx 22rpx rgba(48, 103, 117, 0.12);
+	}
+
+	.branch-row--switching {
+		opacity: 0.62;
+		pointer-events: none;
+	}
+
+	.branch-row + .branch-row,
+	.memory-entry + .memory-entry {
+		margin-top: 18rpx;
+	}
+
+	.branch-row-head,
+	.memory-entry-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 18rpx;
+	}
+
+	.branch-row-title-wrap,
+	.memory-entry-title-wrap {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 8rpx;
+	}
+
+	.branch-row-title,
+	.memory-entry-title {
+		font-size: 27rpx;
+		line-height: 1.35;
+		font-weight: 750;
+		color: #172033;
+	}
+
+	.branch-row-preview,
+	.memory-entry-content {
+		display: block;
+		font-size: 24rpx;
+		line-height: 1.55;
+		color: #475569;
+		word-break: break-word;
+	}
+
+	.branch-row-current,
+	.memory-entry-status {
+		flex-shrink: 0;
+		padding: 7rpx 14rpx;
+		border-radius: 999rpx;
+		font-size: 21rpx;
+		line-height: 1.25;
+		font-weight: 700;
+		color: #1f6686;
+		background: rgba(220, 247, 251, 0.84);
+	}
+
+	.branch-row-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10rpx;
+		margin-top: 16rpx;
+	}
+
+	.branch-row-meta-text {
+		padding: 6rpx 12rpx;
+		border-radius: 999rpx;
+		font-size: 21rpx;
+		line-height: 1.25;
+		font-weight: 650;
+		color: #64748b;
+		background: rgba(241, 245, 249, 0.9);
+	}
+
+	.memory-stats {
+		flex-shrink: 0;
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 12rpx;
+		margin-top: 20rpx;
+	}
+
+	.memory-stat {
+		padding: 16rpx;
+		border-radius: 20rpx;
+		background: rgba(248, 250, 252, 0.9);
+		border: 1rpx solid rgba(203, 213, 225, 0.46);
+		box-sizing: border-box;
+	}
+
+	.memory-stat-label,
+	.memory-stat-value {
+		display: block;
+		text-align: center;
+	}
+
+	.memory-stat-label {
+		font-size: 21rpx;
+		line-height: 1.25;
+		color: #64748b;
+	}
+
+	.memory-stat-value {
+		margin-top: 8rpx;
+		font-size: 32rpx;
+		line-height: 1.15;
+		font-weight: 850;
+		color: #17344b;
+	}
+
+	.memory-summary {
+		flex-shrink: 0;
+		display: block;
+		margin-top: 16rpx;
+		padding: 16rpx 18rpx;
+		border-radius: 20rpx;
+		background: rgba(235, 252, 255, 0.72);
+		font-size: 24rpx;
+		line-height: 1.55;
+		color: #35556a;
+		word-break: break-word;
+	}
+
+	.memory-actions {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16rpx;
+		margin-top: 16rpx;
+	}
+
+	.memory-guide {
+		min-width: 0;
+		font-size: 21rpx;
+		line-height: 1.45;
+		color: #64748b;
+	}
+
+	.memory-action-row {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 10rpx;
+	}
+
+	.memory-icon-button {
+		width: 64rpx;
+		height: 64rpx;
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		box-sizing: border-box;
+	}
+
+	.memory-icon-button--primary {
+		background: #4f93a3;
+		box-shadow: 0 10rpx 22rpx rgba(48, 103, 117, 0.16);
+	}
+
+	.memory-icon-button--secondary {
+		background: rgba(226, 232, 240, 0.92);
+		border: 1rpx solid rgba(148, 163, 184, 0.3);
+	}
+
+	.memory-icon-button--disabled {
+		opacity: 0.58;
+		pointer-events: none;
+	}
+
+	.memory-icon--spin {
+		animation: memory-icon-spin 0.9s linear infinite;
+	}
+
+	@keyframes memory-icon-spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	.memory-error {
+		flex-shrink: 0;
+		display: block;
+		margin-top: 12rpx;
+		padding: 12rpx 16rpx;
+		border-radius: 18rpx;
+		font-size: 23rpx;
+		line-height: 1.45;
+		color: #b42318;
+		background: rgba(254, 226, 226, 0.88);
+	}
+
+	.memory-filters {
+		flex-shrink: 0;
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: 6rpx;
+		margin-top: 16rpx;
+		padding: 6rpx;
+		border-radius: 16rpx;
+		background: rgba(226, 232, 240, 0.7);
+		box-sizing: border-box;
+	}
+
+	.memory-filter {
+		min-width: 0;
+		height: 58rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 7rpx;
+		padding: 0 10rpx;
+		border-radius: 12rpx;
+		color: #5f7182;
+		box-sizing: border-box;
+	}
+
+	.memory-filter--active {
+		color: #ffffff;
+		background: #4f93a3;
+		box-shadow: 0 6rpx 14rpx rgba(48, 103, 117, 0.16);
+	}
+
+	.memory-filter-label,
+	.memory-filter-count {
+		font-size: 21rpx;
+		line-height: 1;
+		font-weight: 700;
+	}
+
+	.memory-filter-count {
+		min-width: 28rpx;
+		height: 28rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0 5rpx;
+		border-radius: 999rpx;
+		background: rgba(255, 255, 255, 0.52);
+		box-sizing: border-box;
+	}
+
+	.memory-entry--disabled {
+		opacity: 0.62;
+	}
+
+	.memory-entry--archived {
+		background: rgba(248, 250, 252, 0.68);
+		border-style: dashed;
+		border-color: rgba(148, 163, 184, 0.52);
+	}
+
+	.memory-entry-type {
+		align-self: flex-start;
+		padding: 6rpx 12rpx;
+		border-radius: 999rpx;
+		font-size: 20rpx;
+		line-height: 1.2;
+		font-weight: 700;
+		color: #226b8b;
+		background: rgba(220, 247, 251, 0.72);
+	}
+
+	.memory-entry-status--disabled {
+		color: #64748b;
+		background: rgba(226, 232, 240, 0.92);
+	}
+
+	.memory-entry-status--archived {
+		color: #5d6472;
+		background: rgba(226, 232, 240, 0.78);
+	}
+
+	.memory-entry-content {
+		margin-top: 14rpx;
+	}
+
+	.memory-entry-archive-reason {
+		display: block;
+		margin-top: 12rpx;
+		padding: 10rpx 12rpx;
+		border-radius: 12rpx;
+		font-size: 21rpx;
+		line-height: 1.4;
+		color: #667085;
+		background: rgba(226, 232, 240, 0.62);
+	}
+
+	.memory-keywords {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8rpx;
+		margin-top: 14rpx;
+	}
+
+	.memory-keyword {
+		padding: 6rpx 12rpx;
+		border-radius: 999rpx;
+		font-size: 20rpx;
+		line-height: 1.2;
+		color: #36526a;
+		background: rgba(226, 232, 240, 0.82);
+	}
+
+	.memory-keyword--secondary {
+		color: #667085;
+		background: rgba(241, 245, 249, 0.9);
+	}
+
+	.memory-entry-foot {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16rpx;
+		margin-top: 16rpx;
+	}
+
+	.memory-entry-meta {
+		min-width: 0;
+		font-size: 21rpx;
+		line-height: 1.35;
+		color: #7a8796;
+	}
+
+	.memory-entry-buttons {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		gap: 10rpx;
+	}
+
+	.memory-entry-icon {
+		width: 56rpx;
+		height: 56rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		box-sizing: border-box;
+	}
+
+	.memory-entry-icon--disable {
+		background: rgba(254, 226, 226, 0.88);
+	}
+
+	.memory-entry-icon--enable {
+		background: rgba(220, 252, 231, 0.9);
+	}
+
+	.memory-entry-icon--delete {
+		background: rgba(254, 242, 242, 0.92);
+		border: 1rpx solid rgba(185, 28, 28, 0.12);
+	}
+
+	.memory-entry-icon--busy {
+		opacity: 0.58;
+		pointer-events: none;
+	}
+
+	.memory-page-state {
+		min-height: 64rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8rpx;
+		padding: 12rpx 16rpx 4rpx;
+		font-size: 21rpx;
+		line-height: 1.35;
+		color: #7a8796;
+		text-align: center;
+		box-sizing: border-box;
+	}
+
+	.memory-page-state--error {
+		color: #b42318;
 	}
 
 	.character-voice-mask {
@@ -10969,10 +13092,6 @@
 		background: linear-gradient(90deg, #7c3aed 0%, #ec4899 100%);
 	}
 
-	.md-inner >>> a {
-		color: #d8b4fe;
-	}
-
 	.reply-help-panel {
 		flex-shrink: 0;
 		margin: 0 18rpx 10rpx;
@@ -11236,19 +13355,6 @@
 		opacity: 0.62;
 	}
 
-	.input-bar {
-		flex-shrink: 0;
-		position: relative;
-		z-index: 6;
-		display: flex;
-		align-items: flex-end;
-		gap: 14rpx;
-		padding: 14rpx 18rpx calc(14rpx + env(safe-area-inset-bottom));
-		background: rgba(9, 13, 24, 0.16);
-		backdrop-filter: blur(14rpx);
-		border-top: 1rpx solid rgba(255, 255, 255, 0.08);
-	}
-
 	.attach-fab-backdrop {
 		position: fixed;
 		inset: 0;
@@ -11256,60 +13362,21 @@
 		background: transparent;
 	}
 
-	.attach-fab-menu {
-		position: absolute;
-		left: 18rpx;
-		bottom: calc(100% + 14rpx);
-		z-index: 7;
-		display: flex;
-		flex-direction: column;
-		gap: 14rpx;
-	}
-
-	.attach-fab-item {
-		display: flex;
-		align-items: center;
-		gap: 12rpx;
-		animation: attach-fab-pop 0.18s ease-out;
-	}
-
-	.attach-fab-badge {
-		flex-shrink: 0;
-		width: 72rpx;
-		height: 72rpx;
-		line-height: 72rpx;
-		border-radius: 50%;
-		text-align: center;
-		font-size: 26rpx;
-		font-weight: 700;
-		color: #fff;
-		background: #4f93a3;
-		box-shadow: 0 12rpx 26rpx rgba(48, 103, 117, 0.18);
-	}
-
-	.attach-fab-label {
-		height: 64rpx;
-		line-height: 64rpx;
-		padding: 0 22rpx;
-		border-radius: 999rpx;
-		font-size: 24rpx;
-		font-weight: 600;
-		color: #25546d;
-		background: rgba(255, 255, 255, 0.9);
-		border: 1rpx solid rgba(255, 255, 255, 0.7);
-		box-shadow: 0 12rpx 28rpx rgba(67, 112, 142, 0.14);
-		backdrop-filter: blur(20rpx) saturate(130%);
-		-webkit-backdrop-filter: blur(20rpx) saturate(130%);
-	}
-
 	.composer-image-strip {
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+		overflow-x: hidden;
 		display: flex;
 		flex-wrap: wrap;
+		align-items: center;
 		gap: 12rpx;
 		padding: 0 18rpx 12rpx;
 	}
 
 	.composer-image-card {
+		flex: 0 0 138rpx;
 		position: relative;
 		width: 138rpx;
 		height: 138rpx;
@@ -11329,8 +13396,10 @@
 		position: absolute;
 		inset: 0;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
+		gap: 8rpx;
 		padding: 12rpx;
 		background: rgba(8, 12, 22, 0.46);
 	}
@@ -11340,6 +13409,32 @@
 		font-size: 22rpx;
 		line-height: 1.35;
 		text-align: center;
+	}
+
+	.composer-image-retry {
+		padding: 5rpx 12rpx;
+		border-radius: 999rpx;
+		font-size: 20rpx;
+		line-height: 1.2;
+		font-weight: 700;
+		color: #fff;
+		background: rgba(255, 255, 255, 0.22);
+	}
+
+	.composer-image-hint {
+		flex: 1 1 220rpx;
+		min-width: 0;
+		max-width: 100%;
+		padding: 8rpx 14rpx;
+		border-radius: 999rpx;
+		font-size: 21rpx;
+		line-height: 1.2;
+		color: rgba(255, 255, 255, 0.82);
+		background: rgba(8, 12, 22, 0.18);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		box-sizing: border-box;
 	}
 
 	.composer-image-remove {
@@ -11354,26 +13449,6 @@
 		font-size: 28rpx;
 		color: #fff;
 		background: rgba(8, 12, 22, 0.58);
-	}
-
-	.attach-btn {
-		flex-shrink: 0;
-		width: 72rpx;
-		height: 72rpx;
-		line-height: 72rpx;
-		border-radius: 50%;
-		text-align: center;
-		font-size: 42rpx;
-		font-weight: 500;
-		color: #f8fafc;
-		background: linear-gradient(135deg, rgba(124, 58, 237, 0.72) 0%, rgba(236, 72, 153, 0.66) 100%);
-		box-shadow: 0 10rpx 24rpx rgba(124, 58, 237, 0.18);
-		transition: transform 0.18s ease, box-shadow 0.18s ease;
-	}
-
-	.attach-btn--active {
-		transform: rotate(45deg) scale(0.96);
-		box-shadow: 0 14rpx 30rpx rgba(52, 143, 184, 0.22);
 	}
 
 	.reply-help-trigger {
@@ -11408,56 +13483,6 @@
 		pointer-events: none;
 	}
 
-	.inp {
-		flex: 1;
-		min-height: 72rpx;
-		max-height: 176rpx;
-		padding: 16rpx 24rpx;
-		box-sizing: border-box;
-		background: rgba(9, 13, 24, 0.18);
-		backdrop-filter: blur(16rpx);
-		border: 1rpx solid rgba(255, 255, 255, 0.1);
-		border-radius: 28rpx;
-		font-size: 27rpx;
-		line-height: 40rpx;
-		color: $text;
-		overflow-y: auto;
-	}
-
-	.send {
-		padding: 0 28rpx;
-		height: 72rpx;
-		line-height: 72rpx;
-		background: linear-gradient(90deg, #7c3aed 0%, #ec4899 100%);
-		color: #fff;
-		font-size: 28rpx;
-		border-radius: 36rpx;
-		min-width: 116rpx;
-		text-align: center;
-		font-weight: 600;
-	}
-
-	.send.senddisabled {
-		opacity: 0.45;
-		pointer-events: none;
-	}
-
-	.send.send--bottom {
-		background: linear-gradient(135deg, #f18ab2 0%, #f6a3c8 58%, #ffc1d9 100%) !important;
-		box-shadow: 0 12rpx 24rpx rgba(241, 138, 178, 0.22) !important;
-	}
-
-	@keyframes attach-fab-pop {
-		from {
-			opacity: 0;
-			transform: translate3d(0, 12rpx, 0) scale(0.92);
-		}
-		to {
-			opacity: 1;
-			transform: translate3d(0, 0, 0) scale(1);
-		}
-	}
-
 	.typing-row {
 		flex-shrink: 0;
 		display: flex;
@@ -11472,162 +13497,12 @@
 		color: #94a3b8;
 	}
 
-	.stream-inline {
-		display: inline-flex;
-		align-items: center;
-		gap: 12rpx;
-		margin-top: 14rpx;
-		padding: 10rpx 16rpx;
-		border-radius: 999rpx;
-		background: rgba(255, 255, 255, 0.08);
-		border: 1rpx solid rgba(255, 255, 255, 0.08);
-	}
-
-	.stream-inline-wave {
-		display: inline-flex;
-		align-items: flex-end;
-		gap: 5rpx;
-		height: 24rpx;
-	}
-
-	.stream-inline-bar {
-		width: 6rpx;
-		border-radius: 999rpx;
-		background: rgba(158, 238, 244, 0.92);
-		transform-origin: center bottom;
-		animation: voice-status-wave 1s ease-in-out infinite;
-	}
-
-	.stream-inline-bar:nth-child(1) {
-		height: 12rpx;
-	}
-
-	.stream-inline-bar:nth-child(2) {
-		height: 20rpx;
-		animation-delay: 0.12s;
-	}
-
-	.stream-inline-bar:nth-child(3) {
-		height: 14rpx;
-		animation-delay: 0.22s;
-	}
-
-	.stream-inline-text {
-		font-size: 22rpx;
-		font-weight: 600;
-		letter-spacing: 0.2rpx;
-		color: rgba(234, 246, 255, 0.88);
-	}
-
 	.stop-stream {
 		font-size: 24rpx;
 		color: #f87171;
 		padding: 6rpx 20rpx;
 		border-radius: 999rpx;
 		border: 1rpx solid rgba(248, 113, 113, 0.45);
-	}
-
-	.swipe-row {
-		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		gap: 16rpx;
-		margin-top: 14rpx;
-		padding-top: 14rpx;
-		border-top: 1rpx solid rgba(255, 255, 255, 0.09);
-	}
-
-	.swipe-btn {
-		font-size: 36rpx;
-		color: #c4b5fd;
-		padding: 0 12rpx;
-		line-height: 1;
-	}
-
-	.swipe-num {
-		font-size: 22rpx;
-		color: #94a3b8;
-	}
-
-	@keyframes assistant-voice-pulse {
-		0% {
-			transform: scale(0.92);
-			opacity: 0.72;
-		}
-		60% {
-			transform: scale(1.1);
-			opacity: 1;
-		}
-		100% {
-			transform: scale(0.92);
-			opacity: 0.72;
-		}
-	}
-
-	.assistant-voice-row {
-		display: flex;
-		align-items: center;
-		justify-content: flex-start;
-		margin-top: 16rpx;
-	}
-
-	.assistant-voice-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 10rpx;
-		min-height: 52rpx;
-		padding: 0 18rpx;
-		border-radius: 999rpx;
-		background: linear-gradient(135deg, rgba(14, 28, 43, 0.22) 0%, rgba(21, 44, 62, 0.14) 100%);
-		border: 1rpx solid rgba(255, 255, 255, 0.14);
-		box-shadow:
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.1),
-			0 10rpx 24rpx rgba(8, 18, 30, 0.1);
-	}
-
-	.assistant-voice-pill-dot {
-		flex-shrink: 0;
-		width: 14rpx;
-		height: 14rpx;
-		border-radius: 50%;
-		background: #7fd6dd;
-		box-shadow: 0 0 0 8rpx rgba(127, 214, 221, 0.14);
-	}
-
-	.bubble .assistant-voice-pill .assistant-voice-pill-text {
-		font-size: 22rpx;
-		font-weight: 650;
-		letter-spacing: 0.18rpx;
-		color: #f8fbff !important;
-	}
-
-	.assistant-voice-pill--loading .assistant-voice-pill-dot {
-		background: #f7acc5;
-		box-shadow: 0 0 0 8rpx rgba(247, 172, 197, 0.12);
-		animation: assistant-voice-pulse 1.1s ease-in-out infinite;
-	}
-
-	.assistant-voice-pill--playing {
-		background: linear-gradient(135deg, rgba(52, 143, 184, 0.34) 0%, rgba(118, 210, 221, 0.28) 100%);
-		border-color: rgba(156, 224, 238, 0.22);
-		box-shadow:
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.14),
-			0 12rpx 28rpx rgba(52, 143, 184, 0.16);
-	}
-
-	.assistant-voice-pill--playing .assistant-voice-pill-dot {
-		background: #ecfbff;
-		box-shadow: 0 0 0 8rpx rgba(236, 251, 255, 0.16);
-	}
-
-	.assistant-voice-pill--error {
-		background: linear-gradient(135deg, rgba(113, 34, 46, 0.22) 0%, rgba(83, 20, 34, 0.16) 100%);
-		border-color: rgba(255, 173, 186, 0.24);
-	}
-
-	.assistant-voice-pill--error .assistant-voice-pill-dot {
-		background: #ffb6c5;
-		box-shadow: 0 0 0 8rpx rgba(255, 182, 197, 0.14);
 	}
 
 	/* Light clover tavern chat refresh. Keeps segmented message rendering and chat background logic intact. */
@@ -11646,8 +13521,7 @@
 	.tool-bar,
 	.tool-hint,
 	.memory-bar,
-	.reply-help-panel,
-	.input-bar {
+	.reply-help-panel {
 		background: rgba(255, 255, 255, 0.3) !important;
 		border-color: rgba(255, 255, 255, 0.28) !important;
 		box-shadow: 0 12rpx 28rpx rgba(67, 112, 142, 0.08);
@@ -11657,15 +13531,12 @@
 
 	.tool-i,
 	.reply-help-head-btn,
-	.attach-btn,
 	.reply-help-trigger {
 		color: #1c5975;
 		background: rgba(220, 247, 251, 0.72);
 	}
 
-	.attach-btn,
 	.reply-help-trigger,
-	.send,
 	.edit-btn--primary,
 	.commercial-btn--primary {
 		color: #fff;
@@ -11673,76 +13544,6 @@
 		box-shadow: 0 12rpx 26rpx rgba(48, 103, 117, 0.18);
 	}
 
-	.send.send--bottom {
-		background: #6d8a92 !important;
-		box-shadow: 0 12rpx 24rpx rgba(70, 86, 92, 0.18) !important;
-	}
-
-	.bubble,
-	.msg-row.them .bubble {
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, rgba(244, 249, 255, 0.18) 100%) !important;
-		border-color: rgba(255, 255, 255, 0.24) !important;
-		box-shadow: 0 14rpx 30rpx rgba(67, 112, 142, 0.08);
-		backdrop-filter: blur(26rpx) saturate(140%);
-		-webkit-backdrop-filter: blur(26rpx) saturate(140%);
-	}
-
-	.msg-row.me .bubble {
-		background: rgba(238, 249, 249, 0.4) !important;
-		border-color: rgba(255, 255, 255, 0.28) !important;
-	}
-
-	.bubble .assistant-voice-pill {
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.76) 0%, rgba(234, 247, 252, 0.68) 100%);
-		border-color: rgba(164, 220, 235, 0.58);
-		box-shadow:
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.92),
-			0 10rpx 24rpx rgba(67, 112, 142, 0.08);
-	}
-
-	.bubble .assistant-voice-pill .assistant-voice-pill-text {
-		color: #245c78 !important;
-	}
-
-	.bubble .assistant-voice-pill-dot {
-		background: #68bdd1;
-		box-shadow: 0 0 0 8rpx rgba(104, 189, 209, 0.12);
-	}
-
-	.bubble .assistant-voice-pill--playing {
-		background: #4f93a3;
-		border-color: rgba(255, 255, 255, 0.56);
-	}
-
-	.bubble .assistant-voice-pill--playing .assistant-voice-pill-text {
-		color: #ffffff !important;
-	}
-
-	.bubble .assistant-voice-pill--playing .assistant-voice-pill-dot {
-		background: rgba(255, 255, 255, 0.96);
-		box-shadow: 0 0 0 8rpx rgba(255, 255, 255, 0.18);
-	}
-
-	.bubble .assistant-voice-pill--error {
-		background: linear-gradient(135deg, rgba(255, 239, 243, 0.94) 0%, rgba(255, 227, 234, 0.88) 100%);
-		border-color: rgba(244, 166, 196, 0.46);
-	}
-
-	.bubble .assistant-voice-pill--error .assistant-voice-pill-text {
-		color: #b24b6f !important;
-	}
-
-	.txt,
-	.md-inner,
-	.md-inner >>> .st-chat-render,
-	.md-inner >>> p,
-	.md-inner >>> li,
-	.md-inner >>> span,
-	.md-inner >>> strong,
-	.md-inner >>> em,
-	.md-inner >>> .st-chat-seg--thought,
-	.md-inner >>> .st-chat-seg--action,
-	.md-inner >>> .st-chat-seg--narration,
 	.reply-help-text,
 	.edit-title,
 	.commercial-title {
@@ -11750,36 +13551,7 @@
 		text-shadow: none !important;
 	}
 
-	.bubble .txt,
-	.bubble .md-inner,
-	.bubble .md-inner *,
-	.bubble text {
-		color: #17344b !important;
-		text-shadow: none !important;
-	}
-
-	.md-inner >>> .st-chat-seg--speech {
-		color: #c05781 !important;
-		text-shadow: none !important;
-	}
-
-	.md-inner >>> .st-chat-seg--thought {
-		color: #4e6678 !important;
-		border-left-color: rgba(52, 143, 184, 0.34);
-	}
-
-	.md-inner >>> .st-chat-seg--action {
-		color: #3d5c70 !important;
-	}
-
-	.md-inner >>> .st-chat-seg--narration {
-		color: #17344b !important;
-	}
-
-	.md-inner >>> code,
-	.md-inner >>> pre,
-	.edit-ta,
-	.inp {
+	.edit-ta {
 		color: #17344b !important;
 		background: rgba(255, 255, 255, 0.38);
 		border-color: rgba(88, 189, 210, 0.22);
@@ -11792,8 +13564,7 @@
 	.edit-sub,
 	.commercial-sub,
 	.reply-help-state,
-	.typing-hint,
-	.swipe-num {
+	.typing-hint {
 		color: #4e6678;
 	}
 
@@ -11802,9 +13573,7 @@
 	}
 
 	.chat-fill-back,
-	.nav-link,
-	.swipe-btn,
-	.md-inner >>> a {
+	.nav-link {
 		color: #1f6686 !important;
 	}
 
@@ -11859,10 +13628,6 @@
 		background: #4f93a3;
 	}
 
-	.inp {
-		background: rgba(255, 255, 255, 0.32);
-	}
-
 	/* Transparent dark glass keeps chat readable on bright character backgrounds. */
 	.wrap--with-bg::after {
 		background: rgba(255, 255, 255, 0.02) !important;
@@ -11871,116 +13636,12 @@
 	.tool-bar,
 	.memory-bar,
 	.reply-help-panel,
-	.ai-disclaimer,
-	.input-bar {
+	.ai-disclaimer {
 		flex-shrink: 0;
 	}
 
-	.bubble,
-	.msg-row.them .bubble {
-		background: linear-gradient(180deg, rgba(7, 12, 20, 0.46) 0%, rgba(9, 15, 24, 0.34) 100%) !important;
-		border-color: rgba(255, 255, 255, 0.14) !important;
-		border-radius: 24rpx 24rpx 24rpx 10rpx;
-		box-shadow: 0 14rpx 30rpx rgba(4, 12, 22, 0.16) !important;
-		backdrop-filter: blur(16rpx) saturate(112%);
-		-webkit-backdrop-filter: blur(16rpx) saturate(112%);
-	}
-
-	.msg-row.me .bubble {
-		background: linear-gradient(135deg, rgba(10, 45, 56, 0.44) 0%, rgba(8, 18, 29, 0.32) 100%) !important;
-		border-color: rgba(130, 219, 232, 0.18) !important;
-		border-radius: 24rpx 24rpx 10rpx 24rpx;
-	}
-
-	.bubble .assistant-voice-pill {
-		background: linear-gradient(135deg, rgba(19, 34, 48, 0.62) 0%, rgba(15, 28, 40, 0.46) 100%);
-		border-color: rgba(255, 255, 255, 0.14);
-		box-shadow:
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.08),
-			0 10rpx 26rpx rgba(4, 12, 22, 0.16);
-	}
-
-	.bubble .assistant-voice-pill .assistant-voice-pill-text {
-		color: rgba(242, 250, 255, 0.96) !important;
-	}
-
-	.bubble .assistant-voice-pill-dot {
-		background: #8de8f0;
-		box-shadow: 0 0 0 8rpx rgba(141, 232, 240, 0.12);
-	}
-
-	.bubble .assistant-voice-pill--playing {
-		background: linear-gradient(135deg, rgba(52, 143, 184, 0.44) 0%, rgba(118, 210, 221, 0.32) 100%);
-		border-color: rgba(156, 224, 238, 0.26);
-	}
-
-	.bubble .assistant-voice-pill--error {
-		background: linear-gradient(135deg, rgba(94, 26, 40, 0.46) 0%, rgba(74, 19, 31, 0.34) 100%);
-		border-color: rgba(255, 182, 197, 0.18);
-	}
-
-	.bubble .txt,
-	.bubble .md-inner,
-	.bubble .md-inner *,
-	.bubble text,
-	.bubble .reply-help-text {
-		color: rgba(250, 253, 255, 0.98) !important;
-		text-shadow: none !important;
-	}
-
-	.md-inner >>> p,
-	.md-inner >>> li,
-	.md-inner >>> span,
-	.md-inner >>> strong,
-	.md-inner >>> em {
-		color: rgba(250, 253, 255, 0.98) !important;
-	}
-
-	.md-inner >>> .st-chat-seg--speech,
-	.md-inner >>> .st-chat-seg--speech p {
-		color: #eefcff !important;
-		font-weight: 650;
-	}
-
-	.md-inner >>> .st-chat-seg--thought,
-	.md-inner >>> .st-chat-seg--thought p {
-		color: rgba(224, 237, 247, 0.9) !important;
-		border-left-color: rgba(156, 224, 238, 0.3) !important;
-	}
-
-	.md-inner >>> .st-chat-seg--action,
-	.md-inner >>> .st-chat-seg--action p {
-		color: rgba(236, 244, 250, 0.94) !important;
-	}
-
-	.md-inner >>> .st-chat-seg--narration,
-	.md-inner >>> .st-chat-seg--narration p {
-		color: rgba(250, 253, 255, 0.98) !important;
-	}
-
-	.md-inner >>> code {
-		color: #f8fbff !important;
-		background: rgba(255, 255, 255, 0.12) !important;
-	}
-
-	.md-inner >>> pre {
-		color: #f8fbff !important;
-		background: rgba(3, 8, 14, 0.32) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.12);
-	}
-
-	.md-inner >>> a,
-	.swipe-btn {
-		color: #98e8ff !important;
-	}
-
-	.user-edit-tag,
-	.swipe-num {
+	.user-edit-tag {
 		color: rgba(222, 235, 244, 0.78) !important;
-	}
-
-	.swipe-row {
-		border-top-color: rgba(255, 255, 255, 0.14) !important;
 	}
 
 	/* Keep AI-helper consistent with the chat bubbles without making a heavy dark block. */
@@ -12025,45 +13686,6 @@
 		box-shadow: 0 6rpx 16rpx rgba(59, 154, 184, 0.22);
 	}
 
-	.bubble,
-	.msg-row.them .bubble {
-		background: linear-gradient(180deg, rgba(7, 12, 20, 0.46) 0%, rgba(9, 15, 24, 0.34) 100%) !important;
-		border-color: rgba(255, 255, 255, 0.14) !important;
-	}
-
-	.msg-row.me .bubble {
-		background: linear-gradient(135deg, rgba(10, 45, 56, 0.44) 0%, rgba(8, 18, 29, 0.32) 100%) !important;
-		border-color: rgba(130, 219, 232, 0.18) !important;
-	}
-
-	.bubble .txt,
-	.bubble .md-inner,
-	.bubble .md-inner *,
-	.bubble text {
-		color: rgba(250, 253, 255, 0.98) !important;
-	}
-
-	.md-inner >>> .st-chat-seg--speech,
-	.md-inner >>> .st-chat-seg--speech p {
-		color: #eefcff !important;
-		font-weight: 650;
-	}
-
-	.md-inner >>> .st-chat-seg--thought,
-	.md-inner >>> .st-chat-seg--thought p {
-		color: rgba(224, 237, 247, 0.9) !important;
-	}
-
-	.md-inner >>> .st-chat-seg--action,
-	.md-inner >>> .st-chat-seg--action p {
-		color: rgba(236, 244, 250, 0.94) !important;
-	}
-
-	.md-inner >>> .st-chat-seg--narration,
-	.md-inner >>> .st-chat-seg--narration p {
-		color: rgba(250, 253, 255, 0.98) !important;
-	}
-
 	.nav-link {
 		color: #2f7ea3 !important;
 		background: rgba(231, 247, 255, 0.72);
@@ -12083,57 +13705,13 @@
 		border-color: rgba(214, 229, 238, 0.88);
 	}
 
-	/* Composer polish: clean floating controls, no heavy gray strip. */
-	.input-bar {
-		align-items: flex-end !important;
-		gap: 12rpx;
-		padding: 12rpx 18rpx calc(14rpx + env(safe-area-inset-bottom)) !important;
-		background:
-			linear-gradient(180deg, rgba(8, 14, 24, 0) 0%, rgba(8, 14, 24, 0.12) 100%) !important;
-		border-top: 0 !important;
-		box-shadow: none !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-	}
-
-	.inp {
-		width: 0;
-		min-height: 76rpx;
-		max-height: 184rpx;
-		padding: 18rpx 26rpx !important;
-		box-sizing: border-box;
-		line-height: 40rpx;
-		border-radius: 30rpx;
-		white-space: pre-wrap;
-		word-break: break-word;
-		resize: none;
-		overflow-y: auto;
-		color: #223245 !important;
-		background: rgba(255, 255, 255, 0.9) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.78) !important;
-		box-shadow:
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.92),
-			0 10rpx 24rpx rgba(9, 18, 30, 0.16);
-	}
-
-	.attach-btn,
 	.reply-help-trigger,
-	.send {
+	.edit-btn--primary,
+	.commercial-btn--primary {
 		align-self: flex-end;
 		flex-shrink: 0;
 		margin-left: 0;
 		margin-right: 0;
-	}
-
-	.attach-btn {
-		width: 76rpx;
-		height: 76rpx;
-		line-height: 76rpx;
-		border-radius: 50%;
-		font-size: 44rpx;
-		color: #fff !important;
-		background: #4f93a3 !important;
-		box-shadow: 0 12rpx 26rpx rgba(48, 103, 117, 0.18);
 	}
 
 	.reply-help-trigger {
@@ -12144,40 +13722,6 @@
 		color: #fff !important;
 		background: #4f93a3 !important;
 		box-shadow: 0 12rpx 26rpx rgba(48, 103, 117, 0.18);
-	}
-
-	.send {
-		height: 76rpx;
-		line-height: 76rpx;
-		padding: 0 30rpx;
-		border-radius: 30rpx;
-		background: #4f93a3 !important;
-		box-shadow: 0 12rpx 26rpx rgba(48, 103, 117, 0.18);
-	}
-
-	.send.send--bottom {
-		background: #6d8a92 !important;
-		box-shadow: 0 12rpx 24rpx rgba(70, 86, 92, 0.18) !important;
-	}
-
-	.bubble .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #c05781 !important;
-		font-weight: 700 !important;
-	}
-
-	.bubble .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #4e6678 !important;
-		font-weight: 400 !important;
-	}
-
-	.bubble .st-chat-seg-native--action .st-chat-seg-text {
-		color: #3d5c70 !important;
-		font-weight: 400 !important;
-	}
-
-	.bubble .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #17344b !important;
-		font-weight: 400 !important;
 	}
 
 	/* #ifdef APP-PLUS */
@@ -12196,8 +13740,7 @@
 	.wrap--app-plus .tool-bar,
 	.wrap--app-plus .memory-bar,
 	.wrap--app-plus .reply-help-panel,
-	.wrap--app-plus .ai-disclaimer,
-	.wrap--app-plus .input-bar {
+	.wrap--app-plus .ai-disclaimer {
 		backdrop-filter: none !important;
 		-webkit-backdrop-filter: none !important;
 	}
@@ -12218,8 +13761,7 @@
 	.wrap--app-plus .memory-bar-txt,
 	.wrap--app-plus .chat-fill-txt,
 	.wrap--app-plus .typing-hint,
-	.wrap--app-plus .user-edit-tag,
-	.wrap--app-plus .swipe-num {
+	.wrap--app-plus .user-edit-tag {
 		color: #4d6374 !important;
 	}
 
@@ -12260,275 +13802,21 @@
 		box-shadow: 0 8rpx 18rpx rgba(66, 103, 132, 0.06);
 	}
 
+	.wrap--app-plus .branch-mask,
+	.wrap--app-plus .memory-mask,
 	.wrap--app-plus .character-voice-mask,
 	.wrap--app-plus .image-quick-mask {
 		padding: 18rpx 16rpx calc(env(safe-area-inset-bottom) + 12rpx) !important;
 	}
 
+	.wrap--app-plus .branch-sheet,
+	.wrap--app-plus .memory-sheet,
 	.wrap--app-plus .character-voice-sheet {
 		border-radius: 32rpx;
 	}
 
 	.wrap--app-plus .image-quick-card {
 		max-height: calc(100vh - 148rpx - env(safe-area-inset-bottom)) !important;
-	}
-
-	.wrap--app-plus .chat-scroll {
-		padding: 22rpx 18rpx 28rpx;
-	}
-
-	.wrap--app-plus .msg-row {
-		align-items: flex-end;
-		gap: 12rpx;
-		margin-bottom: 34rpx;
-	}
-
-	.wrap--app-plus .av {
-		width: 68rpx;
-		height: 68rpx;
-		border: 2rpx solid rgba(255, 255, 255, 0.76);
-		box-shadow: 0 8rpx 18rpx rgba(7, 18, 28, 0.12);
-		background: rgba(255, 255, 255, 0.28);
-	}
-
-	.wrap--app-plus .bubble,
-	.wrap--app-plus .msg-row.them .bubble {
-		position: relative;
-		max-width: calc(100% - 108rpx);
-		margin: 0 10rpx;
-		padding: 26rpx 28rpx 24rpx;
-		border-radius: 34rpx 34rpx 34rpx 18rpx;
-		background:
-			linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(238, 248, 252, 0.94) 100%) !important;
-		border: 1rpx solid rgba(86, 121, 145, 0.22) !important;
-		box-shadow:
-			0 18rpx 36rpx rgba(27, 70, 96, 0.16),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.9),
-			inset 0 -1rpx 0 rgba(132, 178, 206, 0.12) !important;
-	}
-
-	.wrap--app-plus .msg-row.me .bubble {
-		background:
-			linear-gradient(145deg, #2389aa 0%, #45b6cc 62%, #6dd1da 100%) !important;
-		border-color: rgba(231, 253, 255, 0.48) !important;
-		border-radius: 34rpx 34rpx 18rpx 34rpx;
-		box-shadow:
-			0 18rpx 36rpx rgba(21, 121, 151, 0.28),
-			inset 0 1rpx 0 rgba(238, 252, 255, 0.34),
-			inset 0 -1rpx 0 rgba(17, 90, 112, 0.14) !important;
-	}
-
-	.wrap--app-plus .bubble--streaming {
-		border-color: rgba(158, 238, 244, 0.22) !important;
-		box-shadow:
-			0 24rpx 44rpx rgba(4, 12, 22, 0.2),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.16),
-			0 0 0 1rpx rgba(158, 238, 244, 0.08) !important;
-	}
-
-	.wrap--app-plus .assistant-voice-row {
-		margin-top: 18rpx;
-	}
-
-	.wrap--app-plus .assistant-voice-pill {
-		min-height: 56rpx;
-		padding: 0 20rpx;
-		border-radius: 999rpx;
-		background: linear-gradient(135deg, rgba(11, 26, 40, 0.42) 0%, rgba(16, 44, 58, 0.24) 100%);
-		border-color: rgba(255, 255, 255, 0.18);
-		box-shadow:
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.12),
-			0 12rpx 28rpx rgba(4, 12, 22, 0.14);
-	}
-
-	.wrap--app-plus .assistant-voice-pill .assistant-voice-pill-text {
-		font-size: 23rpx;
-		color: rgba(244, 251, 255, 0.98) !important;
-	}
-
-	.wrap--app-plus .assistant-voice-pill-dot {
-		width: 15rpx;
-		height: 15rpx;
-		background: #9eeef4;
-		box-shadow: 0 0 0 8rpx rgba(158, 238, 244, 0.12);
-	}
-
-	.wrap--app-plus .assistant-voice-pill--playing {
-		background: linear-gradient(135deg, rgba(52, 143, 184, 0.5) 0%, rgba(118, 210, 221, 0.38) 100%);
-		border-color: rgba(193, 242, 248, 0.3);
-	}
-
-	.wrap--app-plus .bubble::before {
-		left: 16rpx;
-		right: 16rpx;
-		top: 4rpx;
-		height: 20rpx;
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.46) 0%, rgba(255, 255, 255, 0) 100%);
-		opacity: 0.76;
-	}
-
-	.wrap--app-plus .msg-row.them .bubble::after,
-	.wrap--app-plus .msg-row.me .bubble::after {
-		content: '';
-		position: absolute;
-		bottom: 18rpx;
-		width: 18rpx;
-		height: 18rpx;
-		transform: rotate(45deg);
-	}
-
-	.wrap--app-plus .msg-row.them .bubble::after {
-		left: -9rpx;
-		background: rgba(240, 249, 253, 0.96);
-		border-left: 1rpx solid rgba(86, 121, 145, 0.2);
-		border-bottom: 1rpx solid rgba(86, 121, 145, 0.2);
-		box-shadow: -6rpx 8rpx 14rpx rgba(27, 70, 96, 0.08);
-	}
-
-	.wrap--app-plus .msg-row.me .bubble::after {
-		right: -9rpx;
-		background: #45b6cc;
-		border-right: 1rpx solid rgba(231, 253, 255, 0.42);
-		border-top: 1rpx solid rgba(231, 253, 255, 0.42);
-		box-shadow: 6rpx 8rpx 14rpx rgba(21, 121, 151, 0.12);
-	}
-
-.wrap--app-plus .bubble--has-image {
-	padding-top: 16rpx;
-}
-
-.wrap--app-plus .local-image-prompt-row {
-	margin-top: 12rpx;
-}
-
-.wrap--app-plus .local-image-prompt-text {
-	font-size: 25rpx;
-}
-
-.wrap--app-plus .bubble--text-only {
-	padding-bottom: 22rpx;
-}
-
-	.wrap--app-plus .bubble--image-only {
-		padding: 10rpx;
-		background:
-			linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(238, 248, 252, 0.92) 100%) !important;
-	}
-
-	.wrap--app-plus .msg-row.me .bubble--image-only {
-		background:
-			linear-gradient(145deg, #2389aa 0%, #45b6cc 100%) !important;
-	}
-
-	.wrap--app-plus .bubble--image-only::before {
-		left: 10rpx;
-		right: 10rpx;
-		top: 3rpx;
-		opacity: 0.52;
-	}
-
-	.wrap--app-plus .msg-image-list {
-		gap: 14rpx;
-		margin-bottom: 10rpx;
-	}
-
-	.wrap--app-plus .bubble--image-only .msg-image-list {
-		margin-bottom: 0;
-	}
-
-	.wrap--app-plus .msg-image {
-		border-radius: 24rpx;
-		border-color: rgba(255, 255, 255, 0.18);
-		box-shadow:
-			0 12rpx 24rpx rgba(4, 12, 22, 0.16),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.14);
-	}
-
-	.wrap--app-plus .bubble--image-only .msg-image {
-		width: 216rpx;
-		height: 216rpx;
-	}
-
-	.wrap--app-plus .txt,
-	.wrap--app-plus .bubble .txt,
-	.wrap--app-plus .bubble .md-inner,
-	.wrap--app-plus .bubble .md-inner *,
-	.wrap--app-plus .bubble text {
-		color: #123247 !important;
-		font-size: 30rpx;
-		line-height: 1.86;
-		letter-spacing: 0.2rpx;
-		text-shadow: none !important;
-	}
-
-	.wrap--app-plus .msg-row.me .bubble .txt,
-	.wrap--app-plus .msg-row.me .bubble .md-inner,
-	.wrap--app-plus .msg-row.me .bubble .md-inner *,
-	.wrap--app-plus .msg-row.me .bubble text {
-		color: #ffffff !important;
-	}
-
-	.wrap--app-plus .msg-row.them .bubble .txt,
-	.wrap--app-plus .msg-row.them .bubble .md-inner,
-	.wrap--app-plus .msg-row.them .bubble .md-inner *,
-	.wrap--app-plus .msg-row.them .bubble text {
-		color: #123247 !important;
-	}
-
-	.wrap--app-plus .md-inner--native {
-		gap: 14rpx;
-	}
-
-	.wrap--app-plus .st-chat-seg-native {
-		display: block;
-		padding: 2rpx 0;
-	}
-
-	.wrap--app-plus .st-chat-seg-text {
-		font-size: 30rpx;
-		line-height: 1.86;
-	}
-
-	.wrap--app-plus .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #b94873 !important;
-		font-weight: 700 !important;
-	}
-
-	.wrap--app-plus .st-chat-seg-native--thought {
-		padding-left: 16rpx;
-		border-left: 4rpx solid rgba(185, 96, 133, 0.26);
-	}
-
-	.wrap--app-plus .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #7a5871 !important;
-		font-style: italic;
-		font-size: 28rpx;
-	}
-
-	.wrap--app-plus .st-chat-seg-native--action {
-		padding-left: 16rpx;
-		border-left: 4rpx solid rgba(50, 137, 166, 0.28);
-	}
-
-	.wrap--app-plus .st-chat-seg-native--action .st-chat-seg-text {
-		color: #2e6f89 !important;
-		font-style: italic;
-		font-size: 28rpx;
-	}
-
-	.wrap--app-plus .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #123247 !important;
-		font-weight: 500 !important;
-	}
-
-	.wrap--app-plus .swipe-row {
-		margin-top: 18rpx;
-		padding-top: 16rpx;
-		border-top-color: rgba(255, 255, 255, 0.12) !important;
-	}
-
-	.wrap--app-plus .swipe-btn {
-		color: #9ae9ff !important;
 	}
 
 	.wrap--app-plus .reply-help-panel {
@@ -12559,17 +13847,6 @@
 		background: rgba(93, 25, 40, 0.12);
 		border-color: rgba(248, 113, 113, 0.3);
 		color: #ffd4db;
-	}
-
-	.wrap--app-plus .stream-inline {
-		margin-top: 16rpx;
-		padding: 10rpx 18rpx;
-		background: rgba(255, 255, 255, 0.08);
-		border-color: rgba(255, 255, 255, 0.12);
-	}
-
-	.wrap--app-plus .stream-inline-text {
-		color: rgba(234, 246, 255, 0.9);
 	}
 
 	.wrap--app-plus .reply-help-head-btn {
@@ -12611,37 +13888,7 @@
 		-webkit-backdrop-filter: none !important;
 	}
 
-	.wrap--app-plus .input-bar {
-		align-items: center !important;
-		gap: 10rpx;
-		padding: 10rpx 14rpx calc(12rpx + env(safe-area-inset-bottom)) !important;
-		background:
-			linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(10, 16, 26, 0.08) 100%) !important;
-		border-top: 0 !important;
-		box-shadow: none !important;
-	}
-
-	.wrap--app-plus .input-pill {
-		min-height: 82rpx;
-		align-items: stretch;
-		gap: 10rpx;
-		padding: 8rpx 10rpx 8rpx 22rpx;
-		border-radius: 28rpx;
-	}
-
-	.wrap--app-plus .input-pill--with-quote {
-		padding-top: 12rpx;
-		padding-bottom: 12rpx;
-	}
-
-	.wrap--app-plus .input-actions {
-		gap: 4rpx;
-		padding-bottom: 0;
-	}
-
-	.wrap--app-plus .attach-btn,
-	.wrap--app-plus .reply-help-trigger,
-	.wrap--app-plus .send {
+	.wrap--app-plus .reply-help-trigger {
 		height: 72rpx;
 		line-height: 72rpx;
 		align-self: center;
@@ -12651,329 +13898,8 @@
 		box-shadow: 0 10rpx 22rpx rgba(47, 134, 168, 0.2);
 	}
 
-	.wrap--app-plus .attach-btn {
-		width: 72rpx;
-		border-radius: 50%;
-		font-size: 44rpx;
-	}
-
 	.wrap--app-plus .reply-help-trigger {
 		padding: 0 24rpx;
-	}
-
-	.wrap--app-plus .send {
-		width: 72rpx;
-		padding: 0;
-		justify-content: center;
-	}
-
-	.wrap--app-plus .send.send--bottom {
-		background: linear-gradient(135deg, #ef7ea8 0%, #f59bbf 62%, #ffc3d7 100%) !important;
-		box-shadow: 0 10rpx 22rpx rgba(239, 126, 168, 0.26) !important;
-	}
-
-	.wrap--app-plus .inp {
-		width: 0;
-		min-height: 72rpx;
-		max-height: 220rpx;
-		padding: 16rpx 22rpx !important;
-		line-height: 40rpx;
-		border-radius: 26rpx;
-		background: rgba(255, 255, 255, 0.94) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.82) !important;
-		box-shadow:
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.96),
-			0 10rpx 24rpx rgba(9, 18, 30, 0.12);
-		color: #1b2e40 !important;
-		word-break: break-word;
-		white-space: pre-wrap;
-		resize: none;
-		overflow-y: auto;
-	}
-
-	.bubble--app-plus {
-		position: relative;
-		max-width: calc(100% - 108rpx);
-		margin: 0 10rpx;
-		padding: 26rpx 28rpx 24rpx;
-		border-radius: 34rpx 34rpx 34rpx 18rpx;
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(238, 248, 252, 0.94) 100%) !important;
-		border: 1rpx solid rgba(86, 121, 145, 0.22) !important;
-		box-shadow:
-			0 18rpx 36rpx rgba(27, 70, 96, 0.16),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.9),
-			inset 0 -1rpx 0 rgba(132, 178, 206, 0.12) !important;
-	}
-
-	.bubble--app-plus.bubble--me {
-		border-radius: 34rpx 34rpx 18rpx 34rpx;
-		background: linear-gradient(145deg, #2389aa 0%, #45b6cc 62%, #6dd1da 100%) !important;
-		border-color: rgba(231, 253, 255, 0.48) !important;
-		box-shadow:
-			0 18rpx 36rpx rgba(21, 121, 151, 0.28),
-			inset 0 1rpx 0 rgba(238, 252, 255, 0.34),
-			inset 0 -1rpx 0 rgba(17, 90, 112, 0.14) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus::after,
-	.msg-row--app-plus.me .bubble--app-plus::after {
-		content: '';
-		position: absolute;
-		bottom: 18rpx;
-		width: 18rpx;
-		height: 18rpx;
-		transform: rotate(45deg);
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus::after {
-		left: -9rpx;
-		background: rgba(240, 249, 253, 0.96);
-		border-left: 1rpx solid rgba(86, 121, 145, 0.2);
-		border-bottom: 1rpx solid rgba(86, 121, 145, 0.2);
-		box-shadow: -6rpx 8rpx 14rpx rgba(27, 70, 96, 0.08);
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus::after {
-		right: -9rpx;
-		background: #45b6cc;
-		border-right: 1rpx solid rgba(231, 253, 255, 0.42);
-		border-top: 1rpx solid rgba(231, 253, 255, 0.42);
-		box-shadow: 6rpx 8rpx 14rpx rgba(21, 121, 151, 0.12);
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .txt,
-	.msg-row--app-plus.them .bubble--app-plus .md-inner,
-	.msg-row--app-plus.them .bubble--app-plus .md-inner *,
-	.msg-row--app-plus.them .bubble--app-plus text {
-		color: #123247 !important;
-		text-shadow: none !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .txt,
-	.msg-row--app-plus.me .bubble--app-plus .md-inner,
-	.msg-row--app-plus.me .bubble--app-plus .md-inner *,
-	.msg-row--app-plus.me .bubble--app-plus text {
-		color: #ffffff !important;
-		text-shadow: none !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #b94873 !important;
-		font-weight: 700 !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #7a5871 !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--action .st-chat-seg-text {
-		color: #2e6f89 !important;
-	}
-
-	.msg-row--app-plus .bubble--app-plus .txt,
-	.msg-row--app-plus .bubble--app-plus .md-inner,
-	.msg-row--app-plus .bubble--app-plus .st-chat-seg-text {
-		font-size: 30rpx !important;
-		line-height: 1.82 !important;
-		letter-spacing: 0 !important;
-		word-break: break-word;
-		white-space: pre-wrap;
-	}
-
-	.msg-row--app-plus .bubble--app-plus .msg-quote-preview {
-		margin-bottom: 16rpx;
-		padding: 14rpx 16rpx;
-		border-radius: 18rpx;
-		background: rgba(225, 242, 249, 0.76) !important;
-		border-left: 6rpx solid rgba(55, 145, 176, 0.42) !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .msg-quote-preview {
-		background: rgba(255, 255, 255, 0.2) !important;
-		border-left-color: rgba(255, 255, 255, 0.5) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .msg-quote-preview-speaker {
-		color: #246178 !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .msg-quote-preview-text {
-		color: #40586a !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .msg-quote-preview-speaker,
-	.msg-row--app-plus.me .bubble--app-plus .msg-quote-preview-text {
-		color: rgba(255, 255, 255, 0.9) !important;
-	}
-
-	.msg-row--app-plus .bubble--app-plus.bubble--has-image {
-		padding-top: 18rpx;
-	}
-
-	.msg-row--app-plus .bubble--app-plus.bubble--image-only {
-		padding: 10rpx;
-	}
-
-	.msg-row--app-plus .bubble--app-plus .msg-image-list {
-		gap: 12rpx;
-		margin-bottom: 12rpx;
-	}
-
-	.msg-row--app-plus .bubble--app-plus.bubble--image-only .msg-image-list {
-		margin-bottom: 0;
-	}
-
-	.msg-row--app-plus .bubble--app-plus .msg-image {
-		width: 198rpx;
-		height: 198rpx;
-		border-radius: 22rpx;
-		background: rgba(255, 255, 255, 0.62);
-		border: 1rpx solid rgba(255, 255, 255, 0.72) !important;
-		box-shadow:
-			0 10rpx 22rpx rgba(27, 70, 96, 0.14),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.3) !important;
-	}
-
-	.msg-row--app-plus .bubble--app-plus.bubble--image-only .msg-image {
-		width: 232rpx;
-		height: 232rpx;
-	}
-
-	.msg-row--app-plus .bubble--app-plus .local-image-prompt-row {
-		margin: 12rpx 0 2rpx;
-		padding: 12rpx 14rpx;
-		border-radius: 18rpx;
-		background: rgba(226, 243, 249, 0.72) !important;
-		border: 1rpx solid rgba(55, 145, 176, 0.18);
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .local-image-prompt-row {
-		background: rgba(255, 255, 255, 0.18) !important;
-		border-color: rgba(255, 255, 255, 0.2);
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .local-image-prompt-text {
-		color: #40586a !important;
-		font-size: 24rpx !important;
-		line-height: 1.55 !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .local-image-prompt-text {
-		color: rgba(255, 255, 255, 0.88) !important;
-		font-size: 24rpx !important;
-		line-height: 1.55 !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .user-voice-row {
-		align-items: flex-end;
-		gap: 12rpx;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .user-voice-card {
-		min-width: 236rpx;
-		max-width: 460rpx;
-		height: 78rpx;
-		padding: 0 22rpx;
-		border-radius: 24rpx 24rpx 10rpx 24rpx;
-		background: rgba(255, 255, 255, 0.2) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.26) !important;
-		box-shadow:
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.28),
-			0 8rpx 18rpx rgba(18, 96, 120, 0.12) !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .user-voice-card--playing {
-		background: rgba(255, 255, 255, 0.26) !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .user-voice-card--error {
-		background: rgba(255, 230, 236, 0.24) !important;
-		border-color: rgba(255, 214, 224, 0.36) !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .user-voice-bar,
-	.msg-row--app-plus.me .bubble--app-plus .user-voice-duration {
-		color: rgba(255, 255, 255, 0.94) !important;
-		background-color: rgba(255, 255, 255, 0.92) !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .user-voice-duration {
-		background-color: transparent !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .user-voice-transcript-wrap {
-		max-width: 460rpx;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .user-voice-transcript {
-		font-size: 25rpx !important;
-		line-height: 1.65 !important;
-		color: rgba(255, 255, 255, 0.9) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .assistant-voice-pill {
-		min-height: 54rpx;
-		padding: 0 18rpx;
-		border-radius: 999rpx;
-		background: rgba(226, 243, 249, 0.86) !important;
-		border: 1rpx solid rgba(55, 145, 176, 0.18) !important;
-		box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.7) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .assistant-voice-pill-text {
-		color: #246178 !important;
-		font-size: 23rpx !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .assistant-voice-pill-dot {
-		background: #45a9bf !important;
-		box-shadow: 0 0 0 8rpx rgba(69, 169, 191, 0.12) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .assistant-voice-pill--playing {
-		background: linear-gradient(135deg, #2f91b3 0%, #68c8d6 100%) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .assistant-voice-pill--playing .assistant-voice-pill-text {
-		color: #ffffff !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .assistant-voice-pill--error {
-		background: rgba(255, 232, 238, 0.92) !important;
-		border-color: rgba(224, 110, 140, 0.24) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .assistant-voice-pill--error .assistant-voice-pill-text {
-		color: #a64167 !important;
-	}
-
-	.msg-row--app-plus .bubble--app-plus .stream-inline--app-plus {
-		margin-top: 16rpx;
-		padding: 10rpx 16rpx;
-		border-radius: 999rpx;
-		background: rgba(226, 243, 249, 0.78) !important;
-		border: 1rpx solid rgba(55, 145, 176, 0.16) !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .stream-inline--app-plus {
-		background: rgba(255, 255, 255, 0.18) !important;
-		border-color: rgba(255, 255, 255, 0.22) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .stream-inline-text {
-		color: #2d647f !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .stream-inline-text {
-		color: rgba(255, 255, 255, 0.9) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .stream-inline-bar {
-		background: #45a9bf !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .stream-inline-bar {
-		background: rgba(255, 255, 255, 0.92) !important;
 	}
 
 	.typing-row--app-plus {
@@ -12998,33 +13924,6 @@
 		color: #b64d6f !important;
 	}
 
-	.msg-row--app-plus.them .bubble--app-plus .swipe-row {
-		margin-top: 18rpx;
-		padding-top: 14rpx;
-		border-top: 1rpx solid rgba(86, 121, 145, 0.14) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .swipe-btn {
-		min-width: 44rpx;
-		height: 44rpx;
-		line-height: 44rpx;
-		text-align: center;
-		border-radius: 999rpx;
-		background: rgba(226, 243, 249, 0.82);
-		color: #2d647f !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .swipe-num {
-		color: #5a7182 !important;
-	}
-
-	.msg-row--app-plus.me .bubble--app-plus .user-edit-tag {
-		color: rgba(255, 255, 255, 0.72) !important;
-	}
-
-	.msg-row--app-plus.them .bubble--app-plus .user-edit-tag {
-		color: #6a7d8c !important;
-	}
 	/* #endif */
 
 	.tool-i--reply,
@@ -13062,275 +13961,7 @@
 	}
 </style>
 
-<style>
-	/* #ifdef APP-PLUS */
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native {
-		margin: 0 0 8rpx !important;
-		padding: 7rpx 0 7rpx 14rpx !important;
-		border-radius: 12rpx !important;
-		box-shadow: none !important;
-		box-sizing: border-box !important;
-	}
 
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--speech {
-		background: rgba(255, 122, 182, 0.12) !important;
-		border-left: 6rpx solid rgba(255, 122, 182, 0.82) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--action {
-		background: rgba(110, 231, 183, 0.1) !important;
-		border-left: 6rpx solid rgba(110, 231, 183, 0.76) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--thought {
-		background: rgba(182, 156, 255, 0.1) !important;
-		border-left: 6rpx solid rgba(182, 156, 255, 0.76) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--narration {
-		background: rgba(155, 220, 255, 0.08) !important;
-		border-left: 6rpx solid rgba(155, 220, 255, 0.72) !important;
-	}
-
-	.st-chat-seg-text--speech,
-	text.st-chat-seg-text--speech,
-	uni-text.st-chat-seg-text--speech,
-	v-uni-text.st-chat-seg-text--speech,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #ff7ab6 !important;
-		-webkit-text-fill-color: #ff7ab6 !important;
-		font-weight: 700 !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--action,
-	text.st-chat-seg-text--action,
-	uni-text.st-chat-seg-text--action,
-	v-uni-text.st-chat-seg-text--action,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--action .st-chat-seg-text {
-		color: #6ee7b7 !important;
-		-webkit-text-fill-color: #6ee7b7 !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--thought,
-	text.st-chat-seg-text--thought,
-	uni-text.st-chat-seg-text--thought,
-	v-uni-text.st-chat-seg-text--thought,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #b69cff !important;
-		-webkit-text-fill-color: #b69cff !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--narration,
-	text.st-chat-seg-text--narration,
-	uni-text.st-chat-seg-text--narration,
-	v-uni-text.st-chat-seg-text--narration,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #9bdcff !important;
-		-webkit-text-fill-color: #9bdcff !important;
-		text-shadow: none !important;
-	}
-	/* #endif */
-</style>
-
-<style>
-	/* #ifdef APP-PLUS */
-	.msg-row.them .bubble,
-	.msg-row--app-plus.them .bubble,
-	.wrap--app-plus .msg-row.them .bubble,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus {
-		position: relative !important;
-		max-width: calc(100% - 110rpx) !important;
-		padding: 18rpx 22rpx !important;
-		border-radius: 22rpx !important;
-		background: rgba(16, 18, 28, 0.84) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.18) !important;
-		border-left: 4rpx solid rgba(255, 177, 211, 0.62) !important;
-		box-shadow:
-			0 10rpx 24rpx rgba(0, 0, 0, 0.2),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.12) !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-		box-sizing: border-box !important;
-	}
-
-	.msg-row.me .bubble,
-	.msg-row--app-plus.me .bubble,
-	.wrap--app-plus .msg-row.me .bubble,
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus {
-		position: relative !important;
-		max-width: calc(100% - 122rpx) !important;
-		padding: 18rpx 22rpx !important;
-		border-radius: 22rpx !important;
-		background: rgba(21, 55, 64, 0.82) !important;
-		border: 1rpx solid rgba(220, 252, 255, 0.22) !important;
-		border-right: 4rpx solid rgba(135, 232, 196, 0.58) !important;
-		box-shadow:
-			0 10rpx 24rpx rgba(0, 0, 0, 0.18),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.14) !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-		box-sizing: border-box !important;
-	}
-
-	.msg-row.them .bubble::after,
-	.msg-row.me .bubble::after,
-	.msg-row--app-plus.them .bubble--app-plus::after,
-	.msg-row--app-plus.me .bubble--app-plus::after {
-		display: none !important;
-	}
-
-	.bubble .txt,
-	.bubble .md-inner,
-	.bubble .md-inner *,
-	.bubble .st-chat-seg-text,
-	.bubble text,
-	.bubble--app-plus .txt,
-	.bubble--app-plus .md-inner,
-	.bubble--app-plus .md-inner *,
-	.bubble--app-plus .st-chat-seg-text,
-	.bubble--app-plus text {
-		color: #f8fafc !important;
-		font-size: 29rpx !important;
-		line-height: 1.72 !important;
-		font-style: normal !important;
-		font-weight: 560 !important;
-		letter-spacing: 0 !important;
-		text-shadow: none !important;
-		word-break: break-word !important;
-		overflow-wrap: break-word !important;
-	}
-
-	.st-chat-seg-native,
-	.bubble--app-plus .st-chat-seg-native,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native {
-		margin: 0 0 7rpx !important;
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-		box-shadow: none !important;
-	}
-
-	.st-chat-seg-native--speech .st-chat-seg-text,
-	.bubble--app-plus .st-chat-seg-native--speech .st-chat-seg-text,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #ffd1e4 !important;
-		font-weight: 700 !important;
-	}
-
-	.st-chat-seg-native--action .st-chat-seg-text,
-	.bubble--app-plus .st-chat-seg-native--action .st-chat-seg-text,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--action .st-chat-seg-text {
-		color: #bff3d8 !important;
-		font-style: normal !important;
-	}
-
-	.st-chat-seg-native--thought .st-chat-seg-text,
-	.bubble--app-plus .st-chat-seg-native--thought .st-chat-seg-text,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #ddd4ff !important;
-		font-style: normal !important;
-	}
-
-	.st-chat-seg-native--narration .st-chat-seg-text,
-	.bubble--app-plus .st-chat-seg-native--narration .st-chat-seg-text,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #f8fafc !important;
-	}
-
-	.bubble--image-only,
-	.wrap--app-plus .bubble--image-only {
-		background: transparent !important;
-		border-color: transparent !important;
-		border-left-color: transparent !important;
-		border-right-color: transparent !important;
-		box-shadow: none !important;
-	}
-	/* #endif */
-</style>
-
-<style>
-	.wrap .msg-row.them .bubble {
-		background: rgba(38, 40, 46, 0.5) !important;
-	}
-
-	.wrap .msg-row.me .bubble {
-		background: rgba(48, 50, 56, 0.54) !important;
-	}
-
-	.wrap .bubble .txt,
-	.wrap .bubble .md-inner,
-	.wrap .bubble .md-inner *,
-	.wrap .bubble .md-inner p,
-	.wrap .bubble .md-inner span,
-	.wrap .bubble .md-inner strong,
-	.wrap .bubble .md-inner em,
-	.wrap .bubble .md-inner div,
-	.wrap .bubble .md-inner li,
-	.wrap .bubble .md-inner blockquote,
-	.wrap .bubble .md-inner .st-chat-render,
-	.wrap .bubble .md-inner .st-chat-seg,
-	.wrap .bubble .md-inner .st-chat-seg *,
-	.wrap .bubble .st-chat-seg-text,
-	.wrap .bubble text {
-		color: #ffffff !important;
-		font-style: normal !important;
-		font-weight: 500 !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.46) !important;
-	}
-
-	.wrap .bubble .md-inner .st-chat-seg,
-	.wrap .bubble .md-inner .st-chat-seg--speech,
-	.wrap .bubble .md-inner .st-chat-seg--narration,
-	.wrap .bubble .md-inner .st-chat-seg--action,
-	.wrap .bubble .md-inner .st-chat-seg--thought {
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-		box-shadow: none !important;
-	}
-
-	.wrap .bubble .msg-quote-preview {
-		background: rgba(255, 255, 255, 0.1) !important;
-		border-left-color: rgba(255, 255, 255, 0.24) !important;
-	}
-
-	.wrap .bubble .msg-quote-preview-speaker,
-	.wrap .bubble .msg-quote-preview-text {
-		color: #ffffff !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.4) !important;
-	}
-
-	/* #ifdef APP-PLUS */
-	.wrap--app-plus .msg-row--app-plus .bubble--app-plus {
-		background: rgba(38, 40, 46, 0.54) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus {
-		background: rgba(48, 50, 56, 0.58) !important;
-	}
-
-	.wrap--app-plus .bubble--app-plus .txt,
-	.wrap--app-plus .bubble--app-plus .md-inner,
-	.wrap--app-plus .bubble--app-plus .md-inner *,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-text,
-	.wrap--app-plus .bubble--app-plus text {
-		color: #ffffff !important;
-		font-style: normal !important;
-		font-weight: 500 !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.46) !important;
-	}
-
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native {
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-		box-shadow: none !important;
-	}
-	/* #endif */
-</style>
 
 <style>
 page {
@@ -13341,156 +13972,99 @@ page {
 		background-repeat: no-repeat;
 	}
 
-	.inp-ph {
-		color: #64748b;
+	.chat-message-markdown .st-chat-rich-block {
+		display: block;
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		margin: 2px 0 4px;
+		box-sizing: border-box;
+		contain: layout paint;
+		isolation: isolate;
+		color: inherit;
+		-webkit-text-fill-color: currentColor;
 	}
 
-	/* #ifdef APP-PLUS */
-	.inp-ph {
-		color: #7f8d9a !important;
-	}
-	/* #endif */
-</style>
-
-<style>
-	.input-bar {
-		position: relative;
-		z-index: 6;
-		display: flex;
-		align-items: flex-end !important;
-		gap: 14rpx;
-		padding: 12rpx 18rpx calc(12rpx + env(safe-area-inset-bottom)) !important;
-		background: transparent !important;
-		border-top: 0 !important;
-		box-shadow: none !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-	}
-
-	.input-pill {
-		flex: 1;
-		min-height: 88rpx;
-		display: flex;
-		flex-direction: column;
-		align-items: stretch;
-		gap: 10rpx;
-		padding: 8rpx 12rpx 8rpx 24rpx;
-		border-radius: 999rpx;
-		background: rgba(255, 255, 255, 0.76) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.46) !important;
-		box-shadow: 0 10rpx 26rpx rgba(24, 48, 68, 0.12);
-		backdrop-filter: blur(12rpx) saturate(128%);
-		-webkit-backdrop-filter: blur(12rpx) saturate(128%);
-	}
-
-	.input-pill--with-quote {
-		border-radius: 34rpx;
-		padding-top: 12rpx;
-		padding-bottom: 12rpx;
-	}
-
-	.draft-restore-bar {
-		display: flex;
-		align-items: center;
-		gap: 12rpx;
-		min-height: 46rpx;
-		padding: 8rpx 12rpx 8rpx 16rpx;
-		border-radius: 22rpx;
-		background: rgba(236, 247, 252, 0.92);
-		border: 1rpx solid rgba(79, 147, 163, 0.14);
+	.chat-message-markdown .st-chat-rich-block > * {
+		max-width: 100%;
 		box-sizing: border-box;
 	}
 
-	.draft-restore-text {
-		flex: 1;
-		min-width: 0;
-		font-size: 22rpx;
-		line-height: 1.35;
-		color: #426273;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	.chat-message-markdown .st-chat-rich-block p:first-child,
+	.chat-message-markdown .st-chat-rich-block div:first-child {
+		margin-top: 0;
 	}
 
-	.draft-restore-action {
-		flex-shrink: 0;
-		font-size: 22rpx;
+	.chat-message-markdown .st-chat-rich-block p:last-child,
+	.chat-message-markdown .st-chat-rich-block div:last-child {
+		margin-bottom: 0;
+	}
+
+	.chat-message-markdown .st-chat-rich-block--status {
+		padding: 8px 0 2px;
+		border-top: 1px solid rgba(255, 255, 255, 0.18);
+	}
+
+	.chat-message-markdown .st-chat-rich-block details {
+		width: 100%;
+		margin: 0;
+		padding: 0;
+	}
+
+	.chat-message-markdown .st-chat-rich-block summary {
+		min-height: 28px;
+		padding: 4px 0;
 		font-weight: 700;
-		color: #2f7f96;
-	}
-
-	.draft-restore-close {
-		flex-shrink: 0;
-		width: 34rpx;
-		height: 34rpx;
-		line-height: 34rpx;
-		border-radius: 50%;
-		text-align: center;
-		font-size: 26rpx;
-		color: #6d7f8b;
-		background: rgba(255, 255, 255, 0.78);
-	}
-
-	.input-main {
-		display: flex;
-		align-items: flex-end;
-		gap: 8rpx;
-		min-width: 0;
-	}
-
-	.composer-quote-bar {
-		display: flex;
-		align-items: flex-start;
-		gap: 14rpx;
-		padding: 12rpx 16rpx;
-		border-radius: 22rpx;
-		background: rgba(240, 244, 247, 0.96);
-		border-left: 6rpx solid rgba(52, 143, 184, 0.42);
-	}
-
-	.composer-quote-copy {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.composer-quote-speaker {
-		display: block;
-		font-size: 21rpx;
-		font-weight: 700;
-		line-height: 1.4;
-		color: #2d647f;
-	}
-
-	.composer-quote-text {
-		display: block;
-		margin-top: 4rpx;
-		font-size: 22rpx;
 		line-height: 1.5;
-		color: #526277;
+		cursor: pointer;
+	}
+
+	.chat-message-markdown .st-chat-rich-block table {
+		width: 100%;
+		max-width: 100%;
+		margin: 4px 0;
+		border-collapse: collapse;
+		table-layout: auto;
+	}
+
+	.chat-message-markdown .st-chat-rich-block th,
+	.chat-message-markdown .st-chat-rich-block td {
+		padding: 6px 8px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+		text-align: left;
+		vertical-align: top;
 		word-break: break-word;
 	}
 
-	.composer-quote-close {
-		flex-shrink: 0;
-		width: 34rpx;
-		height: 34rpx;
-		line-height: 34rpx;
-		text-align: center;
-		font-size: 28rpx;
-		color: #7390a2;
+	.chat-message-markdown .st-chat-rich-block th {
+		font-weight: 700;
 	}
 
-	.input-actions {
-		flex-shrink: 0;
-		display: flex;
-		align-items: center;
-		gap: 6rpx;
-		padding-bottom: 4rpx;
+	.chat-message-markdown .st-chat-rich-block progress,
+	.chat-message-markdown .st-chat-rich-block meter {
+		display: block;
+		width: 100%;
+		max-width: 100%;
+		height: 10px;
+		margin: 6px 0;
 	}
+
+	.chat-message-markdown .st-chat-rich-pending {
+		display: block;
+		width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+		white-space: pre-wrap;
+		word-break: break-word;
+		opacity: 0.84;
+	}
+
 
 	.voice-status-card {
 		margin: 0 18rpx 12rpx auto;
 		max-width: 72%;
+		min-width: 0;
+		box-sizing: border-box;
 		padding: 18rpx 22rpx 18rpx 20rpx;
 		display: flex;
 		align-items: center;
@@ -13589,105 +14163,12 @@ page {
 		border: 2rpx solid rgba(255, 255, 255, 0.16);
 	}
 
-	.user-voice-row {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		justify-content: flex-end;
-		gap: 10rpx;
-	}
-
-	.user-voice-card {
-		min-width: 228rpx;
-		max-width: 460rpx;
-		height: 84rpx;
-		padding: 0 24rpx;
-		display: inline-flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 20rpx;
-		border-radius: 26rpx 26rpx 12rpx 26rpx;
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0.14) 100%);
-		border: 2rpx solid rgba(255, 255, 255, 0.2);
-		box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.22);
-	}
-
-	.user-voice-card--playing {
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.2) 100%);
-	}
-
-	.user-voice-card--error {
-		background: linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 216, 220, 0.22) 100%);
-	}
-
-	.user-voice-transcript-wrap {
-		max-width: 460rpx;
-		display: flex;
-		align-items: flex-start;
-		justify-content: flex-end;
-		gap: 12rpx;
-	}
-
-	.user-voice-transcript {
-		flex: 1;
-		min-width: 0;
-		font-size: 24rpx;
-		line-height: 1.65;
-		color: rgba(255, 255, 255, 0.92);
-		text-align: left;
-		white-space: normal;
-		word-break: break-word;
-	}
-
-	.user-voice-wave {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		align-items: center;
-		gap: 8rpx;
-	}
-
-	.user-voice-bar {
-		width: 8rpx;
-		height: 24rpx;
-		border-radius: 999rpx;
-		background: rgba(255, 255, 255, 0.92);
-		transform-origin: center bottom;
-	}
-
-	.user-voice-bar:nth-child(2) {
-		height: 34rpx;
-		animation-delay: 0.12s;
-	}
-
-	.user-voice-bar:nth-child(3) {
-		height: 20rpx;
-		animation-delay: 0.24s;
-	}
-
-	.user-voice-bar:nth-child(4) {
-		height: 30rpx;
-		animation-delay: 0.36s;
-	}
-
-	.user-voice-duration {
-		flex-shrink: 0;
-		font-size: 24rpx;
-		font-weight: 700;
-		color: rgba(255, 255, 255, 0.92);
-	}
-
-	.user-edit-tag--voice {
-		margin-top: 2rpx;
-		flex-shrink: 0;
-	}
-
-	.user-voice-card--playing .user-voice-bar {
-		animation: voice-status-wave 1.2s ease-in-out infinite;
-	}
-
 	.expression-panel {
 		margin: 0 18rpx 10rpx;
+		width: calc(100% - 36rpx);
+		max-width: calc(100% - 36rpx);
+		box-sizing: border-box;
+		overflow-x: hidden;
 		padding: 20rpx;
 		border-radius: 34rpx;
 		background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 247, 251, 0.95) 100%);
@@ -13701,6 +14182,7 @@ page {
 		align-items: center;
 		justify-content: space-between;
 		gap: 16rpx;
+		min-width: 0;
 		margin-bottom: 18rpx;
 	}
 
@@ -13712,6 +14194,7 @@ page {
 	}
 
 	.expression-panel-title-wrap {
+		min-width: 0;
 		display: flex;
 		align-items: center;
 		gap: 10rpx;
@@ -14143,282 +14626,7 @@ page {
 		color: #fff;
 	}
 
-	.scroll-bottom-pill {
-		flex: 1;
-		height: 88rpx;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0 26rpx;
-		border-radius: 999rpx;
-		background: linear-gradient(135deg, rgba(52, 143, 184, 0.92) 0%, rgba(118, 210, 221, 0.9) 62%, rgba(244, 166, 196, 0.92) 100%) !important;
-		box-shadow: 0 12rpx 24rpx rgba(52, 143, 184, 0.16);
-	}
-
-	.scroll-bottom-pill-text {
-		color: #fff;
-		font-size: 28rpx;
-		font-weight: 600;
-		letter-spacing: 1rpx;
-	}
-
-	.inp {
-		flex: 1;
-		min-height: 72rpx !important;
-		max-height: 196rpx !important;
-		padding: 14rpx 8rpx 14rpx 0 !important;
-		background: transparent !important;
-		border: 0 !important;
-		box-shadow: none !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-		color: #1f2937 !important;
-		font-size: 28rpx;
-		line-height: 40rpx;
-	}
-
-	.expression-trigger,
-	.attach-btn {
-		display: flex !important;
-		align-items: center;
-		justify-content: center;
-		width: 64rpx !important;
-		height: 64rpx !important;
-		min-width: 64rpx !important;
-		padding: 0 !important;
-		line-height: normal !important;
-		border-radius: 50% !important;
-		background: transparent !important;
-		box-shadow: none !important;
-	}
-
-	.input-action-icon {
-		width: 42rpx;
-		height: 42rpx;
-	}
-
-	.attach-btn--active {
-		transform: rotate(45deg);
-	}
-
-	.send.send--icon {
-		width: 88rpx !important;
-		height: 88rpx !important;
-		min-width: 88rpx !important;
-		padding: 0 !important;
-		display: flex !important;
-		align-items: center;
-		justify-content: center;
-		border-radius: 50% !important;
-		background: #4f93a3 !important;
-		box-shadow: 0 12rpx 24rpx rgba(48, 103, 117, 0.2) !important;
-	}
-
-	.send-icon {
-		width: 42rpx;
-		height: 42rpx;
-	}
-
-	.attach-fab-menu {
-		position: fixed;
-		right: 18rpx;
-		left: auto;
-		bottom: calc(env(safe-area-inset-bottom) + 106rpx);
-		z-index: 7;
-		display: flex;
-		flex-direction: row;
-		align-items: center;
-		flex-wrap: wrap;
-		justify-content: flex-end;
-		max-width: calc(100vw - 132rpx);
-		gap: 18rpx;
-	}
-
-	.attach-fab-item {
-		display: flex;
-	}
-
-	.attach-fab-item--active .attach-fab-badge {
-		background: linear-gradient(135deg, #ef86af 0%, #f5bdd1 100%);
-		border-color: rgba(239, 134, 175, 0.12);
-		box-shadow: 0 14rpx 26rpx rgba(239, 134, 175, 0.2);
-	}
-
-	.attach-fab-badge {
-		width: 86rpx;
-		height: 86rpx;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 50%;
-		background: rgba(255, 255, 255, 0.96);
-		border: 2rpx solid rgba(31, 41, 55, 0.08);
-		box-shadow: 0 14rpx 26rpx rgba(15, 23, 42, 0.12);
-	}
-
-	.attach-fab-icon {
-		width: 44rpx;
-		height: 44rpx;
-	}
-
-	.attach-fab-label {
-		display: none !important;
-	}
-
 	/* #ifdef APP-PLUS */
-	.wrap--app-plus.focused .chat-scroll {
-		padding-bottom: 42rpx !important;
-	}
-
-	.wrap--app-plus .input-bar {
-		align-items: flex-end !important;
-		gap: 10rpx !important;
-		padding: 10rpx 14rpx calc(10rpx + env(safe-area-inset-bottom)) !important;
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(232, 244, 250, 0.72) 100%) !important;
-	}
-
-	.wrap--app-plus .input-pill {
-		min-height: 82rpx !important;
-		max-height: 300rpx;
-		padding: 8rpx 10rpx 8rpx 20rpx !important;
-		border-radius: 30rpx !important;
-		background: rgba(255, 255, 255, 0.96) !important;
-		border: 1rpx solid rgba(86, 121, 145, 0.18) !important;
-		box-shadow: 0 10rpx 24rpx rgba(27, 70, 96, 0.1) !important;
-	}
-
-	.wrap--app-plus .input-pill--with-quote {
-		border-radius: 28rpx !important;
-		padding-top: 12rpx !important;
-		padding-bottom: 12rpx !important;
-	}
-
-	.wrap--app-plus .draft-restore-bar {
-		min-height: 44rpx;
-		padding: 8rpx 12rpx !important;
-		border-radius: 20rpx !important;
-		background: rgba(236, 247, 252, 0.94) !important;
-		border-color: rgba(55, 145, 176, 0.16) !important;
-	}
-
-	.wrap--app-plus .draft-restore-text {
-		font-size: 21rpx !important;
-		color: #426273 !important;
-	}
-
-	.wrap--app-plus .draft-restore-action {
-		font-size: 21rpx !important;
-		color: #2f7f96 !important;
-	}
-
-	.wrap--app-plus .draft-restore-close {
-		background: rgba(255, 255, 255, 0.86) !important;
-		color: #6d7f8b !important;
-	}
-
-	.wrap--app-plus .input-main {
-		align-items: flex-end !important;
-		gap: 8rpx !important;
-		min-height: 66rpx;
-	}
-
-	.wrap--app-plus .inp {
-		min-height: 66rpx !important;
-		max-height: 208rpx !important;
-		padding: 13rpx 8rpx 13rpx 0 !important;
-		font-size: 28rpx !important;
-		line-height: 40rpx !important;
-		color: #1b2e40 !important;
-		word-break: break-word;
-		white-space: pre-wrap;
-		overflow-y: auto;
-	}
-
-	.wrap--app-plus .input-actions {
-		align-self: flex-end;
-		height: 66rpx;
-		gap: 4rpx !important;
-		padding-bottom: 0 !important;
-	}
-
-	.wrap--app-plus .expression-trigger,
-	.wrap--app-plus .attach-btn {
-		width: 66rpx !important;
-		height: 66rpx !important;
-		min-width: 66rpx !important;
-		border-radius: 50% !important;
-		background: rgba(236, 247, 252, 0.88) !important;
-		border: 1rpx solid rgba(86, 121, 145, 0.12) !important;
-		box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.82) !important;
-	}
-
-	.wrap--app-plus .input-action-icon {
-		width: 40rpx;
-		height: 40rpx;
-	}
-
-	.wrap--app-plus .send.send--icon {
-		width: 82rpx !important;
-		height: 82rpx !important;
-		min-width: 82rpx !important;
-		align-self: flex-end !important;
-		border-radius: 50% !important;
-		background: #4f93a3 !important;
-		box-shadow: 0 12rpx 24rpx rgba(48, 103, 117, 0.2) !important;
-	}
-
-	.wrap--app-plus .send-icon {
-		width: 40rpx;
-		height: 40rpx;
-	}
-
-	.wrap--app-plus .composer-quote-bar {
-		max-height: 138rpx;
-		padding: 12rpx 14rpx !important;
-		border-radius: 20rpx !important;
-		background: rgba(236, 247, 252, 0.92) !important;
-		border-left: 6rpx solid rgba(55, 145, 176, 0.42);
-		overflow: hidden;
-	}
-
-	.wrap--app-plus .composer-quote-text {
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
-
-	.wrap--app-plus .composer-quote-close {
-		width: 42rpx;
-		height: 42rpx;
-		line-height: 42rpx;
-		border-radius: 50%;
-		background: rgba(255, 255, 255, 0.76);
-		color: #5b7284;
-	}
-
-	.wrap--app-plus .scroll-bottom-pill {
-		height: 82rpx;
-		border-radius: 999rpx;
-		background: #4f93a3 !important;
-		box-shadow: 0 12rpx 24rpx rgba(48, 103, 117, 0.18) !important;
-	}
-
-	.wrap--app-plus .attach-fab-menu {
-		right: 16rpx;
-		bottom: calc(env(safe-area-inset-bottom) + 110rpx);
-		max-width: calc(100vw - 126rpx);
-		gap: 14rpx;
-	}
-
-	.wrap--app-plus .attach-fab-badge {
-		width: 82rpx;
-		height: 82rpx;
-		background: rgba(255, 255, 255, 0.96);
-		border-color: rgba(86, 121, 145, 0.14);
-		box-shadow: 0 12rpx 24rpx rgba(27, 70, 96, 0.12);
-	}
-
 	.wrap--app-plus .message-action-mask {
 		background: rgba(6, 10, 24, 0.08);
 	}
@@ -14475,204 +14683,13 @@ page {
 	.wrap--app-plus .tool-bar,
 	.wrap--app-plus .memory-bar,
 	.wrap--app-plus .reply-help-panel,
-	.wrap--app-plus .ai-disclaimer,
-	.wrap--app-plus .input-bar,
-	.wrap--app-plus .bubble,
-	.wrap--app-plus .msg-row.me .bubble,
-	.wrap--app-plus .msg-row.them .bubble {
+	.wrap--app-plus .ai-disclaimer {
 		backdrop-filter: none !important;
 		-webkit-backdrop-filter: none !important;
 	}
 
-	.wrap--app-plus .msg-row {
-		padding-left: 22rpx !important;
-		padding-right: 22rpx !important;
-		gap: 14rpx !important;
-		margin-bottom: 30rpx !important;
-	}
-
-	.wrap--app-plus .bubble,
-	.wrap--app-plus .bubble--app-plus {
-		max-width: calc(100% - 116rpx) !important;
-		min-width: 0 !important;
-		padding: 22rpx 26rpx !important;
-		border-radius: 32rpx 32rpx 32rpx 16rpx !important;
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(240, 250, 252, 0.82) 100%) !important;
-		border: 1rpx solid rgba(85, 120, 138, 0.18) !important;
-		box-shadow:
-			0 18rpx 34rpx rgba(30, 56, 76, 0.16),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.9),
-			inset 0 -1rpx 0 rgba(96, 156, 178, 0.1) !important;
-		box-sizing: border-box !important;
-		overflow: visible !important;
-	}
-
-	.wrap--app-plus .msg-row.me .bubble,
-	.wrap--app-plus .bubble--app-plus.bubble--me {
-		border-radius: 32rpx 32rpx 16rpx 32rpx !important;
-		background: linear-gradient(135deg, #3bb984 0%, #36a39d 56%, #2d8da6 100%) !important;
-		border-color: rgba(235, 255, 248, 0.42) !important;
-		box-shadow:
-			0 18rpx 34rpx rgba(32, 125, 116, 0.24),
-			inset 0 1rpx 0 rgba(245, 255, 252, 0.32),
-			inset 0 -1rpx 0 rgba(18, 94, 98, 0.16) !important;
-	}
-
-	.wrap--app-plus .bubble::before,
-	.wrap--app-plus .bubble--app-plus::before {
-		display: none !important;
-	}
-
-	.wrap--app-plus .bubble::after,
-	.wrap--app-plus .bubble--app-plus::after {
-		width: 18rpx !important;
-		height: 18rpx !important;
-		top: 24rpx !important;
-		border: none !important;
-		box-shadow: none !important;
-	}
-
-	.wrap--app-plus .msg-row.them .bubble::after,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus::after {
-		left: -8rpx !important;
-		background: rgba(246, 251, 252, 0.88) !important;
-		transform: rotate(45deg) !important;
-	}
-
-	.wrap--app-plus .msg-row.me .bubble::after,
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus::after {
-		right: -8rpx !important;
-		background: #36a39d !important;
-		transform: rotate(45deg) !important;
-	}
-
-	.wrap--app-plus .bubble .txt,
-	.wrap--app-plus .bubble .md-inner,
-	.wrap--app-plus .bubble .md-inner *,
-	.wrap--app-plus .bubble text,
-	.wrap--app-plus .bubble--app-plus .txt,
-	.wrap--app-plus .bubble--app-plus .md-inner,
-	.wrap--app-plus .bubble--app-plus .md-inner *,
-	.wrap--app-plus .bubble--app-plus text {
-		font-size: 30rpx !important;
-		line-height: 1.78 !important;
-		color: #25394a !important;
-		word-break: break-word !important;
-		overflow-wrap: break-word !important;
-		text-shadow: none !important;
-	}
-
-	.wrap--app-plus .msg-row.me .bubble .txt,
-	.wrap--app-plus .msg-row.me .bubble .md-inner,
-	.wrap--app-plus .msg-row.me .bubble .md-inner *,
-	.wrap--app-plus .msg-row.me .bubble text,
-	.wrap--app-plus .bubble--app-plus.bubble--me .txt,
-	.wrap--app-plus .bubble--app-plus.bubble--me .md-inner,
-	.wrap--app-plus .bubble--app-plus.bubble--me .md-inner *,
-	.wrap--app-plus .bubble--app-plus.bubble--me text {
-		color: #ffffff !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .md-inner--native {
-		gap: 12rpx !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .st-chat-seg-native {
-		border-radius: 18rpx !important;
-		box-sizing: border-box !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .st-chat-seg-native--speech {
-		padding: 10rpx 14rpx !important;
-		background: rgba(255, 235, 246, 0.72) !important;
-		border-left: 6rpx solid rgba(226, 82, 145, 0.78) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #cf3278 !important;
-		font-size: 31rpx !important;
-		line-height: 1.76 !important;
-		font-weight: 800 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #25394a !important;
-		font-weight: 500 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .st-chat-seg-native--action {
-		padding: 8rpx 12rpx 8rpx 16rpx !important;
-		background: rgba(60, 180, 156, 0.11) !important;
-		border-left: 5rpx solid rgba(55, 171, 148, 0.56) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .st-chat-seg-native--action .st-chat-seg-text {
-		color: #2c5f58 !important;
-		font-size: 29rpx !important;
-		line-height: 1.78 !important;
-		font-style: italic;
-		font-weight: 500 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .st-chat-seg-native--thought {
-		padding: 8rpx 12rpx 8rpx 16rpx !important;
-		background: rgba(141, 112, 190, 0.1) !important;
-		border-left: 5rpx solid rgba(141, 112, 190, 0.42) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #615579 !important;
-		font-size: 29rpx !important;
-		line-height: 1.78 !important;
-		font-style: italic;
-		font-weight: 500 !important;
-	}
-
-	.wrap--app-plus .bubble--image-only {
-		padding: 8rpx !important;
-		background: transparent !important;
-		border-color: transparent !important;
-		box-shadow: none !important;
-	}
-
-	.wrap--app-plus .msg-image {
-		max-width: 430rpx !important;
-		max-height: 520rpx !important;
-		border-radius: 22rpx !important;
-	}
-
-	.wrap--app-plus .input-bar {
-		position: relative !important;
-		z-index: 5 !important;
-		padding: 10rpx 14rpx calc(12rpx + env(safe-area-inset-bottom)) !important;
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(246, 252, 252, 0.18) 100%) !important;
-		box-shadow: 0 -10rpx 24rpx rgba(38, 57, 77, 0.05) !important;
-	}
-
-	.wrap--app-plus .input-pill {
-		flex: 1 1 auto !important;
-		min-width: 0 !important;
-		min-height: 82rpx !important;
-		max-height: 300rpx !important;
-		background: rgba(255, 255, 255, 0.72) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.42) !important;
-		box-shadow: 0 10rpx 26rpx rgba(24, 48, 68, 0.12) !important;
-	}
-
-	.wrap--app-plus .inp {
-		width: 100% !important;
-		min-height: 66rpx !important;
-		max-height: 208rpx !important;
-		color: #26394d !important;
-		background: transparent !important;
-	}
-
 	.wrap--app-plus.focused .chat-scroll {
 		padding-bottom: 56rpx !important;
-	}
-
-	.wrap--app-plus .attach-fab-menu {
-		z-index: 9 !important;
 	}
 
 	.wrap--app-plus .message-action-mask {
@@ -14683,24 +14700,6 @@ page {
 		z-index: 2001 !important;
 	}
 
-	.generation-recovery {
-		background: rgba(236, 247, 252, 0.92) !important;
-		border-color: rgba(79, 147, 163, 0.18) !important;
-		box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.58) !important;
-	}
-
-	.generation-recovery-title {
-		color: #1f5268 !important;
-	}
-
-	.generation-recovery-message {
-		color: #536878 !important;
-	}
-
-	.generation-recovery-close {
-		color: #667b88 !important;
-		background: rgba(255, 255, 255, 0.72) !important;
-	}
 	/* #endif */
 
 	@keyframes voice-status-pulse {
@@ -14730,916 +14729,3 @@ page {
 		}
 	}
 </style>
-
-<style scoped lang="scss">
-	.bubble::before,
-	.bubble--app-plus::before {
-		display: none !important;
-	}
-
-	.msg-row.them .bubble {
-		max-width: 76%;
-		padding: 16rpx 20rpx !important;
-		border-radius: 22rpx;
-		background: rgba(38, 40, 46, 0.42) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.16) !important;
-		box-shadow:
-			0 6rpx 16rpx rgba(0, 0, 0, 0.12),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.08) !important;
-		backdrop-filter: blur(8rpx) saturate(106%);
-		-webkit-backdrop-filter: blur(8rpx) saturate(106%);
-	}
-
-	.msg-row.me .bubble {
-		max-width: 70%;
-		padding: 16rpx 20rpx !important;
-		border-radius: 22rpx;
-		background: rgba(48, 50, 56, 0.46) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.18) !important;
-		box-shadow:
-			0 6rpx 16rpx rgba(0, 0, 0, 0.12),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.08) !important;
-		backdrop-filter: blur(6rpx) saturate(106%);
-		-webkit-backdrop-filter: blur(6rpx) saturate(106%);
-	}
-
-	.msg-row.them .bubble::after,
-	.msg-row.me .bubble::after {
-		display: none !important;
-	}
-
-	.bubble .txt,
-	.bubble .md-inner,
-	.bubble .md-inner * {
-		font-size: 28rpx;
-		line-height: 1.66;
-		letter-spacing: 0;
-		color: #ffffff !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-		word-break: break-word;
-		overflow-wrap: break-word;
-	}
-
-	.msg-row.them .bubble .txt,
-	.msg-row.them .bubble .md-inner,
-	.msg-row.them .bubble .md-inner * {
-		color: #ffffff !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-	}
-
-	.msg-row.me .bubble .txt,
-	.msg-row.me .bubble .md-inner,
-	.msg-row.me .bubble .md-inner * {
-		color: #ffffff !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-	}
-
-	.bubble--image-only {
-		padding: 8rpx !important;
-		background: transparent !important;
-		border-color: transparent !important;
-		box-shadow: none !important;
-	}
-
-	.bubble--image-only::before,
-	.bubble--image-only::after {
-		display: none !important;
-	}
-
-	.md-inner >>> .st-chat-render {
-		gap: 6rpx;
-	}
-
-	.md-inner >>> .st-chat-seg {
-		margin: 0 0 6rpx !important;
-		letter-spacing: 0 !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-		box-shadow: none !important;
-	}
-
-	.md-inner >>> .st-chat-seg > *:first-child {
-		margin-top: 0 !important;
-	}
-
-	.md-inner >>> .st-chat-seg > *:last-child {
-		margin-bottom: 0 !important;
-	}
-
-	.md-inner >>> .st-chat-seg--speech,
-	.md-inner >>> .st-chat-seg--speech p,
-	.md-inner >>> .st-chat-seg--speech * {
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-		color: #ffffff !important;
-		font-weight: 500 !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-	}
-
-	.md-inner >>> .st-chat-seg--narration,
-	.md-inner >>> .st-chat-seg--narration p,
-	.md-inner >>> .st-chat-seg--narration * {
-		background: transparent !important;
-		border-left: 0 !important;
-		color: #ffffff !important;
-		font-weight: 500 !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-	}
-
-	.md-inner >>> .st-chat-seg--action {
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-		border-radius: 0 !important;
-	}
-
-	.md-inner >>> .st-chat-seg--action p,
-	.md-inner >>> .st-chat-seg--action * {
-		color: #ffffff !important;
-		font-style: normal !important;
-		font-weight: 500 !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-	}
-
-	.md-inner >>> .st-chat-seg--thought {
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-		border-radius: 0 !important;
-	}
-
-	.md-inner >>> .st-chat-seg--thought p,
-	.md-inner >>> .st-chat-seg--thought * {
-		color: #ffffff !important;
-		font-style: normal !important;
-		font-weight: 500 !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-	}
-
-	.bubble .msg-quote-preview {
-		margin-bottom: 10rpx;
-		padding: 10rpx 12rpx;
-		border-radius: 14rpx;
-		background: rgba(255, 255, 255, 0.1) !important;
-		border-left-color: rgba(255, 255, 255, 0.26) !important;
-	}
-
-	.bubble .msg-quote-preview-speaker {
-		color: #ffffff !important;
-	}
-
-	.bubble .msg-quote-preview-text {
-		color: rgba(255, 255, 255, 0.86) !important;
-	}
-
-	.msg-row.me .bubble .msg-quote-preview {
-		background: rgba(255, 255, 255, 0.14) !important;
-		border-left-color: rgba(255, 255, 255, 0.38) !important;
-	}
-
-	.msg-row.me .bubble .msg-quote-preview-speaker {
-		color: rgba(255, 255, 255, 0.9) !important;
-	}
-
-	.msg-row.me .bubble .msg-quote-preview-text {
-		color: rgba(255, 255, 255, 0.9) !important;
-	}
-
-	/* #ifdef APP-PLUS */
-	.wrap--app-plus .msg-row--app-plus {
-		padding-left: 14rpx !important;
-		padding-right: 14rpx !important;
-		gap: 10rpx !important;
-		margin-bottom: 22rpx !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus .bubble--app-plus {
-		max-width: calc(100% - 104rpx) !important;
-		min-width: 0 !important;
-		padding: 16rpx 20rpx !important;
-		border-radius: 22rpx !important;
-		background: rgba(38, 40, 46, 0.46) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.16) !important;
-		box-shadow:
-			0 6rpx 16rpx rgba(0, 0, 0, 0.12),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.08) !important;
-		box-sizing: border-box !important;
-		overflow: visible !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus {
-		max-width: calc(100% - 120rpx) !important;
-		border-radius: 22rpx !important;
-		background: rgba(48, 50, 56, 0.5) !important;
-		border-color: rgba(255, 255, 255, 0.18) !important;
-		box-shadow:
-			0 6rpx 16rpx rgba(0, 0, 0, 0.12),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.08) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus::after,
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus::after {
-		display: none !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus .bubble--app-plus .txt,
-	.wrap--app-plus .msg-row--app-plus .bubble--app-plus .md-inner {
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		letter-spacing: 0 !important;
-		color: #ffffff !important;
-		word-break: break-word !important;
-		overflow-wrap: break-word !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .txt,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner {
-		color: #ffffff !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus .txt,
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus .md-inner,
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus text {
-		color: #ffffff !important;
-		text-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.48) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus .bubble--app-plus .msg-quote-preview {
-		margin-bottom: 10rpx;
-		padding: 10rpx 12rpx;
-		border-radius: 14rpx;
-		background: rgba(255, 255, 255, 0.1) !important;
-		border-left-color: rgba(255, 255, 255, 0.26) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .msg-quote-preview-speaker {
-		color: #ffffff !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .msg-quote-preview-text {
-		color: rgba(255, 255, 255, 0.86) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus .msg-quote-preview {
-		background: rgba(255, 255, 255, 0.14) !important;
-		border-left-color: rgba(255, 255, 255, 0.38) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus .msg-quote-preview-speaker {
-		color: rgba(255, 255, 255, 0.9) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus .msg-quote-preview-text {
-		color: rgba(255, 255, 255, 0.9) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .md-inner--native {
-		gap: 6rpx !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native {
-		margin: 0 0 6rpx !important;
-		border-radius: 0 !important;
-		box-sizing: border-box !important;
-		background: transparent !important;
-		box-shadow: none !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--speech {
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #ff7ab6 !important;
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		font-weight: 700 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #9bdcff !important;
-		font-weight: 500 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--action {
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--action .st-chat-seg-text {
-		color: #6ee7b7 !important;
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		font-style: normal;
-		font-weight: 500 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--thought {
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #b69cff !important;
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		font-style: normal;
-		font-weight: 500 !important;
-	}
-	/* #endif */
-</style>
-
-<style>
-	/* #ifdef APP-PLUS */
-	.msg-row.them .bubble,
-	.msg-row--app-plus.them .bubble,
-	.wrap--app-plus .msg-row.them .bubble,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus {
-		position: relative !important;
-		max-width: calc(100% - 110rpx) !important;
-		padding: 18rpx 22rpx !important;
-		border-radius: 22rpx !important;
-		background: rgba(16, 18, 28, 0.84) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.18) !important;
-		border-left: 4rpx solid rgba(255, 177, 211, 0.62) !important;
-		box-shadow:
-			0 10rpx 24rpx rgba(0, 0, 0, 0.2),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.12) !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-		box-sizing: border-box !important;
-	}
-
-	.msg-row.me .bubble,
-	.msg-row--app-plus.me .bubble,
-	.wrap--app-plus .msg-row.me .bubble,
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus {
-		position: relative !important;
-		max-width: calc(100% - 122rpx) !important;
-		padding: 18rpx 22rpx !important;
-		border-radius: 22rpx !important;
-		background: rgba(21, 55, 64, 0.82) !important;
-		border: 1rpx solid rgba(220, 252, 255, 0.22) !important;
-		border-right: 4rpx solid rgba(135, 232, 196, 0.58) !important;
-		box-shadow:
-			0 10rpx 24rpx rgba(0, 0, 0, 0.18),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.14) !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-		box-sizing: border-box !important;
-	}
-
-	.msg-row.them .bubble::after,
-	.msg-row.me .bubble::after,
-	.msg-row--app-plus.them .bubble--app-plus::after,
-	.msg-row--app-plus.me .bubble--app-plus::after {
-		display: none !important;
-	}
-
-	.bubble .txt,
-	.bubble .md-inner,
-	.bubble .md-inner *,
-	.bubble .st-chat-seg-text,
-	.bubble text,
-	.bubble--app-plus .txt,
-	.bubble--app-plus .md-inner,
-	.bubble--app-plus .md-inner *,
-	.bubble--app-plus .st-chat-seg-text,
-	.bubble--app-plus text {
-		color: #f8fafc !important;
-		font-size: 29rpx !important;
-		line-height: 1.72 !important;
-		font-style: normal !important;
-		font-weight: 560 !important;
-		letter-spacing: 0 !important;
-		text-shadow: none !important;
-		word-break: break-word !important;
-		overflow-wrap: break-word !important;
-	}
-
-	.st-chat-seg-native,
-	.bubble--app-plus .st-chat-seg-native,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native {
-		margin: 0 0 7rpx !important;
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-		box-shadow: none !important;
-	}
-
-	.st-chat-seg-native--speech .st-chat-seg-text,
-	.bubble--app-plus .st-chat-seg-native--speech .st-chat-seg-text,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #ffd1e4 !important;
-		font-weight: 700 !important;
-	}
-
-	.st-chat-seg-native--action .st-chat-seg-text,
-	.bubble--app-plus .st-chat-seg-native--action .st-chat-seg-text,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--action .st-chat-seg-text {
-		color: #bff3d8 !important;
-		font-style: normal !important;
-	}
-
-	.st-chat-seg-native--thought .st-chat-seg-text,
-	.bubble--app-plus .st-chat-seg-native--thought .st-chat-seg-text,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #ddd4ff !important;
-		font-style: normal !important;
-	}
-
-	.st-chat-seg-native--narration .st-chat-seg-text,
-	.bubble--app-plus .st-chat-seg-native--narration .st-chat-seg-text,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #f8fafc !important;
-	}
-
-	.bubble--image-only,
-	.wrap--app-plus .bubble--image-only {
-		background: transparent !important;
-		border-color: transparent !important;
-		border-left-color: transparent !important;
-		border-right-color: transparent !important;
-		box-shadow: none !important;
-	}
-	/* #endif */
-</style>
-
-
-
-<style>
-	/* #ifdef APP-PLUS */
-	/* Final APP override: keep native chat segment colors after all legacy bubble rules. */
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native {
-		margin: 0 0 8rpx !important;
-		padding: 7rpx 0 7rpx 14rpx !important;
-		border-radius: 12rpx !important;
-		box-shadow: none !important;
-		box-sizing: border-box !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--speech {
-		background: rgba(255, 122, 182, 0.12) !important;
-		border-left: 6rpx solid rgba(255, 122, 182, 0.82) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--action {
-		background: rgba(110, 231, 183, 0.1) !important;
-		border-left: 6rpx solid rgba(110, 231, 183, 0.76) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--thought {
-		background: rgba(182, 156, 255, 0.1) !important;
-		border-left: 6rpx solid rgba(182, 156, 255, 0.76) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--narration {
-		background: rgba(155, 220, 255, 0.08) !important;
-		border-left: 6rpx solid rgba(155, 220, 255, 0.72) !important;
-	}
-
-	.st-chat-seg-text--speech,
-	text.st-chat-seg-text--speech,
-	uni-text.st-chat-seg-text--speech,
-	v-uni-text.st-chat-seg-text--speech,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #ff7ab6 !important;
-		-webkit-text-fill-color: #ff7ab6 !important;
-		font-weight: 700 !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--action,
-	text.st-chat-seg-text--action,
-	uni-text.st-chat-seg-text--action,
-	v-uni-text.st-chat-seg-text--action,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--action .st-chat-seg-text {
-		color: #6ee7b7 !important;
-		-webkit-text-fill-color: #6ee7b7 !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--thought,
-	text.st-chat-seg-text--thought,
-	uni-text.st-chat-seg-text--thought,
-	v-uni-text.st-chat-seg-text--thought,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #b69cff !important;
-		-webkit-text-fill-color: #b69cff !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--narration,
-	text.st-chat-seg-text--narration,
-	uni-text.st-chat-seg-text--narration,
-	v-uni-text.st-chat-seg-text--narration,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #9bdcff !important;
-		-webkit-text-fill-color: #9bdcff !important;
-		text-shadow: none !important;
-	}
-	/* #endif */
-</style>
-<style>
-	.wrap .msg-row.them .bubble {
-		position: relative !important;
-		max-width: 78% !important;
-		padding: 15rpx 20rpx !important;
-		border-radius: 20rpx !important;
-		background: linear-gradient(180deg, rgba(32, 34, 42, 0.62) 0%, rgba(24, 26, 34, 0.54) 100%) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.17) !important;
-		border-left: 4rpx solid rgba(255, 193, 220, 0.42) !important;
-		box-shadow:
-			0 6rpx 16rpx rgba(0, 0, 0, 0.14),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.12) !important;
-		backdrop-filter: blur(8rpx) saturate(108%) !important;
-		-webkit-backdrop-filter: blur(8rpx) saturate(108%) !important;
-	}
-
-	.wrap .msg-row.me .bubble {
-		position: relative !important;
-		max-width: 72% !important;
-		padding: 15rpx 20rpx !important;
-		border-radius: 20rpx !important;
-		background: linear-gradient(180deg, rgba(38, 65, 72, 0.62) 0%, rgba(30, 53, 60, 0.54) 100%) !important;
-		border: 1rpx solid rgba(220, 252, 255, 0.2) !important;
-		border-right: 4rpx solid rgba(200, 245, 223, 0.42) !important;
-		box-shadow:
-			0 6rpx 16rpx rgba(0, 0, 0, 0.13),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.14) !important;
-		backdrop-filter: blur(8rpx) saturate(108%) !important;
-		-webkit-backdrop-filter: blur(8rpx) saturate(108%) !important;
-	}
-
-	.wrap .bubble--image-only {
-		padding: 8rpx !important;
-		background: transparent !important;
-		border-color: transparent !important;
-		box-shadow: none !important;
-	}
-
-	.wrap .bubble .txt,
-	.wrap .bubble .md-inner,
-	.wrap .bubble .st-chat-seg-text,
-	.wrap .bubble text {
-		color: #f2f4f7 !important;
-		font-style: normal !important;
-		font-weight: 560 !important;
-		text-shadow: none !important;
-	}
-
-	.wrap .bubble .st-chat-seg,
-	.wrap .bubble .st-chat-seg *,
-	.wrap .bubble .st-chat-seg p {
-		color: #f2f4f7 !important;
-		font-style: normal !important;
-		font-weight: 560 !important;
-		text-shadow: none !important;
-	}
-
-	.wrap .bubble .st-chat-seg--speech,
-	.wrap .bubble .st-chat-seg--speech *,
-	.wrap .bubble .st-chat-seg--speech p {
-		color: #f4b8cf !important;
-		font-weight: 600 !important;
-	}
-
-	.wrap .bubble .st-chat-seg--action,
-	.wrap .bubble .st-chat-seg--action *,
-	.wrap .bubble .st-chat-seg--action p {
-		color: #bfe8d2 !important;
-	}
-
-	.wrap .bubble .st-chat-seg--thought,
-	.wrap .bubble .st-chat-seg--thought *,
-	.wrap .bubble .st-chat-seg--thought p {
-		color: #d4caef !important;
-	}
-
-	.wrap .bubble .st-chat-seg--narration,
-	.wrap .bubble .st-chat-seg--narration *,
-	.wrap .bubble .st-chat-seg--narration p {
-		color: #f2f4f7 !important;
-	}
-
-	.wrap .bubble .st-chat-seg,
-	.wrap .bubble .st-chat-seg--speech,
-	.wrap .bubble .st-chat-seg--narration,
-	.wrap .bubble .st-chat-seg--action,
-	.wrap .bubble .st-chat-seg--thought {
-		background: transparent !important;
-		border-left: 0 !important;
-		box-shadow: none !important;
-	}
-
-	/* #ifdef APP-PLUS */
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus {
-		position: relative !important;
-		max-width: calc(100% - 110rpx) !important;
-		padding: 14rpx 18rpx !important;
-		border-radius: 19rpx !important;
-		background: rgba(16, 18, 28, 0.86) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.14) !important;
-		border-left: 4rpx solid rgba(241, 171, 198, 0.5) !important;
-		box-shadow:
-			0 5rpx 12rpx rgba(0, 0, 0, 0.1),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.1) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus {
-		position: relative !important;
-		max-width: calc(100% - 122rpx) !important;
-		padding: 14rpx 18rpx !important;
-		border-radius: 19rpx !important;
-		background: rgba(21, 55, 64, 0.84) !important;
-		border: 1rpx solid rgba(220, 252, 255, 0.16) !important;
-		border-right: 4rpx solid rgba(183, 222, 198, 0.48) !important;
-		box-shadow:
-			0 5rpx 12rpx rgba(0, 0, 0, 0.1),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.1) !important;
-	}
-
-	.wrap--app-plus .bubble--app-plus .txt,
-	.wrap--app-plus .bubble--app-plus .md-inner,
-	.wrap--app-plus .bubble--app-plus.bubble--me text {
-		color: #f8fafc !important;
-		font-size: 29rpx !important;
-		line-height: 1.72 !important;
-		font-style: normal !important;
-		font-weight: 560 !important;
-		letter-spacing: 0 !important;
-		text-shadow: none !important;
-	}
-
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native {
-		margin: 0 0 7rpx !important;
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-		box-shadow: none !important;
-	}
-
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #ff7ab6 !important;
-		font-weight: 700 !important;
-	}
-
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--action .st-chat-seg-text {
-		color: #6ee7b7 !important;
-	}
-
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #b69cff !important;
-	}
-
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #9bdcff !important;
-	}
-
-	.st-chat-seg-text--speech,
-	.wrap--app-plus .st-chat-seg-text--speech,
-	.bubble .st-chat-seg-text--speech,
-	.bubble--app-plus .st-chat-seg-text--speech,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-text.st-chat-seg-text--speech,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--speech .st-chat-seg-text,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-text.st-chat-seg-text--speech {
-		color: #ff7ab6 !important;
-		font-weight: 700 !important;
-	}
-
-	.st-chat-seg-text--action,
-	.wrap--app-plus .st-chat-seg-text--action,
-	.bubble .st-chat-seg-text--action,
-	.bubble--app-plus .st-chat-seg-text--action,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-text.st-chat-seg-text--action,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--action .st-chat-seg-text,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-text.st-chat-seg-text--action {
-		color: #6ee7b7 !important;
-	}
-
-	.st-chat-seg-text--thought,
-	.wrap--app-plus .st-chat-seg-text--thought,
-	.bubble .st-chat-seg-text--thought,
-	.bubble--app-plus .st-chat-seg-text--thought,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-text.st-chat-seg-text--thought,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--thought .st-chat-seg-text,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-text.st-chat-seg-text--thought {
-		color: #b69cff !important;
-	}
-
-	.st-chat-seg-text--narration,
-	.wrap--app-plus .st-chat-seg-text--narration,
-	.bubble .st-chat-seg-text--narration,
-	.bubble--app-plus .st-chat-seg-text--narration,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-text.st-chat-seg-text--narration,
-	.wrap--app-plus .bubble--app-plus .st-chat-seg-native--narration .st-chat-seg-text,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .st-chat-seg-text.st-chat-seg-text--narration {
-		color: #9bdcff !important;
-	}
-	/* #endif */
-</style>
-
-<style>
-	/* #ifdef APP-PLUS */
-	/* Final APP bubble polish: keep APP close to the H5 glass chat style. */
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus {
-		position: relative !important;
-		max-width: 78% !important;
-		padding: 15rpx 20rpx !important;
-		border-radius: 20rpx 20rpx 20rpx 8rpx !important;
-		background: linear-gradient(180deg, rgba(32, 34, 42, 0.64) 0%, rgba(23, 25, 33, 0.58) 100%) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.17) !important;
-		border-left: 4rpx solid rgba(255, 193, 220, 0.42) !important;
-		box-shadow:
-			0 8rpx 22rpx rgba(0, 0, 0, 0.18),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.12),
-			inset 0 -1rpx 0 rgba(0, 0, 0, 0.12) !important;
-		box-sizing: border-box !important;
-		overflow: visible !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus {
-		position: relative !important;
-		max-width: 72% !important;
-		padding: 15rpx 20rpx !important;
-		border-radius: 20rpx 20rpx 8rpx 20rpx !important;
-		background: linear-gradient(180deg, rgba(38, 65, 72, 0.64) 0%, rgba(28, 52, 59, 0.58) 100%) !important;
-		border: 1rpx solid rgba(224, 252, 255, 0.18) !important;
-		border-right: 4rpx solid rgba(128, 230, 222, 0.34) !important;
-		box-shadow:
-			0 8rpx 22rpx rgba(0, 0, 0, 0.16),
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.13),
-			inset 0 -1rpx 0 rgba(0, 0, 0, 0.1) !important;
-		box-sizing: border-box !important;
-		overflow: visible !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus::after,
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus::after {
-		display: none !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus .bubble--app-plus.bubble--image-only {
-		padding: 8rpx !important;
-		background: transparent !important;
-		border-color: transparent !important;
-		border-left-color: transparent !important;
-		border-right-color: transparent !important;
-		box-shadow: none !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .stream-inline--app-plus {
-		margin-top: 9rpx !important;
-		padding: 7rpx 13rpx !important;
-		border-radius: 999rpx !important;
-		background: rgba(255, 255, 255, 0.08) !important;
-		border: 1rpx solid rgba(255, 255, 255, 0.12) !important;
-		box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.12) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .stream-inline-text {
-		color: rgba(255, 255, 255, 0.82) !important;
-		font-size: 23rpx !important;
-		font-weight: 500 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .stream-inline-bar {
-		background: rgba(255, 214, 232, 0.86) !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus .bubble--app-plus .txt,
-	.wrap--app-plus .msg-row--app-plus .bubble--app-plus .md-inner,
-	.wrap--app-plus .msg-row--app-plus .bubble--app-plus .st-chat-seg-text {
-		max-width: 100% !important;
-		min-width: 0 !important;
-		color: #f2f4f7 !important;
-		-webkit-text-fill-color: #f2f4f7 !important;
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		font-weight: 500 !important;
-		letter-spacing: 0 !important;
-		word-break: break-word !important;
-		overflow-wrap: break-word !important;
-		white-space: pre-wrap !important;
-		text-shadow: none !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus .txt,
-	.wrap--app-plus .msg-row--app-plus.me .bubble--app-plus text {
-		color: #f4fbff !important;
-		-webkit-text-fill-color: #f4fbff !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .md-inner--native {
-		gap: 6rpx !important;
-		max-width: 100% !important;
-		min-width: 0 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native {
-		max-width: 100% !important;
-		min-width: 0 !important;
-		margin: 0 0 4rpx !important;
-		padding: 0 !important;
-		background: transparent !important;
-		border-left: 0 !important;
-		border-radius: 0 !important;
-		box-shadow: none !important;
-		box-sizing: border-box !important;
-		word-break: break-word !important;
-		overflow-wrap: break-word !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--speech,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--action,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--thought,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--narration {
-		background: transparent !important;
-		border-left: 0 !important;
-	}
-
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-text,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--narration .st-chat-seg-text {
-		display: block !important;
-		max-width: 100% !important;
-		min-width: 0 !important;
-		color: #f2f4f7 !important;
-		-webkit-text-fill-color: #f2f4f7 !important;
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		font-weight: 500 !important;
-		word-break: break-word !important;
-		overflow-wrap: break-word !important;
-		white-space: pre-wrap !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--speech,
-	text.st-chat-seg-text--speech,
-	uni-text.st-chat-seg-text--speech,
-	v-uni-text.st-chat-seg-text--speech,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-text--speech,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--speech .st-chat-seg-text {
-		color: #ffd1e4 !important;
-		-webkit-text-fill-color: #ffd1e4 !important;
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		font-weight: 700 !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--action,
-	text.st-chat-seg-text--action,
-	uni-text.st-chat-seg-text--action,
-	v-uni-text.st-chat-seg-text--action,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--action .st-chat-seg-text {
-		color: #9cebd0 !important;
-		-webkit-text-fill-color: #9cebd0 !important;
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		font-weight: 500 !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--thought,
-	text.st-chat-seg-text--thought,
-	uni-text.st-chat-seg-text--thought,
-	v-uni-text.st-chat-seg-text--thought,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--thought .st-chat-seg-text {
-		color: #c6b6ff !important;
-		-webkit-text-fill-color: #c6b6ff !important;
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		font-weight: 500 !important;
-		text-shadow: none !important;
-	}
-
-	.st-chat-seg-text--narration,
-	text.st-chat-seg-text--narration,
-	uni-text.st-chat-seg-text--narration,
-	v-uni-text.st-chat-seg-text--narration,
-	.wrap--app-plus .msg-row--app-plus.them .bubble--app-plus .md-inner--native .st-chat-seg-native--narration .st-chat-seg-text {
-		color: #f2f4f7 !important;
-		-webkit-text-fill-color: #f2f4f7 !important;
-		font-size: 28rpx !important;
-		line-height: 1.66 !important;
-		font-weight: 500 !important;
-		text-shadow: none !important;
-	}
-	/* #endif */
-</style>
-
-
-
-

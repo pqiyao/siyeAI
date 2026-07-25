@@ -13,6 +13,10 @@ import com.example.sillyspringboot.chat.service.ChatGenerationDispatcher;
 import com.example.sillyspringboot.chat.service.ChatGenerationTimeout;
 import com.example.sillyspringboot.chat.service.MediaConcurrencyGate;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.compat.h5.service.H5VisitorTrialGuardService;
@@ -26,6 +30,7 @@ import com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride
 import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.ops.service.EntitlementPolicyService;
 import com.example.sillyspringboot.ops.service.H5EntitlementService;
+import com.example.sillyspringboot.ops.service.UserTtsVoiceService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.slf4j.Logger;
@@ -39,6 +44,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -83,7 +89,13 @@ public class ApiV1TavernChatController {
     private final H5VisitorTrialGuardService visitorTrialGuardService;
     private final AppFeatureSettingsService featureSettingsService;
     private final H5UserAiProviderService userAiProviderService;
+    private final UserTtsVoiceService userTtsVoiceService;
     private final StModelRoutingService modelRoutingService;
+
+    @Autowired(required = false)
+    private CharacterStudioMapper characterStudioMapper;
+
+    private final ObjectMapper memberVoiceMapper = new ObjectMapper();
 
     public ApiV1TavernChatController(
             H5ClientUidAuthService h5Auth,
@@ -100,7 +112,8 @@ public class ApiV1TavernChatController {
             H5VisitorTrialGuardService visitorTrialGuardService,
             AppFeatureSettingsService featureSettingsService,
             H5UserAiProviderService userAiProviderService,
-            StModelRoutingService modelRoutingService
+            StModelRoutingService modelRoutingService,
+            UserTtsVoiceService userTtsVoiceService
     ) {
         this.h5Auth = h5Auth;
         this.conversationService = conversationService;
@@ -117,6 +130,7 @@ public class ApiV1TavernChatController {
         this.featureSettingsService = featureSettingsService;
         this.userAiProviderService = userAiProviderService;
         this.modelRoutingService = modelRoutingService;
+        this.userTtsVoiceService = userTtsVoiceService;
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -146,6 +160,7 @@ public class ApiV1TavernChatController {
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
         req.setReplySplitMode(payload.getReplySplitMode());
+        req.setVisionRequestId(payload.getVisionRequestId());
         req.setClientMessageId(clientMessageId);
 
         return runStream(req, token, conversationId, clientMessageId, userText, StreamKind.GENERATE, 0L, accessTicket);
@@ -178,6 +193,7 @@ public class ApiV1TavernChatController {
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
         req.setReplySplitMode(payload.getReplySplitMode());
+        req.setVisionRequestId(payload.getVisionRequestId());
         req.setClientMessageId(clientMessageId);
 
         return ApiV1Result.ok(
@@ -350,22 +366,47 @@ public class ApiV1TavernChatController {
                 payload.getTtsSegmentIndex(),
                 payload.getTtsSegmentCount()
         );
-        H5EntitlementService.AccessTicket ttsTicket = ttsRequestId.isBlank()
-                ? entitlementService.guardTts(clientUid)
-                : entitlementService.guardTts(clientUid, ttsRequestId);
-        // Wallet TTS: deduct before synthesis to avoid unpaid success; refund if synthesis fails.
-        boolean ttsChargeCreated = ttsTicket.usesWallet()
-                && entitlementService.recordSuccessfulTts(ttsTicket);
+        long userId = chatService.resolveUserId(token);
+        boolean userByokTts = userAiProviderService.isCustomModeSelectedForUser(userId);
+        H5EntitlementService.AccessTicket ttsTicket = null;
+        boolean ttsChargeCreated = false;
+        if (!userByokTts) {
+            ttsTicket = ttsRequestId.isBlank()
+                    ? entitlementService.guardTts(clientUid)
+                    : entitlementService.guardTts(clientUid, ttsRequestId);
+            // Official TTS deducts before synthesis; user BYOK never consumes the platform wallet.
+            ttsChargeCreated = ttsTicket.usesWallet()
+                    && entitlementService.recordSuccessfulTts(ttsTicket);
+        }
         try {
-            long userId = chatService.resolveUserId(token);
             try (MediaConcurrencyGate.Lease ignored =
                          mediaConcurrencyGate.acquire(MediaConcurrencyGate.Capability.TTS, userId, ttsRequestId)) {
+                MemberVoiceOverride memberVoice = resolveMemberVoiceOverride(payload);
+                Long boundUserVoiceId = payload.getTtsUserVoiceId();
+                if (boundUserVoiceId == null || boundUserVoiceId <= 0) {
+                    boundUserVoiceId = userTtsVoiceService.resolveSpecificBoundVoiceId(
+                            userId,
+                            payload.getCharacterId() == null ? 0L : payload.getCharacterId(),
+                            payload.getSpeakerMemberId() == null ? 0L : payload.getSpeakerMemberId());
+                    if (shouldUseGlobalPrivateVoice(
+                            boundUserVoiceId,
+                            payload.getTtsVoiceName(),
+                            payload.getTtsVoiceTemplateCode(),
+                            memberVoice.voiceName(),
+                            memberVoice.voiceTemplateCode())) {
+                        boundUserVoiceId = userTtsVoiceService.resolveGlobalBoundVoiceId(userId);
+                    }
+                }
+                if (boundUserVoiceId != null && boundUserVoiceId <= 0) {
+                    boundUserVoiceId = null;
+                }
                 ChatAudioSpeechService.AudioSpeechResult result = chatAudioSpeechService.synthesizeForUser(
                         userId,
                         text,
-                        payload.getTtsModelName(),
-                        payload.getTtsVoiceName(),
-                        payload.getTtsVoiceTemplateCode()
+                        firstVoiceValue(payload.getTtsModelName(), memberVoice.modelName()),
+                        firstVoiceValue(payload.getTtsVoiceName(), memberVoice.voiceName()),
+                        firstVoiceValue(payload.getTtsVoiceTemplateCode(), memberVoice.voiceTemplateCode()),
+                        boundUserVoiceId
                 );
                 Map<String, Object> data = new HashMap<>();
                 data.put("audioDataUrl", "data:" + result.mimeType() + ";base64," + Base64.getEncoder().encodeToString(result.audioBytes()));
@@ -379,6 +420,65 @@ public class ApiV1TavernChatController {
                 entitlementService.refundWalletConsume(ttsTicket);
             }
             throw ex;
+        }
+    }
+
+    private MemberVoiceOverride resolveMemberVoiceOverride(H5ChatPayload payload) {
+        if (characterStudioMapper == null || payload == null || payload.getCharacterId() == null
+                || payload.getCharacterId() <= 0 || payload.getSpeakerMemberId() == null
+                || payload.getSpeakerMemberId() <= 0) {
+            return MemberVoiceOverride.EMPTY;
+        }
+        try {
+            for (AppCharacterMember member : characterStudioMapper.listMembers(payload.getCharacterId())) {
+                if (member == null || member.getId() == null
+                        || member.getId().longValue() != payload.getSpeakerMemberId()
+                        || member.getVoiceConfigJson() == null || member.getVoiceConfigJson().isBlank()) {
+                    continue;
+                }
+                JsonNode root = memberVoiceMapper.readTree(member.getVoiceConfigJson());
+                return new MemberVoiceOverride(
+                        voiceJsonText(root, "ttsModelName", "modelName", "model"),
+                        voiceJsonText(root, "ttsVoiceName", "voiceName", "voice"),
+                        voiceJsonText(root, "ttsVoiceTemplateCode", "voiceTemplateCode", "templateCode")
+                );
+            }
+        } catch (Exception ex) {
+            log.warn("member voice config skipped characterId={} memberId={}",
+                    payload.getCharacterId(), payload.getSpeakerMemberId(), ex);
+        }
+        return MemberVoiceOverride.EMPTY;
+    }
+
+    private static String voiceJsonText(JsonNode root, String... keys) {
+        if (root == null || keys == null) return "";
+        for (String key : keys) {
+            JsonNode value = root.get(key);
+            if (value != null && value.isTextual() && !value.asText().isBlank()) return value.asText().trim();
+        }
+        return "";
+    }
+
+    private static String firstVoiceValue(String requested, String fallback) {
+        return requested != null && !requested.trim().isBlank() ? requested.trim() : fallback;
+    }
+
+    static boolean shouldUseGlobalPrivateVoice(
+            Long specificPrivateVoiceId,
+            String requestedVoiceName,
+            String requestedTemplateCode,
+            String memberVoiceName,
+            String memberTemplateCode
+    ) {
+        if (specificPrivateVoiceId != null && specificPrivateVoiceId > 0) return false;
+        return firstVoiceValue(requestedVoiceName, memberVoiceName).isBlank()
+                && firstVoiceValue(requestedTemplateCode, memberTemplateCode).isBlank();
+    }
+
+    private record MemberVoiceOverride(String modelName, String voiceName, String voiceTemplateCode) {
+        private static final MemberVoiceOverride EMPTY = new MemberVoiceOverride("", "", "");
+        private boolean isEmpty() {
+            return modelName.isBlank() && voiceName.isBlank() && voiceTemplateCode.isBlank();
         }
     }
 

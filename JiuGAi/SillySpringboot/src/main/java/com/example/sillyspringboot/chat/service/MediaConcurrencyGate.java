@@ -25,7 +25,7 @@ public class MediaConcurrencyGate {
 
     private static final Logger log = LoggerFactory.getLogger(MediaConcurrencyGate.class);
 
-    public enum Capability { TTS, STT }
+    public enum Capability { TTS, STT, VOICE_CLONE }
 
     public interface Lease extends AutoCloseable {
         @Override
@@ -158,12 +158,14 @@ public class MediaConcurrencyGate {
         }
         if (used > limits.getPerUserRequestsPerWindow()) {
             throw new BusinessException(ErrorCode.RATE_LIMITED,
-                    capability == Capability.TTS ? "语音生成过于频繁，请稍后再试" : "语音识别过于频繁，请稍后再试");
+                    rateMessage(capability));
         }
     }
 
     private AppMediaRuntimeSettings.Limits limits(Capability capability, AppMediaRuntimeSettings settings) {
-        return capability == Capability.TTS ? settings.getTts() : settings.getStt();
+        if (capability == Capability.TTS) return settings.getTts();
+        if (capability == Capability.STT) return settings.getStt();
+        return settings.getVoiceClone();
     }
 
     private static String keyPrefix(Capability capability) {
@@ -173,10 +175,28 @@ public class MediaConcurrencyGate {
     private BusinessException busy(Capability capability, String reason) {
         if ("USER".equals(reason)) {
             return new BusinessException(ErrorCode.SERVICE_BUSY,
-                    capability == Capability.TTS ? "当前已有语音生成任务，请稍后再试" : "当前已有语音识别任务，请稍后再试");
+                    userBusyMessage(capability));
         }
         return new BusinessException(ErrorCode.SERVICE_BUSY,
-                capability == Capability.TTS ? "语音生成服务繁忙，请稍后再试" : "语音识别服务繁忙，请稍后再试");
+                globalBusyMessage(capability));
+    }
+
+    private static String rateMessage(Capability capability) {
+        if (capability == Capability.TTS) return "语音生成过于频繁，请稍后再试";
+        if (capability == Capability.STT) return "语音识别过于频繁，请稍后再试";
+        return "音色创建过于频繁，请稍后再试";
+    }
+
+    private static String userBusyMessage(Capability capability) {
+        if (capability == Capability.TTS) return "当前已有语音生成任务，请稍后再试";
+        if (capability == Capability.STT) return "当前已有语音识别任务，请稍后再试";
+        return "当前已有音色创建任务，请等待完成";
+    }
+
+    private static String globalBusyMessage(Capability capability) {
+        if (capability == Capability.TTS) return "语音生成服务繁忙，请稍后再试";
+        if (capability == Capability.STT) return "语音识别服务繁忙，请稍后再试";
+        return "音色创建服务繁忙，请稍后再试";
     }
 
     private void decrement(String key, AtomicInteger counter) {

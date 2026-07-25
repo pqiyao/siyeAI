@@ -44,6 +44,7 @@
         <result column="dislike_count" property="dislikeCount"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
+        <result column="card_type" property="cardType"/>
     </resultMap>
 
     <sql id="BaseColumns">
@@ -56,7 +57,7 @@
         tags_json, occupation_label, gameplay_type, vip_only, unlocked_default,
         creator_name, creator_handle, token_display, chat_modes_json, st_extra_json, sort_order,
         like_count, dislike_count,
-        created_at, updated_at
+        created_at, updated_at, card_type
     </sql>
 
     <select id="listMine" resultMap="H5MyCharacterResultMap">
@@ -121,7 +122,7 @@
             review_status, review_reason, reviewed_at, reviewed_by,
             tags_json, occupation_label, gameplay_type, vip_only, unlocked_default,
             creator_name, creator_handle, token_display, chat_modes_json, st_extra_json, sort_order,
-            like_count, dislike_count
+            like_count, dislike_count, card_type
         ) VALUES (
             #{stAvatarUrl}, #{stWorldNamesJson}, #{name}, #{description},
             #{ownerUserId},
@@ -133,7 +134,7 @@
             #{reviewStatus}, #{reviewReason}, #{reviewedAt}, #{reviewedBy},
             #{tagsJson}, #{occupationLabel}, #{gameplayType}, #{vipOnly}, #{unlockedDefault},
             #{creatorName}, #{creatorHandle}, #{tokenDisplay}, #{chatModesJson}, #{stExtraJson}, #{sortOrder},
-            #{likeCount}, #{dislikeCount}
+            #{likeCount}, #{dislikeCount}, COALESCE(#{cardType}, 'SINGLE')
         )
     </insert>
 
@@ -172,6 +173,7 @@
             sort_order = #{sortOrder},
             like_count = #{likeCount},
             dislike_count = #{dislikeCount},
+            card_type = COALESCE(#{cardType}, card_type),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
           AND owner_user_id = #{ownerUserId}

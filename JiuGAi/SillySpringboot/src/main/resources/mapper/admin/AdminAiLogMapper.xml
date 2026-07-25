@@ -9,14 +9,57 @@
             <if test="channel != null and channel != ''">
                 COALESCE(t.channel, UPPER(t.request_type)) = #{channel}
             </if>
-            <if test="success != null and success">
-                AND t.status = 'SUCCESS'
-            </if>
-            <if test="success != null and !success">
-                AND t.status &lt;&gt; 'SUCCESS'
+            <if test="status != null and status != ''">
+                AND t.status = #{status}
             </if>
             <if test="traceId != null and traceId != ''">
-                AND t.trace_id LIKE CONCAT('%', #{traceId}, '%')
+                AND (
+                    t.trace_id LIKE CONCAT('%', #{traceId}, '%')
+                    OR EXISTS (
+                        SELECT 1 FROM app_generation_attempt at
+                        WHERE at.generation_task_id = t.id
+                          AND at.trace_id LIKE CONCAT('%', #{traceId}, '%')
+                    )
+                )
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    CAST(t.id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                    OR CAST(t.user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                    OR CAST(t.conversation_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(t.client_message_id, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(t.error_code, '') LIKE CONCAT('%', #{keyword}, '%')
+                    OR COALESCE(t.error_message, '') LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+            <if test="providerKey != null and providerKey != ''">
+                AND EXISTS (
+                    SELECT 1 FROM app_generation_attempt af
+                    WHERE af.generation_task_id = t.id
+                      AND af.provider_key LIKE CONCAT('%', #{providerKey}, '%')
+                )
+            </if>
+            <if test="model != null and model != ''">
+                AND (
+                    COALESCE(t.model, '') LIKE CONCAT('%', #{model}, '%')
+                    OR EXISTS (
+                        SELECT 1 FROM app_generation_attempt am
+                        WHERE am.generation_task_id = t.id
+                          AND COALESCE(am.model, '') LIKE CONCAT('%', #{model}, '%')
+                    )
+                )
+            </if>
+            <if test="httpStatus != null">
+                AND (t.http_status = #{httpStatus} OR EXISTS (
+                    SELECT 1 FROM app_generation_attempt ah
+                    WHERE ah.generation_task_id = t.id AND ah.http_status = #{httpStatus}
+                ))
+            </if>
+            <if test="startedAfter != null">
+                AND t.queued_at &gt;= #{startedAfter}
+            </if>
+            <if test="startedBefore != null">
+                AND t.queued_at &lt;= #{startedBefore}
             </if>
         </where>
     </sql>
@@ -30,12 +73,16 @@
     <select id="listPage" resultType="map">
         SELECT
             t.id AS id,
-            DATE_FORMAT(t.queued_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            t.queued_at AS createdAt,
             t.user_id AS userId,
             t.client_message_id AS clientMessageId,
             COALESCE(t.trace_id, '') AS traceId,
             COALESCE(t.channel, UPPER(t.request_type)) AS channel,
-            COALESCE(t.model, '') AS model,
+            COALESCE((SELECT a.model FROM app_generation_attempt a WHERE a.generation_task_id = t.id ORDER BY a.attempt_no DESC, a.id DESC LIMIT 1), t.model, '') AS model,
+            COALESCE((SELECT a.provider_key FROM app_generation_attempt a WHERE a.generation_task_id = t.id ORDER BY a.attempt_no DESC, a.id DESC LIMIT 1), '') AS providerKey,
+            COALESCE((SELECT a.route_key FROM app_generation_attempt a WHERE a.generation_task_id = t.id ORDER BY a.attempt_no DESC, a.id DESC LIMIT 1), '') AS routeKey,
+            (SELECT COUNT(*) FROM app_generation_attempt a WHERE a.generation_task_id = t.id) AS attemptCount,
+            EXISTS(SELECT 1 FROM app_generation_attempt a WHERE a.generation_task_id = t.id AND a.was_fallback = TRUE) AS wasFallback,
             t.status AS status,
             c.character_id AS characterId,
             t.conversation_id AS conversationId,
@@ -45,12 +92,14 @@
                 t.http_status,
                 CASE
                     WHEN t.status = 'SUCCESS' THEN 200
-                    WHEN t.status = 'STOPPED' THEN 499
-                    ELSE 500
+                    WHEN t.status IN ('STOPPED', 'CANCELLED') THEN 499
+                    WHEN t.status = 'FAILED' THEN 500
+                    ELSE NULL
                 END
             ) AS httpStatus,
-            COALESCE(t.prompt_tokens, 0) AS promptTokens,
-            COALESCE(t.completion_tokens, 0) AS completionTokens,
+            COALESCE((SELECT SUM(COALESCE(a.prompt_tokens, 0)) FROM app_generation_attempt a WHERE a.generation_task_id = t.id), t.prompt_tokens, 0) AS promptTokens,
+            COALESCE((SELECT SUM(COALESCE(a.completion_tokens, 0)) FROM app_generation_attempt a WHERE a.generation_task_id = t.id), t.completion_tokens, 0) AS completionTokens,
+            COALESCE((SELECT SUM(COALESCE(a.total_cost_usd, 0)) FROM app_generation_attempt a WHERE a.generation_task_id = t.id), 0) AS totalCostUsd,
             COALESCE(t.error_code, '') AS errorCode,
             COALESCE(t.error_message, t.error_code, '') AS errorMessage
         FROM app_generation_task t
@@ -60,40 +109,146 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
-    <insert id="snapshotBeforeDays">
-        INSERT INTO app_generation_stat_event (
-            task_id,
-            source_type,
-            source_id,
-            event_day,
-            status,
-            channel,
-            model,
-            created_at,
-            updated_at
-        )
-        SELECT
-            t.id,
-            'TASK',
-            t.id,
-            DATE(COALESCE(t.queued_at, t.started_at, t.finished_at, CURRENT_TIMESTAMP)),
-            COALESCE(NULLIF(t.status, ''), 'QUEUED'),
-            t.channel,
-            t.model,
-            COALESCE(t.queued_at, CURRENT_TIMESTAMP),
-            CURRENT_TIMESTAMP
-        FROM app_generation_task t
-        WHERE t.queued_at &lt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL #{beforeDays} DAY)
-        ON DUPLICATE KEY UPDATE
-            event_day = VALUES(event_day),
-            status = VALUES(status),
-            channel = COALESCE(VALUES(channel), app_generation_stat_event.channel),
-            model = COALESCE(VALUES(model), app_generation_stat_event.model),
-            updated_at = CURRENT_TIMESTAMP
-    </insert>
+    <select id="listAttemptsByTaskId" resultType="map">
+        SELECT id, generation_task_id AS generationTaskId, request_id AS requestId, trace_id AS traceId,
+               attempt_no AS attemptNo, provider_key AS providerKey, route_key AS routeKey,
+               COALESCE(provider_source, '') AS providerSource, COALESCE(model, '') AS model,
+               byok, was_fallback AS wasFallback,
+               started_at AS startedAt,
+               first_token_at AS firstTokenAt,
+               duration_ms AS durationMs, ttft_ms AS ttftMs, http_status AS httpStatus, status,
+               COALESCE(error_code, '') AS errorCode, COALESCE(error_message, '') AS errorMessage,
+               COALESCE(prompt_tokens, 0) AS promptTokens, COALESCE(completion_tokens, 0) AS completionTokens,
+               prompt_tokens_estimated AS promptTokensEstimated,
+               completion_tokens_estimated AS completionTokensEstimated,
+               COALESCE(currency, '') AS currency, total_cost_usd AS totalCostUsd,
+               cost_estimated AS costEstimated, cost_partial AS costPartial
+        FROM app_generation_attempt
+        WHERE generation_task_id = #{taskId}
+        ORDER BY attempt_no ASC, id ASC
+    </select>
 
-    <delete id="deleteBeforeDays">
-        DELETE FROM app_generation_task
-        WHERE queued_at &lt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL #{beforeDays} DAY)
-    </delete>
+    <sql id="StandaloneLatestWhere">
+        <where>
+            a.generation_task_id IS NULL
+            AND a.route_key IN ('vision.default', 'image.default', 'tts.default', 'stt.default')
+            AND NOT EXISTS (
+                SELECT 1
+                FROM app_generation_attempt newer
+                WHERE a.request_id IS NOT NULL
+                  AND newer.request_id = a.request_id
+                  AND (newer.attempt_no &gt; a.attempt_no OR (newer.attempt_no = a.attempt_no AND newer.id &gt; a.id))
+            )
+            <if test="capability != null and capability != ''">
+                AND a.route_key = CONCAT(LOWER(#{capability}), '.default')
+            </if>
+            <if test="status != null and status != ''">AND a.status = #{status}</if>
+            <if test="startedAfter != null">AND a.started_at &gt;= #{startedAfter}</if>
+            <if test="startedBefore != null">AND a.started_at &lt;= #{startedBefore}</if>
+            <if test="traceId != null and traceId != ''">
+                AND EXISTS (
+                    SELECT 1 FROM app_generation_attempt f
+                    WHERE f.generation_task_id IS NULL
+                      AND ((a.request_id IS NOT NULL AND f.request_id = a.request_id) OR (a.request_id IS NULL AND f.id = a.id))
+                      AND f.trace_id LIKE CONCAT('%', #{traceId}, '%')
+                )
+            </if>
+            <if test="providerKey != null and providerKey != ''">
+                AND EXISTS (
+                    SELECT 1 FROM app_generation_attempt f
+                    WHERE f.generation_task_id IS NULL
+                      AND ((a.request_id IS NOT NULL AND f.request_id = a.request_id) OR (a.request_id IS NULL AND f.id = a.id))
+                      AND f.provider_key LIKE CONCAT('%', #{providerKey}, '%')
+                )
+            </if>
+            <if test="model != null and model != ''">
+                AND EXISTS (
+                    SELECT 1 FROM app_generation_attempt f
+                    WHERE f.generation_task_id IS NULL
+                      AND ((a.request_id IS NOT NULL AND f.request_id = a.request_id) OR (a.request_id IS NULL AND f.id = a.id))
+                      AND COALESCE(f.model, '') LIKE CONCAT('%', #{model}, '%')
+                )
+            </if>
+            <if test="httpStatus != null">
+                AND EXISTS (
+                    SELECT 1 FROM app_generation_attempt f
+                    WHERE f.generation_task_id IS NULL
+                      AND ((a.request_id IS NOT NULL AND f.request_id = a.request_id) OR (a.request_id IS NULL AND f.id = a.id))
+                      AND f.http_status = #{httpStatus}
+                )
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND EXISTS (
+                    SELECT 1 FROM app_generation_attempt f
+                    WHERE f.generation_task_id IS NULL
+                      AND ((a.request_id IS NOT NULL AND f.request_id = a.request_id) OR (a.request_id IS NULL AND f.id = a.id))
+                      AND (CAST(f.id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')
+                        OR COALESCE(f.request_id, '') LIKE CONCAT('%', #{keyword}, '%')
+                        OR COALESCE(f.error_code, '') LIKE CONCAT('%', #{keyword}, '%')
+                        OR COALESCE(f.error_message, '') LIKE CONCAT('%', #{keyword}, '%'))
+                )
+            </if>
+        </where>
+    </sql>
+
+    <select id="countStandaloneRequests" resultType="long">
+        SELECT COUNT(*) FROM app_generation_attempt a <include refid="StandaloneLatestWhere"/>
+    </select>
+
+    <select id="listStandaloneRequests" resultType="map">
+        SELECT a.id,
+               COALESCE(a.request_id, CONCAT('legacy-', a.id)) AS requestId,
+               COALESCE(a.trace_id, '') AS traceId,
+               CASE a.route_key
+                   WHEN 'vision.default' THEN 'VISION'
+                   WHEN 'image.default' THEN 'IMAGE'
+                   WHEN 'tts.default' THEN 'TTS'
+                   WHEN 'stt.default' THEN 'STT'
+                   ELSE UPPER(a.route_key)
+               END AS capability,
+               a.attempt_no AS attemptNo, a.provider_key AS providerKey, a.route_key AS routeKey,
+               COALESCE(a.provider_source, '') AS providerSource, COALESCE(a.model, '') AS model,
+               a.byok,
+               (SELECT COUNT(*) FROM app_generation_attempt x
+                WHERE (a.request_id IS NOT NULL AND x.request_id = a.request_id) OR (a.request_id IS NULL AND x.id = a.id)) AS attemptCount,
+               EXISTS(SELECT 1 FROM app_generation_attempt x
+                WHERE ((a.request_id IS NOT NULL AND x.request_id = a.request_id) OR (a.request_id IS NULL AND x.id = a.id))
+                  AND x.was_fallback = TRUE) AS wasFallback,
+               (SELECT MIN(x.started_at) FROM app_generation_attempt x
+                WHERE (a.request_id IS NOT NULL AND x.request_id = a.request_id) OR (a.request_id IS NULL AND x.id = a.id)) AS createdAt,
+               (SELECT SUM(COALESCE(x.duration_ms, 0)) FROM app_generation_attempt x
+                WHERE (a.request_id IS NOT NULL AND x.request_id = a.request_id) OR (a.request_id IS NULL AND x.id = a.id)) AS durationMs,
+               a.ttft_ms AS ttftMs, a.http_status AS httpStatus, a.status,
+               COALESCE(a.error_code, '') AS errorCode, COALESCE(a.error_message, '') AS errorMessage,
+               (SELECT SUM(COALESCE(x.prompt_tokens, 0)) FROM app_generation_attempt x
+                WHERE (a.request_id IS NOT NULL AND x.request_id = a.request_id) OR (a.request_id IS NULL AND x.id = a.id)) AS promptTokens,
+               (SELECT SUM(COALESCE(x.completion_tokens, 0)) FROM app_generation_attempt x
+                WHERE (a.request_id IS NOT NULL AND x.request_id = a.request_id) OR (a.request_id IS NULL AND x.id = a.id)) AS completionTokens,
+               (SELECT SUM(COALESCE(x.total_cost_usd, 0)) FROM app_generation_attempt x
+                WHERE (a.request_id IS NOT NULL AND x.request_id = a.request_id) OR (a.request_id IS NULL AND x.id = a.id)) AS totalCostUsd
+        FROM app_generation_attempt a
+        <include refid="StandaloneLatestWhere"/>
+        ORDER BY a.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="listStandaloneAttemptsByRequestId" resultType="map">
+        SELECT id, request_id AS requestId, COALESCE(trace_id, '') AS traceId,
+               attempt_no AS attemptNo, provider_key AS providerKey, route_key AS routeKey,
+               COALESCE(provider_source, '') AS providerSource, COALESCE(model, '') AS model,
+               byok, was_fallback AS wasFallback, started_at AS startedAt, first_token_at AS firstTokenAt,
+               duration_ms AS durationMs, ttft_ms AS ttftMs, http_status AS httpStatus, status,
+               COALESCE(error_code, '') AS errorCode, COALESCE(error_message, '') AS errorMessage,
+               COALESCE(prompt_tokens, 0) AS promptTokens, COALESCE(completion_tokens, 0) AS completionTokens,
+               prompt_tokens_estimated AS promptTokensEstimated,
+               completion_tokens_estimated AS completionTokensEstimated,
+               COALESCE(currency, '') AS currency, total_cost_usd AS totalCostUsd,
+               cost_estimated AS costEstimated, cost_partial AS costPartial
+        FROM app_generation_attempt
+        WHERE generation_task_id IS NULL
+          AND request_id = #{requestId}
+          AND route_key IN ('vision.default', 'image.default', 'tts.default', 'stt.default')
+        ORDER BY attempt_no ASC, id ASC
+    </select>
+
 </mapper>

@@ -1,7 +1,9 @@
 package com.example.sillyspringboot.chat.service;
 
 import com.example.sillyspringboot.chat.config.AppChatProperties;
+import org.slf4j.MDC;
 
+import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
@@ -37,7 +39,24 @@ public class ChatGenerationDispatcher {
     }
 
     public void submit(Runnable task) {
-        executor.execute(task);
+        Map<String, String> context = MDC.getCopyOfContextMap();
+        executor.execute(() -> {
+            Map<String, String> previous = MDC.getCopyOfContextMap();
+            try {
+                if (context == null || context.isEmpty()) {
+                    MDC.clear();
+                } else {
+                    MDC.setContextMap(context);
+                }
+                task.run();
+            } finally {
+                if (previous == null || previous.isEmpty()) {
+                    MDC.clear();
+                } else {
+                    MDC.setContextMap(previous);
+                }
+            }
+        });
     }
 
     public DispatcherStatus status() {

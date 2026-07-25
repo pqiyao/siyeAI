@@ -153,6 +153,12 @@
 			}
 		},
 		{
+			"path": "pages/user/myVoices",
+			"style": {
+				"navigationStyle": "custom"
+			}
+		},
+		{
 			"path": "pages/user/live2dSetting",
 			"style": {
 				"navigationStyle": "custom"

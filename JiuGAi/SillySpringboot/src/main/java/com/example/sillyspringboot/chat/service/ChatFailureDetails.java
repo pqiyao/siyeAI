@@ -2,6 +2,7 @@ package com.example.sillyspringboot.chat.service;
 
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
+import com.example.sillyspringboot.shared.logging.SensitiveLogSanitizer;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -11,14 +12,6 @@ final class ChatFailureDetails {
     private static final int MAX_MESSAGE_LENGTH = 512;
     private static final int DETAIL_BUDGET = 460;
     private static final Pattern HTTP_STATUS_PATTERN = Pattern.compile("\\bhttp\\s+(\\d{3})\\b", Pattern.CASE_INSENSITIVE);
-    private static final Pattern JSON_SECRET_FIELD_PATTERN = Pattern.compile(
-            "(\\\"(?:proxy_password|api_key|authorization|token|secret|password)\\\"\\s*:\\s*\\\")([^\\\"]*)(\\\")",
-            Pattern.CASE_INSENSITIVE
-    );
-    private static final Pattern ASSIGN_SECRET_PATTERN = Pattern.compile(
-            "((?:authorization|api[_-]?key|proxy_password|token|secret|password)\\s*[=:]\\s*)([^\\s,;]+)",
-            Pattern.CASE_INSENSITIVE
-    );
 
     record TaskFailure(String errorCode, String errorMessage, Integer httpStatus) {
     }
@@ -185,21 +178,7 @@ final class ChatFailureDetails {
     }
 
     private static String normalize(String value) {
-        if (value == null) {
-            return "";
-        }
-        String normalized = value
-                .replace('\r', ' ')
-                .replace('\n', ' ')
-                .replace('\t', ' ')
-                .replaceAll("\\s+", " ")
-                .trim();
-        if (normalized.isBlank()) {
-            return "";
-        }
-        normalized = JSON_SECRET_FIELD_PATTERN.matcher(normalized).replaceAll("$1***$3");
-        normalized = ASSIGN_SECRET_PATTERN.matcher(normalized).replaceAll("$1***");
-        return normalized;
+        return SensitiveLogSanitizer.sanitize(value, Integer.MAX_VALUE);
     }
 
     private static String trimTo(String text, int max) {

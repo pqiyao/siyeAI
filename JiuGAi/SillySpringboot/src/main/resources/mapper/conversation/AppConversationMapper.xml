@@ -156,6 +156,13 @@
           AND (title IS NULL OR title = '')
     </update>
 
+    <update id="updateTitle">
+        UPDATE app_conversation
+        SET title = #{title}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{conversationId}
+          AND user_id = #{userId}
+    </update>
+
     <update id="setActiveBranchId">
         UPDATE app_conversation
         SET active_branch_id = #{branchId},

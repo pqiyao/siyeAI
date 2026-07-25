@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -30,6 +32,10 @@ public class ApiV1TavernMemoryController {
     private static final int DEFAULT_ENTRY_PAGE_SIZE = 20;
     private static final int MAX_ENTRY_PAGE_SIZE = 50;
     private static final Set<String> ENTRY_FILTERS = Set.of("all", "enabled", "disabled", "archived");
+    private static final Set<String> MEMORY_TYPES = Set.of(
+            "identity", "relationship", "preference", "promise", "event", "setting", "boundary"
+    );
+    private static final Set<String> CONSTANT_MEMORY_TYPES = Set.of("identity", "relationship", "setting", "boundary");
 
     private final H5ClientUidAuthService h5Auth;
     private final AppTokenService tokenService;
@@ -72,6 +78,39 @@ public class ApiV1TavernMemoryController {
                 entryFilter,
                 page,
                 pageSize
+        ));
+    }
+
+    @PostMapping("/save-entry")
+    public ApiV1Result<Map<String, Object>> saveEntry(@RequestBody Map<String, Object> payload) {
+        BranchContext context = requireBranchContext(payload);
+        Long entryId = optionalPositiveLong(payload, "entryId");
+        String memoryType = requireMemoryType(payload);
+        String title = optionalString(payload, "title");
+        String content = requiredString(payload, "content");
+        List<String> keywords = requireStringList(payload, "keywords");
+        List<String> secondaryKeywords = requireStringList(payload, "secondaryKeywords");
+        int priority = requirePriority(payload);
+        boolean constantInjection = optionalBoolean(payload, "constantInjection", false);
+        boolean manualPinned = optionalBoolean(payload, "manualPinned", true);
+        if (constantInjection && !CONSTANT_MEMORY_TYPES.contains(memoryType)) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_FAILED,
+                    "constantInjection is only supported for identity, relationship, setting or boundary memories"
+            );
+        }
+        return ApiV1Result.ok(conversationMemoryService.saveManualMemoryEntry(
+                context.conversationId(),
+                context.branchId(),
+                entryId,
+                memoryType,
+                title,
+                content,
+                keywords,
+                secondaryKeywords,
+                priority,
+                constantInjection,
+                manualPinned
         ));
     }
 
@@ -124,6 +163,89 @@ public class ApiV1TavernMemoryController {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "entryId missing");
         }
         return entryId;
+    }
+
+    private static Long optionalPositiveLong(Map<String, Object> payload, String field) {
+        Object raw = payload == null ? null : payload.get(field);
+        if (raw == null || raw instanceof String s && s.isBlank()) {
+            return null;
+        }
+        Long value = asWholeLong(raw);
+        if (value == null || value <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " invalid");
+        }
+        return value;
+    }
+
+    private static String requireMemoryType(Map<String, Object> payload) {
+        String value = requiredString(payload, "memoryType").toLowerCase(Locale.ROOT);
+        if (!MEMORY_TYPES.contains(value)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "memoryType invalid");
+        }
+        return value;
+    }
+
+    private static String requiredString(Map<String, Object> payload, String field) {
+        String value = optionalString(payload, field);
+        if (value.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " missing");
+        }
+        return value;
+    }
+
+    private static String optionalString(Map<String, Object> payload, String field) {
+        Object raw = payload == null ? null : payload.get(field);
+        if (raw == null) {
+            return "";
+        }
+        if (!(raw instanceof String)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " invalid");
+        }
+        return ((String) raw).trim();
+    }
+
+    private static List<String> requireStringList(Map<String, Object> payload, String field) {
+        Object raw = payload == null ? null : payload.get(field);
+        if (raw == null) {
+            return List.of();
+        }
+        if (!(raw instanceof List<?> values)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " invalid");
+        }
+        List<String> result = new ArrayList<>();
+        for (Object value : values) {
+            if (!(value instanceof String text)) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " invalid");
+            }
+            if (!text.isBlank()) {
+                result.add(text.trim());
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    private static int requirePriority(Map<String, Object> payload) {
+        Object raw = payload == null ? null : payload.get("priority");
+        if (raw == null || raw instanceof String s && s.isBlank()) {
+            return 0;
+        }
+        Long value = asWholeLong(raw);
+        if (value == null || value < 40 || value > 200) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "priority invalid");
+        }
+        return value.intValue();
+    }
+
+    private static boolean optionalBoolean(Map<String, Object> payload, String field, boolean defaultValue) {
+        Object raw = payload == null ? null : payload.get(field);
+        if (raw == null) {
+            return defaultValue;
+        }
+        Boolean value = asBoolean(raw);
+        if (value == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " invalid");
+        }
+        return value;
     }
 
     private static String requireEntryFilter(Map<String, Object> payload) {

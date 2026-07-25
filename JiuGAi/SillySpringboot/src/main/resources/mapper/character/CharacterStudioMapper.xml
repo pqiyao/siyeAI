@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.character.mapper.CharacterStudioMapper">
+
+    <select id="findCardType" resultType="string">
+        SELECT card_type
+        FROM app_character
+        WHERE id = #{characterId}
+        LIMIT 1
+    </select>
+
+    <resultMap id="MemberMap" type="com.example.sillyspringboot.character.entity.AppCharacterMember">
+        <id column="id" property="id"/>
+        <result column="character_id" property="characterId"/>
+        <result column="name" property="name"/>
+        <result column="tagline" property="tagline"/>
+        <result column="persona" property="persona"/>
+        <result column="avatar_url" property="avatarUrl"/>
+        <result column="voice_config_json" property="voiceConfigJson"/>
+        <result column="image_reference_url" property="imageReferenceUrl"/>
+        <result column="is_primary" property="primaryMember"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="enabled" property="enabled"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <resultMap id="OpeningMap" type="com.example.sillyspringboot.character.entity.AppCharacterOpening">
+        <id column="id" property="id"/>
+        <result column="character_id" property="characterId"/>
+        <result column="title" property="title"/>
+        <result column="summary" property="summary"/>
+        <result column="scenario_override" property="scenarioOverride"/>
+        <result column="is_default" property="defaultOpening"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="enabled" property="enabled"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <resultMap id="OpeningSegmentMap" type="com.example.sillyspringboot.character.entity.AppCharacterOpeningSegment">
+        <id column="id" property="id"/>
+        <result column="opening_id" property="openingId"/>
+        <result column="speaker_member_id" property="speakerMemberId"/>
+        <result column="speaker_type" property="speakerType"/>
+        <result column="content" property="content"/>
+        <result column="sort_order" property="sortOrder"/>
+    </resultMap>
+
+    <select id="listMembers" resultMap="MemberMap">
+        SELECT *
+        FROM app_character_member
+        WHERE character_id = #{characterId}
+          AND deleted_at IS NULL
+          AND enabled = TRUE
+        ORDER BY is_primary DESC, sort_order ASC, id ASC
+    </select>
+
+    <select id="listOpenings" resultMap="OpeningMap">
+        SELECT *
+        FROM app_character_opening
+        WHERE character_id = #{characterId}
+          AND deleted_at IS NULL
+          AND enabled = TRUE
+        ORDER BY is_default DESC, sort_order ASC, id ASC
+    </select>
+
+    <select id="listSegmentsByCharacter" resultMap="OpeningSegmentMap">
+        SELECT s.*
+        FROM app_character_opening_segment s
+        JOIN app_character_opening o ON o.id = s.opening_id
+        WHERE o.character_id = #{characterId}
+          AND o.deleted_at IS NULL
+          AND o.enabled = TRUE
+        ORDER BY o.sort_order ASC, o.id ASC, s.sort_order ASC, s.id ASC
+    </select>
+
+    <insert id="insertMember" parameterType="com.example.sillyspringboot.character.entity.AppCharacterMember"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_character_member (
+            character_id, name, tagline, persona, avatar_url, voice_config_json,
+            image_reference_url, is_primary, sort_order, enabled
+        ) VALUES (
+            #{characterId}, #{name}, #{tagline}, #{persona}, #{avatarUrl}, #{voiceConfigJson},
+            #{imageReferenceUrl}, #{primaryMember}, #{sortOrder}, #{enabled}
+        )
+    </insert>
+
+    <update id="updateMember" parameterType="com.example.sillyspringboot.character.entity.AppCharacterMember">
+        UPDATE app_character_member
+        SET name = #{name}, tagline = #{tagline}, persona = #{persona}, avatar_url = #{avatarUrl},
+            voice_config_json = #{voiceConfigJson}, image_reference_url = #{imageReferenceUrl},
+            is_primary = #{primaryMember}, sort_order = #{sortOrder}, enabled = #{enabled},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND character_id = #{characterId} AND deleted_at IS NULL
+    </update>
+
+    <insert id="insertOpening" parameterType="com.example.sillyspringboot.character.entity.AppCharacterOpening"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_character_opening (
+            character_id, title, summary, scenario_override, is_default, sort_order, enabled
+        ) VALUES (
+            #{characterId}, #{title}, #{summary}, #{scenarioOverride}, #{defaultOpening}, #{sortOrder}, #{enabled}
+        )
+    </insert>
+
+    <insert id="insertOpeningSegment" parameterType="com.example.sillyspringboot.character.entity.AppCharacterOpeningSegment"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_character_opening_segment (
+            opening_id, speaker_member_id, speaker_type, content, sort_order
+        ) VALUES (
+            #{openingId}, #{speakerMemberId}, #{speakerType}, #{content}, #{sortOrder}
+        )
+    </insert>
+
+    <delete id="deleteMembersByCharacterId">
+        DELETE FROM app_character_member WHERE character_id = #{characterId}
+    </delete>
+
+    <delete id="deleteMemberById">
+        DELETE FROM app_character_member WHERE character_id = #{characterId} AND id = #{memberId}
+    </delete>
+
+    <delete id="deleteOpeningSegmentsByCharacterId">
+        DELETE FROM app_character_opening_segment
+        WHERE opening_id IN (
+            SELECT id FROM app_character_opening WHERE character_id = #{characterId}
+        )
+    </delete>
+
+    <delete id="deleteOpeningsByCharacterId">
+        DELETE FROM app_character_opening WHERE character_id = #{characterId}
+    </delete>
+
+    <update id="updateCardType">
+        UPDATE app_character
+        SET card_type = #{cardType}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{characterId}
+    </update>
+
+    <update id="clearLorebookMemberScopes">
+        UPDATE app_lorebook_entry
+        SET member_id = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE character_id = #{characterId}
+          AND member_id IS NOT NULL
+    </update>
+</mapper>

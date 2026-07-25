@@ -40,6 +40,8 @@ public class AiProviderProbeService {
     private static final int MAX_MODELS = 2_000;
     private static final int MAX_RESPONSE_BODY = 16 * 1024 * 1024;
     private static final byte[] STT_PROBE_WAV = loadSttProbeWav();
+    private static final String VISION_PROBE_IMAGE =
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z4D8AAAAASUVORK5CYII=";
 
     record ProbeResponse(int statusCode, HttpHeaders headers, byte[] body) {}
 
@@ -108,6 +110,7 @@ public class AiProviderProbeService {
             long startedAt = System.nanoTime();
             HttpRequest request = switch (draft.capability()) {
                 case CHAT -> chatRequest(draft);
+                case VISION -> visionRequest(draft);
                 case IMAGE -> imageRequest(draft);
                 case TTS -> ttsRequest(draft);
                 case STT -> sttRequest(draft);
@@ -140,6 +143,21 @@ public class AiProviderProbeService {
         payload.put("model", draft.modelName());
         payload.put("messages", List.of(Map.of("role", "user", "content", "Reply with OK.")));
         payload.put("max_tokens", 2);
+        payload.put("stream", false);
+        return jsonPost(draft, "/chat/completions", payload);
+    }
+
+    private HttpRequest visionRequest(AiRoutingService.DraftCredential draft) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", draft.modelName());
+        payload.put("messages", List.of(Map.of(
+                "role", "user",
+                "content", List.of(
+                        Map.of("type", "text", "text", "Describe the image briefly. Return plain text only."),
+                        Map.of("type", "image_url", "image_url", Map.of("url", VISION_PROBE_IMAGE))
+                )
+        )));
+        payload.put("max_tokens", 32);
         payload.put("stream", false);
         return jsonPost(draft, "/chat/completions", payload);
     }
@@ -254,6 +272,7 @@ public class AiProviderProbeService {
         JsonNode root = parseJson(body, capabilityLabel(capability) + "响应不是有效 JSON");
         boolean valid = switch (capability) {
             case CHAT -> hasUsableChatContent(root);
+            case VISION -> hasUsableChatContent(root);
             case IMAGE -> hasUsableImage(root);
             case STT -> StringUtils.hasText(root.path("text").asText(""));
             case TTS -> true;
@@ -451,11 +470,15 @@ public class AiProviderProbeService {
             }
         }
         String text = haystack.toString();
-        boolean image = containsAny(text, "image", "dall-e", "flux", "stable-diffusion", "kolors", "sdxl");
+        boolean vision = containsAny(text, "vision", "visual", "multimodal", "qwen-vl", "qwen2-vl", "qwen2.5-vl",
+                "llava", "pixtral", "gpt-4o", "gpt-4.1", "gemini", "claude", "grok-vision");
+        boolean image = containsAny(text, "image-generation", "text-to-image", "dall-e", "flux", "stable-diffusion", "kolors", "sdxl")
+                || (!vision && containsAny(text, "image"));
         boolean stt = containsAny(text, "whisper", "transcri", "speech-to-text", "speech2text", "stt", "asr", "sensevoice", "paraformer");
         boolean tts = !stt && containsAny(text, "text-to-speech", "tts", "speech-synth", "cosyvoice", "fish-speech");
         return switch (capability) {
             case IMAGE -> image;
+            case VISION -> vision;
             case TTS -> tts;
             case STT -> stt;
             case CHAT -> !image && !tts && !stt;
@@ -487,6 +510,7 @@ public class AiProviderProbeService {
     private static String capabilityLabel(AiCapability capability) {
         return switch (capability) {
             case CHAT -> "聊天";
+            case VISION -> "识图";
             case IMAGE -> "生图";
             case TTS -> "语音合成";
             case STT -> "语音识别";

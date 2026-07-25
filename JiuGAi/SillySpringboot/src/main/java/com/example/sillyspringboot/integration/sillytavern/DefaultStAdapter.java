@@ -86,6 +86,11 @@ public class DefaultStAdapter implements StAdapter {
     }
 
     @Override
+    public byte[] exportCharacterPng(String avatarUrl) {
+        return stClient.exportCharacterPng(avatarUrl);
+    }
+
+    @Override
     public boolean deleteCharacter(String avatarUrl, boolean deleteChats) {
         return stClient.deleteCharacter(avatarUrl, deleteChats);
     }

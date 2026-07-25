@@ -14,6 +14,11 @@ public class EntitlementPolicy {
     private int guestCharacterCreateLimit = 999;
     private int vipCharacterCreateLimit = 999;
     private int svipCharacterCreateLimit = 999;
+    /** 用户自建音色仅使用用户自己的硅基流动 API Key。 */
+    private boolean userVoiceCreationEnabled;
+    private int guestUserVoiceLimit = 3;
+    private int vipUserVoiceLimit = 3;
+    private int svipUserVoiceLimit = 3;
     private boolean guestCanAccessVipCharacters;
     private boolean vipCanAccessVipCharacters = true;
     private boolean svipCanAccessVipCharacters = true;
@@ -38,6 +43,18 @@ public class EntitlementPolicy {
     /** STT 语音识别：默认免费；配置非零单价后每段录音成功识别扣一次。 */
     private int sttScoreCost = 0;
     private int sttGoldCost = 0;
+    /** 官方识图：与后续正常 CHAT 计费相互独立；默认免费。 */
+    private int visionScoreCost = 0;
+    private int visionGoldCost = 0;
+
+    public boolean isUserVoiceCreationEnabled() { return userVoiceCreationEnabled; }
+    public void setUserVoiceCreationEnabled(boolean value) { this.userVoiceCreationEnabled = value; }
+    public int getGuestUserVoiceLimit() { return guestUserVoiceLimit; }
+    public void setGuestUserVoiceLimit(int value) { this.guestUserVoiceLimit = value; }
+    public int getVipUserVoiceLimit() { return vipUserVoiceLimit; }
+    public void setVipUserVoiceLimit(int value) { this.vipUserVoiceLimit = value; }
+    public int getSvipUserVoiceLimit() { return svipUserVoiceLimit; }
+    public void setSvipUserVoiceLimit(int value) { this.svipUserVoiceLimit = value; }
 
     public int getGuestDailyChatQuota() {
         return guestDailyChatQuota;
@@ -261,5 +278,21 @@ public class EntitlementPolicy {
 
     public void setSttGoldCost(int sttGoldCost) {
         this.sttGoldCost = sttGoldCost;
+    }
+
+    public int getVisionScoreCost() {
+        return visionScoreCost;
+    }
+
+    public void setVisionScoreCost(int visionScoreCost) {
+        this.visionScoreCost = visionScoreCost;
+    }
+
+    public int getVisionGoldCost() {
+        return visionGoldCost;
+    }
+
+    public void setVisionGoldCost(int visionGoldCost) {
+        this.visionGoldCost = visionGoldCost;
     }
 }

@@ -23,6 +23,9 @@ public class AppMessage {
     private String traceId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private Long speakerMemberId;
+    private String speakerNameSnapshot;
+    private String speakerAvatarSnapshot;
 
     public Long getId() {
         return id;
@@ -175,5 +178,12 @@ public class AppMessage {
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
     }
+
+    public Long getSpeakerMemberId() { return speakerMemberId; }
+    public void setSpeakerMemberId(Long speakerMemberId) { this.speakerMemberId = speakerMemberId; }
+    public String getSpeakerNameSnapshot() { return speakerNameSnapshot; }
+    public void setSpeakerNameSnapshot(String speakerNameSnapshot) { this.speakerNameSnapshot = speakerNameSnapshot; }
+    public String getSpeakerAvatarSnapshot() { return speakerAvatarSnapshot; }
+    public void setSpeakerAvatarSnapshot(String speakerAvatarSnapshot) { this.speakerAvatarSnapshot = speakerAvatarSnapshot; }
 }
 

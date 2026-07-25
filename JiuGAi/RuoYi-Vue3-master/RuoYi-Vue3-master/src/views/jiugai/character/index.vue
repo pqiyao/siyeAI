@@ -183,7 +183,7 @@
       </el-table-column>
       <el-table-column label="排序" prop="sortOrder" width="70" />
       <el-table-column label="创建时间" prop="createTime" width="170" />
-      <el-table-column label="操作" width="270" fixed="right">
+      <el-table-column label="操作" width="380" fixed="right">
         <template #default="scope">
           <el-button
             v-if="scope.row.userCreated && scope.row.reviewStatus !== 'APPROVED'"
@@ -197,6 +197,21 @@
             type="warning"
             @click="handleReject(scope.row)"
           >驳回</el-button>
+          <el-tooltip
+            v-if="scope.row.userCreated"
+            :content="promotionState.enabled ? '按 ST 原生导出/导入生成独立系统角色草稿' : '请先在权益配置中开启复制开关'"
+            placement="top"
+          >
+            <span>
+              <el-button
+                link
+                type="primary"
+                icon="DocumentCopy"
+                :disabled="!promotionState.enabled || promotionState.loading"
+                @click="openPromotionDialog(scope.row)"
+              >复制为系统</el-button>
+            </span>
+          </el-tooltip>
           <el-button link type="info" icon="Notebook" @click="openCharacterLorebook(scope.row)">世界书</el-button>
           <el-button link type="warning" icon="FirstAidKit" @click="openHealthDrawer(scope.row)">检查</el-button>
           <el-button link type="primary" icon="Edit" @click="handleUpdate(scope.row)">修改</el-button>
@@ -206,6 +221,36 @@
     </el-table>
 
     <pagination v-show="total > 0" :total="total" v-model:page="queryParams.pageNum" v-model:limit="queryParams.pageSize" @pagination="getList" />
+
+    <el-dialog
+      v-model="promotionState.dialogVisible"
+      title="复制为系统角色"
+      width="520px"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        title="将生成独立的系统角色草稿"
+        type="warning"
+        :closable="false"
+        show-icon
+      >
+        原用户卡不会改变。系统会按 ST 原生流程导出 PNG，再以独立文件名重新导入，效果与手动从 ST 导出后重新导入一致；随后复制应用侧成员、开场和世界书，新角色默认不在用户端显示。
+      </el-alert>
+      <div class="jg-promotion-detail">
+        <span>来源角色</span>
+        <strong>{{ promotionState.row?.name || '未命名角色' }}</strong>
+      </div>
+      <el-checkbox v-model="promotionState.keepCreatorAttribution">
+        在系统角色资料中保留创作者署名
+      </el-checkbox>
+      <template #footer>
+        <el-button :disabled="promotionState.submitting" @click="promotionState.dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="promotionState.submitting" @click="submitPromotionCopy">
+          确认复制
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-drawer v-model="healthDrawer.visible" title="角色公开内容检查" size="520px" append-to-body destroy-on-close>
       <div v-if="healthDrawer.row" class="jg-health-drawer">
@@ -746,6 +791,8 @@ import {
   getUserCreatedCharacterStats,
   getCharacter,
   recalculateCharacterPublicProfile,
+  getCharacterPromotionSettings,
+  promoteCharacterCopy,
   addCharacter,
   updateCharacter,
   delCharacter,
@@ -779,6 +826,14 @@ const userCreatedStats = ref({ totalUserCreated: 0, ownerCount: 0, topOwners: []
 const characterLorebookRows = ref([])
 const characterLorebookLoading = ref(false)
 const healthDrawer = reactive({ visible: false, row: null, recalculating: false })
+const promotionState = reactive({
+  enabled: false,
+  loading: true,
+  dialogVisible: false,
+  submitting: false,
+  keepCreatorAttribution: true,
+  row: null
+})
 const uiText = Object.freeze({
   systemRole: '\u7cfb\u7edf\u89d2\u8272',
   userCreated: '\u7528\u6237\u521b\u5efa',
@@ -1600,6 +1655,46 @@ function handleReject(row) {
     })
 }
 
+function loadPromotionSettings() {
+  promotionState.loading = true
+  getCharacterPromotionSettings()
+    .then((res) => {
+      promotionState.enabled = res.data?.userCharacterPromotionEnabled === true
+    })
+    .catch(() => {
+      promotionState.enabled = false
+    })
+    .finally(() => {
+      promotionState.loading = false
+    })
+}
+
+function openPromotionDialog(row) {
+  if (!promotionState.enabled || !row?.id) return
+  promotionState.row = row
+  promotionState.keepCreatorAttribution = true
+  promotionState.dialogVisible = true
+}
+
+function submitPromotionCopy() {
+  const sourceId = promotionState.row?.id
+  if (!sourceId || promotionState.submitting) return
+  promotionState.submitting = true
+  promoteCharacterCopy(sourceId, promotionState.keepCreatorAttribution)
+    .then((res) => {
+      promotionState.dialogVisible = false
+      const targetId = res.data?.targetCharacterId
+      proxy.$modal.msgSuccess(targetId ? `已生成系统角色草稿 #${targetId}` : '已生成系统角色草稿')
+      getList()
+    })
+    .catch((e) => {
+      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '复制为系统角色失败'))
+    })
+    .finally(() => {
+      promotionState.submitting = false
+    })
+}
+
 function openReviewLog() {
   proxy.$tab.openPage('角色审核台账', '/jiugai/content/reviewlog')
 }
@@ -1624,6 +1719,7 @@ function batchEvictLore() {
 getList()
 loadTagOptions()
 loadCharacterWorldbookOptions()
+loadPromotionSettings()
 </script>
 
 <style scoped>
@@ -1640,6 +1736,19 @@ loadCharacterWorldbookOptions()
   margin: 0 0 8px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+.jg-promotion-detail {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin: 20px 0 14px;
+  color: var(--el-text-color-secondary);
+}
+.jg-promotion-detail strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--el-text-color-primary);
 }
 .jg-greet-row {
   display: flex;

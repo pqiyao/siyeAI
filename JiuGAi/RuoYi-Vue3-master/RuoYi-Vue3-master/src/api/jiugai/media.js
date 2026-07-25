@@ -31,3 +31,15 @@ export function getMediaVoicePolicy() {
 export function updateMediaVoicePolicy(data) {
   return request({ url: '/admin/jiugai/media/voice-policy', method: 'put', data })
 }
+
+export function listUserTtsVoices(params) {
+  return request({ url: '/admin/jiugai/user-tts-voice/list', method: 'get', params })
+}
+
+export function updateUserTtsVoiceDisabled(voiceId, disabled) {
+  return request({
+    url: `/admin/jiugai/user-tts-voice/${voiceId}/disabled`,
+    method: 'put',
+    data: { disabled: disabled === true }
+  })
+}

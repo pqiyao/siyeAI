@@ -103,10 +103,39 @@
         WHERE id = #{branchId}
     </update>
 
+
     <update id="touch">
         UPDATE app_conversation_branch
         SET updated_at = CURRENT_TIMESTAMP
         WHERE id = #{branchId}
+    </update>
+
+    <update id="updateTitle">
+        UPDATE app_conversation_branch
+        SET title = #{title},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND id = #{branchId}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="reparentChildren">
+        UPDATE app_conversation_branch
+        SET parent_branch_id = #{parentBranchId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND parent_branch_id = #{branchId}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="softDelete">
+        UPDATE app_conversation_branch
+        SET deleted_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND id = #{branchId}
+          AND is_default = FALSE
+          AND deleted_at IS NULL
     </update>
 
     <update id="incrementMemorySourceRevision">

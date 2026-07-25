@@ -29,6 +29,9 @@ public class AppChatStreamRequest {
 
     private String replySplitMode;
 
+    /** 稳定的识图请求 ID，仅在包含图片时使用，负责官方识图账单幂等。 */
+    private String visionRequestId;
+
     /** 客户端消息 ID，用于 chunk 对齐和流式归属。 */
     @NotBlank
     private String clientMessageId;
@@ -127,5 +130,13 @@ public class AppChatStreamRequest {
 
     public void setClientMessageId(String clientMessageId) {
         this.clientMessageId = clientMessageId;
+    }
+
+    public String getVisionRequestId() {
+        return visionRequestId;
+    }
+
+    public void setVisionRequestId(String visionRequestId) {
+        this.visionRequestId = visionRequestId;
     }
 }

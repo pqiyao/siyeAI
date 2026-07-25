@@ -4,6 +4,7 @@ app:
     enabled: ${APP_AI_ROUTING_ENABLED:false}
     shadow-enabled: ${APP_AI_ROUTING_SHADOW_ENABLED:true}
     chat-canary-percent: ${APP_AI_ROUTING_CHAT_CANARY_PERCENT:0}
+    vision-enabled: ${APP_AI_ROUTING_VISION_ENABLED:false}
     image-enabled: ${APP_AI_ROUTING_IMAGE_ENABLED:false}
     tts-enabled: ${APP_AI_ROUTING_TTS_ENABLED:false}
     stt-enabled: ${APP_AI_ROUTING_STT_ENABLED:false}

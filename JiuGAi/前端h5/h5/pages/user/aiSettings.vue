@@ -50,6 +50,23 @@
 						</view>
 						<text class="feature-status-tag">{{ imageFeatureStatusTag }}</text>
 					</view>
+					<view class="feature-status-item" :class="{ 'feature-status-item--off': !visionFeatureAvailable }">
+						<view class="feature-status-icon">识</view>
+						<view class="feature-status-copy">
+							<text class="feature-status-title">图片识别</text>
+							<text class="feature-status-desc">{{ visionFeatureStatusText }}</text>
+						</view>
+						<text class="feature-status-tag">{{ visionFeatureStatusTag }}</text>
+					</view>
+				</view>
+
+				<view v-if="canShowUserVoiceEntry" class="user-voice-entry" @tap="openMyVoices">
+					<view class="user-voice-entry__icon">声</view>
+					<view class="user-voice-entry__copy">
+						<text class="user-voice-entry__title">我的自建音色</text>
+						<text class="user-voice-entry__desc">使用你自己的硅基流动 API Key 即时克隆，可绑定全局或角色。</text>
+					</view>
+					<u-icon name="arrow-right" color="#5d7f95" size="24"></u-icon>
 				</view>
 
 				<view v-if="form.mode === 'system'" class="official-card">
@@ -1006,6 +1023,10 @@ function emptyState() {
 		providerSource: 'siliconflow',
 		modelName: '',
 		visionModelName: '',
+		visionOfficialEnabled: false,
+		visionOfficialReady: false,
+		visionScoreCost: 0,
+		visionGoldCost: 0,
 		sttModelName: '',
 		ttsModelName: '',
 		ttsVoiceName: '',
@@ -1023,6 +1044,7 @@ function emptyState() {
 		voiceEnabledGlobal: true,
 		voiceCanUse: true,
 		voiceDenyReason: '',
+		userVoiceCreationEnabled: false,
 		imageModelName: '',
 		imageCharacterConsistencyMode: 'free',
 		imageReferenceSourceMode: 'latest_generated_first',
@@ -1271,6 +1293,27 @@ export default {
 		},
 		imageFeatureAvailable() {
 			return this.viewState.imageEnabledGlobal !== false && this.viewState.imageCanUse !== false;
+		},
+		visionFeatureAvailable() {
+			if (this.form.mode === 'custom') {
+				return this.viewState.canUse === true && this.viewState.apiKeyConfigured === true
+					&& (!!String(this.form.visionModelName || '').trim() || this.looksLikeVisionModelName(this.form.modelName));
+			}
+			return this.viewState.visionOfficialEnabled === true && this.viewState.visionOfficialReady === true;
+		},
+		visionFeatureStatusTag() {
+			return this.visionFeatureAvailable ? '已开启' : (this.form.mode === 'system' && this.viewState.visionOfficialEnabled !== true ? '已关闭' : '暂不可用');
+		},
+		visionFeatureStatusText() {
+			if (this.form.mode === 'custom') {
+				return this.visionFeatureAvailable ? '使用你的 API Key，不扣平台识图费用。' : '请配置 API Key 和支持视觉的模型。';
+			}
+			if (this.viewState.visionOfficialEnabled !== true) return '管理员尚未开放官方识图。';
+			if (this.viewState.visionOfficialReady !== true) return '官方识图暂时没有可用供应商。';
+			const score = Math.max(0, Number(this.viewState.visionScoreCost || 0));
+			const gold = Math.max(0, Number(this.viewState.visionGoldCost || 0));
+			const cost = [score ? score + ' 钻石' : '', gold ? gold + ' 金币' : ''].filter(Boolean).join(' + ') || '免费';
+			return '每次识图 ' + cost + '，角色回复仍按正常聊天规则结算。';
 		},
 		voiceFeatureStatusTag() {
 			if (this.viewState.voiceEnabledGlobal === false) return '已关闭';
@@ -2032,6 +2075,13 @@ export default {
 		},
 		canRunCustomAction() {
 			return this.form.mode === 'custom' && this.viewState.canUse;
+		},
+		canShowUserVoiceEntry() {
+			if (!this.voiceFeatureAvailable || this.viewState.userVoiceCreationEnabled !== true || this.form.mode !== 'custom') return false;
+			const source = this.form.ttsUseSeparateConfig
+				? String(this.form.ttsProviderSource || '').trim()
+				: String(this.form.providerSource || '').trim();
+			return source.toLowerCase() === 'siliconflow';
 		}
 	},
 	watch: {
@@ -2097,6 +2147,12 @@ export default {
 		return false;
 	},
 	methods: {
+		openMyVoices() {
+			uni.navigateTo({ url: '/pages/user/myVoices' });
+		},
+		looksLikeVisionModelName(modelName) {
+			return /(vision|visual|multimodal|qwen[^/]*vl|llava|pixtral|gpt-4o|gpt-4\.1|gemini|claude|grok[^/]*vision)/i.test(String(modelName || ''));
+		},
 		goBack() {
 			this.confirmLeaveWithUnsavedChanges(() => this.navigateBackToUser());
 		},

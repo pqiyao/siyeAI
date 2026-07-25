@@ -8,6 +8,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const media = fs.readFileSync(path.join(root, 'src/views/jiugai/media/index.vue'), 'utf8')
 const api = fs.readFileSync(path.join(root, 'src/api/jiugai/media.js'), 'utf8')
 const entitlement = fs.readFileSync(path.join(root, 'src/views/jiugai/entitlement/index.vue'), 'utf8')
+const routing = fs.readFileSync(path.join(root, 'src/views/jiugai/openrouter/UnifiedAiRoutingPanel.vue'), 'utf8')
+const walletLedger = fs.readFileSync(path.join(root, 'src/views/jiugai/walletledger/index.vue'), 'utf8')
+const entitlementLog = fs.readFileSync(path.join(root, 'src/views/jiugai/entitlementlog/index.vue'), 'utf8')
 
 test('AI 媒体中心共用一个菜单并提供三个独立管理页签', () => {
   assert.match(media, /<el-tab-pane name="image">/)
@@ -46,6 +49,44 @@ test('媒体中心保留用户自定义通道并将官方平台配置统一交�
 test('IMAGE、TTS、STT 都能直达对应模型路由能力', () => {
   assert.match(media, /openModelRouting\(item\.capability\)/)
   assert.match(media, /query: \{ capability \}/)
+})
+
+test('VISION 作为第五种独立能力提供供应商池、运行开关和独立计费', () => {
+  assert.match(routing, /value: 'VISION', label: '视觉理解'/)
+  assert.match(routing, /runtimeDraft\.visionEnabled/)
+  assert.match(entitlement, /form\.visionScoreCost/)
+  assert.match(entitlement, /form\.visionGoldCost/)
+  assert.match(entitlement, /按原规则结算正常聊天/)
+})
+
+test('钱包流水在原页面分开充值收益与其他资金变动', () => {
+  assert.match(walletLedger, /label="充值收益" name="REVENUE"/)
+  assert.match(walletLedger, /label="其他资金变动" name="OTHER"/)
+  assert.match(walletLedger, /groupType: 'REVENUE'/)
+})
+
+test('权益日志在原页面分开后台操作与功能权益消耗', () => {
+  assert.match(entitlementLog, /label="后台权益操作" name="OPERATIONS"/)
+  assert.match(entitlementLog, /label="功能权益消耗" name="CONSUMPTION"/)
+  assert.match(entitlementLog, /label="次数额度" name="QUOTA"/)
+  assert.match(entitlementLog, /label="钻石\/金币" name="WALLET"/)
+  assert.match(entitlementLog, /listEntitlementWalletConsumption/)
+})
+
+test('功能权益消耗可筛选并展示 VISION 及既有媒体消费退款类型', () => {
+  for (const bizType of [
+    'IMAGE_CONSUME',
+    'IMAGE_REFUND',
+    'TTS_CONSUME',
+    'TTS_REFUND',
+    'STT_CONSUME',
+    'STT_REFUND',
+    'VISION_CONSUME',
+    'VISION_REFUND'
+  ]) {
+    assert.match(entitlementLog, new RegExp(`'${bizType}'`))
+    assert.match(walletLedger, new RegExp(`${bizType}: labels\\.`))
+  }
 })
 
 test('旧权益页不再保留重复媒体配置代码', () => {

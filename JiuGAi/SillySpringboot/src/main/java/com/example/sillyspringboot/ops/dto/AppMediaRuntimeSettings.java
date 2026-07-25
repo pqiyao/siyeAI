@@ -6,6 +6,7 @@ public class AppMediaRuntimeSettings {
     private int rateWindowSeconds = 60;
     private Limits tts = new Limits(8, 1, 12);
     private Limits stt = new Limits(4, 1, 6);
+    private Limits voiceClone = new Limits(3, 1, 3);
 
     public int getCounterTtlSeconds() { return counterTtlSeconds; }
     public void setCounterTtlSeconds(int counterTtlSeconds) { this.counterTtlSeconds = counterTtlSeconds; }
@@ -15,6 +16,8 @@ public class AppMediaRuntimeSettings {
     public void setTts(Limits tts) { this.tts = tts == null ? new Limits(8, 1, 12) : tts; }
     public Limits getStt() { return stt; }
     public void setStt(Limits stt) { this.stt = stt == null ? new Limits(4, 1, 6) : stt; }
+    public Limits getVoiceClone() { return voiceClone; }
+    public void setVoiceClone(Limits value) { this.voiceClone = value == null ? new Limits(3, 1, 3) : value; }
 
     public static class Limits {
         private int globalConcurrentLimit;

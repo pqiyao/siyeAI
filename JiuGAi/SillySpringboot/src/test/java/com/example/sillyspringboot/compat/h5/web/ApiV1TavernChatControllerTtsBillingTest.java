@@ -16,19 +16,18 @@ import com.example.sillyspringboot.conversation.service.AppConversationService;
 import com.example.sillyspringboot.integration.sillytavern.StModelRoutingService;
 import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.ops.service.H5EntitlementService;
+import com.example.sillyspringboot.ops.service.UserTtsVoiceService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -52,6 +51,7 @@ class ApiV1TavernChatControllerTtsBillingTest {
     @Mock AppFeatureSettingsService featureSettingsService;
     @Mock H5UserAiProviderService userAiProviderService;
     @Mock StModelRoutingService modelRoutingService;
+    @Mock UserTtsVoiceService userTtsVoiceService;
 
     private ApiV1TavernChatController controller;
 
@@ -72,31 +72,17 @@ class ApiV1TavernChatControllerTtsBillingTest {
                 visitorTrialGuardService,
                 featureSettingsService,
                 userAiProviderService,
-                modelRoutingService
+                modelRoutingService,
+                userTtsVoiceService
         );
     }
 
     @Test
-    void refundsReservedWalletChargeWhenUserResolutionFails() {
+    void userResolutionFailureDoesNotCreateWalletCharge() {
         H5ChatPayload payload = new H5ChatPayload();
         payload.setClientUid("client-1");
         payload.setContent("hello");
-        H5EntitlementService.AccessTicket ticket = new H5EntitlementService.AccessTicket(
-                7L,
-                "client-1",
-                false,
-                0,
-                H5EntitlementService.QuotaBucket.OFFICIAL_CHAT,
-                null,
-                "TTS",
-                true,
-                10,
-                2,
-                "tts-1"
-        );
         when(h5Auth.requireAuthenticatedTokenForClientUid("client-1")).thenReturn("token-1");
-        when(entitlementService.guardTts("client-1")).thenReturn(ticket);
-        when(entitlementService.recordSuccessfulTts(ticket)).thenReturn(true);
         when(chatService.resolveUserId("token-1"))
                 .thenThrow(new BusinessException(ErrorCode.UNAUTHORIZED, "token expired"));
 
@@ -104,12 +90,32 @@ class ApiV1TavernChatControllerTtsBillingTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("token expired");
 
-        InOrder billingOrder = inOrder(entitlementService);
-        billingOrder.verify(entitlementService).recordSuccessfulTts(ticket);
-        billingOrder.verify(entitlementService).refundWalletConsume(ticket);
+        verify(entitlementService, never()).guardTts("client-1");
+        verify(entitlementService, never()).recordSuccessfulTts(org.mockito.ArgumentMatchers.any());
+        verify(entitlementService, never()).refundWalletConsume(org.mockito.ArgumentMatchers.any());
         verify(chatAudioSpeechService, never()).synthesizeForUser(
-                7L, "hello", null, null, null
+                7L, "hello", "", "", "", null
         );
+    }
+
+    @Test
+    void userByokTtsNeverConsumesPlatformWallet() {
+        H5ChatPayload payload = new H5ChatPayload();
+        payload.setClientUid("client-1");
+        payload.setContent("hello");
+        when(h5Auth.requireAuthenticatedTokenForClientUid("client-1")).thenReturn("token-1");
+        when(chatService.resolveUserId("token-1")).thenReturn(7L);
+        when(userAiProviderService.isCustomModeSelectedForUser(7L)).thenReturn(true);
+        when(chatAudioSpeechService.synthesizeForUser(7L, "hello", "", "", "", null))
+                .thenReturn(new ChatAudioSpeechService.AudioSpeechResult(
+                        new byte[]{1}, "audio/mpeg", "tts-model", "private-voice"));
+
+        assertThat(controller.synthesizeSpeech(payload).data())
+                .containsEntry("voiceName", "private-voice");
+
+        verify(entitlementService, never()).guardTts("client-1");
+        verify(entitlementService, never()).recordSuccessfulTts(org.mockito.ArgumentMatchers.any());
+        verify(entitlementService, never()).refundWalletConsume(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -119,9 +125,9 @@ class ApiV1TavernChatControllerTtsBillingTest {
         when(entitlementService.guardTts("client-1", "tts_db_44_12345678")).thenReturn(ticket);
         when(entitlementService.recordSuccessfulTts(ticket)).thenReturn(true, false);
         when(chatService.resolveUserId("token-1")).thenReturn(7L);
-        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("first"), eq(null), eq(null), eq(null)))
+        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("first"), eq(""), eq(""), eq(""), eq(null)))
                 .thenReturn(new ChatAudioSpeechService.AudioSpeechResult(new byte[]{1}, "audio/mpeg", "tts-model", "alloy"));
-        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("second"), eq(null), eq(null), eq(null)))
+        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("second"), eq(""), eq(""), eq(""), eq(null)))
                 .thenThrow(new BusinessException(ErrorCode.UPSTREAM_ERROR, "upstream failed"));
 
         H5ChatPayload first = segmentPayload("first", 0, 2);
@@ -141,13 +147,29 @@ class ApiV1TavernChatControllerTtsBillingTest {
         when(entitlementService.guardTts("client-1", "tts_db_44_12345678")).thenReturn(ticket);
         when(entitlementService.recordSuccessfulTts(ticket)).thenReturn(true);
         when(chatService.resolveUserId("token-1")).thenReturn(7L);
-        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("first"), eq(null), eq(null), eq(null)))
+        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("first"), eq(""), eq(""), eq(""), eq(null)))
                 .thenThrow(new BusinessException(ErrorCode.UPSTREAM_ERROR, "upstream failed"));
 
         assertThatThrownBy(() -> controller.synthesizeSpeech(segmentPayload("first", 0, 2)))
                 .hasMessage("upstream failed");
 
         verify(entitlementService).refundWalletConsume(ticket);
+    }
+
+    @Test
+    void globalPrivateVoiceDoesNotOverrideCharacterOrMemberPublicVoice() {
+        assertThat(ApiV1TavernChatController.shouldUseGlobalPrivateVoice(null, "bella", "", "", ""))
+                .isFalse();
+        assertThat(ApiV1TavernChatController.shouldUseGlobalPrivateVoice(null, "", "template-a", "", ""))
+                .isFalse();
+        assertThat(ApiV1TavernChatController.shouldUseGlobalPrivateVoice(null, "", "", "alex", ""))
+                .isFalse();
+        assertThat(ApiV1TavernChatController.shouldUseGlobalPrivateVoice(null, "", "", "", "template-b"))
+                .isFalse();
+        assertThat(ApiV1TavernChatController.shouldUseGlobalPrivateVoice(null, "", "", "", ""))
+                .isTrue();
+        assertThat(ApiV1TavernChatController.shouldUseGlobalPrivateVoice(81L, "", "", "", ""))
+                .isFalse();
     }
 
     private static H5ChatPayload segmentPayload(String content, int index, int count) {

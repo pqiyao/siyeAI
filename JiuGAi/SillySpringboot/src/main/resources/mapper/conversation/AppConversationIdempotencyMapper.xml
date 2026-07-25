@@ -31,5 +31,12 @@
           AND user_id = #{userId}
     </delete>
 
+    <update id="updateConversationId">
+        UPDATE app_conversation_idempotency
+        SET conversation_id = #{conversationId}
+        WHERE user_id = #{userId}
+          AND idempotency_key = #{idempotencyKey}
+    </update>
+
 </mapper>
 

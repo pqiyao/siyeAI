@@ -10,10 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class GenerationObservabilityMigrationTest {
 
     @Test
-    void h2MigrationsIncludeAiProviderOptimisticLockAtVersion97() {
+    void h2MigrationsIncludeUnifiedAiLogTraceDetailsAndCharacterPromotionAtVersion102() {
         JdbcDataSource dataSource = new JdbcDataSource();
         dataSource.setURL(
-                "jdbc:h2:mem:generation_observability_v97;MODE=MySQL;"
+                "jdbc:h2:mem:generation_observability_v102;MODE=MySQL;"
                         + "DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE"
         );
         dataSource.setUser("sa");
@@ -79,7 +79,32 @@ class GenerationObservabilityMigrationTest {
                         + "WHERE table_name = 'app_ai_provider_account' AND column_name = 'version_no'",
                 Integer.class
         ));
-        assertEquals("97", jdbc.queryForObject(
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'app_user_tts_voice'",
+                Integer.class
+        ));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'app_user_tts_voice_binding'",
+                Integer.class
+        ));
+        assertEquals(3, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                        + "WHERE table_name = 'app_generation_attempt' "
+                        + "AND column_name IN ('request_id', 'trace_id', 'error_message')",
+                Integer.class
+        ));
+        assertEquals(2, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.indexes "
+                        + "WHERE table_name = 'app_generation_attempt' "
+                        + "AND index_name IN ('idx_generation_attempt_trace', 'idx_generation_attempt_request')",
+                Integer.class
+        ));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                        + "WHERE table_name = 'app_character_system_promotion'",
+                Integer.class
+        ));
+        assertEquals("102", jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class
         ));

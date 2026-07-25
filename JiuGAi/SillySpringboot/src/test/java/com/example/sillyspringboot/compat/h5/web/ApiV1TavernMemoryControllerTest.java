@@ -15,6 +15,7 @@ import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -123,6 +124,62 @@ class ApiV1TavernMemoryControllerTest {
 
         assertThat(result.code()).isEqualTo(1);
         verify(fixture.memoryService).setMemoryEntryEnabled(CONVERSATION_ID, BRANCH_ID, 50L, false);
+    }
+
+    @Test
+    void saveEntryPassesValidatedManualMemoryFieldsToTheExplicitBranch() {
+        Fixture fixture = fixture();
+        when(fixture.conversationMapper.findByIdForUser(CONVERSATION_ID, USER_ID))
+                .thenReturn(conversation(USER_ID, CHARACTER_ID));
+        when(fixture.branchMapper.findByIdForConversation(CONVERSATION_ID, BRANCH_ID))
+                .thenReturn(branch(USER_ID));
+        when(fixture.memoryService.saveManualMemoryEntry(
+                CONVERSATION_ID, BRANCH_ID, 50L, "relationship", "关系进展", "双方已经建立信任",
+                List.of("信任"), List.of("同伴"), 180, true, true
+        )).thenReturn(Map.of("savedEntryId", 50L));
+        Map<String, Object> request = new HashMap<>(payload(CONVERSATION_ID, BRANCH_ID));
+        request.put("entryId", 50L);
+        request.put("memoryType", " RELATIONSHIP " );
+        request.put("title", " 关系进展 " );
+        request.put("content", " 双方已经建立信任 " );
+        request.put("keywords", List.of(" 信任 "));
+        request.put("secondaryKeywords", List.of(" 同伴 "));
+        request.put("priority", 180);
+        request.put("constantInjection", true);
+        request.put("manualPinned", true);
+
+        ApiV1Result<Map<String, Object>> result = fixture.controller.saveEntry(request);
+
+        assertThat(result.code()).isEqualTo(1);
+        assertThat(result.data()).containsEntry("savedEntryId", 50L);
+        verify(fixture.memoryService).saveManualMemoryEntry(
+                CONVERSATION_ID, BRANCH_ID, 50L, "relationship", "关系进展", "双方已经建立信任",
+                List.of("信任"), List.of("同伴"), 180, true, true
+        );
+    }
+
+    @Test
+    void saveEntryRejectsMalformedFieldsAndUnsupportedConstantInjection() {
+        Fixture fixture = fixture();
+        when(fixture.conversationMapper.findByIdForUser(CONVERSATION_ID, USER_ID))
+                .thenReturn(conversation(USER_ID, CHARACTER_ID));
+        when(fixture.branchMapper.findByIdForConversation(CONVERSATION_ID, BRANCH_ID))
+                .thenReturn(branch(USER_ID));
+        Map<String, Object> request = new HashMap<>(payload(CONVERSATION_ID, BRANCH_ID));
+        request.put("memoryType", "event");
+        request.put("content", "已经完成第一阶段任务");
+        request.put("keywords", List.of("任务"));
+        request.put("constantInjection", true);
+
+        assertValidationFailed(() -> fixture.controller.saveEntry(request));
+
+        request.put("constantInjection", false);
+        request.put("keywords", "任务");
+        assertValidationFailed(() -> fixture.controller.saveEntry(request));
+
+        request.put("keywords", List.of("任务"));
+        request.put("priority", 201);
+        assertValidationFailed(() -> fixture.controller.saveEntry(request));
     }
 
     @Test

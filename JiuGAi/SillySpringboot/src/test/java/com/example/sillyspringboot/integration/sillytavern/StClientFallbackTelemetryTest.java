@@ -8,6 +8,7 @@ import com.example.sillyspringboot.ai.model.AiProtocol;
 import com.example.sillyspringboot.ai.service.AiRoutingService;
 import com.example.sillyspringboot.integration.sillytavern.dto.ChatGenerateChunk;
 import com.example.sillyspringboot.integration.sillytavern.dto.ChatGenerateRequest;
+import com.example.sillyspringboot.integration.sillytavern.dto.ChatMessage;
 import com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride;
 import com.example.sillyspringboot.ops.generation.model.GenerationAttemptEvent;
 import com.example.sillyspringboot.ops.generation.service.GenerationTelemetryService;
@@ -34,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -495,6 +497,107 @@ class StClientFallbackTelemetryTest {
     }
 
     @Test
+    void visionTransientFailureFallsBackOnlyWithinVisionRoute() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        startDirectServer(exchange -> {
+            if (attempts.incrementAndGet() == 1) {
+                respond(exchange, 503, "vision unavailable");
+                return;
+            }
+            respond(exchange, 200, "data: {\"choices\":[{\"delta\":{\"content\":\"vision-ok\"}}]}\n\ndata: [DONE]\n\n");
+        });
+        StModelRoutingService legacy = mock(StModelRoutingService.class);
+        AiRoutingService v2 = mock(AiRoutingService.class);
+        when(v2.isCapabilityEnabled(AiCapability.VISION)).thenReturn(true);
+        when(v2.resolve(AiCapability.VISION)).thenReturn(List.of(
+                v2Provider(201L, "vision-a", "vision-a-model", AiCapability.VISION),
+                v2Provider(202L, "vision-b", "vision-b-model", AiCapability.VISION)
+        ));
+
+        List<ChatGenerateChunk> chunks = new ArrayList<>();
+        directClient(legacy, v2).streamChatCompletionsGenerate(visionRequest(null), chunks::add, new StStreamControl());
+
+        assertEquals(2, attempts.get());
+        assertTrue(chunks.stream().anyMatch(chunk -> "vision-ok".equals(chunk.delta())));
+        verify(v2).recordFailure(eq(201L), any());
+        verify(v2).recordSuccess(202L);
+        verify(legacy, never()).resolveForScene(any());
+    }
+
+    @Test
+    void visionConfigurationFailureDoesNotFallback() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        startDirectServer(exchange -> {
+            attempts.incrementAndGet();
+            respond(exchange, 401, "invalid vision key");
+        });
+        StModelRoutingService legacy = mock(StModelRoutingService.class);
+        AiRoutingService v2 = mock(AiRoutingService.class);
+        when(v2.isCapabilityEnabled(AiCapability.VISION)).thenReturn(true);
+        when(v2.resolve(AiCapability.VISION)).thenReturn(List.of(
+                v2Provider(211L, "vision-a", "vision-a-model", AiCapability.VISION),
+                v2Provider(212L, "vision-b", "vision-b-model", AiCapability.VISION)
+        ));
+
+        assertThrows(StUnavailableException.class, () -> directClient(legacy, v2)
+                .streamChatCompletionsGenerate(visionRequest(null), ignored -> {}, new StStreamControl()));
+
+        assertEquals(1, attempts.get());
+        verify(v2).recordConfigurationError(eq(211L), any());
+        verify(v2, never()).recordFailure(anyLong(), any());
+        verify(v2, never()).recordSuccess(212L);
+    }
+
+    @Test
+    void visionPartialFailedAttemptIsDiscardedBeforeFallback() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        startDirectServer(exchange -> {
+            if (attempts.incrementAndGet() == 1) {
+                respond(exchange, 200,
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"discard-me\"}}]}\n\n"
+                                + "data: {\"error\":{\"message\":\"late vision failure\"}}\n\n");
+                return;
+            }
+            respond(exchange, 200,
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"clean-summary\"}}]}\n\ndata: [DONE]\n\n");
+        });
+        StModelRoutingService legacy = mock(StModelRoutingService.class);
+        AiRoutingService v2 = mock(AiRoutingService.class);
+        when(v2.isCapabilityEnabled(AiCapability.VISION)).thenReturn(true);
+        when(v2.resolve(AiCapability.VISION)).thenReturn(List.of(
+                v2Provider(221L, "vision-a", "vision-a-model", AiCapability.VISION),
+                v2Provider(222L, "vision-b", "vision-b-model", AiCapability.VISION)
+        ));
+        List<ChatGenerateChunk> chunks = new ArrayList<>();
+
+        directClient(legacy, v2).streamChatCompletionsGenerate(
+                visionRequest(null), chunks::add, new StStreamControl());
+
+        assertEquals(2, attempts.get());
+        assertFalse(chunks.stream().anyMatch(chunk -> "discard-me".equals(chunk.delta())));
+        assertTrue(chunks.stream().anyMatch(chunk -> "clean-summary".equals(chunk.delta())));
+    }
+
+    @Test
+    void visionByokNeverResolvesOfficialVisionRoute() throws Exception {
+        startDirectServer(exchange -> respond(
+                exchange, 200,
+                "data: {\"choices\":[{\"delta\":{\"content\":\"byok-vision\"}}]}\n\ndata: [DONE]\n\n"
+        ));
+        StModelRoutingService legacy = mock(StModelRoutingService.class);
+        AiRoutingService v2 = mock(AiRoutingService.class);
+        UserModelOverride override = new UserModelOverride(
+                "custom", "text-model", "vision-model", "", "", "", "", "", "", "",
+                "", "", "", "", "user-secret", "https://byok.example/v1");
+
+        directClient(legacy, v2).streamChatCompletionsGenerate(
+                visionRequest(override), ignored -> {}, new StStreamControl());
+
+        verify(v2, never()).resolve(AiCapability.VISION);
+        verify(legacy, never()).resolveForScene(any());
+    }
+
+    @Test
     void fullRolloutV2FailureNeverFallsBackToLegacy() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
         startRuntimeServer(exchange -> {
@@ -677,9 +780,18 @@ class StClientFallbackTelemetryTest {
     }
 
     private static AiRoutingService.ResolvedProvider v2Provider(long id, String key, String model) {
+        return v2Provider(id, key, model, AiCapability.CHAT);
+    }
+
+    private static AiRoutingService.ResolvedProvider v2Provider(
+            long id,
+            String key,
+            String model,
+            AiCapability capability
+    ) {
         return new AiRoutingService.ResolvedProvider(
                 id, key, key, "custom", "https://v2.example/v1", "v2-key",
-                AiCapability.CHAT, AiProtocol.OPENAI_CHAT, model, "", 1);
+                capability, AiProtocol.forCapability(capability), model, "", 1);
     }
 
     private static StModelRoutingService.ResolvedProvider provider(String key, String model, String secret) {
@@ -715,6 +827,29 @@ class StClientFallbackTelemetryTest {
                 "root:client-message-1",
                 List.of(),
                 override
+        );
+    }
+
+    private static ChatGenerateRequest visionRequest(UserModelOverride override) {
+        return new ChatGenerateRequest(
+                77L,
+                "",
+                List.of(ChatMessage.multimodalUser("describe", List.of("data:image/png;base64,AA=="))),
+                "vision-message-1",
+                true,
+                "vision_summary",
+                Set.of(),
+                "",
+                "",
+                List.of(),
+                "",
+                "",
+                "",
+                List.of(),
+                override,
+                null,
+                null,
+                AiCapability.VISION
         );
     }
 

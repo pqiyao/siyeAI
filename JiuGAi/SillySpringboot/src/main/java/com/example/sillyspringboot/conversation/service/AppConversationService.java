@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -237,6 +238,60 @@ public class AppConversationService {
         request.setCharacterId(characterId);
         request.setIdempotencyKey(idempotencyKey);
         return createOrEnsure(request, token);
+    }
+
+    @Transactional
+    public ConversationDetailDto createNewForH5(String clientUid, long characterId, String title, String token) {
+        String requestKey = "h5-session:" + clientUid.trim() + ":" + characterId + ":" + UUID.randomUUID();
+        CreateConversationRequest request = new CreateConversationRequest();
+        request.setCharacterId(characterId);
+        request.setIdempotencyKey(requestKey);
+        ConversationDetailDto created = createOrEnsure(request, token);
+        long userId = tokenService.validateAndLoadUser(token).getId();
+        String safeTitle = trimToMax(title, 80);
+        if (safeTitle != null) {
+            conversationMapper.updateTitle(created.conversationId(), userId, safeTitle);
+        }
+        activateH5Session(clientUid, characterId, created.conversationId(), token);
+        return getDetail(created.conversationId(), token);
+    }
+
+    @Transactional
+    public ConversationDetailDto activateH5Session(
+            String clientUid,
+            long characterId,
+            long conversationId,
+            String token
+    ) {
+        long userId = tokenService.validateAndLoadUser(token).getId();
+        AppConversation conversation = conversationMapper.findByIdForUser(conversationId, userId);
+        if (conversation == null || conversation.getCharacterId() == null || conversation.getCharacterId() != characterId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        }
+        String activeKey = buildH5IdempotencyKey(clientUid, characterId);
+        if (idempotencyMapper.updateConversationId(userId, activeKey, conversationId) == 0) {
+            AppConversationIdempotency mapping = new AppConversationIdempotency();
+            mapping.setUserId(userId);
+            mapping.setIdempotencyKey(activeKey);
+            mapping.setConversationId(conversationId);
+            try {
+                idempotencyMapper.insert(mapping);
+            } catch (Exception conflict) {
+                if (idempotencyMapper.updateConversationId(userId, activeKey, conversationId) == 0) {
+                    throw conflict;
+                }
+            }
+        }
+        return getDetail(conversationId, token);
+    }
+
+    @Transactional
+    public void renameConversation(long conversationId, String title, String token) {
+        long userId = tokenService.validateAndLoadUser(token).getId();
+        String safeTitle = trimToMax(title, 80);
+        if (safeTitle == null || conversationMapper.updateTitle(conversationId, userId, safeTitle) != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        }
     }
 
     @Transactional

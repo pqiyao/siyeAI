@@ -17,6 +17,8 @@ import com.example.sillyspringboot.integration.sillytavern.dto.OpenRouterGenerat
 import com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride;
 import com.example.sillyspringboot.ops.generation.model.GenerationAttemptEvent;
 import com.example.sillyspringboot.ops.generation.service.GenerationTelemetryService;
+import com.example.sillyspringboot.shared.error.BusinessException;
+import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -700,14 +702,24 @@ public final class StClient {
         }
         StUnavailableException last = null;
         int attemptNo = 0;
+        boolean bufferedVision = request != null && request.routingCapabilityOrChat() == AiCapability.VISION;
         for (RuntimeProviderOverride providerOverride : providerChain) {
             attemptNo++;
             if (control.isCancelled()) {
                 return;
             }
             try {
+                AtomicInteger attemptIdx = bufferedVision ? new AtomicInteger(0) : idx;
+                List<ChatGenerateChunk> bufferedChunks = bufferedVision ? new java.util.ArrayList<>() : List.of();
+                Consumer<ChatGenerateChunk> attemptConsumer = bufferedVision ? bufferedChunks::add : onChunk;
                 streamChatCompletionsGenerateAttempt(
-                        url, request, onChunk, control, oai, idx, providerOverride, attemptNo);
+                        url, request, attemptConsumer, control, oai, attemptIdx, providerOverride, attemptNo);
+                if (control.isCancelled()) {
+                    return;
+                }
+                if (bufferedVision) {
+                    bufferedChunks.forEach(onChunk);
+                }
                 recordProviderSuccess(providerOverride);
                 return;
             } catch (StUnavailableException ex) {
@@ -718,7 +730,7 @@ public final class StClient {
                 } else if (providerFailure != null && !AiProviderFailurePolicy.shouldFallback(providerFailure)) {
                     recordProviderConfigurationError(providerOverride, providerFailure.getMessage());
                 }
-                if (idx.get() > 0
+                if ((!bufferedVision && idx.get() > 0)
                         || providerOverride == null
                         || providerFailure == null
                         || !AiProviderFailurePolicy.shouldFallback(providerFailure)
@@ -955,12 +967,25 @@ public final class StClient {
     }
 
     private List<RuntimeProviderOverride> resolveRuntimeProviderChain(ChatGenerateRequest request) {
+        AiCapability capability = request == null ? AiCapability.CHAT : request.routingCapabilityOrChat();
         RuntimeProviderOverride userOverride = toUserRuntimeProviderOverride(
                 request == null ? null : request.userModelOverride(),
-                request != null && request.hasImageInput()
+                capability == AiCapability.VISION || (request != null && request.hasImageInput())
         );
         if (userOverride != null) {
             return List.of(userOverride);
+        }
+        if (capability == AiCapability.VISION) {
+            if (aiRoutingService == null || !aiRoutingService.isCapabilityEnabled(AiCapability.VISION)) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "官方识图功能当前未开放");
+            }
+            List<AiRoutingService.ResolvedProvider> providers = aiRoutingService.resolve(AiCapability.VISION);
+            if (providers.isEmpty()) {
+                throw new BusinessException(ErrorCode.SERVICE_BUSY, "官方识图暂时没有可用供应商");
+            }
+            return providers.stream()
+                    .map(item -> toV2RuntimeProviderOverride(item, AiCapability.VISION))
+                    .toList();
         }
         StModelRoutingService.ResolvedRoute route = modelRoutingService.resolveForScene(StModelRoutingService.DEFAULT_SCENE);
         List<StModelRoutingService.ResolvedProvider> legacyProviders = route == null || route.providers() == null
@@ -997,7 +1022,7 @@ public final class StClient {
             }
             List<RuntimeProviderOverride> result = new java.util.ArrayList<>();
             for (AiRoutingService.ResolvedProvider item : v2Providers) {
-                result.add(toV2RuntimeProviderOverride(item));
+                result.add(toV2RuntimeProviderOverride(item, AiCapability.CHAT));
             }
             // During canary rollout the proven legacy chain remains the last pre-token recovery path.
             if (!aiRoutingService.isChatFullyRolledOut()) {
@@ -1013,13 +1038,16 @@ public final class StClient {
         }
     }
 
-    private static RuntimeProviderOverride toV2RuntimeProviderOverride(AiRoutingService.ResolvedProvider provider) {
+    private static RuntimeProviderOverride toV2RuntimeProviderOverride(
+            AiRoutingService.ResolvedProvider provider,
+            AiCapability capability
+    ) {
         String vendor = firstNonBlank(provider.vendor()).toLowerCase(java.util.Locale.ROOT);
         boolean custom = "custom".equals(vendor);
         return new RuntimeProviderOverride(
                 provider.providerKey(),
                 provider.displayName(),
-                AiCapability.CHAT.defaultRouteKey(),
+                capability.defaultRouteKey(),
                 custom ? "custom" : vendor,
                 provider.modelName(),
                 custom ? "" : provider.baseUrl(),
@@ -1450,6 +1478,12 @@ public final class StClient {
     private static StUnavailableException classifyChatAttemptFailure(Exception error, String transportMessage) {
         if (error instanceof StUnavailableException unavailable) {
             return unavailable;
+        }
+        if (error instanceof IllegalStateException
+                && "upstream error".equalsIgnoreCase(firstNonBlank(error.getMessage()))) {
+            return StUnavailableException.providerFailure(
+                    AiProviderCallException.transientFailure("upstream stream error", error)
+            );
         }
         if (hasTransportCause(error)) {
             return StUnavailableException.providerFailure(
@@ -2136,6 +2170,31 @@ public final class StClient {
                 return copy;
             }
             return imported;
+        } catch (RestClientResponseException e) {
+            throw new StUnavailableException(e);
+        } catch (RestClientException e) {
+            throw new StUnavailableException(e);
+        }
+    }
+
+    public byte[] exportCharacterPng(String avatarUrl) {
+        String safeAvatarUrl = normalizeAvatarUrl(avatarUrl);
+        if (!StringUtils.hasText(safeAvatarUrl)) {
+            throw new IllegalArgumentException("avatarUrl required");
+        }
+        try {
+            byte[] exported = postSt(StApiPaths.CHARACTERS_EXPORT)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(java.util.Map.of(
+                            "format", "png",
+                            "avatar_url", safeAvatarUrl
+                    ))
+                    .retrieve()
+                    .body(byte[].class);
+            if (exported == null || exported.length == 0) {
+                throw new StUnavailableException(new IllegalStateException("ST returned an empty character PNG export"));
+            }
+            return exported;
         } catch (RestClientResponseException e) {
             throw new StUnavailableException(e);
         } catch (RestClientException e) {
@@ -3013,6 +3072,7 @@ public final class StClient {
             return new GenerationAttemptEvent(
                     conversationId,
                     clientMessageId,
+                    org.slf4j.MDC.get("traceId"),
                     attemptNo,
                     providerKey,
                     routeKey,
@@ -3026,6 +3086,7 @@ public final class StClient {
                     httpStatus,
                     status,
                     errorCode,
+                    failure == null ? null : failure.getMessage(),
                     promptTokens,
                     false,
                     completionValue,

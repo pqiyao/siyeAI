@@ -116,7 +116,7 @@
 					<image
 						v-if="m.role !== 'user'"
 						class="chat-message-avatar chat-message-avatar--character"
-						:src="charAvatar"
+						:src="m.speakerAvatarUrl || charAvatar"
 						mode="aspectFill"
 						lazy-load
 						@tap.stop="openCharImagePreview"
@@ -126,6 +126,7 @@
 						:bubble-style="messageBubbleInlineStyle(m)"
 						:bubble-class="messageBubbleClass(m)"
 					>
+						<text v-if="m.role !== 'user' && m.speakerName" class="chat-message-speaker">{{ m.speakerName }}</text>
 						<message-content
 							:image-urls="m.imageUrls"
 							:local-kind="m.localKind"
@@ -436,8 +437,8 @@
 			<view class="branch-sheet" @tap.stop>
 				<view class="branch-head">
 					<view class="branch-head-copy">
-						<text class="branch-title">{{ tx('branch_opening_title', '开场剧情') }}</text>
-						<text class="branch-sub">{{ branchPanel.loading ? tx('loading', '加载中...') : (branchPanelRows.length ? tx('branch_opening_count', '共 {n} 个开场').replace('{n}', String(branchPanelRows.length)) : tx('branch_opening_empty', '角色卡暂无开场剧情')) }}</text>
+						<text class="branch-title">故事管理</text>
+						<text class="branch-sub">{{ branchPanel.loading ? tx('loading', '加载中...') : (branchPanel.mode === 'sessions' ? '管理这个角色的独立故事' : (branchPanel.mode === 'openings' ? '选择故事的开场' : '切换当前剧情路线')) }}</text>
 					</view>
 					<view
 						class="branch-close"
@@ -448,6 +449,14 @@
 						<u-icon name="close" color="#64748b" size="30"></u-icon>
 					</view>
 				</view>
+				<view class="branch-tabs">
+					<view class="branch-tab" :class="{ 'branch-tab--active': branchPanel.mode === 'sessions' }" @tap="branchPanel.mode = 'sessions'">会话</view>
+					<view class="branch-tab" :class="{ 'branch-tab--active': branchPanel.mode === 'openings' }" @tap="branchPanel.mode = 'openings'">开场</view>
+					<view class="branch-tab" :class="{ 'branch-tab--active': branchPanel.mode === 'branches' }" @tap="branchPanel.mode = 'branches'">剧情分支</view>
+				</view>
+				<view v-if="branchPanel.mode === 'sessions'" class="branch-create" @tap="createStorySession">
+					<u-icon name="plus" color="#245b73" size="28"></u-icon><text>新建故事</text>
+				</view>
 				<scroll-view class="branch-scroll" scroll-y :show-scrollbar="false">
 					<view v-if="branchPanel.loading" class="branch-empty">
 						<text class="branch-empty-title">{{ tx('loading', '加载中...') }}</text>
@@ -457,8 +466,8 @@
 						<text class="branch-empty-sub" @tap.stop="loadBranchPanel">{{ branchPanel.error }}</text>
 					</view>
 					<view v-else-if="!branchPanelRows.length" class="branch-empty">
-						<text class="branch-empty-title">{{ tx('branch_opening_empty_title', '暂无其他开场') }}</text>
-						<text class="branch-empty-sub">{{ tx('branch_opening_empty_sub', '这张角色卡只配置了一个开场剧情') }}</text>
+						<text class="branch-empty-title">{{ branchPanel.mode === 'sessions' ? '暂无独立会话' : (branchPanel.mode === 'openings' ? '暂无开场场景' : '暂无剧情分支') }}</text>
+						<text class="branch-empty-sub">{{ branchPanel.mode === 'sessions' ? '点击上方新建故事' : (branchPanel.mode === 'openings' ? '可以在角色卡编辑器中添加开场' : '长按任意消息即可从那里创建新路线') }}</text>
 					</view>
 					<view
 						v-for="row in branchPanelRows"
@@ -466,16 +475,27 @@
 						class="branch-row"
 						:class="{
 							'branch-row--active': row.active,
-							'branch-row--switching': branchPanel.switchingBranchId === row.id
+							'branch-row--switching': branchPanel.switchingBranchId === row.id || branchPanel.deletingBranchId === row.id
 						}"
+						:style="row.kind === 'branch' && row.depth ? { paddingLeft: (24 + row.depth * 24) + 'rpx' } : null"
 						@tap.stop="switchBranch(row)"
 					>
 						<view class="branch-row-head">
 							<view class="branch-row-title-wrap">
-								<text class="branch-row-title">{{ row.title }}</text>
+								<view class="branch-row-title-line">
+									<u-icon v-if="row.kind === 'branch' && row.depth" name="arrow-right" color="#94a3b8" size="22"></u-icon>
+									<text class="branch-row-title">{{ row.title }}</text>
+								</view>
 								<text class="branch-row-preview">{{ row.preview || tx('branch_no_preview', '暂无消息') }}</text>
 							</view>
-							<text class="branch-row-current">{{ row.active ? tx('branch_current', '当前') : (row.created ? tx('branch_continue', '继续') : tx('branch_start', '开始')) }}</text>
+							<view class="branch-row-side">
+								<text class="branch-row-current">{{ row.active ? tx('branch_current', '当前') : (row.created ? tx('branch_continue', '继续') : tx('branch_start', '开始')) }}</text>
+								<view v-if="row.kind === 'branch' || row.kind === 'session'" class="branch-row-actions">
+									<u-icon name="edit-pen" color="#64748b" size="28" @tap.stop="openBranchRename(row)"></u-icon>
+									<u-icon v-if="row.kind === 'branch' && !row.defaultBranch" name="trash" color="#b45353" size="28" @tap.stop="deleteManagedBranch(row)"></u-icon>
+									<u-icon v-if="row.kind === 'session' && !row.active" name="trash" color="#b45353" size="28" @tap.stop="deleteStorySession(row)"></u-icon>
+								</view>
+							</view>
 						</view>
 						<view class="branch-row-meta">
 							<text v-if="row.created" class="branch-row-meta-text">{{ tx('branch_message_count', '{n} 条消息').replace('{n}', String(row.messageCount || 0)) }}</text>
@@ -483,6 +503,24 @@
 						</view>
 					</view>
 				</scroll-view>
+			</view>
+			<view v-if="branchPanel.editorVisible" class="branch-editor-mask" @tap.stop="closeBranchRename">
+				<view class="branch-editor" @tap.stop>
+					<text class="branch-editor-title">重命名</text>
+					<input
+						class="branch-editor-input"
+						v-model="branchPanel.editorTitle"
+						maxlength="80"
+						:disabled="branchPanel.editing"
+						placeholder="输入名称"
+						confirm-type="done"
+						@confirm="saveBranchRename"
+					/>
+					<view class="branch-editor-actions">
+						<text class="branch-editor-button" @tap="closeBranchRename">取消</text>
+						<text class="branch-editor-button branch-editor-button--primary" @tap="saveBranchRename">保存</text>
+					</view>
+				</view>
 			</view>
 		</view>
 		<view v-if="memoryPanel.visible" class="memory-mask" @tap="closeMemoryPanel">
@@ -521,6 +559,15 @@
 				<view class="memory-actions">
 					<text class="memory-guide">{{ memoryPanelGuideText() }}</text>
 					<view class="memory-action-row">
+						<view
+							class="memory-icon-button memory-icon-button--add"
+							:class="{ 'memory-icon-button--disabled': memoryPanelBusy }"
+							:title="tx('memory_add', '新增记忆')"
+							:aria-label="tx('memory_add', '新增记忆')"
+							@tap="openMemoryEditor()"
+						>
+							<u-icon name="plus" color="#245b73" size="30"></u-icon>
+						</view>
 						<view
 							v-if="memoryPanel.detail && String(memoryPanel.detail.syncStatus || '').toUpperCase() === 'FAILED'"
 							class="memory-icon-button memory-icon-button--secondary"
@@ -616,7 +663,16 @@
 							</view>
 							<view class="memory-entry-foot">
 								<text v-if="memoryEntryMetaText(entry)" class="memory-entry-meta">{{ memoryEntryMetaText(entry) }}</text>
-								<view v-if="entry.id" class="memory-entry-buttons">
+										<view v-if="entry.id" class="memory-entry-buttons">
+											<view
+												class="memory-entry-icon memory-entry-icon--edit"
+												:class="{ 'memory-entry-icon--busy': memoryPanelBusy }"
+												:title="tx('edit', '编辑')"
+												:aria-label="tx('edit', '编辑')"
+												@tap.stop="openMemoryEditor(entry)"
+											>
+												<u-icon name="edit-pen" color="#245b73" size="27"></u-icon>
+											</view>
 									<view
 										class="memory-entry-icon"
 										:class="{
@@ -665,6 +721,43 @@
 						</view>
 					</view>
 				</scroll-view>
+				<view v-if="memoryPanel.editorVisible" class="memory-editor-mask" @tap="closeMemoryEditor">
+					<scroll-view class="memory-editor" scroll-y :show-scrollbar="false" @tap.stop>
+						<view class="memory-editor-head">
+							<text class="memory-editor-title">{{ memoryPanel.editorEntryId ? '编辑记忆' : '新增记忆' }}</text>
+							<view class="memory-close" @tap="closeMemoryEditor"><u-icon name="close" color="#64748b" size="28"></u-icon></view>
+						</view>
+						<text class="memory-field-label">类型</text>
+						<picker :range="memoryEditorTypeOptions" range-key="label" :value="memoryEditorTypeIndex" @change="changeMemoryEditorType">
+							<view class="memory-picker">{{ memoryTypeLabel(memoryPanel.editor.memoryType) }}<u-icon name="arrow-down" color="#64748b" size="22"></u-icon></view>
+						</picker>
+						<text class="memory-field-label">标题（可选）</text>
+						<input v-model="memoryPanel.editor.title" class="memory-editor-input" maxlength="120" placeholder="例如：与角色的约定" />
+						<text class="memory-field-label">记忆内容</text>
+						<textarea v-model="memoryPanel.editor.content" class="memory-editor-textarea" maxlength="1200" placeholder="写下需要角色长期记住的事实" />
+						<text class="memory-field-label">触发关键词</text>
+						<input v-model="memoryPanel.editor.keywordsText" class="memory-editor-input" maxlength="240" placeholder="用逗号分隔，例如：戒指，婚约" />
+						<text class="memory-field-label">辅助关键词（可选）</text>
+						<input v-model="memoryPanel.editor.secondaryKeywordsText" class="memory-editor-input" maxlength="240" placeholder="组合触发时使用" />
+						<view class="memory-priority-row">
+							<view><text class="memory-field-label memory-field-label--inline">优先级</text><text class="memory-field-help">数值越高越优先，40–200</text></view>
+							<input v-model="memoryPanel.editor.priority" class="memory-priority-input" type="number" maxlength="3" />
+						</view>
+						<view class="memory-switch-row">
+							<view><text class="memory-switch-title">保护记忆</text><text class="memory-field-help">容量整理时不自动淘汰</text></view>
+							<switch :checked="memoryPanel.editor.manualPinned" color="#4f93a3" @change="memoryPanel.editor.manualPinned = $event.detail.value" />
+						</view>
+						<view class="memory-switch-row" :class="{ 'memory-switch-row--disabled': !memoryEditorCanConstant }">
+							<view><text class="memory-switch-title">固定注入</text><text class="memory-field-help">每轮都参与回复，仅身份、关系、设定、边界可用</text></view>
+							<switch :checked="memoryPanel.editor.constantInjection" :disabled="!memoryEditorCanConstant" color="#4f93a3" @change="memoryPanel.editor.constantInjection = $event.detail.value" />
+						</view>
+						<text v-if="memoryPanel.editorError" class="memory-error">{{ memoryPanel.editorError }}</text>
+						<view class="memory-editor-actions">
+							<text class="memory-editor-button" @tap="closeMemoryEditor">取消</text>
+							<text class="memory-editor-button memory-editor-button--primary" :class="{ 'memory-icon-button--disabled': memoryPanel.savingEntry }" @tap="saveMemoryEditor">{{ memoryPanel.savingEntry ? '保存中' : '保存' }}</text>
+						</view>
+					</scroll-view>
+				</view>
 			</view>
 		</view>
 		<view v-if="commercialPrompt.visible" class="commercial-mask" @tap="closeCommercialPrompt">
@@ -731,6 +824,13 @@
 					<view class="character-voice-global-actions">
 						<text class="character-voice-global-action" @tap="goAiSettings">
 							{{ tx('go_ai_settings', '去 AI 设置') }}
+						</text>
+						<text
+							v-if="canManageCharacterUserVoices()"
+							class="character-voice-global-action"
+							@tap="goCharacterUserVoices"
+						>
+							{{ tx('manage_private_voices', '绑定我的音色') }}
 						</text>
 						<text
 							v-if="!characterVoiceGlobalState.loading && !characterVoiceGlobalState.error"
@@ -1339,6 +1439,7 @@
 			apiKeyMask: '',
 			customUrl: '',
 			ttsUseSeparateConfig: false,
+			userVoiceCreationEnabled: false,
 			providerOptions: [],
 			ttsVoiceTemplates: []
 		};
@@ -1448,9 +1549,19 @@
 			visible: false,
 			loading: false,
 			error: '',
-			items: [],
+			mode: 'sessions',
+			sessions: [],
+			activeConversationId: '',
+			openings: [],
+			branches: [],
 			switchingBranchId: '',
-			forkingMessageId: ''
+			forkingMessageId: '',
+			deletingBranchId: '',
+			editorVisible: false,
+			editorKind: '',
+			editorId: '',
+			editorTitle: '',
+			editing: false
 		};
 	}
 
@@ -1470,6 +1581,20 @@
 			syncing: false,
 			updatingEntryId: '',
 			deletingEntryId: '',
+			savingEntry: false,
+			editorVisible: false,
+			editorEntryId: '',
+			editorError: '',
+			editor: {
+				memoryType: 'event',
+				title: '',
+				content: '',
+				keywordsText: '',
+				secondaryKeywordsText: '',
+				priority: '120',
+				manualPinned: true,
+				constantInjection: false
+			},
 			filter: 'all',
 			page: 0,
 			pageSize: MEMORY_PANEL_PAGE_SIZE,
@@ -1608,6 +1733,15 @@
 				userVoiceStateMap: {},
 				voiceFeatureEnabledGlobal: true,
 				imageGenerationEnabledGlobal: true,
+				visionAccessState: {
+					loaded: false,
+					loading: false,
+					mode: 'system',
+					canUse: false,
+					denyReason: '',
+					visionScoreCost: 0,
+					visionGoldCost: 0
+				},
 				rechargeEntryVisible: true,
 				voiceInputAiState: {
 					loadedAt: 0,
@@ -1659,7 +1793,20 @@
 			},
 			memoryPanelBusy() {
 				const panel = this.memoryPanel || {};
-				return !!(panel.loading || panel.loadingMore || panel.refreshing || panel.syncing || panel.updatingEntryId || panel.deletingEntryId);
+				return !!(panel.loading || panel.loadingMore || panel.refreshing || panel.syncing || panel.updatingEntryId || panel.deletingEntryId || panel.savingEntry);
+			},
+			memoryEditorTypeOptions() {
+				return ['identity', 'relationship', 'preference', 'promise', 'event', 'setting', 'boundary']
+					.map((value) => ({ value, label: this.memoryTypeLabel(value) }));
+			},
+			memoryEditorTypeIndex() {
+				const type = String(this.memoryPanel && this.memoryPanel.editor && this.memoryPanel.editor.memoryType || 'event');
+				const index = this.memoryEditorTypeOptions.findIndex((item) => item.value === type);
+				return index < 0 ? 4 : index;
+			},
+			memoryEditorCanConstant() {
+				const type = String(this.memoryPanel && this.memoryPanel.editor && this.memoryPanel.editor.memoryType || '');
+				return ['identity', 'relationship', 'setting', 'boundary'].includes(type);
 			},
 			memoryPanelTotalCount() {
 				const detail = this.memoryPanel && this.memoryPanel.detail || {};
@@ -1746,12 +1893,12 @@
 				return line;
 			},
 			branchPanelRows() {
-				const items = Array.isArray(this.branchPanel && this.branchPanel.items)
-					? this.branchPanel.items
-					: [];
-				return items
-					.map((item) => this.normalizeBranchPanelRow(item))
+				const mode = this.branchPanel && ['sessions', 'branches'].includes(this.branchPanel.mode) ? this.branchPanel.mode : 'openings';
+				const items = Array.isArray(this.branchPanel && this.branchPanel[mode]) ? this.branchPanel[mode] : [];
+				const rows = items
+					.map((item) => this.normalizeBranchPanelRow(item, mode === 'branches' ? 'branch' : (mode === 'sessions' ? 'session' : 'opening')))
 					.filter((item) => item && item.id);
+				return mode === 'branches' ? this.sortBranchPanelTree(rows) : rows;
 			},
 			showStopStream() {
 				try {
@@ -1927,6 +2074,7 @@
 			this.refreshCharacterImageConfig();
 			this.refreshCharacterImageGlobalSummary(false, false);
 			this.refreshVoiceFeatureGlobalState(false);
+			this.refreshVisionAccessState(false);
 			this.loadJgSession({ identitySignature: this.jgViewerIdentitySignature });
 		},
 		onShow() {
@@ -1946,6 +2094,7 @@
 				this.refreshCharacterImageConfig();
 				this.refreshCharacterImageGlobalSummary(true, false);
 				this.refreshVoiceFeatureGlobalState(true);
+				this.refreshVisionAccessState(true);
 				if (!identityChanged) {
 					this.maybeRecoverJgSessionOnShow();
 				}
@@ -2712,14 +2861,69 @@
 					});
 					return false;
 				}
-				if (typeof tavernApi.isUserByokEnabled === 'function' && !tavernApi.isUserByokEnabled()) {
+				const state = this.visionAccessState || {};
+				if (!state.loaded) {
+					this.refreshVisionAccessState(true);
 					uni.showToast({
-						title: this.tx('chat_image_need_byok', '当前未开启自定义 API 识图功能'),
+						title: this.tx('chat_image_state_loading', '正在检查识图配置，请稍后再试'),
 						icon: 'none'
 					});
 					return false;
 				}
+				if (!state.canUse) {
+					uni.showToast({
+						title: state.denyReason || this.tx('chat_image_unavailable', '当前识图功能不可用'),
+						icon: 'none',
+						duration: 3200
+					});
+					return false;
+				}
 				return true;
+			},
+			looksLikeVisionModel(modelName) {
+				return /(vision|visual|multimodal|qwen[^/]*vl|llava|pixtral|gpt-4o|gpt-4\.1|gemini|claude|grok[^/]*vision)/i.test(String(modelName || ''));
+			},
+			refreshVisionAccessState(force) {
+				const state = this.visionAccessState || {};
+				if (state.loading) return Promise.resolve(state);
+				const tavernApi = require('@/common/tavernApi.js');
+				if (!tavernApi.hasLoggedInUser()) {
+					this.visionAccessState = Object.assign({}, state, { loaded: true, loading: false, canUse: false, denyReason: '识图功能需要先登录账号' });
+					return Promise.resolve(this.visionAccessState);
+				}
+				this.visionAccessState = Object.assign({}, state, { loading: true });
+				return tavernApi.getTavernUserAiProvider(tavernApi.getClientUid()).then((data) => {
+					const next = data || {};
+					const mode = next.mode === 'custom' ? 'custom' : 'system';
+					let canUse = false;
+					let denyReason = '';
+					if (mode === 'custom') {
+						const visionReady = !!String(next.visionModelName || '').trim() || this.looksLikeVisionModel(next.modelName);
+						canUse = next.canUse === true && next.apiKeyConfigured === true && visionReady;
+						if (!canUse) denyReason = next.denyReason || '请先在 AI 设置中配置自己的 API Key 和视觉模型';
+					} else {
+						canUse = next.visionOfficialEnabled === true && next.visionOfficialReady === true;
+						if (!canUse) denyReason = next.visionOfficialEnabled === true ? '官方识图暂时没有可用供应商' : '官方识图功能当前未开放';
+					}
+					this.visionAccessState = {
+						loaded: true,
+						loading: false,
+						mode,
+						canUse,
+						denyReason,
+						visionScoreCost: Math.max(0, Number(next.visionScoreCost || 0)),
+						visionGoldCost: Math.max(0, Number(next.visionGoldCost || 0))
+					};
+					return this.visionAccessState;
+				}).catch(() => {
+					this.visionAccessState = Object.assign({}, state, {
+						loaded: false,
+						loading: false,
+						canUse: false,
+						denyReason: '识图配置加载失败，请稍后重试'
+					});
+					return this.visionAccessState;
+				});
 			},
 			isVoiceFeatureEnabledGlobal() {
 				return this.voiceFeatureEnabledGlobal !== false;
@@ -4281,6 +4485,7 @@
 				var rows = [];
 				var mem = null;
 				var meta = null;
+				var studioMembers = [];
 				var conversationId = '';
 				var activeBranchId = '';
 				var page = null;
@@ -4290,6 +4495,7 @@
 					rows = Array.isArray(pack.messages) ? pack.messages : [];
 					mem = pack.memory != null ? pack.memory : null;
 					meta = pack.tavernMeta != null ? pack.tavernMeta : null;
+					studioMembers = Array.isArray(pack.studioMembers) ? pack.studioMembers : [];
 					conversationId = pack.conversationId != null ? pack.conversationId : '';
 					activeBranchId = pack.activeBranchId != null ? pack.activeBranchId : '';
 					page = pack.page && typeof pack.page === 'object' ? pack.page : null;
@@ -4298,10 +4504,35 @@
 					rows,
 					mem,
 					meta,
+					studioMembers,
 					conversationId,
 					activeBranchId,
 					page
 				};
+			},
+			normalizeCharacterStudioMembers(source) {
+				return (Array.isArray(source) ? source : []).map((item) => {
+					const id = Math.max(0, Math.floor(Number(item && item.id) || 0));
+					const name = this.normalizeCharacterVoiceText(item && item.name, 64);
+					if (!id || !name) return null;
+					return {
+						id,
+						name,
+						avatarUrl: this.normalizeCharacterVoiceText(item && item.avatarUrl, 512)
+					};
+				}).filter(Boolean);
+			},
+			applyCharacterStudioMembers(source) {
+				if (!this.char || typeof this.char !== 'object') return;
+				this.$set(this.char, 'studioMembers', this.normalizeCharacterStudioMembers(source));
+			},
+			characterStudioMembers() {
+				return this.normalizeCharacterStudioMembers(this.char && this.char.studioMembers);
+			},
+			findCharacterStudioMemberByName(name) {
+				const expected = this.normalizeCharacterVoiceText(name, 64).toLocaleLowerCase();
+				if (!expected) return null;
+				return this.characterStudioMembers().find((member) => member.name.toLocaleLowerCase() === expected) || null;
 			},
 			syncMessageHistoryPageState(page) {
 				var nextPage = page && typeof page === 'object' ? page : {};
@@ -4354,6 +4585,7 @@
 					: {};
 				let incomingRows = [];
 				this.syncLocalChatConversationId(envelope.conversationId);
+				this.applyCharacterStudioMembers(envelope.studioMembers);
 				this.jgActiveBranchId = envelope.activeBranchId == null ? '' : String(envelope.activeBranchId);
 				if (opts.prependHistory) {
 					const currentRows = Array.isArray(this.messages) ? this.messages.slice() : [];
@@ -5361,6 +5593,7 @@
 					apiKeyMask: this.normalizeCharacterVoiceText(source.effectiveTtsApiKeyMask || source.apiKeyMask, 120),
 					customUrl: this.normalizeCharacterVoiceText(source.effectiveTtsCustomUrl || source.customUrl, 255),
 					ttsUseSeparateConfig: source.ttsUseSeparateConfig === true,
+					userVoiceCreationEnabled: source.userVoiceCreationEnabled === true,
 					providerOptions,
 					ttsVoiceTemplates
 				};
@@ -5791,11 +6024,16 @@
 					icon: 'none'
 				});
 			},
-			buildCharacterVoiceTtsPayload(text, requestId, segmentIndex, segmentCount) {
+			buildCharacterVoiceTtsPayload(text, requestId, segmentIndex, segmentCount, messageId, speakerMemberId) {
 				const payload = {
 					clientUid: require('@/common/tavernApi.js').getClientUid(),
-					content: text
+					content: text,
+					characterId: Number(this.char && this.char.id) || Number(this.cid) || 0
 				};
+				const row = this.findMessageRowById(messageId);
+				const resolvedSpeakerMemberId = Math.max(0, Math.floor(Number(speakerMemberId) || 0)) ||
+					(row && Math.max(0, Math.floor(Number(row.speakerMemberId) || 0)));
+				if (resolvedSpeakerMemberId > 0) payload.speakerMemberId = resolvedSpeakerMemberId;
 				if (requestId) {
 					payload.ttsRequestId = requestId;
 					payload.ttsSegmentIndex = segmentIndex;
@@ -5821,12 +6059,33 @@
 				}
 				return (hash >>> 0).toString(16);
 			},
+			goCharacterUserVoices(memberId) {
+				if (!this.canManageCharacterUserVoices()) return;
+				const characterId = Number(this.char && this.char.id) || Number(this.cid) || 0;
+				if (!characterId) return;
+				const safeMemberId = Math.max(0, Math.floor(Number(memberId) || 0));
+				let url = '/pages/user/myVoices?characterId=' + encodeURIComponent(String(characterId));
+				if (safeMemberId > 0) url += '&memberId=' + encodeURIComponent(String(safeMemberId));
+				uni.navigateTo({ url });
+			},
+			canManageCharacterUserVoices() {
+				const state = this.characterVoiceGlobalState || {};
+				return state.userVoiceCreationEnabled === true
+					&& String(state.mode || '').trim() === 'custom'
+					&& String(state.providerSource || '').trim().toLowerCase() === 'siliconflow';
+			},
+			assistantVoiceSegmentSignature(segment) {
+				const item = segment && typeof segment === 'object' ? segment : { text: segment, speakerMemberId: 0 };
+				return this.localMediaSignature(
+					String(Math.max(0, Math.floor(Number(item.speakerMemberId) || 0))) + '\n' + String(item.text || '')
+				);
+			},
 			assistantVoiceLocalMediaKey(messageId, segmentIndex) {
 				const ownerKey = this.resolveLocalExpressionViewerKey();
 				const conversationId = this.resolveLocalChatConversationId();
 				return ['tts', ownerKey, conversationId, this.normalizeDbMessageId(messageId), segmentIndex].join(':');
 			},
-			persistAssistantVoiceSegment(messageId, segmentIndex, sentenceText, taskId, audioDataUrl) {
+			persistAssistantVoiceSegment(messageId, segmentIndex, segment, taskId, audioDataUrl) {
 				const safeMessageId = this.normalizeDbMessageId(messageId);
 				const ownerKey = this.resolveLocalExpressionViewerKey();
 				const conversationId = this.resolveLocalChatConversationId();
@@ -5840,7 +6099,7 @@
 					kind: 'assistant_tts',
 					taskId: String(taskId || '').trim(),
 					segmentIndex,
-					signature: this.localMediaSignature(sentenceText)
+					signature: this.assistantVoiceSegmentSignature(segment)
 				}, audioDataUrl).then((stored) => stored && stored.url ? stored.url : audioDataUrl);
 			},
 			restoreAssistantVoiceEntry(row) {
@@ -5848,9 +6107,10 @@
 				if (!messageId || !messageId.startsWith('db_') || this.assistantVoiceRestorePendingMap[messageId]) {
 					return Promise.resolve(null);
 				}
-				const speechText = this.extractAssistantSpeechText(row && row.text);
-				const sentenceTexts = this.splitAssistantSpeechIntoSentences(speechText);
-				if (!speechText || !sentenceTexts.length) return Promise.resolve(null);
+				const voiceSegments = this.assistantVoiceSegmentsForRow(row);
+				const speechText = voiceSegments.map((item) => item.text).join('\n').trim();
+				const sentenceTexts = voiceSegments.map((item) => item.text);
+				if (!speechText || !voiceSegments.length) return Promise.resolve(null);
 				this.$set(this.assistantVoiceRestorePendingMap, messageId, true);
 				const localMediaStore = require('@/common/localMediaStore.js');
 				return localMediaStore.list({
@@ -5863,7 +6123,7 @@
 					(Array.isArray(stored) ? stored : []).forEach((item) => {
 						const index = Math.max(0, Number(item.segmentIndex) || 0);
 						if (index >= sentenceTexts.length) return;
-						if (String(item.signature || '') !== this.localMediaSignature(sentenceTexts[index])) return;
+						if (String(item.signature || '') !== this.assistantVoiceSegmentSignature(voiceSegments[index])) return;
 						audioSegments[index] = String(item.url || '').trim();
 					});
 					if (!audioSegments.some((item) => item)) return null;
@@ -5872,8 +6132,9 @@
 						.find((item) => item) || ('tts_' + messageId);
 					return this.setAssistantVoiceEntry(messageId, {
 						speechText,
-						preparedSentenceKey: this.assistantVoiceSentenceKey(sentenceTexts),
+						preparedSentenceKey: this.assistantVoiceSentenceKey(voiceSegments),
 						sentenceTexts,
+						sentenceSpeakerMemberIds: voiceSegments.map((item) => item.speakerMemberId),
 						sentenceAudioUrls: audioSegments,
 						audioDataUrl: audioSegments[0] || '',
 						state: audioSegments[0] ? 'ready' : 'idle',
@@ -6483,6 +6744,16 @@
 				}
 				return '';
 			},
+			currentEnsembleSpeakerMemberId() {
+				const rows = Array.isArray(this.messages) ? this.messages : [];
+				for (let i = rows.length - 1; i >= 0; i -= 1) {
+					const row = rows[i];
+					if (row && row.role === 'char' && Number(row.speakerMemberId) > 0) {
+						return Number(row.speakerMemberId);
+					}
+				}
+				return 0;
+			},
 			generateCharacterImage() {
 				if (!this.characterImagePanel || this.characterImagePanel.generating) return;
 				if (this.imageGenerationEnabledGlobal === false) {
@@ -6556,6 +6827,7 @@
 							} : {}),
 							characterId,
 							characterName: this.normalizeCharacterImageText(this.char && this.char.name, 120),
+							speakerMemberId: this.currentEnsembleSpeakerMemberId(),
 							referenceImageUrl: referenceImageUrl || '',
 							referenceMode: consistencyMode,
 							referenceSourceMode,
@@ -7432,7 +7704,10 @@
 					localPrompt: this.normalizeCharacterImageText(m.localPrompt || m.prompt, 300),
 					localOnly: m.localOnly === true,
 					voiceUrl: this.normalizeVoiceMessageUrl(m.voiceUrl),
-					voiceDurationMs: this.normalizeVoiceDurationMs(m.voiceDurationMs)
+					voiceDurationMs: this.normalizeVoiceDurationMs(m.voiceDurationMs),
+					speakerMemberId: Math.max(0, Math.floor(Number(m.speakerMemberId) || 0)),
+					speakerName: this.normalizeCharacterVoiceText(m.speakerName, 64),
+					speakerAvatarUrl: this.normalizeCharacterVoiceText(m.speakerAvatarUrl, 512)
 				};
 			},
 			clearGenerationRecovery() {
@@ -8295,6 +8570,7 @@
 					switchingBranchId: ''
 				});
 				this.loadBranchPanel();
+				this.loadStorySessions();
 			},
 			closeBranchPanel() {
 				this.branchPanel = createBranchPanelState();
@@ -8307,19 +8583,52 @@
 					clientUid: tavernApi.getClientUid()
 				};
 			},
-			normalizeBranchPanelRow(item) {
+			normalizeBranchPanelRow(item, kind) {
 				const source = item && typeof item === 'object' ? item : {};
+				if (kind === 'session') {
+					const conversationId = source.id == null ? '' : String(source.id);
+					return {
+						id: 'session_' + conversationId,
+						conversationId,
+						kind: 'session',
+						title: String(source.displayTitle || source.nickname || '未命名故事'),
+						active: conversationId === String(this.branchPanel.activeConversationId || this.jgConversationId || ''),
+						created: true,
+						messageCount: 0,
+						preview: this.compactPanelText(source.snippet || source.lastMessage || '', 180),
+						updatedAt: source.updatedAt || ''
+					};
+				}
+				if (kind === 'branch') {
+					const branchId = source.id == null ? '' : String(source.id);
+					return {
+						id: branchId,
+						branchId,
+						variantIndex: -1,
+						kind: 'branch',
+						title: String(source.title || (source.defaultBranch ? '主线' : '剧情分支')),
+						active: source.active === true || branchId === String(this.jgActiveBranchId || ''),
+						created: true,
+						messageCount: Number(source.messageCount || 0),
+						preview: this.compactPanelText(source.lastMessagePreview || '', 180),
+						updatedAt: source.updatedAt || '',
+						parentBranchId: source.parentBranchId == null ? '' : String(source.parentBranchId),
+						defaultBranch: source.defaultBranch === true,
+						depth: 0
+					};
+				}
 				const variantIndex = Number(source.variantIndex);
 				const safeVariantIndex = isFinite(variantIndex) && variantIndex >= 0 ? Math.floor(variantIndex) : -1;
 				const branchId = source.branchId == null ? '' : String(source.branchId);
 				const id = safeVariantIndex >= 0 ? 'opening_' + safeVariantIndex : branchId;
-				const title = this
+				const title = String(source.title || this
 					.tx('branch_opening_item', '开场 {n}')
-					.replace('{n}', String(safeVariantIndex >= 0 ? safeVariantIndex + 1 : ''));
+					.replace('{n}', String(safeVariantIndex >= 0 ? safeVariantIndex + 1 : '')));
 				return {
 					id,
 					branchId,
 					variantIndex: safeVariantIndex,
+					kind: 'opening',
 					title,
 					active: source.active === true || (branchId && branchId === String(this.jgActiveBranchId || '')),
 					created: source.created === true || !!branchId,
@@ -8328,15 +8637,123 @@
 					updatedAt: source.updatedAt || ''
 				};
 			},
+			sortBranchPanelTree(rows) {
+				const source = Array.isArray(rows) ? rows : [];
+				const byParent = {};
+				source.forEach(row => {
+					const parentId = row.parentBranchId && source.some(item => item.id === row.parentBranchId)
+						? row.parentBranchId
+						: '';
+					if (!byParent[parentId]) byParent[parentId] = [];
+					byParent[parentId].push(row);
+				});
+				const result = [];
+				const visited = {};
+				const visit = (parentId, depth) => {
+					(byParent[parentId] || []).forEach(row => {
+						if (visited[row.id]) return;
+						visited[row.id] = true;
+						row.depth = Math.min(depth, 4);
+						result.push(row);
+						visit(row.id, depth + 1);
+					});
+				};
+				visit('', 0);
+				source.forEach(row => { if (!visited[row.id]) { row.depth = 0; result.push(row); } });
+				return result;
+			},
+			openBranchRename(row) {
+				if (!row || (row.kind !== 'branch' && row.kind !== 'session')) return;
+				this.$set(this.branchPanel, 'editorVisible', true);
+				this.$set(this.branchPanel, 'editorKind', row.kind);
+				this.$set(this.branchPanel, 'editorId', row.kind === 'session' ? String(row.conversationId || '') : String(row.branchId || ''));
+				this.$set(this.branchPanel, 'editorTitle', String(row.title || ''));
+			},
+			closeBranchRename() {
+				if (!this.branchPanel || this.branchPanel.editing) return;
+				this.$set(this.branchPanel, 'editorVisible', false);
+				this.$set(this.branchPanel, 'editorKind', '');
+				this.$set(this.branchPanel, 'editorId', '');
+				this.$set(this.branchPanel, 'editorTitle', '');
+			},
+			saveBranchRename() {
+				if (!this.branchPanel || this.branchPanel.editing) return;
+				const title = String(this.branchPanel.editorTitle || '').trim();
+				if (!title) { this.showErrorToast('请输入名称'); return; }
+				const tavernApi = require('@/common/tavernApi.js');
+				const kind = this.branchPanel.editorKind;
+				const id = Number(this.branchPanel.editorId);
+				if (!id) return;
+				this.$set(this.branchPanel, 'editing', true);
+				const request = kind === 'session'
+					? tavernApi.postTavernSessionRename(Object.assign({}, this.branchPanelPayload(), { conversationId: id, title }))
+					: tavernApi.postTavernBranchRename(Object.assign({}, this.branchPanelPayload(), { branchId: id, title }));
+				return request.then(data => {
+					if (kind === 'branch') this.applyBranchEnvelope(data);
+					this.$set(this.branchPanel, 'editorVisible', false);
+					return kind === 'session' ? this.loadStorySessions() : true;
+				}).then(() => {
+					uni.showToast({ title: '名称已更新', icon: 'none' });
+				}).catch(e => this.showErrorToast(this.jgErrMsg(e, '重命名失败')))
+					.finally(() => { if (this.branchPanel) this.$set(this.branchPanel, 'editing', false); });
+			},
+			deleteManagedBranch(row) {
+				if (!row || row.kind !== 'branch' || row.defaultBranch || this.sending) return;
+				uni.showModal({
+					title: '删除剧情分支',
+					content: '将隐藏这个分支，子分支会保留并接到上一级。确定删除吗？',
+					confirmText: '删除',
+					confirmColor: '#b45353',
+					success: result => {
+						if (!result.confirm) return;
+						const tavernApi = require('@/common/tavernApi.js');
+						const wasActive = row.active === true;
+						this.$set(this.branchPanel, 'deletingBranchId', String(row.id));
+						tavernApi.postTavernBranchDelete(Object.assign({}, this.branchPanelPayload(), { branchId: Number(row.branchId) }))
+							.then(data => {
+								this.applyBranchEnvelope(data);
+								if (!wasActive) return true;
+								this.resetMessageHistoryForBranch();
+								return this.refreshJgMessages({ invalidateReplySuggestions: true });
+							})
+							.then(() => uni.showToast({ title: '分支已删除', icon: 'none' }))
+							.catch(e => this.showErrorToast(this.jgErrMsg(e, '删除分支失败')))
+							.finally(() => { if (this.branchPanel) this.$set(this.branchPanel, 'deletingBranchId', ''); });
+					}
+				});
+			},
+			deleteStorySession(row) {
+				if (!row || row.kind !== 'session' || row.active || this.sending || this.branchPanel.deletingBranchId) return;
+				uni.showModal({
+					title: '删除独立故事',
+					content: '这个故事的消息和记忆会被清空，无法恢复。确定删除吗？',
+					confirmText: '删除',
+					confirmColor: '#b45353',
+					success: result => {
+						if (!result.confirm) return;
+						const tavernApi = require('@/common/tavernApi.js');
+						this.$set(this.branchPanel, 'deletingBranchId', String(row.id));
+						tavernApi.postTavernSessionDeleteOne(Object.assign({}, this.branchPanelPayload(), {
+							conversationId: Number(row.conversationId)
+						}))
+							.then(() => this.loadStorySessions())
+							.then(() => uni.showToast({ title: '故事已删除', icon: 'none' }))
+							.catch(e => this.showErrorToast(this.jgErrMsg(e, '删除故事失败')))
+							.finally(() => { if (this.branchPanel) this.$set(this.branchPanel, 'deletingBranchId', ''); });
+					}
+				});
+			},
 			applyBranchEnvelope(data) {
 				const source = data && typeof data === 'object' ? data : {};
-				const items = Array.isArray(source.openings) ? source.openings : [];
+				const openings = Array.isArray(source.openings) ? source.openings : [];
+				const branches = Array.isArray(source.branches) ? source.branches : [];
 				this.jgActiveBranchId = source.activeBranchId == null ? this.jgActiveBranchId : String(source.activeBranchId);
 				if (this.branchPanel && this.branchPanel.visible) {
-					this.$set(this.branchPanel, 'items', items);
+					this.$set(this.branchPanel, 'openings', openings);
+					this.$set(this.branchPanel, 'branches', branches);
 					this.$set(this.branchPanel, 'error', '');
 				}
-				return items;
+				return openings;
 			},
 			loadBranchPanel() {
 				if (!this.jgOn || !this.char) return Promise.resolve(false);
@@ -8364,6 +8781,35 @@
 						}
 					});
 			},
+			loadStorySessions() {
+				if (!this.jgOn || !this.char) return Promise.resolve(false);
+				const tavernApi = require('@/common/tavernApi.js');
+				const cid = Number(this.char && this.char.id) || Number(this.cid);
+				return tavernApi.fetchTavernCharacterSessions(cid, tavernApi.getClientUid())
+					.then(data => {
+						if (!this.branchPanel || !this.branchPanel.visible) return false;
+						this.$set(this.branchPanel, 'sessions', Array.isArray(data && data.sessions) ? data.sessions : []);
+						this.$set(this.branchPanel, 'activeConversationId', data && data.activeConversationId != null ? String(data.activeConversationId) : '');
+						return true;
+					})
+					.catch(() => false);
+			},
+			createStorySession() {
+				if (this.sending || this.branchPanel.loading) return;
+				const tavernApi = require('@/common/tavernApi.js');
+				this.$set(this.branchPanel, 'loading', true);
+				tavernApi.postTavernSessionCreate(Object.assign({}, this.branchPanelPayload(), { title: '新故事' }))
+					.then(data => {
+						this.jgConversationId = data && data.conversationId != null ? String(data.conversationId) : this.jgConversationId;
+						this.jgActiveBranchId = data && data.activeBranchId != null ? String(data.activeBranchId) : '';
+						this.resetMessageHistoryForBranch();
+						return this.refreshJgMessages({ invalidateReplySuggestions: true });
+					})
+					.then(() => Promise.all([this.loadStorySessions(), this.loadBranchPanel()]))
+					.then(() => { this.$set(this.branchPanel, 'mode', 'openings'); uni.showToast({ title: '新故事已创建，请选择开场', icon: 'none' }); })
+					.catch(e => this.showErrorToast(this.jgErrMsg(e, '新建故事失败')))
+					.finally(() => { if (this.branchPanel && this.branchPanel.visible) this.$set(this.branchPanel, 'loading', false); });
+			},
 			resetMessageHistoryForBranch() {
 				this.jgLoadRequestToken = Date.now() + Math.random();
 				this.messageHistoryHasMore = false;
@@ -8374,18 +8820,33 @@
 				this.chatUnreadMessageKeyMap = {};
 			},
 			switchBranch(row) {
-				if (!row || row.active || this.sending) {
+				if (!row || row.active || this.sending || this.branchPanel.deletingBranchId) {
 					if (row && row.active) {
 						this.closeBranchPanel();
 					}
 					return Promise.resolve(false);
 				}
+				if (row.kind === 'session') {
+					const tavernApi = require('@/common/tavernApi.js');
+					this.$set(this.branchPanel, 'switchingBranchId', String(row.id || ''));
+					return tavernApi.postTavernSessionActivate(Object.assign({}, this.branchPanelPayload(), { conversationId: Number(row.conversationId) }))
+						.then(data => {
+							this.jgConversationId = data && data.conversationId != null ? String(data.conversationId) : String(row.conversationId);
+							this.jgActiveBranchId = data && data.activeBranchId != null ? String(data.activeBranchId) : '';
+							this.resetMessageHistoryForBranch();
+							return this.refreshJgMessages({ invalidateReplySuggestions: true });
+						})
+						.then(() => { this.closeBranchPanel(); this.scrollChatToBottom({ immediate: true }); return true; })
+						.catch(e => { this.showErrorToast(this.jgErrMsg(e, '切换会话失败')); return false; });
+				}
 				const variantIndex = Number(row.variantIndex);
-				if (!isFinite(variantIndex) || variantIndex < 0) return Promise.resolve(false);
+				if (row.kind !== 'branch' && (!isFinite(variantIndex) || variantIndex < 0)) return Promise.resolve(false);
 				const tavernApi = require('@/common/tavernApi.js');
 				this.$set(this.branchPanel, 'switchingBranchId', String(row.id || ''));
-				return tavernApi
-					.postTavernOpeningBranchSelect(Object.assign({}, this.branchPanelPayload(), { variantIndex }))
+				const request = row.kind === 'branch'
+					? tavernApi.postTavernBranchSwitch(Object.assign({}, this.branchPanelPayload(), { branchId: Number(row.branchId) }))
+					: tavernApi.postTavernOpeningBranchSelect(Object.assign({}, this.branchPanelPayload(), { variantIndex }));
+				return request
 					.then((data) => {
 						this.applyBranchEnvelope(data);
 						this.resetMessageHistoryForBranch();
@@ -8756,6 +9217,106 @@
 				if (safeFilter === this.memoryPanel.filter && this.memoryPanel.page > 0) return Promise.resolve(true);
 				this.$set(this.memoryPanel, 'filter', safeFilter);
 				return this.loadMemoryPanel({ append: false });
+			},
+			openMemoryEditor(entry) {
+				if (!this.memoryPanel || !this.memoryPanel.visible || this.memoryPanelBusy) return;
+				const source = entry && typeof entry === 'object' ? entry : {};
+				if (source.archived) {
+					uni.showToast({ title: '归档记忆不能编辑', icon: 'none' });
+					return;
+				}
+				const type = ['identity', 'relationship', 'preference', 'promise', 'event', 'setting', 'boundary']
+					.includes(String(source.memoryType || '')) ? String(source.memoryType) : 'event';
+				this.$set(this.memoryPanel, 'editorEntryId', source.id ? String(source.id) : '');
+				this.$set(this.memoryPanel, 'editorError', '');
+				this.$set(this.memoryPanel, 'editor', {
+					memoryType: type,
+					title: String(source.title || ''),
+					content: String(source.content || ''),
+					keywordsText: (Array.isArray(source.keywords) ? source.keywords : []).join('，'),
+					secondaryKeywordsText: (Array.isArray(source.secondaryKeywords) ? source.secondaryKeywords : []).join('，'),
+					priority: String(Number(source.priority) || this.defaultMemoryPriority(type)),
+					manualPinned: source.id ? source.manualPinned === true : true,
+					constantInjection: source.constantInjection === true && ['identity', 'relationship', 'setting', 'boundary'].includes(type)
+				});
+				this.$set(this.memoryPanel, 'editorVisible', true);
+			},
+			closeMemoryEditor() {
+				if (!this.memoryPanel || this.memoryPanel.savingEntry) return;
+				this.$set(this.memoryPanel, 'editorVisible', false);
+				this.$set(this.memoryPanel, 'editorError', '');
+			},
+			changeMemoryEditorType(event) {
+				const index = Number(event && event.detail && event.detail.value);
+				const option = this.memoryEditorTypeOptions[index] || this.memoryEditorTypeOptions[4];
+				this.$set(this.memoryPanel.editor, 'memoryType', option.value);
+				this.$set(this.memoryPanel.editor, 'priority', String(this.defaultMemoryPriority(option.value)));
+				if (!['identity', 'relationship', 'setting', 'boundary'].includes(option.value)) {
+					this.$set(this.memoryPanel.editor, 'constantInjection', false);
+				}
+			},
+			defaultMemoryPriority(type) {
+				if (['identity', 'relationship', 'boundary'].includes(type)) return 200;
+				if (['preference', 'promise', 'setting'].includes(type)) return 160;
+				return 120;
+			},
+			parseMemoryKeywords(value) {
+				const unique = [];
+				String(value || '').split(/[，,、;；\n]+/).map((item) => item.trim()).filter(Boolean).forEach((item) => {
+					if (!unique.includes(item)) unique.push(item);
+				});
+				return unique.slice(0, 12);
+			},
+			saveMemoryEditor() {
+				if (!this.memoryPanel || !this.memoryPanel.editorVisible || this.memoryPanel.savingEntry) return;
+				const editor = this.memoryPanel.editor || {};
+				const content = String(editor.content || '').trim();
+				const priority = Number(editor.priority);
+				const keywords = this.parseMemoryKeywords(editor.keywordsText);
+				if (!content) {
+					this.$set(this.memoryPanel, 'editorError', '请填写记忆内容');
+					return;
+				}
+				if (!isFinite(priority) || priority < 40 || priority > 200 || Math.floor(priority) !== priority) {
+					this.$set(this.memoryPanel, 'editorError', '优先级必须是 40–200 的整数');
+					return;
+				}
+				if (!editor.constantInjection && !keywords.length) {
+					this.$set(this.memoryPanel, 'editorError', '普通记忆至少需要一个有效关键词');
+					return;
+				}
+				const tavernApi = require('@/common/tavernApi.js');
+				const requestToken = this.memoryPanel.requestToken;
+				const payload = Object.assign({}, this.memoryPanelPayload(), {
+					memoryType: String(editor.memoryType || 'event'),
+					title: String(editor.title || '').trim(),
+					content,
+					keywords,
+					secondaryKeywords: this.parseMemoryKeywords(editor.secondaryKeywordsText),
+					priority,
+					manualPinned: editor.manualPinned === true,
+					constantInjection: editor.constantInjection === true
+				});
+				if (this.memoryPanel.editorEntryId) payload.entryId = Number(this.memoryPanel.editorEntryId);
+				this.$set(this.memoryPanel, 'savingEntry', true);
+				this.$set(this.memoryPanel, 'editorError', '');
+				tavernApi.postTavernMemorySaveEntry(payload)
+					.then((detail) => {
+						if (!this.isMemoryPanelRequestCurrent(requestToken)) return false;
+						this.applyMemoryPanelMetadata(detail || {});
+						this.$set(this.memoryPanel, 'editorVisible', false);
+						return this.loadMemoryPanel({ append: false }).then(() => {
+							uni.showToast({ title: '记忆已保存', icon: 'none' });
+							return true;
+						});
+					})
+					.catch((error) => {
+						if (!this.isMemoryPanelRequestCurrent(requestToken)) return;
+						this.$set(this.memoryPanel, 'editorError', this.jgErrMsg(error, '记忆保存失败'));
+					})
+					.finally(() => {
+						if (this.isMemoryPanelRequestCurrent(requestToken)) this.$set(this.memoryPanel, 'savingEntry', false);
+					});
 			},
 			refreshMemoryPanel() {
 				if (!this.memoryPanel || this.memoryPanelBusy) return;
@@ -9604,6 +10165,58 @@
 					.join('\n')
 					.trim();
 			},
+			extractAssistantSpeakerBlocks(row) {
+				const text = String(row && row.text || '').replace(/\r\n?/g, '\n');
+				const defaultSpeakerMemberId = Math.max(0, Math.floor(Number(row && row.speakerMemberId) || 0));
+				const markers = /【([^】\n]{1,64})】/g;
+				const blocks = [];
+				let cursor = 0;
+				let activeMemberId = defaultSpeakerMemberId;
+				let match = null;
+				const append = (content, speakerMemberId) => {
+					if (!content) return;
+					const previous = blocks.length ? blocks[blocks.length - 1] : null;
+					if (previous && previous.speakerMemberId === speakerMemberId) {
+						previous.content += content;
+						return;
+					}
+					blocks.push({ content, speakerMemberId });
+				};
+				while ((match = markers.exec(text))) {
+					append(text.slice(cursor, match.index), activeMemberId);
+					const markerName = this.normalizeCharacterVoiceText(match[1], 64);
+					const member = this.findCharacterStudioMemberByName(markerName);
+					if (member) {
+						activeMemberId = member.id;
+					} else if (/^(旁白|narrator)$/i.test(markerName)) {
+						activeMemberId = 0;
+					} else {
+						append(match[0], activeMemberId);
+					}
+					cursor = markers.lastIndex;
+				}
+				append(text.slice(cursor), activeMemberId);
+				return blocks;
+			},
+			assistantVoiceSegmentsForRow(row, options) {
+				const opts = options || {};
+				const segments = [];
+				this.extractAssistantSpeakerBlocks(row).forEach((block) => {
+					const speechText = this.extractAssistantSpeechText(block.content);
+					this.splitAssistantSpeechIntoSentences(speechText, opts).forEach((text) => {
+						if (text) segments.push({
+							text,
+							speakerMemberId: Math.max(0, Math.floor(Number(block.speakerMemberId) || 0))
+						});
+					});
+				});
+				if (segments.length) return segments;
+				const fallbackText = this.extractAssistantSpeechText(row && row.text);
+				return this.splitAssistantSpeechIntoSentences(fallbackText, opts).map((text) => ({
+					text,
+					speakerMemberId: Math.max(0, Math.floor(Number(row && row.speakerMemberId) || 0))
+				}));
+			},
 			splitLongAssistantVoiceSentence(sentence) {
 				const value = String(sentence || '').replace(/\s+/g, ' ').trim();
 				if (!value) return [];
@@ -9716,7 +10329,12 @@
 				return merged;
 			},
 			assistantVoiceSentenceKey(sentenceTexts) {
-				return Array.isArray(sentenceTexts) ? sentenceTexts.map((item) => String(item || '').trim()).filter((item) => item).join('\n@@\n') : '';
+				return Array.isArray(sentenceTexts) ? sentenceTexts.map((item) => {
+					if (item && typeof item === 'object') {
+						return String(Math.max(0, Math.floor(Number(item.speakerMemberId) || 0))) + '\u001f' + String(item.text || '').trim();
+					}
+					return '0\u001f' + String(item || '').trim();
+				}).filter((item) => item !== '0\u001f').join('\n@@\n') : '';
 			},
 			countAssistantVoiceSentencePrefix(currentTexts, nextTexts) {
 				const left = Array.isArray(currentTexts) ? currentTexts : [];
@@ -9724,7 +10342,7 @@
 				const total = Math.min(left.length, right.length);
 				let count = 0;
 				for (let i = 0; i < total; i += 1) {
-					if (String(left[i] || '') !== String(right[i] || '')) {
+					if (this.assistantVoiceSentenceKey([left[i]]) !== this.assistantVoiceSentenceKey([right[i]])) {
 						break;
 					}
 					count += 1;
@@ -9788,9 +10406,9 @@
 				if (speechText === String(entry.speechText || '')) {
 					return entry;
 				}
-				const fullSentenceKey = this.assistantVoiceSentenceKey(this.splitAssistantSpeechIntoSentences(speechText));
+				const fullSentenceKey = this.assistantVoiceSentenceKey(this.assistantVoiceSegmentsForRow(row));
 				const streamingSentenceKey = this.assistantVoiceSentenceKey(
-					this.splitAssistantSpeechIntoSentences(speechText, { includeTrailingPartial: false })
+					this.assistantVoiceSegmentsForRow(row, { includeTrailingPartial: false })
 				);
 				const entrySentenceKey = String(entry.preparedSentenceKey || '');
 				if (!entrySentenceKey || (entrySentenceKey !== fullSentenceKey && entrySentenceKey !== streamingSentenceKey)) {
@@ -10195,6 +10813,8 @@
 				}
 				const tavernApi = require('@/common/tavernApi.js');
 				const sentenceTexts = Array.isArray(entry.sentenceTexts) ? entry.sentenceTexts.slice() : [];
+				const sentenceSpeakerMemberIds = Array.isArray(entry.sentenceSpeakerMemberIds)
+					? entry.sentenceSpeakerMemberIds.slice() : [];
 				const opts = options || {};
 				let firstAudioDataUrl = this.firstAssistantVoiceAudio(entry);
 				const run = (index) => {
@@ -10227,7 +10847,9 @@
 							sentenceTexts[index],
 							requestKey,
 							index,
-							sentenceTexts.length
+							sentenceTexts.length,
+							safeId,
+							sentenceSpeakerMemberIds[index]
 						))
 						.then((data) => {
 							const latest = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
@@ -10238,7 +10860,10 @@
 							if (!audioDataUrl || audioDataUrl.indexOf('data:audio/') !== 0) {
 								throw new Error(this.tx('assistant_voice_failed', '语音生成失败'));
 							}
-							return this.persistAssistantVoiceSegment(safeId, index, sentenceTexts[index], requestKey, audioDataUrl)
+							return this.persistAssistantVoiceSegment(safeId, index, {
+								text: sentenceTexts[index],
+								speakerMemberId: sentenceSpeakerMemberIds[index]
+							}, requestKey, audioDataUrl)
 								.catch(() => audioDataUrl)
 								.then((playableAudioUrl) => {
 									const freshEntry = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
@@ -10310,14 +10935,15 @@
 					this.clearAssistantVoiceEntry(messageId);
 					return Promise.resolve(null);
 				}
-				const sentenceTexts = this.splitAssistantSpeechIntoSentences(speechText, {
+				const voiceSegments = this.assistantVoiceSegmentsForRow(row, {
 					includeTrailingPartial: opts.includeTrailingPartial !== false
 				});
-				if (!sentenceTexts.length) {
+				const sentenceTexts = voiceSegments.map((item) => item.text);
+				if (!voiceSegments.length) {
 					this.clearAssistantVoiceEntry(messageId);
 					return Promise.resolve(null);
 				}
-				const preparedSentenceKey = this.assistantVoiceSentenceKey(sentenceTexts);
+				const preparedSentenceKey = this.assistantVoiceSentenceKey(voiceSegments);
 				const current = this.assistantVoiceStateMap && this.assistantVoiceStateMap[messageId];
 				if (current && opts.force !== true) {
 					if (current.preparedSentenceKey === preparedSentenceKey) {
@@ -10347,8 +10973,13 @@
 					}
 				}
 				const previousTexts = Array.isArray(current && current.sentenceTexts) ? current.sentenceTexts : [];
+				const previousSpeakerMemberIds = Array.isArray(current && current.sentenceSpeakerMemberIds)
+					? current.sentenceSpeakerMemberIds : [];
 				const previousAudioSegments = this.assistantVoiceAudioSegments(current);
-				const reusableCount = this.countAssistantVoiceSentencePrefix(previousTexts, sentenceTexts);
+				const reusableCount = this.countAssistantVoiceSentencePrefix(
+					previousTexts.map((text, index) => ({ text, speakerMemberId: previousSpeakerMemberIds[index] })),
+					voiceSegments
+				);
 				const nextAudioSegments = new Array(sentenceTexts.length).fill('');
 				for (let i = 0; i < reusableCount; i += 1) {
 					nextAudioSegments[i] = previousAudioSegments[i] || '';
@@ -10358,6 +10989,7 @@
 					speechText,
 					preparedSentenceKey: preparedSentenceKey,
 					sentenceTexts,
+					sentenceSpeakerMemberIds: voiceSegments.map((item) => item.speakerMemberId),
 					sentenceAudioUrls: nextAudioSegments,
 					state: reusableCount < sentenceTexts.length ? 'loading' : this.assistantVoiceHasPlayableAudio({ sentenceTexts, sentenceAudioUrls: nextAudioSegments }) ? 'ready' : 'idle',
 					audioDataUrl: nextAudioSegments[0] || '',
@@ -11014,6 +11646,7 @@
 							clientUid,
 							content: payloadText,
 							imageUrls,
+							visionRequestId: imageUrls.length ? 'vision_' + uid : '',
 							attachmentMode,
 							attachmentHint,
 							voiceUrl: userVoiceMeta.voiceUrl,
@@ -11779,6 +12412,56 @@
 		background: rgba(241, 245, 249, 0.86);
 	}
 
+	.chat-message-speaker {
+		display: block;
+		margin: 0 0 10rpx;
+		font-size: 22rpx;
+		line-height: 1.35;
+		font-weight: 750;
+		color: #2b6177;
+	}
+
+	.branch-tabs {
+		flex-shrink: 0;
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		margin-top: 20rpx;
+		padding: 5rpx;
+		border-radius: 10rpx;
+		background: #edf3f6;
+		border: 1rpx solid rgba(87, 119, 136, 0.14);
+	}
+
+	.branch-tab {
+		height: 62rpx;
+		line-height: 62rpx;
+		text-align: center;
+		border-radius: 7rpx;
+		font-size: 24rpx;
+		font-weight: 650;
+		color: #647b88;
+	}
+
+	.branch-tab--active {
+		color: #173f52;
+		background: #fff;
+		box-shadow: 0 4rpx 12rpx rgba(42, 84, 104, 0.1);
+	}
+
+	.branch-create {
+		flex-shrink: 0;
+		height: 68rpx;
+		margin-top: 14rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8rpx;
+		border-bottom: 1rpx solid rgba(87, 119, 136, 0.18);
+		font-size: 24rpx;
+		font-weight: 700;
+		color: #245b73;
+	}
+
 	.branch-scroll,
 	.memory-scroll {
 		flex: 1;
@@ -11879,6 +12562,28 @@
 		color: #172033;
 	}
 
+	.branch-row-title-line,
+	.branch-row-side,
+	.branch-row-actions {
+		display: flex;
+		align-items: center;
+	}
+
+	.branch-row-title-line {
+		min-width: 0;
+		gap: 6rpx;
+	}
+
+	.branch-row-side {
+		flex-shrink: 0;
+		gap: 12rpx;
+	}
+
+	.branch-row-actions {
+		gap: 10rpx;
+		padding: 2rpx 0;
+	}
+
 	.branch-row-preview,
 	.memory-entry-content {
 		display: block;
@@ -11915,6 +12620,66 @@
 		font-weight: 650;
 		color: #64748b;
 		background: rgba(241, 245, 249, 0.9);
+	}
+
+	.branch-editor-mask {
+		position: absolute;
+		inset: 0;
+		z-index: 3;
+		display: flex;
+		align-items: flex-end;
+		background: rgba(15, 23, 42, 0.34);
+	}
+
+	.branch-editor {
+		width: 100%;
+		padding: 30rpx;
+		box-sizing: border-box;
+		border-radius: 22rpx 22rpx 0 0;
+		background: #ffffff;
+	}
+
+	.branch-editor-title {
+		display: block;
+		font-size: 29rpx;
+		font-weight: 750;
+		color: #172033;
+	}
+
+	.branch-editor-input {
+		height: 78rpx;
+		margin-top: 22rpx;
+		padding: 0 20rpx;
+		box-sizing: border-box;
+		border: 1rpx solid #cbd5e1;
+		border-radius: 8rpx;
+		font-size: 27rpx;
+		color: #172033;
+		background: #ffffff;
+	}
+
+	.branch-editor-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 18rpx;
+		margin-top: 26rpx;
+	}
+
+	.branch-editor-button {
+		min-width: 112rpx;
+		height: 66rpx;
+		line-height: 66rpx;
+		text-align: center;
+		border-radius: 8rpx;
+		font-size: 25rpx;
+		font-weight: 700;
+		color: #475569;
+		background: #f1f5f9;
+	}
+
+	.branch-editor-button--primary {
+		color: #ffffff;
+		background: #24647d;
 	}
 
 	.memory-stats {
@@ -12009,6 +12774,11 @@
 	.memory-icon-button--secondary {
 		background: rgba(226, 232, 240, 0.92);
 		border: 1rpx solid rgba(148, 163, 184, 0.3);
+	}
+
+	.memory-icon-button--add {
+		background: rgba(220, 247, 251, 0.9);
+		border: 1rpx solid rgba(79, 147, 163, 0.28);
 	}
 
 	.memory-icon-button--disabled {
@@ -12199,6 +12969,11 @@
 		border: 1rpx solid rgba(185, 28, 28, 0.12);
 	}
 
+	.memory-entry-icon--edit {
+		background: rgba(220, 247, 251, 0.86);
+		border: 1rpx solid rgba(79, 147, 163, 0.18);
+	}
+
 	.memory-entry-icon--busy {
 		opacity: 0.58;
 		pointer-events: none;
@@ -12220,6 +12995,143 @@
 
 	.memory-page-state--error {
 		color: #b42318;
+	}
+
+	.memory-editor-mask {
+		position: absolute;
+		inset: 0;
+		z-index: 6;
+		display: flex;
+		align-items: flex-end;
+		background: rgba(15, 23, 42, 0.38);
+	}
+
+	.memory-editor {
+		width: 100%;
+		max-height: 90%;
+		padding: 28rpx 28rpx calc(28rpx + env(safe-area-inset-bottom));
+		border-radius: 16rpx 16rpx 0 0;
+		background: #ffffff;
+		box-sizing: border-box;
+	}
+
+	.memory-editor-head,
+	.memory-priority-row,
+	.memory-switch-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 20rpx;
+	}
+
+	.memory-editor-title {
+		font-size: 30rpx;
+		font-weight: 800;
+		color: #172033;
+	}
+
+	.memory-field-label {
+		display: block;
+		margin: 22rpx 0 10rpx;
+		font-size: 23rpx;
+		font-weight: 700;
+		color: #334155;
+	}
+
+	.memory-field-label--inline {
+		margin: 0 0 5rpx;
+	}
+
+	.memory-picker,
+	.memory-editor-input,
+	.memory-editor-textarea,
+	.memory-priority-input {
+		border: 1rpx solid #cbd5e1;
+		border-radius: 8rpx;
+		background: #ffffff;
+		font-size: 25rpx;
+		color: #172033;
+		box-sizing: border-box;
+	}
+
+	.memory-picker {
+		height: 72rpx;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0 18rpx;
+	}
+
+	.memory-editor-input {
+		height: 72rpx;
+		padding: 0 18rpx;
+	}
+
+	.memory-editor-textarea {
+		width: 100%;
+		height: 190rpx;
+		padding: 16rpx 18rpx;
+		line-height: 1.5;
+	}
+
+	.memory-priority-row,
+	.memory-switch-row {
+		margin-top: 22rpx;
+		padding: 18rpx 0;
+		border-top: 1rpx solid rgba(203, 213, 225, 0.68);
+	}
+
+	.memory-priority-input {
+		width: 116rpx;
+		height: 66rpx;
+		padding: 0 14rpx;
+		text-align: center;
+	}
+
+	.memory-switch-title,
+	.memory-field-help {
+		display: block;
+	}
+
+	.memory-switch-title {
+		font-size: 24rpx;
+		font-weight: 700;
+		color: #334155;
+	}
+
+	.memory-field-help {
+		margin-top: 5rpx;
+		font-size: 20rpx;
+		line-height: 1.4;
+		color: #64748b;
+	}
+
+	.memory-switch-row--disabled {
+		opacity: 0.52;
+	}
+
+	.memory-editor-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 16rpx;
+		margin-top: 26rpx;
+	}
+
+	.memory-editor-button {
+		min-width: 112rpx;
+		height: 66rpx;
+		line-height: 66rpx;
+		text-align: center;
+		border-radius: 8rpx;
+		font-size: 24rpx;
+		font-weight: 700;
+		color: #475569;
+		background: #f1f5f9;
+	}
+
+	.memory-editor-button--primary {
+		color: #ffffff;
+		background: #24647d;
 	}
 
 	.character-voice-mask {

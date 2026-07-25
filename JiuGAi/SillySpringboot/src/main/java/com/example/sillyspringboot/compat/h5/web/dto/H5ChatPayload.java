@@ -14,14 +14,18 @@ public class H5ChatPayload {
     private String ttsModelName;
     private String ttsVoiceName;
     private String ttsVoiceTemplateCode;
+    /** 用户自建音色内部 ID，仅用于 TTS 媒体请求，不进入 ST 文本生成请求。 */
+    private Long ttsUserVoiceId;
     private String ttsRequestId;
     private Integer ttsSegmentIndex;
     private Integer ttsSegmentCount;
+    private Long speakerMemberId;
     private String voiceUrl;
     private Integer voiceDurationMs;
     private String attachmentMode;
     private String attachmentHint;
     private String replySplitMode;
+    private String visionRequestId;
 
     /**
      * 可选：续写/重生时锚定的 AI 消息（H5 传 {@code db_123} 或 {@code 123}）。
@@ -125,6 +129,14 @@ public class H5ChatPayload {
         this.ttsVoiceTemplateCode = ttsVoiceTemplateCode;
     }
 
+    public Long getTtsUserVoiceId() {
+        return ttsUserVoiceId;
+    }
+
+    public void setTtsUserVoiceId(Long ttsUserVoiceId) {
+        this.ttsUserVoiceId = ttsUserVoiceId;
+    }
+
     public String getTtsRequestId() {
         return ttsRequestId;
     }
@@ -148,6 +160,9 @@ public class H5ChatPayload {
     public void setTtsSegmentCount(Integer ttsSegmentCount) {
         this.ttsSegmentCount = ttsSegmentCount;
     }
+
+    public Long getSpeakerMemberId() { return speakerMemberId; }
+    public void setSpeakerMemberId(Long speakerMemberId) { this.speakerMemberId = speakerMemberId; }
 
     public String getVoiceUrl() {
         return voiceUrl;
@@ -187,6 +202,14 @@ public class H5ChatPayload {
 
     public void setReplySplitMode(String replySplitMode) {
         this.replySplitMode = replySplitMode;
+    }
+
+    public String getVisionRequestId() {
+        return visionRequestId;
+    }
+
+    public void setVisionRequestId(String visionRequestId) {
+        this.visionRequestId = visionRequestId;
     }
 }
 

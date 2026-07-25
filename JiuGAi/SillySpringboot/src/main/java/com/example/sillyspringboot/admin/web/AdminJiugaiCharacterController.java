@@ -3,6 +3,7 @@ package com.example.sillyspringboot.admin.web;
 import com.example.sillyspringboot.admin.security.AdminPermitted;
 import com.example.sillyspringboot.admin.service.AdminCharacterPageResult;
 import com.example.sillyspringboot.admin.service.AdminJiugaiCharacterService;
+import com.example.sillyspringboot.admin.service.CharacterSystemPromotionService;
 import com.example.sillyspringboot.admin.web.dto.AdminCharacterPayload;
 import com.example.sillyspringboot.admin.web.dto.AdminCharacterReviewRequest;
 import com.example.sillyspringboot.admin.web.support.AdminAjaxResult;
@@ -30,6 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.client.RestClientResponseException;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -41,6 +44,7 @@ import java.util.Map;
 public class AdminJiugaiCharacterController {
 
     private final AdminJiugaiCharacterService adminCharacterService;
+    private final CharacterSystemPromotionService promotionService;
     private final AppCharacterMapper characterMapper;
     private final StAdapter stAdapter;
     private final CharacterCatalogService catalogService;
@@ -49,6 +53,7 @@ public class AdminJiugaiCharacterController {
 
     public AdminJiugaiCharacterController(
             AdminJiugaiCharacterService adminCharacterService,
+            CharacterSystemPromotionService promotionService,
             AppCharacterMapper characterMapper,
             StAdapter stAdapter,
             CharacterCatalogService catalogService,
@@ -56,6 +61,7 @@ public class AdminJiugaiCharacterController {
             EmbeddedLorebookSyncService embeddedLorebookSyncService
     ) {
         this.adminCharacterService = adminCharacterService;
+        this.promotionService = promotionService;
         this.characterMapper = characterMapper;
         this.stAdapter = stAdapter;
         this.catalogService = catalogService;
@@ -111,6 +117,33 @@ public class AdminJiugaiCharacterController {
         Map<String, Object> result = AdminAjaxResult.ok("公开摘要与健康评分已重新计算");
         result.put("data", adminCharacterService.toFormMap(row));
         return result;
+    }
+
+    @PostMapping("/{id}/promote-copy")
+    @AdminPermitted("content:character:edit")
+    public Map<String, Object> promoteCopy(
+            @PathVariable long id,
+            @RequestBody(required = false) Map<String, Object> body,
+            HttpServletRequest request
+    ) {
+        boolean keepCreatorAttribution = body == null
+                || !Boolean.FALSE.equals(body.get("keepCreatorAttribution"));
+        Object adminUsername = request == null ? null : request.getAttribute("adminUsername");
+        String operator = adminUsername == null ? "admin" : String.valueOf(adminUsername);
+        try {
+            CharacterSystemPromotionService.PromotionResult promoted =
+                    promotionService.promote(id, keepCreatorAttribution, operator);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("sourceCharacterId", id);
+            data.put("targetCharacterId", promoted.targetCharacterId());
+            data.put("stAvatarUrl", promoted.stAvatarUrl());
+            data.put("clientVisible", false);
+            Map<String, Object> result = AdminAjaxResult.ok("已复制为独立的系统角色草稿");
+            result.put("data", data);
+            return result;
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return AdminAjaxResult.error(e.getMessage());
+        }
     }
 
     @GetMapping("/worldbooks/options")

@@ -27,10 +27,10 @@
 
     <insert id="insert">
         INSERT INTO app_generation_attempt (
-            generation_task_id, conversation_id, character_id, attempt_no,
+            generation_task_id, request_id, trace_id, conversation_id, character_id, attempt_no,
             provider_key, route_key, provider_source, model, byok, was_fallback,
             started_at, first_token_at, finished_at, ttft_ms, duration_ms,
-            http_status, status, error_code,
+            http_status, status, error_code, error_message,
             prompt_tokens, completion_tokens,
             prompt_tokens_estimated, completion_tokens_estimated,
             pricing_id, pricing_version, currency,
@@ -38,10 +38,10 @@
             input_cost_usd, output_cost_usd, total_cost_usd,
             cost_estimated, cost_partial
         ) VALUES (
-            #{generationTaskId}, #{conversationId}, #{characterId}, #{attemptNo},
+            #{generationTaskId}, #{requestId}, #{traceId}, #{conversationId}, #{characterId}, #{attemptNo},
             #{providerKey}, #{routeKey}, #{providerSource}, #{model}, #{byok}, #{fallback},
             #{startedAt}, #{firstTokenAt}, #{finishedAt}, #{ttftMs}, #{durationMs},
-            #{httpStatus}, #{status}, #{errorCode},
+            #{httpStatus}, #{status}, #{errorCode}, #{errorMessage},
             #{promptTokens}, #{completionTokens},
             #{promptTokensEstimated}, #{completionTokensEstimated},
             #{pricingId}, #{pricingVersion}, #{currency},

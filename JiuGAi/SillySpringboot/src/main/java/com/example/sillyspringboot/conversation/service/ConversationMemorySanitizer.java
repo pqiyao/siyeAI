@@ -78,6 +78,52 @@ public class ConversationMemorySanitizer {
         return e;
     }
 
+    public AppConversationMemoryEntry toManualEntity(
+            long conversationId,
+            long branchId,
+            String entryKey,
+            String memoryType,
+            String title,
+            String content,
+            List<String> keywords,
+            List<String> secondaryKeywords,
+            int priority,
+            boolean constantInjection,
+            boolean manualPinned
+    ) {
+        String safeContent = trimTo(normalizeText(content), Math.max(80, properties.getMaxEntryContentChars()));
+        if (safeContent.isBlank() || isTrivialContent(safeContent)) {
+            throw new IllegalArgumentException("记忆内容不能为空或过于简单");
+        }
+        String safeType = normalizeType(memoryType);
+        List<String> safeKeywords = sanitizeKeywords(keywords, safeContent);
+        List<String> safeSecondaryKeywords = sanitizeKeywords(secondaryKeywords, "");
+        boolean safeConstant = allowConstant(safeType, constantInjection);
+        if (!safeConstant && safeKeywords.isEmpty()) {
+            throw new IllegalArgumentException("普通记忆至少需要一个有效关键词");
+        }
+
+        AppConversationMemoryEntry entry = new AppConversationMemoryEntry();
+        entry.setConversationId(conversationId);
+        entry.setBranchId(branchId);
+        entry.setEntryKey(normalizeEntryKey(entryKey, safeType, safeContent));
+        entry.setMemoryType(safeType);
+        entry.setTitle(trimTo(normalizeText(title), 120));
+        entry.setContent(safeContent);
+        entry.setKeywordsJson(toJson(safeKeywords));
+        entry.setSecondaryKeywordsJson(toJson(safeSecondaryKeywords));
+        entry.setPriority(clampPriority(priority, safeType, safeConstant));
+        entry.setPosition("before_char");
+        entry.setConstantInjection(safeConstant);
+        entry.setSelective(!safeSecondaryKeywords.isEmpty());
+        entry.setEnabled(true);
+        entry.setManualDisabled(false);
+        entry.setManualDeleted(false);
+        entry.setManualPinned(manualPinned);
+        entry.setConfidence(BigDecimal.ONE);
+        return entry;
+    }
+
     public List<String> sanitizeDisableKeys(List<String> keys) {
         if (keys == null || keys.isEmpty()) {
             return List.of();

@@ -67,6 +67,13 @@
         WHERE conversation_id = #{conversationId}
     </update>
 
+    <update id="clearChatPresetId">
+        UPDATE app_conversation_st_binding
+        SET chat_preset_id = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE chat_preset_id = #{chatPresetId}
+    </update>
+
     <delete id="deleteByConversationId">
         DELETE FROM app_conversation_st_binding
         WHERE conversation_id = #{conversationId}

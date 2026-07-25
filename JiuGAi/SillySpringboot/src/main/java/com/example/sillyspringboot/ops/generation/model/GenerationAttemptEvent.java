@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 public record GenerationAttemptEvent(
         Long conversationId,
         String clientMessageId,
+        String traceId,
         int attemptNo,
         String providerKey,
         String routeKey,
@@ -18,6 +19,7 @@ public record GenerationAttemptEvent(
         Integer httpStatus,
         String status,
         String errorCode,
+        String errorMessage,
         Integer promptTokens,
         boolean promptTokensEstimated,
         Integer completionTokens,

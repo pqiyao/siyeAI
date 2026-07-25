@@ -4,13 +4,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.auth.token.AppTokenService;
+import com.example.sillyspringboot.ai.model.AiCapability;
 import com.example.sillyspringboot.chat.config.AppChatProperties;
 import com.example.sillyspringboot.chat.dto.AppChatStreamRequest;
 import com.example.sillyspringboot.chat.dto.AppChatContinueRequest;
 import com.example.sillyspringboot.chat.dto.AppChatRegenerateRequest;
 import com.example.sillyspringboot.character.entity.AppCharacter;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
+import com.example.sillyspringboot.character.entity.AppLorebookEntry;
 import com.example.sillyspringboot.character.entity.CharacterReviewStatus;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
+import com.example.sillyspringboot.character.mapper.AppLorebookEntryMapper;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.entity.H5MyCharacter;
 import com.example.sillyspringboot.compat.h5.mapper.H5MyCharacterMapper;
 import com.example.sillyspringboot.compat.h5.entity.AppH5Profile;
@@ -39,11 +44,13 @@ import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterGetReq
 import com.example.sillyspringboot.integration.sillytavern.dto.SwipeVariant;
 import com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride;
 import com.example.sillyspringboot.ops.service.ChatPresetService;
+import com.example.sillyspringboot.ops.service.H5EntitlementService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -140,7 +147,14 @@ public class AppChatService {
     private final ChatPresetService chatPresetService;
     private final AppChatCompatibilityService compatibilityService;
     private final AppChatFrontendBridgeService frontendBridgeService;
+    private final H5EntitlementService entitlementService;
     private final ObjectMapper jsonMapper = new ObjectMapper();
+
+    @Autowired(required = false)
+    private CharacterStudioMapper characterStudioMapper;
+
+    @Autowired(required = false)
+    private AppLorebookEntryMapper lorebookEntryMapper;
 
     public AppChatService(
             AppConversationMapper conversationMapper,
@@ -165,7 +179,8 @@ public class AppChatService {
             StWorldbookCatalogService worldbookCatalogService,
             ChatPresetService chatPresetService,
             AppChatCompatibilityService compatibilityService,
-            AppChatFrontendBridgeService frontendBridgeService
+            AppChatFrontendBridgeService frontendBridgeService,
+            H5EntitlementService entitlementService
     ) {
         this.conversationMapper = conversationMapper;
         this.bindingMapper = bindingMapper;
@@ -190,6 +205,7 @@ public class AppChatService {
         this.chatPresetService = chatPresetService;
         this.compatibilityService = compatibilityService;
         this.frontendBridgeService = frontendBridgeService;
+        this.entitlementService = entitlementService;
     }
 
     public ChatConcurrencyGate.Lease acquireLease(String token) {
@@ -407,6 +423,7 @@ public class AppChatService {
         }
         snapshotService.saveSnapshotFromDb(req.getConversationId(), activeBranchId, 800, stMessageRef);
         UserModelOverride userModelOverride = resolveUserModelOverride(userId);
+        boolean customModeSelected = userAiProviderService.isCustomModeSelectedForUser(userId);
         String userName = displayNameForSt(user, userId, binding);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
         List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
@@ -418,7 +435,11 @@ public class AppChatService {
         String attachmentMode = normalizeAttachmentMode(req.getAttachmentMode(), inlineImageUrls);
         String attachmentHint = normalizeAttachmentHint(req.getAttachmentHint());
         boolean useInlineImages = !inlineImageUrls.isEmpty() && !ATTACHMENT_MODE_EXPRESSION.equals(attachmentMode);
-        ensureVisionModelReadyForImages(userModelOverride, useInlineImages ? inlineImageUrls : List.of());
+        ensureVisionModelReadyForImages(
+                userModelOverride,
+                customModeSelected,
+                useInlineImages ? inlineImageUrls : List.of()
+        );
         String roleplayUserMessage = ATTACHMENT_MODE_PHOTO.equals(attachmentMode)
                 ? buildPhotoRoleplayUserMessage(
                         req.getConversationId(),
@@ -427,7 +448,10 @@ public class AppChatService {
                         worldNames,
                         req.getUserMessage(),
                         inlineImageUrls,
-                        userModelOverride
+                        userModelOverride,
+                        user,
+                        normalizeVisionRequestId(req.getVisionRequestId(), req.getClientMessageId()),
+                        control
                 )
                 : nz(req.getUserMessage());
         List<String> expressionHints = normalizeExpressionHints(req.getExpressionHints());
@@ -438,6 +462,7 @@ public class AppChatService {
                 attachmentHint
         );
         String tailSystemPrompt = combineSystemPrompts(
+                buildCharacterStudioRuntimePrompt(c.getCharacterId(), req.getConversationId(), activeBranchId, runtimeUserMessage),
                 tailMemoryPrompt,
                 buildExpressionTailPrompt(attachmentMode, expressionHints, avoidExpressionHints),
                 buildReplySplitTailPrompt(req.getReplySplitMode())
@@ -520,6 +545,7 @@ public class AppChatService {
                 recordCompatibilityDecision(req.getConversationId(), bundle, binding, worldNames, runtimePresetBundle);
         List<ChatMessage> promptMessages = List.of();
         String tailSystemPrompt = combineSystemPrompts(
+                buildCharacterStudioRuntimePrompt(c.getCharacterId(), req.getConversationId(), activeBranchId, ""),
                 tailMemoryPrompt,
                 buildReplySplitTailPrompt(req.getReplySplitMode())
         );
@@ -599,6 +625,7 @@ public class AppChatService {
         List<ChatMessage> promptMessages = List.of();
         snapshotService.saveSnapshotFromDb(req.getConversationId(), activeBranchId, 800);
         String tailSystemPrompt = combineSystemPrompts(
+                buildCharacterStudioRuntimePrompt(c.getCharacterId(), req.getConversationId(), activeBranchId, ""),
                 tailMemoryPrompt,
                 buildReplySplitTailPrompt(req.getReplySplitMode())
         );
@@ -670,7 +697,10 @@ public class AppChatService {
         }
 
         try {
-            String tailMemoryPrompt = tailMemoryPromptForGeneration(conversationId, activeBranchId);
+            String tailMemoryPrompt = combineSystemPrompts(
+                    buildCharacterStudioRuntimePrompt(conversation.getCharacterId(), conversationId, activeBranchId, currentDraft),
+                    tailMemoryPromptForGeneration(conversationId, activeBranchId)
+            );
             List<ChatMessage> promptMessages = buildReplySuggestionMessages(
                     runtimeMessages,
                     currentDraft,
@@ -1057,7 +1087,10 @@ public class AppChatService {
             List<String> worldNames,
             String userMessage,
             List<String> inlineImageUrls,
-            UserModelOverride userModelOverride
+            UserModelOverride userModelOverride,
+            AppUser user,
+            String visionRequestId,
+            StStreamControl control
     ) {
         String summary = summarizeUserImages(
                 conversationId,
@@ -1066,7 +1099,10 @@ public class AppChatService {
                 worldNames,
                 userMessage,
                 inlineImageUrls,
-                userModelOverride
+                userModelOverride,
+                user,
+                visionRequestId,
+                control
         );
         String baseMessage = nz(userMessage).trim();
         if (baseMessage.isBlank()) {
@@ -1082,7 +1118,10 @@ public class AppChatService {
             List<String> worldNames,
             String userMessage,
             List<String> inlineImageUrls,
-            UserModelOverride userModelOverride
+            UserModelOverride userModelOverride,
+            AppUser user,
+            String visionRequestId,
+            StStreamControl control
     ) {
         if (inlineImageUrls == null || inlineImageUrls.isEmpty()) {
             return "";
@@ -1111,20 +1150,31 @@ public class AppChatService {
                 "",
                 "",
                 worldNames == null ? List.of() : worldNames,
-                userModelOverride
+                userModelOverride,
+                null,
+                null,
+                AiCapability.VISION
         );
-        StStreamControl control = new StStreamControl();
         StringBuilder raw = new StringBuilder();
-        stAdapter.streamGenerateAssistantReply(summaryRequest, chunk -> {
-            if (chunk != null && chunk.delta() != null) {
-                raw.append(chunk.delta());
+        H5EntitlementService.AccessTicket visionTicket = userModelOverride == null
+                ? entitlementService.guardVision(user, visionRequestId)
+                : null;
+        boolean chargeCreated = visionTicket != null && entitlementService.reserveVisionCharge(visionTicket);
+        try {
+            stAdapter.streamGenerateAssistantReply(summaryRequest, chunk -> {
+                if (chunk != null && chunk.delta() != null) {
+                    raw.append(chunk.delta());
+                }
+            }, control);
+            String summary = sanitizeImageSummary(raw.toString());
+            if (summary.isBlank()) {
+                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "图片识别暂时不可用，请稍后再试");
             }
-        }, control);
-        String summary = sanitizeImageSummary(raw.toString());
-        if (summary.isBlank()) {
-            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "图片识别暂时不可用，请稍后再试");
+            return summary;
+        } catch (RuntimeException ex) {
+            entitlementService.refundVisionCharge(visionTicket, chargeCreated);
+            throw ex;
         }
-        return summary;
     }
 
     private String sanitizeImageSummary(String raw) {
@@ -1177,15 +1227,22 @@ public class AppChatService {
         return injectExpressionHintSystemMessage(promptMessages, expressionHints, avoidExpressionHints);
     }
 
-    private void ensureVisionModelReadyForImages(UserModelOverride override, List<String> inlineImageUrls) {
+    private void ensureVisionModelReadyForImages(
+            UserModelOverride override,
+            boolean customModeSelected,
+            List<String> inlineImageUrls
+    ) {
         if (inlineImageUrls == null || inlineImageUrls.isEmpty()) {
             return;
         }
-        if (override == null) {
+        if (customModeSelected && override == null) {
             throw new BusinessException(
                     ErrorCode.VALIDATION_FAILED,
-                    "发送图片前，请先在 AI 设置页配置可用的辅助视觉模型"
+                    "自定义 API 配置无效，请先在 AI 设置页补全 API Key、主模型和视觉模型"
             );
+        }
+        if (!customModeSelected) {
+            return;
         }
         String explicitVisionModel = nz(override.visionModelName());
         if (StringUtils.hasText(explicitVisionModel)) {
@@ -1199,6 +1256,17 @@ public class AppChatService {
                 ErrorCode.VALIDATION_FAILED,
                 "当前主聊天模型不像视觉模型。发送照片或表情前，请先在 AI 设置页填写辅助视觉模型"
         );
+    }
+
+    private static String normalizeVisionRequestId(String raw, String clientMessageId) {
+        String value = nz(raw).trim();
+        if (value.isBlank()) {
+            value = "vision_" + nz(clientMessageId).trim();
+        }
+        if (!value.matches("[A-Za-z0-9._:-]{8,128}")) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "识图请求 ID 格式不合法");
+        }
+        return value;
     }
 
     private boolean looksLikeVisionCapableModel(String modelName) {
@@ -1592,6 +1660,143 @@ public class AppChatService {
     }
 
     private final com.fasterxml.jackson.databind.ObjectMapper worldMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /**
+     * Keeps the structured character studio authoritative without replacing the existing SillyTavern
+     * snapshot contract. Legacy cards have no studio rows and therefore produce an empty prompt here.
+     */
+    private String buildCharacterStudioRuntimePrompt(
+            long characterId,
+            long conversationId,
+            long branchId,
+            String currentInput
+    ) {
+        if (characterStudioMapper == null && lorebookEntryMapper == null) {
+            return "";
+        }
+        try {
+            List<AppCharacterMember> members = characterStudioMapper == null
+                    ? List.of()
+                    : characterStudioMapper.listMembers(characterId);
+            List<AppLorebookEntry> loreEntries = lorebookEntryMapper == null
+                    ? List.of()
+                    : lorebookEntryMapper.listEnabledByCharacterId(characterId);
+            if (members.isEmpty() && loreEntries.isEmpty()) {
+                return "";
+            }
+
+            StringBuilder prompt = new StringBuilder();
+            if (members.size() > 1) {
+                prompt.append("Ensemble roleplay rules:\n")
+                        .append("- This card has multiple independent characters. Never merge their personalities or invent a member outside this roster.\n")
+                        .append("- Reply only for the member or members naturally present in the scene. Do not speak for the user.\n")
+                        .append("- Prefix each character segment exactly as 【Name】. Use 【旁白】 only for scene narration when needed.\n")
+                        .append("- Keep a member's personality, knowledge and relationships consistent across the full conversation.\n")
+                        .append("Roster:\n");
+                for (AppCharacterMember member : members) {
+                    if (member == null || !StringUtils.hasText(member.getName())) {
+                        continue;
+                    }
+                    prompt.append("- ").append(member.getName());
+                    if (Boolean.TRUE.equals(member.getPrimaryMember())) {
+                        prompt.append(" (primary)");
+                    }
+                    String tagline = nz(member.getTagline());
+                    String persona = nz(member.getPersona());
+                    if (!tagline.isBlank()) prompt.append(": ").append(tagline);
+                    if (!persona.isBlank()) prompt.append("\n  Persona: ").append(persona);
+                    prompt.append('\n');
+                }
+            }
+
+            if (!loreEntries.isEmpty()) {
+                List<AppMessage> history = messageMapper.listByConversationBranchAsc(conversationId, branchId, 200);
+                String beforeCharacter = matchedStudioLore(loreEntries, history, currentInput, "BEFORE_CHARACTER", members);
+                String afterCharacter = matchedStudioLore(loreEntries, history, currentInput, "AFTER_CHARACTER", members);
+                String beforeHistory = matchedStudioLore(loreEntries, history, currentInput, "BEFORE_HISTORY", members);
+                appendStudioLoreSection(prompt, "Worldbook facts before character", beforeCharacter);
+                appendStudioLoreSection(prompt, "Worldbook facts after character", afterCharacter);
+                appendStudioLoreSection(prompt, "Worldbook facts for current history", beforeHistory);
+            }
+            return prompt.length() > 16000 ? prompt.substring(0, 16000) : prompt.toString().trim();
+        } catch (Exception ex) {
+            log.warn("character studio runtime prompt skipped characterId={} conversationId={} cause={}",
+                    characterId, conversationId, rootCauseMessage(ex));
+            return "";
+        }
+    }
+
+    private String matchedStudioLore(
+            List<AppLorebookEntry> entries,
+            List<AppMessage> history,
+            String currentInput,
+            String injectionPosition,
+            List<AppCharacterMember> members
+    ) {
+        StringBuilder result = new StringBuilder();
+        for (AppLorebookEntry entry : entries) {
+            if (entry == null || !StringUtils.hasText(entry.getContent())
+                    || !injectionPosition.equalsIgnoreCase(nz(entry.getInjectionPosition()))) {
+                continue;
+            }
+            if (!Boolean.TRUE.equals(entry.getConstantInjection())
+                    && !studioLoreMatches(entry, history, currentInput)) {
+                continue;
+            }
+            String title = nz(entry.getTitle());
+            if (title.isBlank()) title = "Worldbook";
+            result.append("[ ").append(title).append(" ]");
+            String scopedMember = studioMemberName(entry.getMemberId(), members);
+            if (!scopedMember.isBlank()) result.append(" (member: ").append(scopedMember).append(')');
+            result.append('\n').append(entry.getContent().trim()).append("\n\n");
+            if (result.length() >= 9000) break;
+        }
+        return result.toString().trim();
+    }
+
+    private boolean studioLoreMatches(AppLorebookEntry entry, List<AppMessage> history, String currentInput) {
+        int depth = entry.getScanDepth() == null ? 8 : Math.max(1, Math.min(entry.getScanDepth(), 100));
+        StringBuilder corpus = new StringBuilder(nz(currentInput));
+        int start = Math.max(0, (history == null ? 0 : history.size()) - depth);
+        if (history != null) {
+            for (int i = start; i < history.size(); i++) {
+                AppMessage message = history.get(i);
+                if (includeVisibleMessage(message)) corpus.append('\n').append(nz(message.getContent()));
+            }
+        }
+        String haystack = corpus.toString().toLowerCase(Locale.ROOT);
+        List<String> primary = studioKeywords(entry.getKeywordsCsv());
+        if (primary.isEmpty()) return false;
+        boolean all = "ALL".equalsIgnoreCase(nz(entry.getMatchMode()));
+        boolean primaryMatches = all
+                ? primary.stream().allMatch(keyword -> haystack.contains(keyword))
+                : primary.stream().anyMatch(keyword -> haystack.contains(keyword));
+        if (!primaryMatches) return false;
+        List<String> secondary = studioKeywords(entry.getSecondaryKeywordsCsv());
+        return secondary.isEmpty() || secondary.stream().anyMatch(keyword -> haystack.contains(keyword));
+    }
+
+    private static List<String> studioKeywords(String csv) {
+        if (!StringUtils.hasText(csv)) return List.of();
+        return List.of(csv.split(",")).stream()
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private static String studioMemberName(Long memberId, List<AppCharacterMember> members) {
+        if (memberId == null || members == null) return "";
+        for (AppCharacterMember member : members) {
+            if (member != null && memberId.equals(member.getId())) return nz(member.getName());
+        }
+        return "";
+    }
+
+    private static void appendStudioLoreSection(StringBuilder target, String title, String body) {
+        if (body == null || body.isBlank()) return;
+        target.append(title).append(":\n").append(body).append("\n\n");
+    }
 
     private List<String> worldNamesForGeneration(long conversationId, AppConversationStBinding binding, long characterId) {
         return worldNamesForGeneration(conversationId, null, binding, characterId);

@@ -1,5 +1,7 @@
 package com.example.sillyspringboot.compat.h5.service;
 
+import com.example.sillyspringboot.ai.model.AiCapability;
+import com.example.sillyspringboot.ai.service.AiRoutingService;
 import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.auth.token.AppTokenService;
 import com.example.sillyspringboot.compat.h5.entity.AppH5UserAiProvider;
@@ -10,6 +12,7 @@ import com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride
 import com.example.sillyspringboot.ops.dto.AppFeatureSettings;
 import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.ops.service.EntitlementPolicyService;
+import com.example.sillyspringboot.ops.dto.EntitlementPolicy;
 import com.example.sillyspringboot.ops.service.TtsVoiceProvisionService;
 import com.example.sillyspringboot.ops.service.TtsVoiceTemplateService;
 import com.example.sillyspringboot.shared.crypto.SensitiveTextCrypto;
@@ -220,6 +223,11 @@ public class H5UserAiProviderService {
             boolean voiceEnabledGlobal,
             boolean voiceCanUse,
             String voiceDenyReason,
+            boolean userVoiceCreationEnabled,
+            boolean visionOfficialEnabled,
+            boolean visionOfficialReady,
+            int visionScoreCost,
+            int visionGoldCost,
             int currentVipLevel,
             int vipMinLevel,
             List<String> availableSources,
@@ -274,6 +282,7 @@ public class H5UserAiProviderService {
     private final AppH5UserProfileExtMapper profileExtMapper;
     private final AppFeatureSettingsService featureSettingsService;
     private final EntitlementPolicyService entitlementPolicyService;
+    private final AiRoutingService aiRoutingService;
     private final TtsVoiceTemplateService ttsVoiceTemplateService;
     private final SensitiveTextCrypto sensitiveTextCrypto;
     private final ObjectMapper objectMapper;
@@ -287,6 +296,7 @@ public class H5UserAiProviderService {
             AppH5UserProfileExtMapper profileExtMapper,
             AppFeatureSettingsService featureSettingsService,
             EntitlementPolicyService entitlementPolicyService,
+            AiRoutingService aiRoutingService,
             TtsVoiceTemplateService ttsVoiceTemplateService,
             SensitiveTextCrypto sensitiveTextCrypto,
             ObjectMapper objectMapper
@@ -297,6 +307,7 @@ public class H5UserAiProviderService {
         this.profileExtMapper = profileExtMapper;
         this.featureSettingsService = featureSettingsService;
         this.entitlementPolicyService = entitlementPolicyService;
+        this.aiRoutingService = aiRoutingService;
         this.ttsVoiceTemplateService = ttsVoiceTemplateService;
         this.sensitiveTextCrypto = sensitiveTextCrypto;
         this.objectMapper = objectMapper;
@@ -315,6 +326,10 @@ public class H5UserAiProviderService {
         boolean canUse = enabledGlobal && currentVipLevel >= settings.getUserByokVipMinLevel();
         boolean imageEnabledGlobal = settings.isImageGenerationEnabled();
         boolean voiceEnabledGlobal = settings.isVoiceFeatureEnabled();
+        Map<String, Object> visionSummary = aiRoutingService.capabilitySummary(AiCapability.VISION);
+        boolean visionOfficialEnabled = Boolean.TRUE.equals(visionSummary.get("runtimeEnabled"));
+        boolean visionOfficialReady = Boolean.TRUE.equals(visionSummary.get("ready"));
+        EntitlementPolicy entitlementPolicy = entitlementPolicyService.getPolicy();
         String mode = normalizeMode(row == null ? null : row.getProviderMode());
         boolean customMode = "custom".equals(mode);
         boolean imageCanUse = imageEnabledGlobal && (!customMode || canUse);
@@ -399,6 +414,11 @@ public class H5UserAiProviderService {
                 voiceEnabledGlobal,
                 voiceCanUse,
                 voiceCanUse ? "" : (!voiceEnabledGlobal ? "当前已关闭语音功能" : denyReason(enabledGlobal, currentVipLevel, settings.getUserByokVipMinLevel())),
+                entitlementPolicy.isUserVoiceCreationEnabled(),
+                visionOfficialEnabled,
+                visionOfficialReady,
+                Math.max(0, entitlementPolicy.getVisionScoreCost()),
+                Math.max(0, entitlementPolicy.getVisionGoldCost()),
                 currentVipLevel,
                 settings.getUserByokVipMinLevel(),
                 AVAILABLE_SOURCES,

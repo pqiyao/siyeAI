@@ -5,7 +5,9 @@ import com.example.sillyspringboot.auth.token.AppTokenService;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.ops.service.ChatPresetService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -52,6 +54,44 @@ public class ApiV1TavernChatPresetController {
         return ApiV1Result.ok(chatPresetService.bindConversationPreset(userId, conversationId, presetId));
     }
 
+    @PostMapping("/chat-presets/copy")
+    public ApiV1Result<Map<String, Object>> copy(@RequestBody Map<String, Object> body) {
+        long userId = userIdOf(requiredText(body, "clientUid"));
+        long sourcePresetId = requiredPositiveLong(body, "sourcePresetId");
+        return ApiV1Result.ok(chatPresetService.copyPlatformPreset(
+                userId,
+                sourcePresetId,
+                optionalText(body, "name")
+        ));
+    }
+
+    @PutMapping("/chat-presets/{presetId}")
+    public ApiV1Result<Map<String, Object>> update(
+            @PathVariable long presetId,
+            @RequestBody Map<String, Object> body
+    ) {
+        long userId = userIdOf(requiredText(body, "clientUid"));
+        return ApiV1Result.ok(chatPresetService.updatePrivatePreset(
+                userId,
+                presetId,
+                requiredText(body, "name"),
+                requiredDouble(body, "temperature"),
+                requiredDouble(body, "topP"),
+                requiredInt(body, "maxTokens"),
+                requiredInt(body, "maxContext"),
+                optionalBoolean(body, "enabled", true)
+        ));
+    }
+
+    @DeleteMapping("/chat-presets/{presetId}")
+    public ApiV1Result<Boolean> delete(
+            @PathVariable long presetId,
+            @RequestBody Map<String, Object> body
+    ) {
+        long userId = userIdOf(requiredText(body, "clientUid"));
+        return ApiV1Result.ok(chatPresetService.deletePrivatePreset(userId, presetId));
+    }
+
     private long userIdOf(String clientUid) {
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
         AppUser user = tokenService.validateAndLoadUser(token);
@@ -72,5 +112,84 @@ public class ApiV1TavernChatPresetController {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private static String requiredText(Map<String, Object> body, String field) {
+        String value = optionalText(body, field);
+        if (value.isBlank()) {
+            throw new com.example.sillyspringboot.shared.error.BusinessException(
+                    com.example.sillyspringboot.shared.error.ErrorCode.VALIDATION_FAILED,
+                    field + " missing"
+            );
+        }
+        return value;
+    }
+
+    private static String optionalText(Map<String, Object> body, String field) {
+        Object raw = body == null ? null : body.get(field);
+        if (raw == null) return "";
+        if (!(raw instanceof String value)) {
+            throw validation(field + " invalid");
+        }
+        return value.trim();
+    }
+
+    private static long requiredPositiveLong(Map<String, Object> body, String field) {
+        Object raw = body == null ? null : body.get(field);
+        Long value = wholeLong(raw);
+        if (value == null || value <= 0) throw validation(field + " invalid");
+        return value;
+    }
+
+    private static int requiredInt(Map<String, Object> body, String field) {
+        Long value = wholeLong(body == null ? null : body.get(field));
+        if (value == null || value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+            throw validation(field + " invalid");
+        }
+        return value.intValue();
+    }
+
+    private static double requiredDouble(Map<String, Object> body, String field) {
+        Object raw = body == null ? null : body.get(field);
+        double value;
+        try {
+            value = raw instanceof Number number ? number.doubleValue() : Double.parseDouble(String.valueOf(raw).trim());
+        } catch (Exception ignored) {
+            throw validation(field + " invalid");
+        }
+        if (!Double.isFinite(value)) throw validation(field + " invalid");
+        return value;
+    }
+
+    private static boolean optionalBoolean(Map<String, Object> body, String field, boolean fallback) {
+        Object raw = body == null ? null : body.get(field);
+        if (raw == null) return fallback;
+        if (raw instanceof Boolean value) return value;
+        if (raw instanceof Number number && (number.intValue() == 0 || number.intValue() == 1)) {
+            return number.intValue() == 1;
+        }
+        throw validation(field + " invalid");
+    }
+
+    private static Long wholeLong(Object raw) {
+        if (raw instanceof Byte || raw instanceof Short || raw instanceof Integer || raw instanceof Long) {
+            return ((Number) raw).longValue();
+        }
+        if (raw instanceof Number number) {
+            double value = number.doubleValue();
+            return Double.isFinite(value) && value == Math.rint(value) ? (long) value : null;
+        }
+        try {
+            return raw == null ? null : Long.parseLong(String.valueOf(raw).trim());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static com.example.sillyspringboot.shared.error.BusinessException validation(String message) {
+        return new com.example.sillyspringboot.shared.error.BusinessException(
+                com.example.sillyspringboot.shared.error.ErrorCode.VALIDATION_FAILED,
+                message
+        );
     }
 }

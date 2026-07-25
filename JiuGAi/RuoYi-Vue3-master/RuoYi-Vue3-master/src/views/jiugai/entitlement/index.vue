@@ -44,6 +44,14 @@
           <el-switch v-model="runtimeSettings.userCharacterCreationEnabled" />
         </div>
 
+        <div class="runtime-item">
+          <div class="runtime-item__meta">
+            <div class="runtime-item__title">允许复制用户卡为系统角色</div>
+            <div class="runtime-item__desc">默认关闭。开启后，角色管理页可将用户卡深复制为独立 ST 系统角色草稿；原用户卡不会被修改。</div>
+          </div>
+          <el-switch v-model="runtimeSettings.userCharacterPromotionEnabled" />
+        </div>
+
         <div class="runtime-item runtime-item--stack">
           <div class="runtime-item__meta">
             <div class="runtime-item__title">允许用户自定义 API Key</div>
@@ -162,6 +170,25 @@
               <el-switch v-model="form.svipCanAccessVipCharacters" />
             </el-form-item>
           </el-col>
+        </el-row>
+
+        <el-divider />
+
+        <div class="group-title">用户自建音色权益</div>
+        <el-alert
+          class="mb12"
+          type="info"
+          :closable="false"
+          show-icon
+          title="仅允许用户使用自己的硅基流动 API Key 创建。关闭后隐藏创建入口并由后端拒绝新建，已有音色仍可管理。"
+        />
+        <el-form-item label="允许自建音色">
+          <el-switch v-model="form.userVoiceCreationEnabled" />
+        </el-form-item>
+        <el-row :gutter="24">
+          <el-col :xs="24" :md="8"><el-form-item label="免费用户上限"><el-input-number v-model="form.guestUserVoiceLimit" :min="0" :max="20" /></el-form-item></el-col>
+          <el-col :xs="24" :md="8"><el-form-item label="周卡会员上限"><el-input-number v-model="form.vipUserVoiceLimit" :min="0" :max="20" /></el-form-item></el-col>
+          <el-col :xs="24" :md="8"><el-form-item label="Plus 会员上限"><el-input-number v-model="form.svipUserVoiceLimit" :min="0" :max="20" /></el-form-item></el-col>
         </el-row>
 
         <el-divider />
@@ -305,6 +332,21 @@
             </el-form-item>
           </el-col>
         </el-row>
+
+        <el-divider content-position="left">视觉理解 VISION</el-divider>
+        <el-alert class="mb12" type="info" :closable="false" show-icon title="系统模式发送图片时先扣一次识图费用，再按原规则结算正常聊天；BYOK 识图不扣此费用。两项均为 0 时官方识图免费。" />
+        <el-row :gutter="24">
+          <el-col :xs="24" :md="12">
+            <el-form-item label="识图扣钻">
+              <el-input-number v-model="form.visionScoreCost" :min="0" :step="1" controls-position="right" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="12">
+            <el-form-item label="识图扣币">
+              <el-input-number v-model="form.visionGoldCost" :min="0" :step="1" controls-position="right" />
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
     </el-card>
 
@@ -339,6 +381,10 @@ const emptyForm = () => ({
   guestCharacterCreateLimit: 999,
   vipCharacterCreateLimit: 999,
   svipCharacterCreateLimit: 999,
+  userVoiceCreationEnabled: false,
+  guestUserVoiceLimit: 3,
+  vipUserVoiceLimit: 3,
+  svipUserVoiceLimit: 3,
   guestCanAccessVipCharacters: false,
   vipCanAccessVipCharacters: true,
   svipCanAccessVipCharacters: true,
@@ -354,7 +400,9 @@ const emptyForm = () => ({
   ttsScoreCost: 0,
   ttsGoldCost: 0,
   sttScoreCost: 0,
-  sttGoldCost: 0
+  sttGoldCost: 0,
+  visionScoreCost: 0,
+  visionGoldCost: 0
 })
 
 const form = ref(emptyForm())
@@ -363,6 +411,7 @@ const runtimeSettings = reactive({
   loginEnabled: true,
   registerEnabled: true,
   userCharacterCreationEnabled: true,
+  userCharacterPromotionEnabled: false,
   userByokEnabled: false,
   imageGenerationEnabled: true,
   voiceFeatureEnabled: true,
@@ -384,6 +433,7 @@ function applyRuntimeSettings(data) {
   runtimeSettings.loginEnabled = data.loginEnabled !== false
   runtimeSettings.registerEnabled = data.registerEnabled !== false
   runtimeSettings.userCharacterCreationEnabled = data.userCharacterCreationEnabled !== false
+  runtimeSettings.userCharacterPromotionEnabled = data.userCharacterPromotionEnabled === true
   runtimeSettings.userByokEnabled = data.userByokEnabled === true
   runtimeSettings.illustrationEntryEnabled = data.illustrationEntryEnabled !== false
   runtimeSettings.rechargeEntryVisible = data.rechargeEntryVisible !== false
@@ -409,7 +459,9 @@ function loadPolicy() {
         ttsScoreCost: normalizeLimit(data.ttsScoreCost, 0),
         ttsGoldCost: normalizeLimit(data.ttsGoldCost, 0),
         sttScoreCost: normalizeLimit(data.sttScoreCost, 0),
-        sttGoldCost: normalizeLimit(data.sttGoldCost, 0)
+        sttGoldCost: normalizeLimit(data.sttGoldCost, 0),
+        visionScoreCost: normalizeLimit(data.visionScoreCost, 0),
+        visionGoldCost: normalizeLimit(data.visionGoldCost, 0)
       }
     })
     .catch((e) => {
@@ -452,6 +504,7 @@ function submitRuntimeSettings() {
     loginEnabled: runtimeSettings.loginEnabled,
     registerEnabled: runtimeSettings.registerEnabled,
     userCharacterCreationEnabled: runtimeSettings.userCharacterCreationEnabled,
+    userCharacterPromotionEnabled: runtimeSettings.userCharacterPromotionEnabled,
     userByokEnabled: runtimeSettings.userByokEnabled,
     illustrationEntryEnabled: runtimeSettings.illustrationEntryEnabled,
     rechargeEntryVisible: runtimeSettings.rechargeEntryVisible,

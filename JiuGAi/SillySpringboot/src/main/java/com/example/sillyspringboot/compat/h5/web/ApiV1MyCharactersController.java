@@ -8,6 +8,7 @@ import com.example.sillyspringboot.character.entity.AppCharacter;
 import com.example.sillyspringboot.character.entity.CharacterReviewStatus;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.character.service.EmbeddedLorebookSyncService;
+import com.example.sillyspringboot.character.service.CharacterStudioService;
 import com.example.sillyspringboot.compat.h5.entity.H5MyCharacter;
 import com.example.sillyspringboot.compat.h5.mapper.H5MyCharacterMapper;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
@@ -68,6 +69,7 @@ public class ApiV1MyCharactersController {
     private final H5EntitlementService entitlementService;
     private final H5TavernSessionService tavernSessionService;
     private final EmbeddedLorebookSyncService embeddedLorebookSyncService;
+    private final CharacterStudioService characterStudioService;
 
     public ApiV1MyCharactersController(
             H5ClientUidAuthService h5Auth,
@@ -83,7 +85,8 @@ public class ApiV1MyCharactersController {
             H5VisitorTrialGuardService visitorTrialGuardService,
             H5EntitlementService entitlementService,
             H5TavernSessionService tavernSessionService,
-            EmbeddedLorebookSyncService embeddedLorebookSyncService
+            EmbeddedLorebookSyncService embeddedLorebookSyncService,
+            CharacterStudioService characterStudioService
     ) {
         this.h5Auth = h5Auth;
         this.tokenService = tokenService;
@@ -99,6 +102,7 @@ public class ApiV1MyCharactersController {
         this.entitlementService = entitlementService;
         this.tavernSessionService = tavernSessionService;
         this.embeddedLorebookSyncService = embeddedLorebookSyncService;
+        this.characterStudioService = characterStudioService;
     }
 
     @GetMapping("/mine")
@@ -170,6 +174,7 @@ public class ApiV1MyCharactersController {
         row.setSortOrder(0);
         row.setLikeCount(0);
         row.setDislikeCount(0);
+        row.setCardType("SINGLE");
         mineMapper.insertMine(row);
 
         return ApiV1Result.ok(Map.of("id", row.getId()));
@@ -188,6 +193,7 @@ public class ApiV1MyCharactersController {
         return ApiV1Result.ok(toEditor(character));
     }
     @PostMapping("/mine/save")
+    @Transactional
     public ApiV1Result<Map<String, Object>> save(@RequestBody H5MyCharacterSaveRequest req) {
         if (req == null || req.getClientUid() == null || req.getClientUid().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "clientUid missing");
@@ -215,6 +221,7 @@ public class ApiV1MyCharactersController {
             }
             row.setStAvatarUrl(stAdapter.syncCharacterCard(toStDetail(row), row.getStAvatarUrl()));
             mineMapper.insertMine(row);
+            characterStudioService.replaceStudio(userId, row.getId(), req);
             mineMapper.softDeletePublicSyncShadowByStAvatarUrl(row.getStAvatarUrl());
             H5MyCharacter saved = mineMapper.findEditor(row.getId(), userId);
             if (saved == null) {
@@ -232,6 +239,7 @@ public class ApiV1MyCharactersController {
         apply(existed, req);
         existed.setStAvatarUrl(stAdapter.syncCharacterCard(toStDetail(existed), existed.getStAvatarUrl()));
         mineMapper.updateMine(existed);
+        characterStudioService.replaceStudio(userId, existed.getId(), req);
         mineMapper.softDeletePublicSyncShadowByStAvatarUrl(existed.getStAvatarUrl());
         H5MyCharacter saved = mineMapper.findEditor(existed.getId(), userId);
         if (saved == null) {
@@ -261,6 +269,7 @@ public class ApiV1MyCharactersController {
         boolean stDeleted = deleteStCharacterQuietly(stAvatarUrl, id, userId);
         tavernSessionService.purgeUserCharacterConversations(userId, id);
         embeddedLorebookSyncService.deleteAllForCharacter(id);
+        characterStudioService.deleteVoiceBindings(userId, id);
         mineMapper.softDelete(id, userId);
         if (!stAvatarUrl.isBlank() && !stAvatarUrl.startsWith("__deleted_private__/")) {
             mineMapper.softDeletePublicSyncShadowByStAvatarUrl(stAvatarUrl);
@@ -367,6 +376,7 @@ public class ApiV1MyCharactersController {
                 row.setDislikeCount(0);
                 row.setCreatorHandle("me");
                 row.setTokenDisplay("<2000");
+                row.setCardType("SINGLE");
             }
             if (isNew) {
                 row.setOwnerUserId(userId);
@@ -466,6 +476,7 @@ public class ApiV1MyCharactersController {
         data.put("vip_only", Boolean.TRUE.equals(c.getVipOnly()));
         data.put("token_display", c.getTokenDisplay() == null ? "<2000" : c.getTokenDisplay());
         data.put("unlocked", !Boolean.FALSE.equals(c.getUnlockedDefault()));
+        data.put("card_type", c.getCardType() == null ? "SINGLE" : c.getCardType());
         return data;
     }
 
@@ -500,6 +511,7 @@ public class ApiV1MyCharactersController {
         data.put("reviewReason", c.getReviewReason());
         data.put("reviewedAt", c.getReviewedAt());
         data.put("reviewedBy", c.getReviewedBy());
+        data.putAll(characterStudioService.loadStudio(c));
         return data;
     }
 
@@ -560,6 +572,9 @@ public class ApiV1MyCharactersController {
         if (req.getDislikeCount() != null) {
             row.setDislikeCount(req.getDislikeCount());
         }
+        if (req.getCardType() != null) {
+            row.setCardType("ENSEMBLE".equalsIgnoreCase(req.getCardType()) ? "ENSEMBLE" : "SINGLE");
+        }
         applyRequiredDefaults(row);
         row.setUpdatedAt(LocalDateTime.now());
     }
@@ -614,6 +629,9 @@ public class ApiV1MyCharactersController {
         }
         if (row.getDislikeCount() == null) {
             row.setDislikeCount(0);
+        }
+        if (row.getCardType() == null || row.getCardType().isBlank()) {
+            row.setCardType("SINGLE");
         }
     }
 

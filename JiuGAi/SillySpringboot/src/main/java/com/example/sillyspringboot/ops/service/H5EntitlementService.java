@@ -660,6 +660,63 @@ public class H5EntitlementService {
         );
     }
 
+    /**
+     * 官方识图按请求计费，与后续 CHAT 计费相互独立。调用方必须仅在系统模式使用。
+     */
+    @Transactional
+    public AccessTicket guardVision(AppUser user, String requestId) {
+        if (user == null || user.getId() == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "用户登录状态已失效");
+        }
+        AppH5UserProfileExt ext = ensureProfileExt(user);
+        EntitlementPolicy policy = entitlementPolicyService.getPolicy();
+        int scoreCost = Math.max(0, policy.getVisionScoreCost());
+        int goldCost = Math.max(0, policy.getVisionGoldCost());
+        if (scoreCost == 0 && goldCost == 0) {
+            return new AccessTicket(
+                    user.getId(), "", false, 0, QuotaBucket.OFFICIAL_CHAT,
+                    null, "VISION", false, 0, 0, ""
+            );
+        }
+        String bizRef = retryableConsumeBizRef(
+                hashedConsumeBizRef("vision", user.getId(), requestId),
+                WalletLedgerService.BIZ_VISION_CONSUME,
+                WalletLedgerService.BIZ_VISION_REFUND
+        );
+        if (!walletLedgerService.hasLedgerEntry(WalletLedgerService.BIZ_VISION_CONSUME, bizRef)) {
+            assertWalletBalance(ext, scoreCost, goldCost);
+        }
+        return new AccessTicket(
+                user.getId(), "", false, 0, QuotaBucket.OFFICIAL_CHAT,
+                null, "VISION", true, scoreCost, goldCost, bizRef
+        );
+    }
+
+    @Transactional
+    public boolean reserveVisionCharge(AccessTicket ticket) {
+        if (ticket == null || !ticket.usesWallet()) {
+            return false;
+        }
+        return walletLedgerService.consumeDiamonds(
+                ticket.userId(), ticket.scoreCost(), ticket.goldCost(),
+                WalletLedgerService.BIZ_VISION_CONSUME, ticket.consumeBizRef(), "官方识图消费"
+        );
+    }
+
+    @Transactional
+    public void refundVisionCharge(AccessTicket ticket, boolean chargeCreatedByCurrentRequest) {
+        if (!chargeCreatedByCurrentRequest || ticket == null || !ticket.usesWallet()
+                || ticket.consumeBizRef() == null || ticket.consumeBizRef().isBlank()) {
+            return;
+        }
+        walletLedgerService.refundConsume(
+                ticket.userId(), ticket.scoreCost(), ticket.goldCost(),
+                WalletLedgerService.BIZ_VISION_REFUND,
+                "refund:" + ticket.consumeBizRef(),
+                "官方识图失败退回"
+        );
+    }
+
     @Transactional(readOnly = true)
     public void guardImageCharacterAccess(String clientUid, long characterId) {
         if (characterId <= 0) {

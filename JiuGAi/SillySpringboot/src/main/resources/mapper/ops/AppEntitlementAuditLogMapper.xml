@@ -29,6 +29,12 @@
             <if test="targetUserId != null">
                 AND target_user_id = #{targetUserId}
             </if>
+            <if test="groupType == 'OPERATIONS'">
+                AND scope_type IN ('POLICY', 'USER')
+            </if>
+            <if test="groupType == 'CONSUMPTION'">
+                AND scope_type IN ('IMAGE', 'USAGE')
+            </if>
             <if test="keyword != null and keyword != ''">
                 AND (
                     CAST(target_user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%')

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.mapper.AppUserTtsVoiceBindingMapper">
+    <resultMap id="BindingMap" type="com.example.sillyspringboot.ops.entity.AppUserTtsVoiceBinding">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="scope_type" property="scopeType"/>
+        <result column="character_id" property="characterId"/>
+        <result column="member_id" property="memberId"/>
+        <result column="voice_id" property="voiceId"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+    <select id="find" resultMap="BindingMap">
+        SELECT id, user_id, scope_type, character_id, member_id, voice_id, created_at, updated_at
+        FROM app_user_tts_voice_binding
+        WHERE user_id = #{userId} AND scope_type = #{scopeType}
+          AND character_id = #{characterId} AND member_id = #{memberId}
+        LIMIT 1
+    </select>
+    <update id="updateVoice" parameterType="com.example.sillyspringboot.ops.entity.AppUserTtsVoiceBinding">
+        UPDATE app_user_tts_voice_binding
+        SET voice_id = #{voiceId}, updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId} AND scope_type = #{scopeType}
+          AND character_id = #{characterId} AND member_id = #{memberId}
+    </update>
+    <insert id="insert" parameterType="com.example.sillyspringboot.ops.entity.AppUserTtsVoiceBinding">
+        INSERT INTO app_user_tts_voice_binding (user_id, scope_type, character_id, member_id, voice_id)
+        VALUES (#{userId}, #{scopeType}, #{characterId}, #{memberId}, #{voiceId})
+    </insert>
+    <delete id="deleteScope">
+        DELETE FROM app_user_tts_voice_binding
+        WHERE user_id = #{userId} AND scope_type = #{scopeType}
+          AND character_id = #{characterId} AND member_id = #{memberId}
+    </delete>
+    <delete id="deleteByVoiceId">DELETE FROM app_user_tts_voice_binding WHERE voice_id = #{voiceId}</delete>
+    <delete id="deleteMemberScope">
+        DELETE FROM app_user_tts_voice_binding
+        WHERE user_id = #{userId} AND scope_type = 'MEMBER'
+          AND character_id = #{characterId} AND member_id = #{memberId}
+    </delete>
+    <delete id="deleteMemberScopes">
+        DELETE FROM app_user_tts_voice_binding
+        WHERE user_id = #{userId} AND scope_type = 'MEMBER'
+          AND character_id = #{characterId}
+    </delete>
+    <delete id="deleteCharacterScopes">
+        DELETE FROM app_user_tts_voice_binding
+        WHERE user_id = #{userId} AND character_id = #{characterId}
+          AND scope_type IN ('CHARACTER', 'MEMBER')
+    </delete>
+</mapper>

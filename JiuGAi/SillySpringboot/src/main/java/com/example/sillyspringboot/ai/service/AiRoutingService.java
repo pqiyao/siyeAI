@@ -614,6 +614,7 @@ public class AiRoutingService {
         }
         return switch (capability) {
             case CHAT -> settings.chatCanaryPercent() > 0;
+            case VISION -> settings.visionEnabled();
             case IMAGE -> settings.imageEnabled();
             case TTS -> settings.ttsEnabled();
             case STT -> settings.sttEnabled();

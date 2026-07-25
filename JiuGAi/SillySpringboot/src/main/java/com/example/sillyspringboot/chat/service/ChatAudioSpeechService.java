@@ -7,6 +7,7 @@ import com.example.sillyspringboot.ai.service.AiMediaAttemptTelemetry;
 import com.example.sillyspringboot.ai.service.AiRoutingService;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.ops.service.TtsVoiceProvisionService;
+import com.example.sillyspringboot.ops.service.UserTtsVoiceService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import com.example.sillyspringboot.shared.net.BoundedHttpBodyHandlers;
@@ -52,6 +53,10 @@ public class ChatAudioSpeechService {
 
     record SpeechSelection(String modelName, String voiceName, String voiceTemplateCode) {}
 
+    static Long privateVoiceIdForRuntime(boolean customModeActive, Long userVoiceId) {
+        return customModeActive && userVoiceId != null && userVoiceId > 0 ? userVoiceId : null;
+    }
+
     private record SpeechRuntime(
             String providerKey,
             String providerSource,
@@ -68,6 +73,7 @@ public class ChatAudioSpeechService {
 
     private final H5UserAiProviderService userAiProviderService;
     private final TtsVoiceProvisionService ttsVoiceProvisionService;
+    private final UserTtsVoiceService userTtsVoiceService;
     private final AiRoutingService routingService;
     private final ObjectMapper objectMapper;
     private final AiMediaAttemptTelemetry attemptTelemetry;
@@ -78,26 +84,28 @@ public class ChatAudioSpeechService {
             ObjectMapper objectMapper,
             AiRoutingService routingService
     ) {
-        this(userAiProviderService, ttsVoiceProvisionService, objectMapper, routingService, null);
+        this(userAiProviderService, ttsVoiceProvisionService, null, objectMapper, routingService, null);
     }
 
     @Autowired
     public ChatAudioSpeechService(
             H5UserAiProviderService userAiProviderService,
             TtsVoiceProvisionService ttsVoiceProvisionService,
+            UserTtsVoiceService userTtsVoiceService,
             ObjectMapper objectMapper,
             AiRoutingService routingService,
             AiMediaAttemptTelemetry attemptTelemetry
     ) {
         this.userAiProviderService = userAiProviderService;
         this.ttsVoiceProvisionService = ttsVoiceProvisionService;
+        this.userTtsVoiceService = userTtsVoiceService;
         this.routingService = routingService;
         this.objectMapper = objectMapper;
         this.attemptTelemetry = attemptTelemetry;
     }
 
     public AudioSpeechResult synthesizeForUser(long userId, String text) {
-        return synthesizeForUser(userId, text, "", "", "");
+        return synthesizeForUser(userId, text, "", "", "", null);
     }
 
     public AudioSpeechResult synthesizeForUser(
@@ -106,6 +114,19 @@ public class ChatAudioSpeechService {
             String ttsModelNameOverride,
             String ttsVoiceNameOverride,
             String ttsVoiceTemplateCodeOverride
+    ) {
+        return synthesizeForUser(
+                userId, text, ttsModelNameOverride, ttsVoiceNameOverride,
+                ttsVoiceTemplateCodeOverride, null);
+    }
+
+    public AudioSpeechResult synthesizeForUser(
+            long userId,
+            String text,
+            String ttsModelNameOverride,
+            String ttsVoiceNameOverride,
+            String ttsVoiceTemplateCodeOverride,
+            Long ttsUserVoiceId
     ) {
         String safeText = normalizeSpeechText(text);
         if (!StringUtils.hasText(safeText)) {
@@ -127,6 +148,7 @@ public class ChatAudioSpeechService {
                         ttsModelNameOverride,
                         ttsVoiceNameOverride,
                         ttsVoiceTemplateCodeOverride,
+                        ttsUserVoiceId,
                         runtime
                 );
                 recordSuccessQuietly(runtime.deploymentId());
@@ -184,6 +206,7 @@ public class ChatAudioSpeechService {
             String modelOverride,
             String voiceOverride,
             String templateOverride,
+            Long userVoiceId,
             SpeechRuntime runtime
     ) {
         SpeechSelection selection = selectSpeechSettings(
@@ -195,7 +218,20 @@ public class ChatAudioSpeechService {
         if (!StringUtils.hasText(runtime.apiKey())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "当前未配置可用的 API Key");
         }
-        if (StringUtils.hasText(configuredTemplateCode)) {
+        Long effectiveUserVoiceId = privateVoiceIdForRuntime(runtime.customModeActive(), userVoiceId);
+        if (effectiveUserVoiceId != null) {
+            if (userTtsVoiceService == null) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "自建音色服务尚未加载");
+            }
+            UserTtsVoiceService.RuntimeVoice resolvedVoice = userTtsVoiceService.resolveForRuntime(
+                    userId,
+                    effectiveUserVoiceId,
+                    new TtsVoiceProvisionService.TtsRuntimeContext(
+                            runtime.customModeActive(), runtime.providerSource(), runtime.baseUrl(), runtime.apiKey(), runtime.modelName()));
+            configuredVoice = safe(resolvedVoice.voiceUri());
+            modelName = safe(resolvedVoice.modelName());
+            configuredTemplateCode = "";
+        } else if (StringUtils.hasText(configuredTemplateCode)) {
             TtsVoiceProvisionService.ResolvedVoice resolvedVoice = ttsVoiceProvisionService.resolveVoiceForUser(
                     userId,
                     configuredTemplateCode,

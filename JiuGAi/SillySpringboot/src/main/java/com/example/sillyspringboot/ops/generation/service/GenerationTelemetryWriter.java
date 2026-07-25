@@ -5,6 +5,7 @@ import com.example.sillyspringboot.ops.generation.mapper.GenerationAttemptMapper
 import com.example.sillyspringboot.ops.generation.model.GenerationAttemptContext;
 import com.example.sillyspringboot.ops.generation.model.GenerationAttemptEvent;
 import com.example.sillyspringboot.ops.generation.model.GenerationAttemptRow;
+import com.example.sillyspringboot.shared.logging.SensitiveLogSanitizer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +62,8 @@ public class GenerationTelemetryWriter {
     private static GenerationAttemptRow toRow(GenerationAttemptEvent event) {
         GenerationAttemptRow row = new GenerationAttemptRow();
         row.setConversationId(event.conversationId());
+        row.setRequestId(safe(event.clientMessageId(), 128));
+        row.setTraceId(safe(event.traceId(), 64));
         row.setAttemptNo(Math.max(1, event.attemptNo()));
         row.setProviderKey(defaultText(event.providerKey(), "st_default", 80).toLowerCase(Locale.ROOT));
         row.setRouteKey(defaultText(event.routeKey(), "st_default", 80).toLowerCase(Locale.ROOT));
@@ -76,6 +79,7 @@ public class GenerationTelemetryWriter {
         row.setHttpStatus(event.httpStatus());
         row.setStatus(defaultText(event.status(), "FAILED", 24).toUpperCase(Locale.ROOT));
         row.setErrorCode(errorCode(event.errorCode()));
+        row.setErrorMessage(SensitiveLogSanitizer.sanitize(event.errorMessage(), 512));
         row.setPromptTokens(nonNegative(event.promptTokens()));
         row.setCompletionTokens(nonNegative(event.completionTokens()));
         row.setPromptTokensEstimated(row.getPromptTokens() != null && event.promptTokensEstimated());

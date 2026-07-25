@@ -25,21 +25,21 @@ public class AiProviderCatalogService {
 
     private static final List<ProviderDefinition> DEFINITIONS = List.of(
             definition("siliconflow", "硅基流动", "https://api.siliconflow.cn/v1", false,
-                    AiCapability.CHAT, AiCapability.IMAGE, AiCapability.TTS, AiCapability.STT),
+                    AiCapability.CHAT, AiCapability.VISION, AiCapability.IMAGE, AiCapability.TTS, AiCapability.STT),
             definition("openai", "OpenAI", "https://api.openai.com/v1", false,
-                    AiCapability.CHAT, AiCapability.IMAGE, AiCapability.TTS, AiCapability.STT),
+                    AiCapability.CHAT, AiCapability.VISION, AiCapability.IMAGE, AiCapability.TTS, AiCapability.STT),
             definition("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", false,
-                    AiCapability.CHAT, AiCapability.IMAGE),
+                    AiCapability.CHAT, AiCapability.VISION, AiCapability.IMAGE),
             definition("deepseek", "DeepSeek", "https://api.deepseek.com/v1", false, AiCapability.CHAT),
             definition("groq", "Groq", "https://api.groq.com/openai/v1", false,
-                    AiCapability.CHAT, AiCapability.STT),
-            definition("mistralai", "Mistral", "https://api.mistral.ai/v1", false, AiCapability.CHAT),
-            definition("moonshot", "Moonshot", "https://api.moonshot.cn/v1", false, AiCapability.CHAT),
-            definition("xai", "xAI", "https://api.x.ai/v1", false, AiCapability.CHAT, AiCapability.IMAGE),
+                    AiCapability.CHAT, AiCapability.VISION, AiCapability.STT),
+            definition("mistralai", "Mistral", "https://api.mistral.ai/v1", false, AiCapability.CHAT, AiCapability.VISION),
+            definition("moonshot", "Moonshot", "https://api.moonshot.cn/v1", false, AiCapability.CHAT, AiCapability.VISION),
+            definition("xai", "xAI", "https://api.x.ai/v1", false, AiCapability.CHAT, AiCapability.VISION, AiCapability.IMAGE),
             definition("fireworks", "Fireworks", "https://api.fireworks.ai/inference/v1", false,
-                    AiCapability.CHAT, AiCapability.IMAGE),
+                    AiCapability.CHAT, AiCapability.VISION, AiCapability.IMAGE),
             definition("custom", "自定义 OpenAI 兼容", "", true,
-                    AiCapability.CHAT, AiCapability.IMAGE, AiCapability.TTS, AiCapability.STT)
+                    AiCapability.CHAT, AiCapability.VISION, AiCapability.IMAGE, AiCapability.TTS, AiCapability.STT)
     );
 
     public List<Map<String, Object>> publicCatalog() {

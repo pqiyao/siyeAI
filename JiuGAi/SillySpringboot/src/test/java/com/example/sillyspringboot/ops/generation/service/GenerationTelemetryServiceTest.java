@@ -83,6 +83,7 @@ class GenerationTelemetryServiceTest {
         return new GenerationAttemptEvent(
                 11L,
                 "client-message",
+                "trace-11",
                 attemptNo,
                 fallback ? "fallback_provider" : "primary_provider",
                 "default_chat",
@@ -95,6 +96,7 @@ class GenerationTelemetryServiceTest {
                 start.plusNanos(20_000_000L),
                 200,
                 "SUCCESS",
+                null,
                 null,
                 null,
                 false,

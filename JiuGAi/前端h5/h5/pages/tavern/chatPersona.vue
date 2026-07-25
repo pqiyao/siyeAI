@@ -1,140 +1,131 @@
 <template>
 	<view class="page">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
-		<tavern-nav-bar title="聊天设定" mode="dark" @back="goBack" />
+		<tavern-nav-bar title="聊天设定" mode="dark" @back="goBack">
+			<template #right>
+				<text class="nav-save" :class="{ 'nav-save--disabled': saving }" @tap="save">{{ saving ? '保存中' : '保存' }}</text>
+			</template>
+		</tavern-nav-bar>
+
 		<scroll-view class="body-scroll" scroll-y>
 			<view class="body">
-			<!-- <view class="card card--hint">
-				<text class="hint-title">名字现在分三层管理</text>
-				<text class="hint-text">
-					资料：默认聊天称呼会作为你在聊天时的默认名字；当前会话覆盖名只影响这个角色的这一条聊天。
-				</text>
-			</view> -->
-
-			<view class="card">
-				<text class="section-title">资料与聊天身份</text>
-				<view class="field">
-					<text class="lab">资料昵称</text>
-					<input
-						class="inp"
-						v-model="displayName"
-						placeholder="例如：小夏、旅人、店长"
-						placeholder-class="ph"
-					/>
-				</view>
-
-				<view class="field">
-					<text class="lab">默认聊天称呼</text>
-					<input
-						class="inp"
-						v-model="stDisplayName"
-						placeholder="例如：yao、洛奇希、旅行者"
-						placeholder-class="ph"
-					/>
-					<text class="field-tip">这是聊天时默认使用的你的称呼，会影响角色怎么称呼你。</text>
-				</view>
-
-				<view class="field" v-if="cid">
-					<text class="lab">当前会话覆盖名</text>
-					<input
-						class="inp"
-						v-model="stDisplayNameOverride"
-						placeholder="只覆盖当前角色会话，可留空"
-						placeholder-class="ph"
-					/>
-					<text class="field-tip">当前生效名称：{{ effectiveStDisplayName || '未设置' }}</text>
-				</view>
-
-				<view class="field">
-					<text class="lab">我的人设</text>
-					<textarea
-						class="area"
-						v-model="persona"
-						placeholder="可以写你的身份、性格、习惯、与你和角色的关系、说话方式等"
-						placeholder-class="ph"
-						auto-height
-					/>
-				</view>
-				<text class="field-tip">建议写稳定设定，不要写一次性剧情，否则会影响后续多轮对话。</text>
-			</view>
-
-			<view class="card">
-				<text class="section-title">当前角色背景</text>
-				<text class="field-tip" v-if="characterName">当前对话角色：{{ characterName }}</text>
-				<view v-if="backgroundPreview" class="bg-preview-wrap" @tap="previewBackground">
-					<image
-						class="bg-preview"
-						:src="backgroundPreview"
-						mode="aspectFill"
-					/>
-					<view class="bg-preview-action">
-						<text class="bg-preview-action-text">点击查看背景图</text>
+				<view class="identity-summary">
+					<view class="identity-copy">
+						<text class="identity-kicker">当前聊天身份</text>
+						<text class="identity-name">{{ effectiveIdentityName }}</text>
+						<text v-if="characterName" class="identity-context">与 {{ characterName }} 的对话</text>
 					</view>
+					<view class="identity-mark"><u-icon name="account-fill" color="#ffffff" size="34"></u-icon></view>
 				</view>
-				<view v-else class="bg-empty">
-					<text class="bg-empty-text">当前角色未配置官方聊天背景，将使用默认深色背景。</text>
-				</view>
-				<text class="field-tip">
-					聊天背景由后台角色卡统一配置；如果后台配置了官方背景，聊天页会自动使用。
-				</text>
-			</view>
 
-			<view class="card" v-if="conversationId">
-				<view class="section-head">
-					<text class="section-title section-title--inline">聊天预设</text>
-					<text class="preset-badge">官方 ST</text>
-				</view>
-				<picker
-					class="preset-picker"
-					mode="selector"
-					:range="presetPickerOptions"
-					range-key="name"
-					:value="selectedPresetIndex"
-					@change="handlePresetPickerChange"
-				>
-					<view class="preset-current">
-						<view class="preset-current-main">
-							<text class="preset-current-label">当前预设（测试）</text>
-							<text class="preset-current-name">{{ selectedPresetName }}</text>
+				<view class="section">
+					<text class="section-title">聊天身份</text>
+					<view class="field-grid">
+						<view class="field">
+							<text class="lab">资料昵称</text>
+							<input class="inp" v-model="displayName" maxlength="64" placeholder="账号资料显示名称" placeholder-class="ph" />
 						</view>
-						<text class="preset-current-action">{{ presetSaving ? '保存中' : (presetLoading ? '加载中' : '更换') }}</text>
+						<view class="field">
+							<text class="lab">默认聊天称呼</text>
+							<input class="inp" v-model="stDisplayName" maxlength="64" placeholder="角色默认如何称呼你" placeholder-class="ph" />
+						</view>
 					</view>
-				</picker>
-				<view class="preset-summary" v-if="selectedPresetSummary">
-					<text class="preset-summary-text">{{ selectedPresetSummary }}</text>
+					<view class="field field--last" v-if="cid">
+						<view class="field-head"><text class="lab lab--inline">当前会话覆盖名</text><text class="scope-tag">仅本会话</text></view>
+						<view class="inline-input">
+							<input class="inp inline-input-main" v-model="stDisplayNameOverride" maxlength="64" placeholder="留空则使用默认称呼" placeholder-class="ph" />
+							<view v-if="stDisplayNameOverride" class="clear-icon" title="清除覆盖名" @tap="stDisplayNameOverride = ''"><u-icon name="close" color="#637786" size="22"></u-icon></view>
+						</view>
+					</view>
 				</view>
-			</view>
 
-			<view class="actions">
-				<view class="btn btn--ghost" :class="{ dis: saving }" @tap="resetPersona">清空设定</view>
-				<view class="btn" :class="{ dis: saving }" @tap="save">{{ saving ? '保存中...' : '保存' }}</view>
-			</view>
+				<view class="section">
+					<view class="section-head">
+						<text class="section-title section-title--inline">我的人设</text>
+						<text class="counter">{{ persona.length }}/2000</text>
+					</view>
+					<textarea class="area" v-model="persona" maxlength="2000" placeholder="身份、性格、习惯、关系和说话方式" placeholder-class="ph" />
+					<view class="section-actions">
+						<view class="text-action" :class="{ 'text-action--disabled': !persona || saving }" @tap="confirmClearPersona"><u-icon name="trash" color="#8b3f3b" size="22"></u-icon><text>清空人设</text></view>
+					</view>
+				</view>
+
+				<view v-if="conversationId" class="section preset-section">
+					<view class="section-head">
+						<view><text class="section-title section-title--inline">生成预设</text><text class="section-sub">当前：{{ selectedPresetName }}</text></view>
+						<view v-if="presetSaving || presetLoading" class="loading-mark"><u-icon name="reload" color="#3f8f9f" size="23" class="spin"></u-icon></view>
+					</view>
+					<view class="segment">
+						<view class="segment-item" :class="{ 'segment-item--active': presetTab === 'official' }" @tap="presetTab = 'official'">官方预设</view>
+						<view class="segment-item" :class="{ 'segment-item--active': presetTab === 'mine' }" @tap="presetTab = 'mine'">我的预设 <text v-if="myPresets.length">{{ myPresets.length }}</text></view>
+					</view>
+
+					<view v-if="presetTab === 'official'" class="preset-pane">
+						<picker mode="selector" :range="officialPickerOptions" range-key="name" :value="officialPickerIndex" @change="handleOfficialPickerChange">
+							<view class="selector-row">
+								<view class="selector-copy"><text class="selector-label">会话使用</text><text class="selector-value">{{ officialPickerName }}</text></view>
+								<u-icon name="arrow-down" color="#5f7280" size="24"></u-icon>
+							</view>
+						</picker>
+						<text v-if="selectedOfficialSummary" class="preset-summary">{{ selectedOfficialSummary }}</text>
+						<view class="copy-button" :class="{ 'copy-button--disabled': !selectedOfficial || presetSaving }" @tap="copyOfficialPreset">
+							<u-icon name="file-text" color="#236f82" size="24"></u-icon><text>复制到我的预设</text>
+						</view>
+					</view>
+
+					<view v-else class="preset-pane">
+						<view v-if="!myPresets.length" class="preset-empty"><text>暂无我的预设</text></view>
+						<view v-for="item in myPresets" :key="'my_preset_' + item.id" class="preset-row" :class="{ 'preset-row--selected': Number(currentPresetId) === Number(item.id), 'preset-row--disabled': !item.enabled }" @tap="selectMyPreset(item)">
+							<view class="preset-row-main"><text class="preset-row-name">{{ item.name }}</text><text class="preset-row-meta">{{ presetSummaryText(item) }}</text></view>
+							<view class="preset-row-actions">
+								<view class="icon-button" title="编辑预设" @tap.stop="openPresetEditor(item)"><u-icon name="edit-pen" color="#236f82" size="24"></u-icon></view>
+								<view class="icon-button icon-button--danger" title="删除预设" @tap.stop="confirmDeletePreset(item)"><u-icon name="trash" color="#9f2d28" size="24"></u-icon></view>
+							</view>
+						</view>
+					</view>
+				</view>
+
+				<view v-if="backgroundPreview" class="background-strip" @tap="previewBackground">
+					<image class="background-thumb" :src="backgroundPreview" mode="aspectFill" />
+					<view class="background-copy"><text class="background-title">当前聊天背景</text><text class="background-name">{{ characterName || '角色背景' }}</text></view>
+					<u-icon name="arrow-right" color="#637786" size="24"></u-icon>
+				</view>
 			</view>
 		</scroll-view>
+
+		<view v-if="presetEditor.visible" class="editor-mask" @tap="closePresetEditor">
+			<view class="editor-sheet" @tap.stop>
+				<view class="editor-head"><text class="editor-title">编辑我的预设</text><view class="icon-button" @tap="closePresetEditor"><u-icon name="close" color="#637786" size="26"></u-icon></view></view>
+				<text class="lab">名称</text>
+				<input class="inp" v-model="presetEditor.name" maxlength="40" placeholder="预设名称" placeholder-class="ph" />
+				<view class="param-grid">
+					<view class="param-field"><text class="lab">随机度</text><input class="param-input" v-model="presetEditor.temperature" type="digit" /></view>
+					<view class="param-field"><text class="lab">Top P</text><input class="param-input" v-model="presetEditor.topP" type="digit" /></view>
+					<view class="param-field"><text class="lab">回复长度</text><input class="param-input" v-model="presetEditor.maxTokens" type="number" /></view>
+					<view class="param-field"><text class="lab">上下文长度</text><input class="param-input" v-model="presetEditor.maxContext" type="number" /></view>
+				</view>
+				<view class="enable-row"><view><text class="enable-title">启用预设</text><text class="enable-sub">关闭后绑定此预设的会话恢复系统默认</text></view><switch :checked="presetEditor.enabled" color="#3f8f9f" @change="presetEditor.enabled = $event.detail.value" /></view>
+				<text v-if="presetEditor.error" class="editor-error">{{ presetEditor.error }}</text>
+				<view class="editor-actions"><view class="editor-button editor-button--ghost" @tap="closePresetEditor">取消</view><view class="editor-button" :class="{ 'editor-button--disabled': presetEditor.saving }" @tap="savePresetEditor">{{ presetEditor.saving ? '保存中' : '保存' }}</view></view>
+			</view>
+		</view>
 	</view>
 </template>
 
 <script>
 	import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 
+	function emptyPresetEditor() {
+		return { visible: false, id: null, name: '', temperature: '1', topP: '1', maxTokens: '512', maxContext: '8192', enabled: true, saving: false, error: '' };
+	}
+
 	export default {
 		components: { TavernNavBar },
 		data() {
 			return {
-				cid: '',
-				conversationId: null,
-				displayName: '',
-				stDisplayName: '',
-				stDisplayNameOverride: '',
-				effectiveStDisplayName: '',
-				persona: '',
-				saving: false,
-				characterName: '',
-				backgroundPreview: '',
-				presetLoading: false,
-				presetSaving: false,
-				currentPresetId: null,
-				platformPresets: []
+				cid: '', conversationId: null, displayName: '', stDisplayName: '', stDisplayNameOverride: '', effectiveStDisplayName: '', persona: '', saving: false,
+				characterName: '', backgroundPreview: '', presetLoading: false, presetSaving: false, currentPresetId: null, platformPresets: [], myPresets: [],
+				presetTab: 'official', officialDraftId: null, presetEditor: emptyPresetEditor()
 			};
 		},
 		onLoad(query) {
@@ -142,472 +133,196 @@
 			this.loadProfile();
 			this.loadCharacterPreview();
 		},
-		methods: {
-			goBack() {
-				uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/tavern/tavern' }) });
+		computed: {
+			effectiveIdentityName() { return (this.stDisplayNameOverride || this.stDisplayName || this.displayName || '未设置称呼').trim(); },
+			allPresets() { return (this.platformPresets || []).concat(this.myPresets || []); },
+			selectedPreset() { return this.allPresets.find((item) => Number(item.id) === Number(this.currentPresetId)) || null; },
+			selectedPresetName() { return this.selectedPreset ? this.selectedPreset.name : '系统默认'; },
+			officialPickerOptions() { return [{ id: null, name: '系统默认' }].concat(this.platformPresets || []); },
+			officialPickerIndex() {
+				const id = Number(this.officialDraftId || 0);
+				const index = this.officialPickerOptions.findIndex((item) => Number(item.id || 0) === id);
+				return index < 0 ? 0 : index;
 			},
+			officialPickerName() { return this.officialPickerOptions[this.officialPickerIndex].name; },
+			selectedOfficial() { return (this.platformPresets || []).find((item) => Number(item.id) === Number(this.officialDraftId)) || null; },
+			selectedOfficialSummary() { return this.selectedOfficial ? this.presetSummaryText(this.selectedOfficial) : '使用系统当前默认生成参数'; }
+		},
+		methods: {
+			goBack() { uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/tavern/tavern' }) }); },
 			loadProfile() {
-				const tavernApi = require('@/common/tavernApi.js');
-				if (!tavernApi.jgEnabled()) {
-					uni.showToast({ title: '请先配置酒馆后端', icon: 'none' });
-					return;
-				}
-				const tavernErrors = require('@/common/tavernErrors.js');
-				tavernApi
-					.getTavernProfile(tavernApi.getClientUid(), this.cid || undefined)
-					.then((data) => {
-						if (!data) return;
-						this.displayName = data.display_name || '';
-						this.stDisplayName = data.st_display_name || '';
-						this.stDisplayNameOverride = data.st_display_name_override || '';
-						this.effectiveStDisplayName = data.effective_st_display_name || '';
-						this.persona = data.persona || '';
-						this.conversationId = data.conversation_id || null;
-						this.loadChatPresets();
-					})
-					.catch((error) => {
-						uni.showToast({
-							title: tavernErrors.getTavernErrorMessage(error, '加载聊天设定失败'),
-							icon: 'none',
-							duration: 2800
-						});
-					});
+				const api = require('@/common/tavernApi.js');
+				if (!api.jgEnabled()) return uni.showToast({ title: '请先配置酒馆后端', icon: 'none' });
+				api.getTavernProfile(api.getClientUid(), this.cid || undefined).then((data) => {
+					if (!data) return;
+					this.displayName = data.display_name || ''; this.stDisplayName = data.st_display_name || ''; this.stDisplayNameOverride = data.st_display_name_override || '';
+					this.effectiveStDisplayName = data.effective_st_display_name || ''; this.persona = data.persona || ''; this.conversationId = data.conversation_id || null;
+					this.loadChatPresets();
+				}).catch((error) => this.showError(error, '加载聊天设定失败'));
 			},
 			loadCharacterPreview() {
 				if (!this.cid) return;
-				const tavernApi = require('@/common/tavernApi.js');
-				if (!tavernApi.jgEnabled()) return;
-				tavernApi
-					.fetchCharacter(this.cid)
-					.then((card) => {
-						if (!card) return;
-						this.characterName = card.nickname || card.name || '';
-						const raw = card.chat_background_url || card.chatBackgroundUrl || '';
-						this.backgroundPreview = raw ? tavernApi.resolveJgAssetUrl(raw) : '';
-					})
-					.catch(() => {});
+				const api = require('@/common/tavernApi.js');
+				api.fetchCharacter(this.cid).then((card) => {
+					if (!card) return; this.characterName = card.nickname || card.name || '';
+					const raw = card.chat_background_url || card.chatBackgroundUrl || ''; this.backgroundPreview = raw ? api.resolveJgAssetUrl(raw) : '';
+				}).catch(() => {});
 			},
-			previewBackground() {
-				if (!this.backgroundPreview) return;
-				uni.previewImage({
-					current: this.backgroundPreview,
-					urls: [this.backgroundPreview]
-				});
-			},
+			previewBackground() { if (this.backgroundPreview) uni.previewImage({ current: this.backgroundPreview, urls: [this.backgroundPreview] }); },
 			loadChatPresets() {
-				if (!this.conversationId || this.presetLoading) return;
-				const tavernApi = require('@/common/tavernApi.js');
-				if (!tavernApi.jgEnabled()) return;
-				this.presetLoading = true;
-				tavernApi
-					.fetchTavernChatPresets(tavernApi.getClientUid(), this.conversationId)
-					.then((data) => {
-						this.currentPresetId = data && data.currentPresetId ? Number(data.currentPresetId) : null;
-						this.platformPresets = data && Array.isArray(data.platformPresets) ? data.platformPresets : [];
-					})
-					.catch((error) => {
-						const tavernErrors = require('@/common/tavernErrors.js');
-						uni.showToast({
-							title: tavernErrors.getTavernErrorMessage(error, '加载聊天预设失败'),
-							icon: 'none'
-						});
-					})
-					.finally(() => {
-						this.presetLoading = false;
-					});
+				if (!this.conversationId || this.presetLoading) return Promise.resolve(false);
+				const api = require('@/common/tavernApi.js'); this.presetLoading = true;
+				return api.fetchTavernChatPresets(api.getClientUid(), this.conversationId).then((data) => {
+					this.currentPresetId = data && data.currentPresetId ? Number(data.currentPresetId) : null;
+					this.platformPresets = data && Array.isArray(data.platformPresets) ? data.platformPresets : [];
+					this.myPresets = data && Array.isArray(data.myPresets) ? data.myPresets : [];
+					const currentOfficial = this.platformPresets.find((item) => Number(item.id) === Number(this.currentPresetId));
+					if (currentOfficial || this.officialDraftId == null) this.officialDraftId = currentOfficial ? Number(currentOfficial.id) : null;
+					return true;
+				}).catch((error) => { this.showError(error, '加载聊天预设失败'); return false; }).finally(() => { this.presetLoading = false; });
 			},
-			handlePresetPickerChange(event) {
-				if (this.presetSaving) return;
-				const index = Number(event && event.detail ? event.detail.value : 0);
-				const item = this.presetPickerOptions[index];
-				if (!item) return;
-				const nextId = item.id == null ? null : Number(item.id);
-				if ((this.currentPresetId || null) === (nextId || null)) return;
-				this.saveConversationPreset(nextId);
+			handleOfficialPickerChange(event) {
+				const option = this.officialPickerOptions[Number(event && event.detail && event.detail.value) || 0]; if (!option) return;
+				this.officialDraftId = option.id == null ? null : Number(option.id); this.saveConversationPreset(this.officialDraftId);
 			},
 			saveConversationPreset(presetId) {
-				if (!this.conversationId || this.presetSaving) return;
-				const tavernApi = require('@/common/tavernApi.js');
-				if (!tavernApi.jgEnabled()) return;
-				this.presetSaving = true;
-				tavernApi
-					.putTavernConversationPreset(tavernApi.getClientUid(), this.conversationId, presetId)
-					.then(() => {
-						this.currentPresetId = presetId || null;
-						uni.showToast({ title: '聊天预设已切换', icon: 'none' });
-					})
-					.catch((error) => {
-						const tavernErrors = require('@/common/tavernErrors.js');
-						uni.showToast({
-							title: tavernErrors.getTavernErrorMessage(error, '切换聊天预设失败'),
-							icon: 'none'
-						});
-					})
-					.finally(() => {
-						this.presetSaving = false;
-					});
+				if (!this.conversationId || this.presetSaving) return Promise.resolve(false);
+				const api = require('@/common/tavernApi.js'); this.presetSaving = true;
+				return api.putTavernConversationPreset(api.getClientUid(), this.conversationId, presetId).then(() => {
+					this.currentPresetId = presetId || null; uni.showToast({ title: '聊天预设已切换', icon: 'none' }); return true;
+				}).catch((error) => { this.showError(error, '切换聊天预设失败'); return false; }).finally(() => { this.presetSaving = false; });
 			},
-			resetPersona() {
-				if (this.saving) return;
-				this.displayName = '';
-				this.stDisplayName = '';
-				this.stDisplayNameOverride = '';
-				this.effectiveStDisplayName = '';
-				this.persona = '';
+			copyOfficialPreset() {
+				if (!this.selectedOfficial || this.presetSaving) return;
+				const api = require('@/common/tavernApi.js'); this.presetSaving = true;
+				api.postTavernChatPresetCopy(api.getClientUid(), this.selectedOfficial.id, this.selectedOfficial.name + ' 副本').then((row) => {
+					return this.loadChatPresets().then(() => { this.presetTab = 'mine'; const item = this.myPresets.find((entry) => Number(entry.id) === Number(row && row.id)); if (item) this.openPresetEditor(item); });
+				}).catch((error) => this.showError(error, '复制预设失败')).finally(() => { this.presetSaving = false; });
 			},
+			selectMyPreset(item) { if (!item || !item.enabled || this.presetSaving) return; this.saveConversationPreset(Number(item.id)); },
+			presetSummaryText(item) {
+				const s = item && item.summary || {}; const parts = [];
+				if (s.temperature !== '' && s.temperature != null) parts.push('随机度 ' + s.temperature);
+				if (s.topP !== '' && s.topP != null) parts.push('Top P ' + s.topP);
+				if (s.maxTokens) parts.push('回复 ' + s.maxTokens);
+				if (s.maxContext) parts.push('上下文 ' + s.maxContext);
+				return parts.join(' · ') || '使用系统默认参数';
+			},
+			openPresetEditor(item) {
+				const s = item && item.summary || {};
+				this.presetEditor = { visible: true, id: Number(item.id), name: item.name || '', temperature: String(s.temperature || 1), topP: String(s.topP || 1), maxTokens: String(s.maxTokens || 512), maxContext: String(s.maxContext || 8192), enabled: item.enabled !== false, saving: false, error: '' };
+			},
+			closePresetEditor() { if (!this.presetEditor.saving) this.presetEditor = emptyPresetEditor(); },
+			savePresetEditor() {
+				const e = this.presetEditor; if (!e.visible || e.saving) return;
+				const payload = { name: String(e.name || '').trim(), temperature: Number(e.temperature), topP: Number(e.topP), maxTokens: Number(e.maxTokens), maxContext: Number(e.maxContext), enabled: e.enabled === true };
+				if (!payload.name) return this.$set(this.presetEditor, 'error', '请输入预设名称');
+				if (!isFinite(payload.temperature) || payload.temperature < 0 || payload.temperature > 2) return this.$set(this.presetEditor, 'error', '随机度范围为 0–2');
+				if (!isFinite(payload.topP) || payload.topP < 0.01 || payload.topP > 1) return this.$set(this.presetEditor, 'error', 'Top P 范围为 0.01–1');
+				if (!Number.isInteger(payload.maxTokens) || payload.maxTokens < 64 || payload.maxTokens > 8192) return this.$set(this.presetEditor, 'error', '回复长度范围为 64–8192');
+				if (!Number.isInteger(payload.maxContext) || payload.maxContext < 2048 || payload.maxContext > 131072 || payload.maxContext < payload.maxTokens + 512) return this.$set(this.presetEditor, 'error', '上下文长度无效');
+				const api = require('@/common/tavernApi.js'); this.$set(this.presetEditor, 'saving', true); this.$set(this.presetEditor, 'error', '');
+				api.putTavernPrivateChatPreset(api.getClientUid(), e.id, payload).then(() => this.loadChatPresets()).then(() => { this.presetEditor = emptyPresetEditor(); uni.showToast({ title: '预设已保存', icon: 'none' }); }).catch((error) => this.$set(this.presetEditor, 'error', this.errorText(error, '保存预设失败'))).finally(() => { if (this.presetEditor.visible) this.$set(this.presetEditor, 'saving', false); });
+			},
+			confirmDeletePreset(item) {
+				uni.showModal({ title: '删除我的预设？', content: '使用此预设的会话将恢复系统默认。', confirmText: '删除', confirmColor: '#9f2d28', success: (result) => { if (result.confirm) this.deletePreset(item); } });
+			},
+			deletePreset(item) {
+				const api = require('@/common/tavernApi.js'); this.presetSaving = true;
+				api.deleteTavernPrivateChatPreset(api.getClientUid(), item.id).then(() => this.loadChatPresets()).then(() => uni.showToast({ title: '预设已删除', icon: 'none' })).catch((error) => this.showError(error, '删除预设失败')).finally(() => { this.presetSaving = false; });
+			},
+			confirmClearPersona() { if (!this.persona || this.saving) return; uni.showModal({ title: '清空我的人设？', content: '保存后，所有会话将不再使用这段人设。', success: (result) => { if (result.confirm) this.persona = ''; } }); },
 			save() {
-				const tavernApi = require('@/common/tavernApi.js');
-				if (!tavernApi.jgEnabled() || this.saving) return;
-				this.saving = true;
-				const payload = {
-					display_name: (this.displayName || '').trim(),
-					st_display_name: (this.stDisplayName || '').trim(),
-					persona: (this.persona || '').trim()
-				};
-				if (this.cid) {
-					payload.st_display_name_override = (this.stDisplayNameOverride || '').trim();
-				}
-				tavernApi
-					.putTavernProfile(tavernApi.getClientUid(), payload, this.cid || undefined)
-					.then(() => {
-						this.effectiveStDisplayName =
-							(this.stDisplayNameOverride || '').trim() ||
-							(this.stDisplayName || '').trim() ||
-							(this.displayName || '').trim();
-						uni.showToast({ title: '聊天设定已保存', icon: 'none' });
-					})
-					.catch((error) => {
-						const tavernErrors = require('@/common/tavernErrors.js');
-						uni.showToast({
-							title: tavernErrors.getTavernErrorMessage(error, '保存聊天设定失败'),
-							icon: 'none'
-						});
-					})
-					.finally(() => {
-						this.saving = false;
-					});
-			}
-		},
-		computed: {
-			selectedPreset() {
-				const id = Number(this.currentPresetId || 0);
-				if (!id) return null;
-				return (this.platformPresets || []).find((item) => Number(item.id) === id) || null;
+				const api = require('@/common/tavernApi.js'); if (!api.jgEnabled() || this.saving) return; this.saving = true;
+				const payload = { display_name: (this.displayName || '').trim(), st_display_name: (this.stDisplayName || '').trim(), persona: (this.persona || '').trim() };
+				if (this.cid) payload.st_display_name_override = (this.stDisplayNameOverride || '').trim();
+				api.putTavernProfile(api.getClientUid(), payload, this.cid || undefined).then(() => { this.effectiveStDisplayName = this.effectiveIdentityName; uni.showToast({ title: '聊天设定已保存', icon: 'none' }); }).catch((error) => this.showError(error, '保存聊天设定失败')).finally(() => { this.saving = false; });
 			},
-			selectedPresetName() {
-				return this.selectedPreset ? this.selectedPreset.name : '系统默认';
-			},
-			presetPickerOptions() {
-				return [{ id: null, name: '系统默认' }].concat(this.platformPresets || []);
-			},
-			selectedPresetIndex() {
-				const id = Number(this.currentPresetId || 0);
-				if (!id) return 0;
-				const index = this.presetPickerOptions.findIndex((item) => Number(item.id || 0) === id);
-				return index > 0 ? index : 0;
-			},
-			selectedPresetSummary() {
-				const preset = this.selectedPreset;
-				if (!preset || !preset.summary) {
-					return this.currentPresetId ? '' : '使用后台当前 ST 默认生成参数。';
-				}
-				const summary = preset.summary || {};
-				const parts = [];
-				if (summary.source) parts.push('source ' + summary.source);
-				if (summary.model) parts.push('model ' + summary.model);
-				if (summary.temperature) parts.push('temp ' + summary.temperature);
-				if (summary.topP) parts.push('top_p ' + summary.topP);
-				if (summary.maxTokens) parts.push('tokens ' + summary.maxTokens);
-				return parts.join(' / ');
-			}
+			errorText(error, fallback) { return require('@/common/tavernErrors.js').getTavernErrorMessage(error, fallback); },
+			showError(error, fallback) { uni.showToast({ title: this.errorText(error, fallback), icon: 'none', duration: 2800 }); }
 		}
 	};
 </script>
 
 <style scoped lang="scss">
-	.page {
-		height: 100vh;
-		min-height: 100vh;
-		background: transparent;
-		display: flex;
-		flex-direction: column;
-		position: relative;
-		overflow: hidden;
-		color: #203846;
-	}
-
-	.body-scroll {
-		position: relative;
-		z-index: 1;
-		flex: 1;
-		min-height: 0;
-	}
-
-	.page::before,
-	.page::after {
-		display: none;
-	}
-
-	.body {
-		position: relative;
-		box-sizing: border-box;
-		padding: 22rpx 24rpx calc(40rpx + env(safe-area-inset-bottom));
-		display: flex;
-		flex-direction: column;
-		gap: 20rpx;
-	}
-
-	.card {
-		padding: 28rpx 26rpx;
-		border-radius: 24rpx;
-		background: rgba(255, 255, 255, 0.78);
-		border: 1rpx solid rgba(255, 255, 255, 0.66);
-		box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.1);
-		backdrop-filter: blur(18rpx);
-		-webkit-backdrop-filter: blur(18rpx);
-	}
-
-	.card--hint {
-		padding: 26rpx;
-		background: rgba(255, 255, 255, 0.82);
-		border-left: 6rpx solid rgba(63, 143, 159, 0.72);
-	}
-
-	.hint-title,
-	.section-title,
-	.lab,
-	.field-tip,
-	.bg-empty-text,
-	.preset-current-label,
-	.preset-current-name,
-	.preset-current-action,
-	.preset-summary-text,
-	.preset-badge {
-		display: block;
-	}
-
-	.hint-title,
-	.section-title {
-		margin-bottom: 12rpx;
-		font-size: 30rpx;
-		font-weight: 800;
-		color: #203846;
-	}
-
-	.section-head {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 16rpx;
-		margin-bottom: 12rpx;
-	}
-
-	.section-title--inline {
-		margin-bottom: 0;
-	}
-
-	.preset-badge {
-		flex: 0 0 auto;
-		padding: 8rpx 14rpx;
-		border-radius: 999rpx;
-		background: rgba(63, 143, 159, 0.12);
-		color: #236f82;
-		font-size: 21rpx;
-		font-weight: 800;
-		line-height: 1;
-	}
-
-	.hint-text,
-	.field-tip,
-	.bg-empty-text {
-		font-size: 24rpx;
-		color: #5f7280;
-		line-height: 1.68;
-	}
-
-	.field {
-		margin-bottom: 22rpx;
-	}
-
-	.field:last-child {
-		margin-bottom: 0;
-	}
-
-	.lab {
-		margin-bottom: 10rpx;
-		font-size: 26rpx;
-		font-weight: 700;
-		color: #236f82;
-	}
-
-	.inp,
-	.area {
-		width: 100%;
-		box-sizing: border-box;
-		background: rgba(255, 255, 255, 0.72);
-		border: 1rpx solid rgba(79, 147, 163, 0.16);
-		border-radius: 18rpx;
-		color: #203846;
-		font-size: 28rpx;
-	}
-
-	.inp {
-		height: 82rpx;
-		padding: 0 24rpx;
-	}
-
-	.area {
-		min-height: 236rpx;
-		padding: 20rpx 24rpx;
-		line-height: 1.64;
-	}
-
-	.inp:focus,
-	.area:focus {
-		border-color: rgba(79, 147, 163, 0.74);
-		box-shadow: 0 0 0 2rpx rgba(79, 147, 163, 0.12);
-	}
-
-	.preset-current {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 18rpx;
-		margin-top: 18rpx;
-		padding: 20rpx 22rpx;
-		border-radius: 18rpx;
-		background: rgba(255, 255, 255, 0.7);
-		border: 1rpx solid rgba(79, 147, 163, 0.16);
-	}
-
-	.preset-current-main {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.preset-current-label {
-		margin-bottom: 6rpx;
-		font-size: 22rpx;
-		color: #6b7f8b;
-		line-height: 1.2;
-	}
-
-	.preset-current-name {
-		font-size: 28rpx;
-		font-weight: 800;
-		color: #203846;
-		line-height: 1.32;
-		word-break: break-all;
-	}
-
-	.preset-current-action {
-		flex: 0 0 auto;
-		padding: 12rpx 18rpx;
-		border-radius: 999rpx;
-		background: #3f8f9f;
-		color: #fff;
-		font-size: 23rpx;
-		font-weight: 800;
-		line-height: 1;
-	}
-
-	.preset-summary {
-		margin-top: 12rpx;
-		padding: 16rpx 18rpx;
-		border-radius: 16rpx;
-		background: rgba(35, 111, 130, 0.08);
-	}
-
-	.preset-summary-text {
-		font-size: 22rpx;
-		line-height: 1.55;
-		color: #4f6875;
-		word-break: break-word;
-	}
-
-	.bg-preview-wrap {
-		position: relative;
-		width: 100%;
-		height: 248rpx;
-		margin: 14rpx 0;
-		border-radius: 20rpx;
-		border: 1rpx solid rgba(255, 255, 255, 0.72);
-		box-shadow: 0 12rpx 28rpx rgba(36, 70, 88, 0.1);
-		overflow: hidden;
-		background: rgba(255, 255, 255, 0.46);
-	}
-
-	.bg-preview {
-		display: block;
-		width: 100%;
-		height: 100%;
-	}
-
-	.bg-preview-action {
-		position: absolute;
-		right: 18rpx;
-		bottom: 18rpx;
-		z-index: 2;
-		padding: 10rpx 18rpx;
-		border-radius: 999rpx;
-		background: rgba(18, 35, 45, 0.62);
-		border: 1rpx solid rgba(255, 255, 255, 0.24);
-		box-shadow: 0 8rpx 18rpx rgba(18, 35, 45, 0.16);
-	}
-
-	.bg-preview-action-text {
-		color: #fff;
-		font-size: 22rpx;
-		font-weight: 700;
-		line-height: 1.2;
-	}
-
-	.bg-empty {
-		margin: 14rpx 0;
-		padding: 28rpx 24rpx;
-		border-radius: 20rpx;
-		background: rgba(255, 255, 255, 0.62);
-		border: 1rpx dashed rgba(79, 147, 163, 0.3);
-	}
-
-	.actions {
-		display: flex;
-		gap: 16rpx;
-		padding: 10rpx;
-		border-radius: 999rpx;
-		background: rgba(255, 255, 255, 0.76);
-		border: 1rpx solid rgba(255, 255, 255, 0.66);
-		box-shadow: 0 14rpx 32rpx rgba(36, 70, 88, 0.1);
-	}
-
-	.btn {
-		flex: 1;
-		height: 78rpx;
-		line-height: 78rpx;
-		text-align: center;
-		border-radius: 999rpx;
-		background: #3f8f9f;
-		color: #fff;
-		font-size: 29rpx;
-		font-weight: 700;
-		box-shadow: 0 12rpx 26rpx rgba(48, 103, 117, 0.2);
-	}
-
-	.btn--ghost {
-		background: rgba(255, 255, 255, 0.72);
-		color: #236f82;
-		border: 1rpx solid rgba(79, 147, 163, 0.12);
-		box-shadow: none;
-	}
-
-	.btn.dis {
-		opacity: 0.5;
-		pointer-events: none;
-	}
+	.page { position: relative; height: 100vh; display: flex; flex-direction: column; overflow: hidden; color: #203846; }
+	.body-scroll { position: relative; z-index: 1; flex: 1; min-height: 0; }
+	.body { width: 100%; max-width: 920rpx; margin: 0 auto; padding: 20rpx 24rpx calc(48rpx + env(safe-area-inset-bottom)); box-sizing: border-box; }
+	.nav-save { min-width: 92rpx; padding: 18rpx 8rpx; text-align: right; color: #236f82; font-size: 25rpx; font-weight: 750; }
+	.nav-save--disabled { opacity: .5; pointer-events: none; }
+	.identity-summary { min-height: 150rpx; padding: 26rpx 28rpx; display: flex; align-items: center; justify-content: space-between; gap: 20rpx; background: rgba(24, 61, 76, .9); border: 1rpx solid rgba(255,255,255,.18); border-radius: 8rpx; box-sizing: border-box; box-shadow: 0 14rpx 30rpx rgba(26,61,76,.14); }
+	.identity-copy { min-width: 0; display: flex; flex-direction: column; gap: 5rpx; }
+	.identity-kicker, .identity-name, .identity-context, .section-title, .section-sub, .lab, .counter, .selector-label, .selector-value, .preset-summary, .preset-row-name, .preset-row-meta, .background-title, .background-name, .enable-title, .enable-sub, .editor-error { display: block; }
+	.identity-kicker { color: rgba(255,255,255,.64); font-size: 21rpx; }
+	.identity-name { color: #fff; font-size: 34rpx; line-height: 1.3; font-weight: 800; word-break: break-word; }
+	.identity-context { color: rgba(255,255,255,.75); font-size: 22rpx; }
+	.identity-mark { width: 64rpx; height: 64rpx; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #4f93a3; }
+	.section { margin-top: 18rpx; padding: 26rpx; background: rgba(255,255,255,.82); border: 1rpx solid rgba(255,255,255,.72); border-radius: 8rpx; box-shadow: 0 10rpx 24rpx rgba(36,70,88,.07); backdrop-filter: blur(16rpx); }
+	.section-head, .field-head, .section-actions, .editor-head, .enable-row, .editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
+	.section-title { margin-bottom: 20rpx; font-size: 29rpx; font-weight: 800; color: #203846; }
+	.section-title--inline { margin-bottom: 0; }
+	.section-sub { margin-top: 4rpx; font-size: 21rpx; color: #667d89; }
+	.field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18rpx; }
+	.field { min-width: 0; margin-bottom: 20rpx; }
+	.field--last { margin: 2rpx 0 0; padding-top: 20rpx; border-top: 1rpx solid rgba(113,145,159,.16); }
+	.lab { margin-bottom: 9rpx; font-size: 23rpx; font-weight: 700; color: #356b7c; }
+	.lab--inline { margin-bottom: 0; }
+	.scope-tag { padding: 5rpx 9rpx; font-size: 19rpx; color: #5d7380; background: #edf3f5; border-radius: 5rpx; }
+	.inp, .area, .param-input { width: 100%; border: 1rpx solid rgba(79,147,163,.24); border-radius: 7rpx; background: rgba(255,255,255,.84); color: #203846; box-sizing: border-box; }
+	.inp { height: 74rpx; padding: 0 18rpx; font-size: 25rpx; }
+	.area { height: 260rpx; padding: 18rpx; font-size: 25rpx; line-height: 1.6; }
+	.inline-input { position: relative; }
+	.inline-input-main { padding-right: 64rpx; }
+	.clear-icon { position: absolute; right: 8rpx; top: 8rpx; width: 56rpx; height: 56rpx; display: flex; align-items: center; justify-content: center; }
+	.counter { font-size: 21rpx; color: #6d818c; }
+	.section-actions { justify-content: flex-end; margin-top: 12rpx; }
+	.text-action { display: flex; align-items: center; gap: 7rpx; padding: 10rpx 0; color: #8b3f3b; font-size: 22rpx; }
+	.text-action--disabled, .copy-button--disabled, .editor-button--disabled { opacity: .42; pointer-events: none; }
+	.segment { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 20rpx; padding: 4rpx; border-radius: 7rpx; background: #e8eff2; }
+	.segment-item { height: 58rpx; display: flex; align-items: center; justify-content: center; gap: 6rpx; border-radius: 5rpx; color: #607581; font-size: 23rpx; font-weight: 700; }
+	.segment-item--active { color: #1f5669; background: #fff; box-shadow: 0 3rpx 10rpx rgba(35,79,94,.1); }
+	.preset-pane { margin-top: 18rpx; }
+	.selector-row { height: 76rpx; padding: 0 18rpx; display: flex; align-items: center; justify-content: space-between; gap: 16rpx; border: 1rpx solid rgba(79,147,163,.22); border-radius: 7rpx; background: rgba(255,255,255,.86); box-sizing: border-box; }
+	.selector-copy { min-width: 0; }
+	.selector-label { color: #6b7f8b; font-size: 19rpx; }
+	.selector-value { margin-top: 2rpx; color: #203846; font-size: 25rpx; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.preset-summary { margin-top: 12rpx; font-size: 21rpx; line-height: 1.5; color: #5a707c; }
+	.copy-button { height: 66rpx; margin-top: 16rpx; display: flex; align-items: center; justify-content: center; gap: 8rpx; border: 1rpx solid rgba(79,147,163,.26); border-radius: 7rpx; color: #236f82; background: #edf8fa; font-size: 23rpx; font-weight: 700; }
+	.preset-empty { padding: 44rpx 20rpx; text-align: center; color: #718590; font-size: 23rpx; }
+	.preset-row { min-height: 82rpx; padding: 14rpx 10rpx 14rpx 16rpx; display: flex; align-items: center; gap: 12rpx; border-bottom: 1rpx solid rgba(113,145,159,.17); box-sizing: border-box; }
+	.preset-row--selected { background: rgba(224,246,249,.7); border-left: 4rpx solid #4f93a3; }
+	.preset-row--disabled { opacity: .56; }
+	.preset-row-main { min-width: 0; flex: 1; }
+	.preset-row-name { color: #203846; font-size: 24rpx; font-weight: 750; }
+	.preset-row-meta { margin-top: 5rpx; color: #667d89; font-size: 20rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.preset-row-actions { flex: 0 0 auto; display: flex; gap: 4rpx; }
+	.icon-button { width: 54rpx; height: 54rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #edf5f7; }
+	.icon-button--danger { background: #fdf0ef; }
+	.loading-mark { width: 42rpx; height: 42rpx; display: flex; align-items: center; justify-content: center; }
+	.spin { animation: spin .9s linear infinite; }
+	@keyframes spin { to { transform: rotate(360deg); } }
+	.background-strip { min-height: 88rpx; margin-top: 18rpx; padding: 12rpx 16rpx 12rpx 12rpx; display: flex; align-items: center; gap: 14rpx; background: rgba(255,255,255,.72); border: 1rpx solid rgba(255,255,255,.8); border-radius: 8rpx; box-sizing: border-box; }
+	.background-thumb { width: 74rpx; height: 60rpx; flex: 0 0 auto; border-radius: 6rpx; }
+	.background-copy { min-width: 0; flex: 1; }
+	.background-title { color: #203846; font-size: 23rpx; font-weight: 700; }
+	.background-name { margin-top: 3rpx; color: #667d89; font-size: 20rpx; }
+	.editor-mask { position: fixed; inset: 0; z-index: 2400; display: flex; align-items: flex-end; justify-content: center; padding: 20rpx 18rpx calc(18rpx + env(safe-area-inset-bottom)); background: rgba(13,26,34,.42); box-sizing: border-box; }
+	.editor-sheet { width: 100%; max-width: 760rpx; padding: 26rpx; border-radius: 10rpx; background: #fff; box-sizing: border-box; box-shadow: 0 20rpx 52rpx rgba(15,23,42,.2); }
+	.editor-head { margin-bottom: 22rpx; }
+	.editor-title { font-size: 29rpx; font-weight: 800; color: #203846; }
+	.param-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16rpx; margin-top: 18rpx; }
+	.param-field { min-width: 0; }
+	.param-input { height: 68rpx; padding: 0 16rpx; font-size: 24rpx; }
+	.enable-row { margin-top: 22rpx; padding: 18rpx 0; border-top: 1rpx solid #e2e8f0; border-bottom: 1rpx solid #e2e8f0; }
+	.enable-title { color: #203846; font-size: 24rpx; font-weight: 700; }
+	.enable-sub { margin-top: 4rpx; color: #6b7f8b; font-size: 19rpx; }
+	.editor-error { margin-top: 14rpx; color: #a8322d; font-size: 22rpx; }
+	.editor-actions { justify-content: flex-end; margin-top: 24rpx; }
+	.editor-button { min-width: 126rpx; height: 66rpx; display: flex; align-items: center; justify-content: center; border-radius: 7rpx; background: #3f8f9f; color: #fff; font-size: 24rpx; font-weight: 750; }
+	.editor-button--ghost { color: #4d6572; background: #edf2f4; }
+	@media (max-width: 520px) { .field-grid { grid-template-columns: 1fr; gap: 0; } .identity-summary { min-height: 136rpx; } }
 </style>
 
 <style>
-	.ph {
-		color: #758590;
-	}
+	.ph { color: #87959d; }
 </style>

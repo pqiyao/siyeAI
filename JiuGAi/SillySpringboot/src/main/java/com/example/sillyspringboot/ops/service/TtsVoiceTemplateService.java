@@ -136,9 +136,10 @@ public class TtsVoiceTemplateService {
         List<Map<String, Object>> rows = new ArrayList<>();
         for (AppTtsVoiceTemplate template : templates) {
             Map<String, Object> row = new LinkedHashMap<>();
-            String effectiveModelName = runtimeContext == null
-                    ? templateModelName(template)
-                    : runtimeContext.effectiveModelName(templateModelName(template));
+            String configuredTemplateModel = templateModelName(template);
+            String effectiveModelName = StringUtils.hasText(configuredTemplateModel)
+                    ? configuredTemplateModel
+                    : runtimeContext == null ? "" : runtimeContext.effectiveModelName("");
             String fingerprint = runtimeContext == null
                     ? ""
                     : TtsVoiceProvisionService.buildConfigFingerprint(template, runtimeContext, effectiveModelName);

@@ -1,6 +1,7 @@
 package com.example.sillyspringboot.integration.sillytavern;
 
 import com.example.sillyspringboot.integration.sillytavern.dto.ChatGenerateRequest;
+import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterImportRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
@@ -15,10 +16,12 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -32,6 +35,15 @@ class StClientResponseParsingTest {
     private final AtomicReference<String> regexResponse = new AtomicReference<>("{\"mes\":\"clean\"}");
     private final AtomicInteger regexStatus = new AtomicInteger(200);
     private final AtomicReference<String> appendRequest = new AtomicReference<>();
+    private final AtomicReference<String> exportRequest = new AtomicReference<>();
+    private final AtomicReference<String> exportMethod = new AtomicReference<>();
+    private final AtomicReference<String> exportContentType = new AtomicReference<>();
+    private final AtomicReference<byte[]> importRequest = new AtomicReference<>();
+    private final AtomicReference<String> importMethod = new AtomicReference<>();
+    private final AtomicReference<String> importContentType = new AtomicReference<>();
+    private final byte[] exportedCharacterPng = new byte[]{
+            (byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02, (byte) 0xff
+    };
 
     @BeforeEach
     void setUp() throws IOException {
@@ -42,6 +54,18 @@ class StClientResponseParsingTest {
         server.createContext(StApiPaths.RUNTIME_CHAT_APPEND, exchange -> {
             appendRequest.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             respond(exchange, 200, "{\"ok\":true,\"mes\":\"\"}");
+        });
+        server.createContext(StApiPaths.CHARACTERS_EXPORT, exchange -> {
+            exportMethod.set(exchange.getRequestMethod());
+            exportContentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+            exportRequest.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, "image/png", exportedCharacterPng);
+        });
+        server.createContext(StApiPaths.CHARACTERS_IMPORT, exchange -> {
+            importMethod.set(exchange.getRequestMethod());
+            importContentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
+            importRequest.set(exchange.getRequestBody().readAllBytes());
+            respond(exchange, 200, "{\"file_name\":\"system_copy_1_uuid\"}");
         });
         server.start();
 
@@ -146,6 +170,38 @@ class StClientResponseParsingTest {
         assertTrue(whitespaceBody.path("output_regex_applied").booleanValue());
     }
 
+    @Test
+    void characterPngExportUsesNativeStEndpointAndPreservesBinaryPayload() throws Exception {
+        byte[] exported = client.exportCharacterPng("source-avatar.png");
+
+        assertArrayEquals(exportedCharacterPng, exported);
+        assertEquals("POST", exportMethod.get());
+        assertTrue(exportContentType.get().startsWith("application/json"));
+        JsonNode request = new ObjectMapper().readTree(exportRequest.get());
+        assertEquals("png", request.path("format").textValue());
+        assertEquals("source-avatar.png", request.path("avatar_url").textValue());
+    }
+
+    @Test
+    void characterPngImportUsesNativeStMultipartContractAndPreservesExportedBytes() {
+        Object result = client.importCharacterPng(
+                exportedCharacterPng,
+                "source-avatar.png",
+                new StCharacterImportRequest("png", "system_copy_1_uuid.png")
+        );
+
+        assertEquals("POST", importMethod.get());
+        assertTrue(importContentType.get().startsWith("multipart/form-data;boundary="));
+        String multipart = new String(importRequest.get(), StandardCharsets.ISO_8859_1);
+        assertTrue(multipart.contains("name=\"file_type\""));
+        assertTrue(multipart.contains("name=\"preserved_name\""));
+        assertTrue(multipart.contains("system_copy_1_uuid.png"));
+        assertTrue(multipart.contains("name=\"avatar\""));
+        assertTrue(multipart.contains("filename=\"source-avatar.png\""));
+        assertTrue(multipart.contains(new String(exportedCharacterPng, StandardCharsets.ISO_8859_1)));
+        assertEquals("system_copy_1_uuid.png", ((Map<?, ?>) result).get("file_name"));
+    }
+
     private String applyOutputRegex() {
         return client.runtimeChatApplyOutputRegex(
                 "avatar.png",
@@ -178,7 +234,11 @@ class StClientResponseParsingTest {
 
     private static void respond(HttpExchange exchange, int status, String body) throws IOException {
         byte[] bytes = (body == null ? "" : body).getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        respond(exchange, status, "application/json; charset=utf-8", bytes);
+    }
+
+    private static void respond(HttpExchange exchange, int status, String contentType, byte[] bytes) throws IOException {
+        exchange.getResponseHeaders().set("Content-Type", contentType);
         exchange.sendResponseHeaders(status, bytes.length);
         try (var output = exchange.getResponseBody()) {
             output.write(bytes);

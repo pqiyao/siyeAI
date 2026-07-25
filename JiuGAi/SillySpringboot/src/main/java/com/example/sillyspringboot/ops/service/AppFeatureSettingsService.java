@@ -47,6 +47,9 @@ public class AppFeatureSettingsService {
             settings.setUserCharacterCreationEnabled(
                     boolVal(body.get("userCharacterCreationEnabled"), settings.isUserCharacterCreationEnabled())
             );
+            settings.setUserCharacterPromotionEnabled(
+                    boolVal(body.get("userCharacterPromotionEnabled"), settings.isUserCharacterPromotionEnabled())
+            );
             settings.setUserByokEnabled(boolVal(body.get("userByokEnabled"), settings.isUserByokEnabled()));
             settings.setImageGenerationEnabled(
                     boolVal(body.get("imageGenerationEnabled"), settings.isImageGenerationEnabled())
@@ -88,6 +91,7 @@ public class AppFeatureSettingsService {
         data.put("loginEnabled", settings.isLoginEnabled());
         data.put("registerEnabled", settings.isRegisterEnabled());
         data.put("userCharacterCreationEnabled", settings.isUserCharacterCreationEnabled());
+        data.put("userCharacterPromotionEnabled", settings.isUserCharacterPromotionEnabled());
         data.put("userByokEnabled", settings.isUserByokEnabled());
         data.put("imageGenerationEnabled", settings.isImageGenerationEnabled());
         data.put("voiceFeatureEnabled", settings.isVoiceFeatureEnabled());

@@ -44,9 +44,17 @@ public class GenerationRetentionService {
             return 0;
         }
         int retentionDays = clamp(properties.getRetentionDays(), 1, 3650);
+        return cleanup(LocalDateTime.now().minusDays(retentionDays));
+    }
+
+    public int cleanupBeforeDays(int beforeDays) {
+        int days = clamp(beforeDays, 1, 3650);
+        return cleanup(LocalDateTime.now().minusDays(days));
+    }
+
+    private int cleanup(LocalDateTime cutoff) {
         int batchSize = clamp(properties.getBatchSize(), 100, 10_000);
         int maxBatches = clamp(properties.getMaxBatchesPerRun(), 1, 100);
-        LocalDateTime cutoff = LocalDateTime.now().minusDays(retentionDays);
         int archived = 0;
         for (int i = 0; i < maxBatches; i++) {
             int deleted = writer.archiveTaskBatch(cutoff, batchSize);

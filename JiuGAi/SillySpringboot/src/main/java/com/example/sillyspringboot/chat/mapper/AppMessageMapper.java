@@ -27,6 +27,7 @@ public interface AppMessageMapper {
 
     List<AppMessage> listByConversationAsc(@Param("conversationId") long conversationId, @Param("limit") int limit);
 
+
     List<AppMessage> listByConversationBranchAsc(@Param("conversationId") long conversationId,
                                                  @Param("branchId") long branchId,
                                                  @Param("limit") int limit);
@@ -67,6 +68,11 @@ public interface AppMessageMapper {
                                 @Param("messageKind") String messageKind,
                                 @Param("continueFromMessageId") Long continueFromMessageId,
                                 @Param("traceId") String traceId);
+
+
+    int updateSpeakerSnapshot(@Param("id") long id,
+                              @Param("speakerMemberId") Long speakerMemberId,
+                              @Param("speakerNameSnapshot") String speakerNameSnapshot);
 
     Integer findMaxSwipeIndex(@Param("stMessageRef") String stMessageRef);
 

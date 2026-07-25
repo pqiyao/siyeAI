@@ -29,6 +29,10 @@ public class H5MyCharacterSaveRequest {
     private Integer sortOrder;
     private Integer likeCount;
     private Integer dislikeCount;
+    private String cardType;
+    private List<MemberInput> members;
+    private List<OpeningInput> openings;
+    private List<LorebookInput> lorebookEntries;
 
     public Long getId() {
         return id;
@@ -236,6 +240,115 @@ public class H5MyCharacterSaveRequest {
 
     public void setDislikeCount(Integer dislikeCount) {
         this.dislikeCount = dislikeCount;
+    }
+
+    public String getCardType() { return cardType; }
+    public void setCardType(String cardType) { this.cardType = cardType; }
+    public List<MemberInput> getMembers() { return members; }
+    public void setMembers(List<MemberInput> members) { this.members = members; }
+    public List<OpeningInput> getOpenings() { return openings; }
+    public void setOpenings(List<OpeningInput> openings) { this.openings = openings; }
+    public List<LorebookInput> getLorebookEntries() { return lorebookEntries; }
+    public void setLorebookEntries(List<LorebookInput> lorebookEntries) { this.lorebookEntries = lorebookEntries; }
+
+    public static class MemberInput {
+        private Long id;
+        private String clientKey;
+        private String name;
+        private String tagline;
+        private String persona;
+        private String avatarUrl;
+        private String voiceConfigJson;
+        private String imageReferenceUrl;
+        private Boolean primaryMember;
+
+        public Long getId() { return id; }
+        public void setId(Long id) { this.id = id; }
+        public String getClientKey() { return clientKey; }
+        public void setClientKey(String clientKey) { this.clientKey = clientKey; }
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public String getTagline() { return tagline; }
+        public void setTagline(String tagline) { this.tagline = tagline; }
+        public String getPersona() { return persona; }
+        public void setPersona(String persona) { this.persona = persona; }
+        public String getAvatarUrl() { return avatarUrl; }
+        public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+        public String getVoiceConfigJson() { return voiceConfigJson; }
+        public void setVoiceConfigJson(String voiceConfigJson) { this.voiceConfigJson = voiceConfigJson; }
+        public String getImageReferenceUrl() { return imageReferenceUrl; }
+        public void setImageReferenceUrl(String imageReferenceUrl) { this.imageReferenceUrl = imageReferenceUrl; }
+        public Boolean getPrimaryMember() { return primaryMember; }
+        public void setPrimaryMember(Boolean primaryMember) { this.primaryMember = primaryMember; }
+    }
+
+    public static class OpeningInput {
+        private String title;
+        private String summary;
+        private String scenarioOverride;
+        private Boolean defaultOpening;
+        private List<OpeningSegmentInput> segments;
+
+        public String getTitle() { return title; }
+        public void setTitle(String title) { this.title = title; }
+        public String getSummary() { return summary; }
+        public void setSummary(String summary) { this.summary = summary; }
+        public String getScenarioOverride() { return scenarioOverride; }
+        public void setScenarioOverride(String scenarioOverride) { this.scenarioOverride = scenarioOverride; }
+        public Boolean getDefaultOpening() { return defaultOpening; }
+        public void setDefaultOpening(Boolean defaultOpening) { this.defaultOpening = defaultOpening; }
+        public List<OpeningSegmentInput> getSegments() { return segments; }
+        public void setSegments(List<OpeningSegmentInput> segments) { this.segments = segments; }
+    }
+
+    public static class OpeningSegmentInput {
+        private String speakerClientKey;
+        private String speakerType;
+        private String content;
+
+        public String getSpeakerClientKey() { return speakerClientKey; }
+        public void setSpeakerClientKey(String speakerClientKey) { this.speakerClientKey = speakerClientKey; }
+        public String getSpeakerType() { return speakerType; }
+        public void setSpeakerType(String speakerType) { this.speakerType = speakerType; }
+        public String getContent() { return content; }
+        public void setContent(String content) { this.content = content; }
+    }
+
+    public static class LorebookInput {
+        private String title;
+        private String memberClientKey;
+        private List<String> keywords;
+        private List<String> secondaryKeywords;
+        private String matchMode;
+        private String content;
+        private Integer priority;
+        private Boolean constantInjection;
+        private Integer scanDepth;
+        private String injectionPosition;
+        private Boolean enabled;
+
+        public String getTitle() { return title; }
+        public void setTitle(String title) { this.title = title; }
+        public String getMemberClientKey() { return memberClientKey; }
+        public void setMemberClientKey(String memberClientKey) { this.memberClientKey = memberClientKey; }
+        public List<String> getKeywords() { return keywords; }
+        public void setKeywords(List<String> keywords) { this.keywords = keywords; }
+        public List<String> getSecondaryKeywords() { return secondaryKeywords; }
+        public void setSecondaryKeywords(List<String> secondaryKeywords) { this.secondaryKeywords = secondaryKeywords; }
+        public String getMatchMode() { return matchMode; }
+        public void setMatchMode(String matchMode) { this.matchMode = matchMode; }
+        public String getContent() { return content; }
+        public void setContent(String content) { this.content = content; }
+        public Integer getPriority() { return priority; }
+        public void setPriority(Integer priority) { this.priority = priority; }
+        public Boolean getConstantInjection() { return constantInjection; }
+        public void setConstantInjection(Boolean constantInjection) { this.constantInjection = constantInjection; }
+        public Integer getScanDepth() { return scanDepth; }
+        public void setScanDepth(Integer scanDepth) { this.scanDepth = scanDepth; }
+        public String getInjectionPosition() { return injectionPosition; }
+        public void setInjectionPosition(String injectionPosition) { this.injectionPosition = injectionPosition; }
+        public Boolean getEnabled() { return enabled; }
+        public void setEnabled(Boolean enabled) { this.enabled = enabled; }
     }
 }
 

@@ -23,13 +23,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class ChatPresetService {
 
     private static final String SCOPE_PUBLIC = "PUBLIC";
+    private static final String SCOPE_PRIVATE = "PRIVATE";
     private static final String SOURCE_ST_PLATFORM = "ST_PLATFORM";
+    private static final String SOURCE_USER_COPY = "USER_COPY";
     private static final String API_OPENAI = "openai";
+    private static final int MAX_PRIVATE_PRESETS = 20;
 
     private final AppChatPresetMapper presetMapper;
     private final AppConversationMapper conversationMapper;
@@ -110,11 +114,83 @@ public class ChatPresetService {
             }
             AppConversationStBinding binding = bindingMapper.findByConversationId(conversationId);
             currentPresetId = binding == null ? null : binding.getChatPresetId();
+            if (currentPresetId != null && presetMapper.findEnabledAvailableById(currentPresetId, userId) == null) {
+                currentPresetId = null;
+            }
         }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("currentPresetId", currentPresetId);
         data.put("platformPresets", presetMapper.listPublicEnabled().stream().map(this::toH5Row).toList());
+        data.put("myPresets", presetMapper.listPrivateByOwner(userId).stream().map(this::toH5Row).toList());
         return data;
+    }
+
+    @Transactional
+    public Map<String, Object> copyPlatformPreset(long userId, long sourcePresetId, String requestedName) {
+        AppChatPreset source = presetMapper.findEnabledPublicById(sourcePresetId);
+        if (source == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "platform preset not found");
+        }
+        if (presetMapper.listPrivateByOwner(userId).size() >= MAX_PRIVATE_PRESETS) {
+            throw new BusinessException(ErrorCode.CONFLICT, "最多可保存 20 个我的预设");
+        }
+        PrivateGeneration generation = readSourceGeneration(source.getBundleJson());
+        AppChatPreset preset = new AppChatPreset();
+        preset.setOwnerUserId(userId);
+        preset.setScope(SCOPE_PRIVATE);
+        preset.setSourceType(SOURCE_USER_COPY);
+        preset.setApiType(API_OPENAI);
+        preset.setSourceName("user:" + userId + ":" + UUID.randomUUID());
+        preset.setName(normalizeName(requestedName, source.getName() + " 副本"));
+        preset.setDescription(privateDescription(generation));
+        preset.setBundleJson(writePrivateBundle(generation));
+        preset.setEnabled(true);
+        presetMapper.insertPrivate(preset);
+        return toH5Row(preset);
+    }
+
+    @Transactional
+    public Map<String, Object> updatePrivatePreset(
+            long userId,
+            long presetId,
+            String name,
+            double temperature,
+            double topP,
+            int maxTokens,
+            int maxContext,
+            boolean enabled
+    ) {
+        AppChatPreset existing = presetMapper.findPrivateByIdForOwner(presetId, userId);
+        if (existing == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "private preset not found");
+        }
+        PrivateGeneration generation = validatePrivateGeneration(temperature, topP, maxTokens, maxContext);
+        String safeName = normalizeName(name, existing.getName());
+        if (presetMapper.updatePrivate(
+                presetId,
+                userId,
+                safeName,
+                privateDescription(generation),
+                writePrivateBundle(generation),
+                enabled
+        ) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "private preset changed, please retry");
+        }
+        if (!enabled) {
+            bindingMapper.clearChatPresetId(presetId);
+        }
+        AppChatPreset updated = presetMapper.findPrivateByIdForOwner(presetId, userId);
+        return toH5Row(updated);
+    }
+
+    @Transactional
+    public boolean deletePrivatePreset(long userId, long presetId) {
+        AppChatPreset existing = presetMapper.findPrivateByIdForOwner(presetId, userId);
+        if (existing == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "private preset not found");
+        }
+        bindingMapper.clearChatPresetId(presetId);
+        return presetMapper.deletePrivate(presetId, userId) == 1;
     }
 
     @Transactional
@@ -124,7 +200,7 @@ public class ChatPresetService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
         }
         if (presetId != null && presetId > 0) {
-            AppChatPreset preset = presetMapper.findEnabledPublicById(presetId);
+            AppChatPreset preset = presetMapper.findEnabledAvailableById(presetId, userId);
             if (preset == null) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED, "preset not available");
             }
@@ -143,9 +219,19 @@ public class ChatPresetService {
         if (binding == null || binding.getChatPresetId() == null || binding.getChatPresetId() <= 0) {
             return null;
         }
-        AppChatPreset preset = presetMapper.findEnabledPublicById(binding.getChatPresetId());
+        if (binding.getUserId() == null || binding.getUserId() <= 0) {
+            return null;
+        }
+        AppChatPreset preset = presetMapper.findEnabledAvailableById(binding.getChatPresetId(), binding.getUserId());
         if (preset == null || !StringUtils.hasText(preset.getBundleJson())) {
             return null;
+        }
+        if (SCOPE_PRIVATE.equalsIgnoreCase(preset.getScope())) {
+            try {
+                return writePrivateBundle(readPrivateGeneration(preset.getBundleJson()));
+            } catch (Exception ignored) {
+                return null;
+            }
         }
         return preset.getBundleJson();
     }
@@ -202,8 +288,119 @@ public class ChatPresetService {
         row.put("apiType", preset.getApiType());
         row.put("sourceType", preset.getSourceType());
         row.put("sortOrder", preset.getSortOrder());
+        row.put("scope", preset.getScope());
+        row.put("enabled", Boolean.TRUE.equals(preset.getEnabled()));
+        row.put("editable", SCOPE_PRIVATE.equalsIgnoreCase(preset.getScope()));
         row.put("summary", summarizeBundle(preset.getBundleJson()));
         return row;
+    }
+
+    private PrivateGeneration readPrivateGeneration(String bundleJson) {
+        try {
+            JsonNode root = objectMapper.readTree(bundleJson);
+            JsonNode generation = root != null && root.has("generation") ? root.path("generation") : root;
+            double temperature = firstNumber(generation, 1.0d, "temperature", "temp_openai");
+            double topP = firstNumber(generation, 1.0d, "top_p", "top_p_openai");
+            int maxTokens = firstInt(generation, 512, "openai_max_tokens", "max_tokens");
+            int maxContext = firstInt(generation, 8192, "openai_max_context", "max_context");
+            return validatePrivateGeneration(temperature, topP, maxTokens, maxContext);
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "preset parameters invalid");
+        }
+    }
+
+    private PrivateGeneration readSourceGeneration(String bundleJson) {
+        try {
+            JsonNode root = objectMapper.readTree(bundleJson);
+            JsonNode generation = root != null && root.has("generation") ? root.path("generation") : root;
+            double temperature = Math.max(0.0d, Math.min(2.0d,
+                    firstNumber(generation, 1.0d, "temperature", "temp_openai")));
+            double topP = Math.max(0.01d, Math.min(1.0d,
+                    firstNumber(generation, 1.0d, "top_p", "top_p_openai")));
+            int maxTokens = Math.max(64, Math.min(8192,
+                    firstInt(generation, 512, "openai_max_tokens", "max_tokens")));
+            int maxContext = Math.max(maxTokens + 512, Math.min(131072,
+                    firstInt(generation, 8192, "openai_max_context", "max_context")));
+            return validatePrivateGeneration(temperature, topP, maxTokens, maxContext);
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "platform preset parameters invalid");
+        }
+    }
+
+    private PrivateGeneration validatePrivateGeneration(double temperature, double topP, int maxTokens, int maxContext) {
+        if (!Double.isFinite(temperature) || temperature < 0.0d || temperature > 2.0d) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "temperature must be between 0 and 2");
+        }
+        if (!Double.isFinite(topP) || topP < 0.01d || topP > 1.0d) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "topP must be between 0.01 and 1");
+        }
+        if (maxTokens < 64 || maxTokens > 8192) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "maxTokens must be between 64 and 8192");
+        }
+        if (maxContext < 2048 || maxContext > 131072 || maxContext < maxTokens + 512) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "maxContext invalid");
+        }
+        return new PrivateGeneration(temperature, topP, maxTokens, maxContext);
+    }
+
+    private String writePrivateBundle(PrivateGeneration generation) {
+        try {
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("schemaVersion", 1);
+            root.put("source_type", SOURCE_USER_COPY);
+            ObjectNode values = root.putObject("generation");
+            values.put("temperature", generation.temperature());
+            values.put("top_p", generation.topP());
+            values.put("openai_max_tokens", generation.maxTokens());
+            values.put("openai_max_context", generation.maxContext());
+            return objectMapper.writeValueAsString(root);
+        } catch (JsonProcessingException ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "preset serialization failed");
+        }
+    }
+
+    private static String privateDescription(PrivateGeneration generation) {
+        return "temp=" + trimNumber(generation.temperature())
+                + " / top_p=" + trimNumber(generation.topP())
+                + " / tokens=" + generation.maxTokens()
+                + " / context=" + generation.maxContext();
+    }
+
+    private static String normalizeName(String raw, String fallback) {
+        String value = StringUtils.hasText(raw) ? raw.trim() : (fallback == null ? "我的预设" : fallback.trim());
+        if (value.isBlank()) {
+            value = "我的预设";
+        }
+        return value.length() <= 40 ? value : value.substring(0, 40).trim();
+    }
+
+    private static double firstNumber(JsonNode node, double fallback, String... fields) {
+        if (node != null) {
+            for (String field : fields) {
+                JsonNode value = node.get(field);
+                if (value != null && !value.isNull()) {
+                    double number = value.asDouble(Double.NaN);
+                    if (Double.isFinite(number)) return number;
+                }
+            }
+        }
+        return fallback;
+    }
+
+    private static int firstInt(JsonNode node, int fallback, String... fields) {
+        double value = firstNumber(node, fallback, fields);
+        return Double.isFinite(value) ? (int) Math.round(value) : fallback;
+    }
+
+    private static String trimNumber(double value) {
+        return value == Math.rint(value) ? String.valueOf((int) value) : String.valueOf(value);
+    }
+
+    private record PrivateGeneration(double temperature, double topP, int maxTokens, int maxContext) {
     }
 
     private Map<String, Object> toAdminRow(AppChatPreset preset) {

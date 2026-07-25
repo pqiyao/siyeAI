@@ -219,12 +219,14 @@ class AiRoutingServiceIntegrationTest {
                     "enabled", true,
                     "shadowEnabled", true,
                     "chatCanaryPercent", 7,
+                    "visionEnabled", true,
                     "imageEnabled", false,
                     "ttsEnabled", false,
                     "sttEnabled", false
             ));
             assertThat(saved.enabled()).isTrue();
             assertThat(saved.chatCanaryPercent()).isEqualTo(7);
+            assertThat(saved.visionEnabled()).isTrue();
             assertThat(saved.source()).isEqualTo("database");
 
             AiRoutingRuntimeSettingsService.Settings reset = runtimeSettingsService.resetToEnvironment();

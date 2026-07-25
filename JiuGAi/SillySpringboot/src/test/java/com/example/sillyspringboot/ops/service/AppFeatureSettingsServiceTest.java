@@ -27,6 +27,21 @@ class AppFeatureSettingsServiceTest {
         assertTrue((Boolean) service.toMap(service.getSettings()).get("rechargeEntryVisible"));
         assertTrue(service.getSettings().isCheckinEntryVisible());
         assertTrue((Boolean) service.toMap(service.getSettings()).get("checkinEntryVisible"));
+        assertFalse(service.getSettings().isUserCharacterPromotionEnabled());
+        assertFalse((Boolean) service.toMap(service.getSettings()).get("userCharacterPromotionEnabled"));
+    }
+
+    @Test
+    void userCharacterPromotionMustBeExplicitlyEnabled() {
+        AppRuntimeSettingMapper mapper = mock(AppRuntimeSettingMapper.class);
+        AppFeatureSettingsService service = new AppFeatureSettingsService(mapper);
+
+        AppFeatureSettings saved = service.saveSettings(Map.of("userCharacterPromotionEnabled", true));
+
+        assertTrue(saved.isUserCharacterPromotionEnabled());
+        ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+        verify(mapper).upsert(eq("app_feature_settings"), json.capture());
+        assertTrue(json.getValue().contains("\"userCharacterPromotionEnabled\":true"));
     }
 
     @Test

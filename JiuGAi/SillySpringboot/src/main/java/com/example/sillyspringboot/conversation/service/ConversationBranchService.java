@@ -178,6 +178,67 @@ public class ConversationBranchService {
     }
 
     @Transactional
+    public AppConversationBranch renameBranch(AppConversation conversation, long branchId, String title) {
+        AppConversationBranch branch = requireOwnedBranch(conversation, branchId);
+        String safeTitle = title == null ? "" : title.trim();
+        if (!StringUtils.hasText(safeTitle)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "branch title is required");
+        }
+        if (safeTitle.length() > 80) {
+            safeTitle = safeTitle.substring(0, 80);
+        }
+        if (branchMapper.updateTitle(conversation.getId(), branchId, safeTitle) != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "branch not found");
+        }
+        branch.setTitle(safeTitle);
+        return branch;
+    }
+
+    @Transactional
+    public AppConversationBranch deleteBranch(AppConversation conversation, long branchId) {
+        AppConversationBranch branch = requireOwnedBranch(conversation, branchId);
+        if (branch.isDefaultBranch()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "default branch cannot be deleted");
+        }
+
+        AppConversationBranch fallback = null;
+        if (branch.getParentBranchId() != null && branch.getParentBranchId() > 0) {
+            AppConversationBranch parent = branchMapper.findByIdForConversation(
+                    conversation.getId(),
+                    branch.getParentBranchId()
+            );
+            if (isOwnedByUser(parent, conversation.getUserId())) {
+                fallback = parent;
+            }
+        }
+        if (fallback == null) {
+            fallback = ensureDefaultBranch(conversation.getId(), conversation.getUserId());
+        }
+
+        branchMapper.reparentChildren(conversation.getId(), branchId, branch.getParentBranchId());
+        if (branchMapper.softDelete(conversation.getId(), branchId) != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "branch not found");
+        }
+        if (conversation.getActiveBranchId() != null && conversation.getActiveBranchId().longValue() == branchId) {
+            conversationMapper.setActiveBranchId(conversation.getId(), fallback.getId());
+            conversation.setActiveBranchId(fallback.getId());
+            branchMapper.touch(fallback.getId());
+        }
+        return fallback;
+    }
+
+    private AppConversationBranch requireOwnedBranch(AppConversation conversation, long branchId) {
+        if (conversation == null || conversation.getId() == null || conversation.getUserId() == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        }
+        AppConversationBranch branch = branchMapper.findByIdForConversation(conversation.getId(), branchId);
+        if (!isOwnedByUser(branch, conversation.getUserId())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "branch not found");
+        }
+        return branch;
+    }
+
+    @Transactional
     public AppConversationBranch forkFromMessage(
             AppConversation conversation,
             long sourceMessageId,
@@ -314,6 +375,9 @@ public class ConversationBranchService {
         row.setStatus(source.getStatus());
         row.setErrorCode(source.getErrorCode());
         row.setTraceId(source.getTraceId());
+        row.setSpeakerMemberId(source.getSpeakerMemberId());
+        row.setSpeakerNameSnapshot(source.getSpeakerNameSnapshot());
+        row.setSpeakerAvatarSnapshot(source.getSpeakerAvatarSnapshot());
         if ("assistant".equalsIgnoreCase(source.getRole()) && source.getContent() != null && !source.getContent().isBlank()) {
             row.setSwipeIndex(Math.max(0, swipeIndex));
         }
@@ -392,6 +456,9 @@ public class ConversationBranchService {
             copiedVariant.setStatus(sourceVariant.getStatus());
             copiedVariant.setErrorCode(sourceVariant.getErrorCode());
             copiedVariant.setTraceId(sourceVariant.getTraceId());
+            copiedVariant.setSpeakerMemberId(sourceVariant.getSpeakerMemberId());
+            copiedVariant.setSpeakerNameSnapshot(sourceVariant.getSpeakerNameSnapshot());
+            copiedVariant.setSpeakerAvatarSnapshot(sourceVariant.getSpeakerAvatarSnapshot());
             messageMapper.insert(copiedVariant);
         }
     }

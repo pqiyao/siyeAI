@@ -28,6 +28,10 @@ public interface AppConversationMapper {
 
     void setTitleIfNull(@Param("conversationId") long conversationId, @Param("title") String title);
 
+    int updateTitle(@Param("conversationId") long conversationId,
+                    @Param("userId") long userId,
+                    @Param("title") String title);
+
     void setTitleToCharacterNameIfNull(@Param("conversationId") long conversationId);
 
     void setActiveBranchId(@Param("conversationId") long conversationId, @Param("branchId") long branchId);

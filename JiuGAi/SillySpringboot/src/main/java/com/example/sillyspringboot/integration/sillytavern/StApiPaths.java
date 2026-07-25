@@ -20,6 +20,7 @@ public final class StApiPaths {
     public static final String CHARACTERS_CREATE = "/api/characters/create";
     public static final String CHARACTERS_EDIT = "/api/characters/edit";
     public static final String CHARACTERS_IMPORT = "/api/characters/import";
+    public static final String CHARACTERS_EXPORT = "/api/characters/export";
     public static final String CHARACTERS_DELETE = "/api/characters/delete";
 
     public static final String CHATS_SAVE = "/api/chats/save";

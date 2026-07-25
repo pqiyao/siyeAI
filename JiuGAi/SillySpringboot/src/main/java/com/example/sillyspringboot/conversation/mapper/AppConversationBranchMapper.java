@@ -41,7 +41,25 @@ public interface AppConversationBranchMapper {
             @Param("openingVariantIndex") int openingVariantIndex
     );
 
+
     void touch(@Param("branchId") long branchId);
+
+    int updateTitle(
+            @Param("conversationId") long conversationId,
+            @Param("branchId") long branchId,
+            @Param("title") String title
+    );
+
+    int reparentChildren(
+            @Param("conversationId") long conversationId,
+            @Param("branchId") long branchId,
+            @Param("parentBranchId") Long parentBranchId
+    );
+
+    int softDelete(
+            @Param("conversationId") long conversationId,
+            @Param("branchId") long branchId
+    );
 
     int incrementMemorySourceRevision(
             @Param("conversationId") long conversationId,

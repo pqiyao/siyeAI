@@ -3,6 +3,8 @@ package com.example.sillyspringboot.compat.h5.web;
 import com.example.sillyspringboot.chat.entity.AppMessage;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
 import com.example.sillyspringboot.chat.service.AppChatService;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.compat.h5.service.H5StAssetUrls;
 import com.example.sillyspringboot.conversation.dto.ConversationDetailDto;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.HashMap;
 import java.util.List;
@@ -35,6 +38,9 @@ public class ApiV1TavernInboxController {
     private final H5StAssetUrls stAssetUrls;
     private final AppConversationMemoryService conversationMemoryService;
     private final AppChatService chatService;
+
+    @Autowired(required = false)
+    private CharacterStudioMapper characterStudioMapper;
 
     public ApiV1TavernInboxController(
             H5ClientUidAuthService h5Auth,
@@ -67,6 +73,87 @@ public class ApiV1TavernInboxController {
         return ApiV1Result.ok(data);
     }
 
+    @GetMapping("/sessions/by-character")
+    public ApiV1Result<Map<String, Object>> sessionsByCharacter(
+            @RequestParam("clientUid") String clientUid,
+            @RequestParam("characterId") long characterId
+    ) {
+        String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
+        List<Map<String, Object>> sessions = conversationService.listInboxForUser(token, 200).stream()
+                .filter(item -> item.characterId() == characterId)
+                .map(this::toSession)
+                .toList();
+        Long activeId = conversationService.findConversationIdByH5CharacterForSessionCleanup(clientUid, characterId, token);
+        Map<String, Object> data = new HashMap<>();
+        data.put("sessions", sessions);
+        data.put("activeConversationId", activeId == null ? "" : String.valueOf(activeId));
+        return ApiV1Result.ok(data);
+    }
+
+    @PostMapping("/sessions/create")
+    public ApiV1Result<Map<String, Object>> createSession(@RequestBody Map<String, Object> body) {
+        String clientUid = requiredText(body, "clientUid");
+        long characterId = requiredLong(body, "characterId");
+        String title = optionalText(body, "title");
+        String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
+        ConversationDetailDto detail = conversationService.createNewForH5(clientUid, characterId, title, token);
+        archiveMapper.deleteByUserAndConversation(tokenService.validateAndLoadUser(token).getId(), detail.conversationId());
+        chatService.ensureOpeningAssistantMessage(detail.conversationId(), token);
+        Map<String, Object> data = new HashMap<>();
+        data.put("conversationId", detail.conversationId());
+        data.put("activeBranchId", chatService.requireActiveBranchId(detail.conversationId(), token));
+        return ApiV1Result.ok(data);
+    }
+
+    @PostMapping("/sessions/activate")
+    public ApiV1Result<Map<String, Object>> activateSession(@RequestBody Map<String, Object> body) {
+        String clientUid = requiredText(body, "clientUid");
+        long characterId = requiredLong(body, "characterId");
+        long conversationId = requiredLong(body, "conversationId");
+        String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
+        ConversationDetailDto detail = conversationService.activateH5Session(clientUid, characterId, conversationId, token);
+        archiveMapper.deleteByUserAndConversation(tokenService.validateAndLoadUser(token).getId(), detail.conversationId());
+        chatService.ensureOpeningAssistantMessage(detail.conversationId(), token);
+        Map<String, Object> data = new HashMap<>();
+        data.put("conversationId", detail.conversationId());
+        data.put("activeBranchId", chatService.requireActiveBranchId(detail.conversationId(), token));
+        return ApiV1Result.ok(data);
+    }
+
+    @PostMapping("/sessions/rename")
+    public ApiV1Result<Boolean> renameSession(@RequestBody Map<String, Object> body) {
+        String clientUid = requiredText(body, "clientUid");
+        long conversationId = requiredLong(body, "conversationId");
+        String title = requiredText(body, "title");
+        String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
+        conversationService.renameConversation(conversationId, title, token);
+        return ApiV1Result.ok(true);
+    }
+
+    @PostMapping("/sessions/delete-one")
+    public ApiV1Result<Boolean> deleteOneSession(@RequestBody Map<String, Object> body) {
+        String clientUid = requiredText(body, "clientUid");
+        long characterId = requiredLong(body, "characterId");
+        long conversationId = requiredLong(body, "conversationId");
+        String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
+        ConversationDetailDto detail = conversationService.getDetail(conversationId, token);
+        if (detail.characterId() == null || detail.characterId() != characterId) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "会话不存在");
+        }
+        Long activeConversationId = conversationService.findConversationIdByH5CharacterForSessionCleanup(
+                clientUid,
+                characterId,
+                token
+        );
+        if (activeConversationId != null && activeConversationId == conversationId) {
+            throw new BusinessException(ErrorCode.CONFLICT, "请先切换到其他故事，再删除当前故事");
+        }
+        long userId = tokenService.validateAndLoadUser(token).getId();
+        tavernSessionService.archiveHideAndWipe(conversationId);
+        archiveMapper.upsert(userId, conversationId);
+        return ApiV1Result.ok(true);
+    }
+
     @GetMapping("/messages")
     public ApiV1Result<Map<String, Object>> messages(
             @RequestParam("characterId") long characterId,
@@ -85,6 +172,15 @@ public class ApiV1TavernInboxController {
         envelope.put("activeBranchId", activeBranchId);
         envelope.put("tavernMeta", tavernMeta(characterId, clientUid, conversationId, token));
         envelope.put("memory", conversationMemoryService.toH5MemoryMap(conversationId, activeBranchId));
+        List<AppCharacterMember> studioMembers = characterStudioMapper == null
+                ? List.of()
+                : characterStudioMapper.listMembers(characterId);
+        // The chat client only needs display-safe member metadata to resolve speaker markers.
+        envelope.put("studioMembers", studioMembers.stream().map(member -> Map.of(
+                "id", member.getId(),
+                "name", member.getName() == null ? "" : member.getName(),
+                "avatarUrl", member.getAvatarUrl() == null ? "" : member.getAvatarUrl()
+        )).toList());
 
         if (archiveMapper.existsByUserAndConversation(userId, conversationId) > 0) {
             envelope.put("messages", List.of());
@@ -103,7 +199,11 @@ public class ApiV1TavernInboxController {
                     row.put("id", "db_" + m.getId());
                     row.put("branchId", m.getBranchId());
                     row.put("role", "assistant".equalsIgnoreCase(m.getRole()) ? "char" : "user");
-                    row.put("text", m.getContent() == null ? "" : m.getContent());
+                     row.put("text", m.getContent() == null ? "" : m.getContent());
+                     SpeakerDisplay speaker = resolveSpeakerDisplay(m, studioMembers);
+                     row.put("speakerMemberId", speaker.memberId());
+                     row.put("speakerName", speaker.name());
+                     row.put("speakerAvatarUrl", speaker.avatarUrl());
                     row.put("openingMessage", isOpeningMessage(m));
                     row.put("messageKind", normalizeMessageKind(m.getMessageKind()));
                     if (m.getContinueFromMessageId() != null && m.getContinueFromMessageId() > 0) {
@@ -120,6 +220,41 @@ public class ApiV1TavernInboxController {
         envelope.put("messages", out);
         envelope.put("page", buildPageMeta(pageSlice, safeLimit, beforeMessageId, out.size()));
         return ApiV1Result.ok(envelope);
+    }
+
+    private static SpeakerDisplay resolveSpeakerDisplay(AppMessage message, List<AppCharacterMember> members) {
+        if (message == null || members == null || members.isEmpty()) {
+            return SpeakerDisplay.EMPTY;
+        }
+        if (message.getSpeakerMemberId() != null) {
+            for (AppCharacterMember member : members) {
+                if (member != null && message.getSpeakerMemberId().equals(member.getId())) {
+                    return new SpeakerDisplay(member.getId(),
+                            firstNonBlank(message.getSpeakerNameSnapshot(), member.getName()),
+                            member.getAvatarUrl() == null ? "" : member.getAvatarUrl());
+                }
+            }
+        }
+        String content = message.getContent() == null ? "" : message.getContent().strip();
+        if (!content.startsWith("【")) return SpeakerDisplay.EMPTY;
+        int end = content.indexOf('】');
+        if (end <= 1 || end > 81) return SpeakerDisplay.EMPTY;
+        String parsedName = content.substring(1, end).strip();
+        for (AppCharacterMember member : members) {
+            if (member != null && parsedName.equalsIgnoreCase(member.getName())) {
+                return new SpeakerDisplay(member.getId(), member.getName(),
+                        member.getAvatarUrl() == null ? "" : member.getAvatarUrl());
+            }
+        }
+        return SpeakerDisplay.EMPTY;
+    }
+
+    private static String firstNonBlank(String preferred, String fallback) {
+        return preferred != null && !preferred.isBlank() ? preferred : (fallback == null ? "" : fallback);
+    }
+
+    private record SpeakerDisplay(Long memberId, String name, String avatarUrl) {
+        private static final SpeakerDisplay EMPTY = new SpeakerDisplay(null, "", "");
     }
 
     private static String normalizeMessageKind(String value) {
@@ -323,6 +458,27 @@ public class ApiV1TavernInboxController {
         row.put("lastMessage", snippet);
         row.put("updatedAt", it.updatedAt());
         return row;
+    }
+
+    private static String requiredText(Map<String, Object> body, String key) {
+        String value = optionalText(body, key);
+        if (value.isBlank()) throw new BusinessException(ErrorCode.VALIDATION_FAILED, key + " missing");
+        return value;
+    }
+
+    private static String optionalText(Map<String, Object> body, String key) {
+        Object value = body == null ? null : body.get(key);
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private static long requiredLong(Map<String, Object> body, String key) {
+        Object value = body == null ? null : body.get(key);
+        try {
+            long parsed = value instanceof Number number ? number.longValue() : Long.parseLong(String.valueOf(value));
+            if (parsed > 0) return parsed;
+        } catch (Exception ignored) {
+        }
+        throw new BusinessException(ErrorCode.VALIDATION_FAILED, key + " missing");
     }
 
     private record MessagePageSlice(

@@ -3,10 +3,13 @@ package com.example.sillyspringboot.ops.service;
 import com.example.sillyspringboot.ai.model.AiCapability;
 import com.example.sillyspringboot.ai.service.AiRoutingService;
 import com.example.sillyspringboot.auth.entity.AppUser;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +32,9 @@ public class ImageGenerationFacade {
     private final ImageGenerationConcurrencyGate concurrencyGate;
     private final ImageGenerationPolicyService policyService;
     private final Map<String, ImageGenerationEngine> engines;
+
+    @Autowired(required = false)
+    private CharacterStudioMapper characterStudioMapper;
 
     public ImageGenerationFacade(
             AppImageGenerationSettingsService settingsService,
@@ -68,6 +74,7 @@ public class ImageGenerationFacade {
         String requestId = normalizeRequestId(safePayload.get("imageRequestId"));
         safePayload.put("imageRequestId", requestId);
         entitlementService.guardImageCharacterAccess(clientUid, characterId);
+        applyMemberReferenceImage(characterId, safePayload);
         ImageGenerationPolicyService.Resolution policy = policyService.resolve(characterId, engineName, safePayload);
         safePayload = new LinkedHashMap<>(policy.payload());
         AppUser user = entitlementService.resolveUser(clientUid);
@@ -122,6 +129,25 @@ public class ImageGenerationFacade {
                 ErrorCode.SERVICE_BUSY,
                 "系统生图尚未配置，请在模型路由启用 IMAGE，或在 AI 媒体中心启用 Comfy 兼容通道"
         );
+    }
+
+    private void applyMemberReferenceImage(long characterId, Map<String, Object> payload) {
+        if (characterStudioMapper == null || characterId <= 0) {
+            return;
+        }
+        long memberId = longValue(payload.get("speakerMemberId"));
+        if (memberId <= 0) return;
+        try {
+            for (AppCharacterMember member : characterStudioMapper.listMembers(characterId)) {
+                if (member != null && member.getId() != null && member.getId().longValue() == memberId
+                        && StringUtils.hasText(member.getImageReferenceUrl())) {
+                    payload.put("referenceImageUrl", member.getImageReferenceUrl().trim());
+                    return;
+                }
+            }
+        } catch (RuntimeException ex) {
+            log.warn("member image reference skipped characterId={} memberId={}", characterId, memberId, ex);
+        }
     }
 
     private static String normalizeEngine(String value) {

@@ -8,7 +8,7 @@
             SELECT id
             FROM app_generation_task
             WHERE COALESCE(finished_at, started_at, queued_at) &lt; #{cutoff}
-              AND status IN ('SUCCESS', 'FAILED', 'STOPPED')
+              AND status IN ('SUCCESS', 'FAILED', 'STOPPED', 'CANCELLED')
             ORDER BY id
             LIMIT #{batchSize}
         ) selected

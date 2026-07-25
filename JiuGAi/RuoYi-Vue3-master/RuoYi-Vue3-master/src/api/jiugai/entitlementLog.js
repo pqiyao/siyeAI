@@ -8,6 +8,14 @@ export function listJgEntitlementLog(query) {
   })
 }
 
+export function listEntitlementWalletConsumption(query) {
+  return request({
+    url: '/admin/jiugai/entitlement-log/wallet-consumption',
+    method: 'get',
+    params: query
+  })
+}
+
 export function delJgEntitlementLog(ids) {
   return request({
     url: '/admin/jiugai/entitlement-log/' + ids,

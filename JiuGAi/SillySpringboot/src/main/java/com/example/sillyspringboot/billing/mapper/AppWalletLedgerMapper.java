@@ -31,11 +31,16 @@ public interface AppWalletLedgerMapper {
 
     AppWalletLedger findByIdempotencyKey(@Param("idempotencyKey") String idempotencyKey);
 
-    long countAdminList(@Param("keyword") String keyword, @Param("bizType") String bizType);
+    long countAdminList(
+            @Param("keyword") String keyword,
+            @Param("bizType") String bizType,
+            @Param("groupType") String groupType
+    );
 
     List<AppWalletLedger> listAdminPage(
             @Param("keyword") String keyword,
             @Param("bizType") String bizType,
+            @Param("groupType") String groupType,
             @Param("offset") int offset,
             @Param("limit") int limit
     );

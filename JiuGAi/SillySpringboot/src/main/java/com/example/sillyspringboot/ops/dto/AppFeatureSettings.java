@@ -8,6 +8,7 @@ public class AppFeatureSettings {
     private boolean loginEnabled = true;
     private boolean registerEnabled = true;
     private boolean userCharacterCreationEnabled = true;
+    private boolean userCharacterPromotionEnabled = false;
     private boolean userByokEnabled = false;
     private boolean imageGenerationEnabled = true;
     private boolean voiceFeatureEnabled = true;
@@ -41,6 +42,14 @@ public class AppFeatureSettings {
 
     public void setUserCharacterCreationEnabled(boolean userCharacterCreationEnabled) {
         this.userCharacterCreationEnabled = userCharacterCreationEnabled;
+    }
+
+    public boolean isUserCharacterPromotionEnabled() {
+        return userCharacterPromotionEnabled;
+    }
+
+    public void setUserCharacterPromotionEnabled(boolean userCharacterPromotionEnabled) {
+        this.userCharacterPromotionEnabled = userCharacterPromotionEnabled;
     }
 
     public boolean isUserByokEnabled() {

@@ -44,6 +44,7 @@ class GenerationTelemetryWriterTest {
         writer.persist(new GenerationAttemptEvent(
                 77L,
                 "client-message",
+                "trace-77",
                 1,
                 "openrouter_primary",
                 "default_chat",
@@ -58,6 +59,7 @@ class GenerationTelemetryWriterTest {
                 "SUCCESS",
                 null,
                 null,
+                null,
                 false,
                 10,
                 true
@@ -68,6 +70,8 @@ class GenerationTelemetryWriterTest {
         GenerationAttemptRow row = rows.getValue();
         assertEquals(91L, row.getGenerationTaskId());
         assertEquals(42L, row.getCharacterId());
+        assertEquals("client-message", row.getRequestId());
+        assertEquals("trace-77", row.getTraceId());
         assertEquals(7L, row.getPricingId());
         assertEquals("2026-07", row.getPricingVersion());
         assertNull(row.getPromptTokens());
@@ -77,6 +81,26 @@ class GenerationTelemetryWriterTest {
         assertEquals(row.getOutputCostUsd(), row.getTotalCostUsd());
         assertTrue(row.getCostEstimated());
         assertTrue(row.getCostPartial());
+    }
+
+    @Test
+    void sanitizesAttemptErrorBeforeDatabaseInsert() {
+        GenerationAttemptMapper attemptMapper = mock(GenerationAttemptMapper.class);
+        GenerationModelPricingMapper pricingMapper = mock(GenerationModelPricingMapper.class);
+        GenerationTelemetryWriter writer = new GenerationTelemetryWriter(
+                attemptMapper, new GenerationModelPricingService(pricingMapper));
+        LocalDateTime start = LocalDateTime.of(2026, 7, 25, 10, 0);
+
+        writer.persist(new GenerationAttemptEvent(
+                null, "vision-request", "trace-safe", 1, "provider", "vision.default", "openai",
+                "vision-model", false, false, start, null, start.plusSeconds(1), 401, "FAILED",
+                "UPSTREAM_ERROR", "Authorization: Bearer sk-1234567890abcdef", null, false, null, false));
+
+        ArgumentCaptor<GenerationAttemptRow> rows = ArgumentCaptor.forClass(GenerationAttemptRow.class);
+        verify(attemptMapper).insert(rows.capture());
+        assertEquals("vision-request", rows.getValue().getRequestId());
+        assertEquals("trace-safe", rows.getValue().getTraceId());
+        assertEquals("Authorization: ***", rows.getValue().getErrorMessage());
     }
 
     private static GenerationModelPricing pricing() {

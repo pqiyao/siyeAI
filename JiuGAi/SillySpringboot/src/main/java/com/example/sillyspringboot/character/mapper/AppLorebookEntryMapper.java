@@ -16,6 +16,8 @@ public interface AppLorebookEntryMapper {
 
     List<AppLorebookEntry> listEnabledByCharacterId(@Param("characterId") long characterId);
 
+    List<AppLorebookEntry> listAllByCharacterId(@Param("characterId") long characterId);
+
     List<Map<String, Object>> summarizeByCharacterIds(@Param("characterIds") List<Long> characterIds);
 
     AppLorebookEntry findById(@Param("id") long id);

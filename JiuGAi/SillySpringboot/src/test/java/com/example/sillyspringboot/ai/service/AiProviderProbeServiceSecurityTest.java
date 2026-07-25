@@ -76,6 +76,20 @@ class AiProviderProbeServiceSecurityTest {
     }
 
     @Test
+    void visionCapabilityRequiresNonBlankChatContent() {
+        AiProviderProbeService service = new AiProviderProbeService(mock(AiRoutingService.class), new ObjectMapper());
+
+        service.validateCapabilityResponse(draft(AiCapability.VISION), response(
+                "application/json",
+                "{\"choices\":[{\"message\":{\"content\":\"a white image\"}}]}".getBytes(StandardCharsets.UTF_8)
+        ));
+        assertThatThrownBy(() -> service.validateCapabilityResponse(draft(AiCapability.VISION), response(
+                "application/json",
+                "{\"choices\":[{\"message\":{\"content\":\"  \"}}]}".getBytes(StandardCharsets.UTF_8)
+        ))).isInstanceOf(BusinessException.class).hasMessageContaining("无有效内容");
+    }
+
+    @Test
     void sttProbeUsesARealSpokenSampleInsteadOfSilence() {
         byte[] wav = AiProviderProbeService.sttProbeWav();
 

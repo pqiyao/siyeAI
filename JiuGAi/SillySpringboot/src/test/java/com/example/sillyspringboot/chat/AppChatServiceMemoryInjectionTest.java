@@ -486,7 +486,8 @@ public class AppChatServiceMemoryInjectionTest {
                 worldbookCatalogService,
                 chatPresetService,
                 mock(AppChatCompatibilityService.class),
-                mock(AppChatFrontendBridgeService.class)
+                mock(AppChatFrontendBridgeService.class),
+                mock(com.example.sillyspringboot.ops.service.H5EntitlementService.class)
         );
         serviceTestStAdapter = stAdapter;
         serviceTestChatPresetService = chatPresetService;

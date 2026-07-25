@@ -1,7 +1,14 @@
 <template>
   <div class="app-container">
+    <el-alert class="mb12" type="info" :closable="false" show-icon title="聊天任务和独立能力均按一次完整请求展示；打开详情可查看真实供应商调用顺序和 fallback 结果。" />
+
+    <el-tabs v-model="activeView" class="ai-log-tabs" @tab-change="handleViewChange">
+      <el-tab-pane label="聊天任务" name="TASK" />
+      <el-tab-pane label="独立能力" name="STANDALONE" />
+    </el-tabs>
+
     <el-form :model="queryParams" inline v-show="showSearch">
-      <el-form-item label="通道">
+      <el-form-item v-if="activeView === 'TASK'" label="通道">
         <el-select v-model="queryParams.channel" placeholder="全部" clearable style="width: 160px">
           <el-option label="全部" value="" />
           <el-option label="CHAT_SYNC" value="CHAT_SYNC" />
@@ -13,11 +20,30 @@
           <el-option label="CONTINUE_STREAM" value="CONTINUE_STREAM" />
         </el-select>
       </el-form-item>
-      <el-form-item label="结果">
-        <el-select v-model="successFilter" placeholder="全部" clearable style="width: 120px">
-          <el-option label="成功" value="ok" />
-          <el-option label="失败" value="fail" />
+      <el-form-item v-else label="能力">
+        <el-select v-model="queryParams.capability" placeholder="全部" clearable style="width: 140px">
+          <el-option label="VISION" value="VISION" />
+          <el-option label="IMAGE" value="IMAGE" />
+          <el-option label="TTS" value="TTS" />
+          <el-option label="STT" value="STT" />
         </el-select>
+      </el-form-item>
+      <el-form-item label="状态">
+        <el-select v-model="queryParams.status" placeholder="全部" clearable style="width: 130px">
+          <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="关键字">
+        <el-input v-model="queryParams.keyword" placeholder="任务/用户/会话/消息/错误" clearable style="width: 220px" @keyup.enter="handleQuery" />
+      </el-form-item>
+      <el-form-item label="供应商">
+        <el-input v-model="queryParams.providerKey" placeholder="provider key" clearable style="width: 170px" @keyup.enter="handleQuery" />
+      </el-form-item>
+      <el-form-item label="模型">
+        <el-input v-model="queryParams.model" placeholder="模型名称" clearable style="width: 170px" @keyup.enter="handleQuery" />
+      </el-form-item>
+      <el-form-item label="HTTP">
+        <el-input-number v-model="queryParams.httpStatus" :min="100" :max="599" :controls="false" style="width: 100px" />
       </el-form-item>
       <el-form-item label="TraceId">
         <el-input
@@ -27,6 +53,9 @@
           style="width: 280px"
           @keyup.enter="handleQuery"
         />
+      </el-form-item>
+      <el-form-item label="时间">
+        <el-date-picker v-model="timeRange" type="datetimerange" range-separator="至" start-placeholder="开始时间" end-placeholder="结束时间" value-format="YYYY-MM-DDTHH:mm:ss" style="width: 360px" />
       </el-form-item>
       <el-form-item>
         <el-button type="primary" icon="Search" @click="handleQuery">搜索</el-button>
@@ -52,18 +81,20 @@
           <span v-else>-</span>
         </template>
       </el-table-column>
-      <el-table-column label="用户ID" prop="userId" width="88" />
-      <el-table-column label="通道" prop="channel" width="130" />
+      <el-table-column v-if="activeView === 'TASK'" label="用户ID" prop="userId" width="88" />
+      <el-table-column :label="activeView === 'TASK' ? '通道' : '能力'" :prop="activeView === 'TASK' ? 'channel' : 'capability'" width="130" />
+      <el-table-column label="供应商" prop="providerKey" min-width="150" show-overflow-tooltip />
       <el-table-column label="模型" prop="model" min-width="140" show-overflow-tooltip />
-      <el-table-column label="角色ID" prop="characterId" width="88" />
-      <el-table-column label="会话ID" prop="conversationId" width="88" />
-      <el-table-column label="消息ID" prop="clientMessageId" min-width="150" show-overflow-tooltip />
+      <el-table-column v-if="activeView === 'TASK'" label="角色ID" prop="characterId" width="88" />
+      <el-table-column v-if="activeView === 'TASK'" label="会话ID" prop="conversationId" width="88" />
+      <el-table-column :label="activeView === 'TASK' ? '消息ID' : '请求ID'" :prop="activeView === 'TASK' ? 'clientMessageId' : 'requestId'" min-width="150" show-overflow-tooltip />
       <el-table-column label="耗时ms" prop="durationMs" width="88" />
-      <el-table-column label="成功" prop="success" width="72">
+      <el-table-column label="状态" prop="status" width="100">
         <template #default="scope">
-          <el-tag :type="scope.row.success ? 'success' : 'danger'">{{ scope.row.success ? '是' : '否' }}</el-tag>
+          <el-tag :type="statusTagType(scope.row.status)">{{ statusLabel(scope.row.status) }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="尝试" width="80"><template #default="scope"><span>{{ scope.row.attemptCount || 0 }}</span><el-tag v-if="scope.row.wasFallback" class="ml6" type="warning" size="small">F</el-tag></template></el-table-column>
       <el-table-column label="HTTP" prop="httpStatus" width="72" />
       <el-table-column label="prompt" prop="promptTokens" width="80" />
       <el-table-column label="completion" prop="completionTokens" width="96" />
@@ -83,12 +114,12 @@
       @pagination="getList"
     />
 
-    <el-dialog v-model="detailOpen" title="AI 错误详情" width="760px" append-to-body destroy-on-close>
+    <el-dialog v-model="detailOpen" title="AI 调用详情" width="min(1100px, 96vw)" append-to-body destroy-on-close>
       <div class="ai-log-detail">
-        <el-descriptions v-if="detail.id" :column="3" border size="small">
+        <el-descriptions v-if="detail.id && activeView === 'TASK'" :column="3" border size="small">
           <el-descriptions-item label="任务ID">{{ detail.id }}</el-descriptions-item>
           <el-descriptions-item label="状态">
-            <el-tag :type="detail.success ? 'success' : 'danger'">{{ detail.status || (detail.success ? 'SUCCESS' : 'FAILED') }}</el-tag>
+            <el-tag :type="statusTagType(detail.status)">{{ statusLabel(detail.status) }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="HTTP">{{ detail.httpStatus }}</el-descriptions-item>
           <el-descriptions-item label="用户ID">{{ detail.userId }}</el-descriptions-item>
@@ -107,8 +138,44 @@
           <el-descriptions-item label="Token">{{ detail.promptTokens || 0 }} / {{ detail.completionTokens || 0 }}</el-descriptions-item>
         </el-descriptions>
 
+        <el-descriptions v-if="detail.id && activeView === 'STANDALONE'" :column="3" border size="small">
+          <el-descriptions-item label="请求ID" :span="2">{{ detail.requestId || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="能力">{{ detail.capability || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="状态"><el-tag :type="statusTagType(detail.status)">{{ statusLabel(detail.status) }}</el-tag></el-descriptions-item>
+          <el-descriptions-item label="最终HTTP">{{ detail.httpStatus == null ? '-' : detail.httpStatus }}</el-descriptions-item>
+          <el-descriptions-item label="累计耗时">{{ detail.durationMs || 0 }} ms</el-descriptions-item>
+          <el-descriptions-item label="最终供应商">{{ detail.providerKey || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="最终模型">{{ detail.model || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="尝试次数">{{ detail.attemptCount || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="TraceId" :span="3">
+            <el-button v-if="detail.traceId" link type="primary" icon="CopyDocument" @click="copyTraceId(detail.traceId)">{{ detail.traceId }}</el-button>
+            <span v-else>-</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="Token">{{ detail.promptTokens || 0 }} / {{ detail.completionTokens || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="成本 USD">{{ formatCost(detail.totalCostUsd) }}</el-descriptions-item>
+        </el-descriptions>
+
+        <template>
+          <el-divider content-position="left">供应商调用链</el-divider>
+          <el-table v-loading="attemptLoading" :data="attempts" border max-height="360" empty-text="旧记录或未产生供应商遥测">
+            <el-table-column label="顺序" prop="attemptNo" width="64" />
+            <el-table-column label="供应商" prop="providerKey" min-width="150" show-overflow-tooltip />
+            <el-table-column label="路由" prop="routeKey" min-width="130" show-overflow-tooltip />
+            <el-table-column label="模型" prop="model" min-width="150" show-overflow-tooltip />
+            <el-table-column label="模式" width="86"><template #default="scope">{{ scope.row.byok ? 'BYOK' : '官方' }}</template></el-table-column>
+            <el-table-column label="Fallback" width="88"><template #default="scope">{{ scope.row.wasFallback ? '是' : '否' }}</template></el-table-column>
+            <el-table-column label="状态" width="92"><template #default="scope"><el-tag :type="statusTagType(scope.row.status)" size="small">{{ statusLabel(scope.row.status) }}</el-tag></template></el-table-column>
+            <el-table-column label="HTTP" prop="httpStatus" width="68" />
+            <el-table-column label="TTFT" width="84"><template #default="scope">{{ scope.row.ttftMs == null ? '-' : scope.row.ttftMs + ' ms' }}</template></el-table-column>
+            <el-table-column label="耗时" width="90"><template #default="scope">{{ scope.row.durationMs || 0 }} ms</template></el-table-column>
+            <el-table-column label="Token" width="110"><template #default="scope">{{ scope.row.promptTokens || 0 }} / {{ scope.row.completionTokens || 0 }}</template></el-table-column>
+            <el-table-column label="成本 USD" width="110"><template #default="scope">{{ formatCost(scope.row.totalCostUsd) }}</template></el-table-column>
+            <el-table-column label="错误" prop="errorMessage" min-width="220" show-overflow-tooltip />
+          </el-table>
+        </template>
+
         <el-alert
-          v-if="detail.success"
+          v-if="String(detail.status || '').toUpperCase() === 'SUCCESS'"
           class="mt12"
           type="success"
           show-icon
@@ -131,7 +198,7 @@
 </template>
 
 <script setup name="JgAiLog">
-import { listJgAiLog, cleanJgAiLog } from '@/api/jiugai/ailog'
+import { listJgAiLog, cleanJgAiLog, listAiTaskAttempts, listStandaloneAiAttempts, listStandaloneAiRequestAttempts } from '@/api/jiugai/ailog'
 import { isMessageBoxCancelled, jiugaiRequestErrorMessage } from '@/utils/jiugaiRequestError'
 
 const { proxy } = getCurrentInstance()
@@ -142,15 +209,31 @@ const showSearch = ref(true)
 const total = ref(0)
 const detailOpen = ref(false)
 const detail = ref({})
-
-const successFilter = ref('')
+const activeView = ref('TASK')
+const attempts = ref([])
+const attemptLoading = ref(false)
+const timeRange = ref([])
+const statusOptions = [
+  { value: 'QUEUED', label: '排队中' },
+  { value: 'GENERATING', label: '生成中' },
+  { value: 'SUCCESS', label: '成功' },
+  { value: 'FAILED', label: '失败' },
+  { value: 'STOPPED', label: '已停止' },
+  { value: 'CANCELLED', label: '已取消' }
+]
 
 const data = reactive({
   queryParams: {
     pageNum: 1,
     pageSize: 20,
     channel: '',
-    traceId: ''
+    capability: '',
+    status: '',
+    traceId: '',
+    keyword: '',
+    providerKey: '',
+    model: '',
+    httpStatus: undefined
   }
 })
 const { queryParams } = toRefs(data)
@@ -161,20 +244,17 @@ function getList() {
     pageNum: queryParams.value.pageNum,
     pageSize: queryParams.value.pageSize
   }
-  const ch = queryParams.value.channel
-  if (ch != null && String(ch).trim() !== '') {
-    q.channel = String(ch).trim()
+  for (const key of ['channel', 'capability', 'status', 'traceId', 'keyword', 'providerKey', 'model']) {
+    const value = queryParams.value[key]
+    if (value != null && String(value).trim() !== '') q[key] = String(value).trim()
   }
-  const traceId = queryParams.value.traceId
-  if (traceId != null && String(traceId).trim() !== '') {
-    q.traceId = String(traceId).trim()
+  if (queryParams.value.httpStatus) q.httpStatus = queryParams.value.httpStatus
+  if (Array.isArray(timeRange.value) && timeRange.value.length === 2) {
+    q.startedAfter = timeRange.value[0]
+    q.startedBefore = timeRange.value[1]
   }
-  if (successFilter.value === 'ok') {
-    q.success = true
-  } else if (successFilter.value === 'fail') {
-    q.success = false
-  }
-  listJgAiLog(q)
+  const loader = activeView.value === 'TASK' ? listJgAiLog : listStandaloneAiAttempts
+  loader(q)
     .then((res) => {
       dataList.value = res.rows || []
       total.value = res.total || 0
@@ -195,8 +275,21 @@ function handleQuery() {
 function resetQuery() {
   queryParams.value.pageNum = 1
   queryParams.value.channel = ''
+  queryParams.value.capability = ''
+  queryParams.value.status = ''
   queryParams.value.traceId = ''
-  successFilter.value = ''
+  queryParams.value.keyword = ''
+  queryParams.value.providerKey = ''
+  queryParams.value.model = ''
+  queryParams.value.httpStatus = undefined
+  timeRange.value = []
+  getList()
+}
+
+function handleViewChange() {
+  queryParams.value.pageNum = 1
+  queryParams.value.channel = ''
+  queryParams.value.capability = ''
   getList()
 }
 
@@ -213,7 +306,43 @@ function copyTraceId(traceId) {
 function openDetail(row) {
   if (!row || !row.id) return
   detail.value = { ...row }
+  attempts.value = []
   detailOpen.value = true
+  if (activeView.value === 'TASK') {
+    attemptLoading.value = true
+    listAiTaskAttempts(row.id)
+      .then((res) => { attempts.value = res.rows || [] })
+      .catch((e) => proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '加载供应商调用链失败')))
+      .finally(() => { attemptLoading.value = false })
+    return
+  }
+  if (String(row.requestId || '').startsWith('legacy-')) {
+    attempts.value = [{ ...row, attemptNo: row.attemptNo || 1 }]
+    return
+  }
+  attemptLoading.value = true
+  listStandaloneAiRequestAttempts(row.requestId)
+    .then((res) => { attempts.value = res.rows || [] })
+    .catch((e) => proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '加载供应商调用链失败')))
+    .finally(() => { attemptLoading.value = false })
+}
+
+function statusLabel(value) {
+  return statusOptions.find((item) => item.value === String(value || '').toUpperCase())?.label || value || '-'
+}
+
+function statusTagType(value) {
+  const status = String(value || '').toUpperCase()
+  if (status === 'SUCCESS') return 'success'
+  if (status === 'FAILED') return 'danger'
+  if (status === 'STOPPED' || status === 'CANCELLED') return 'warning'
+  return 'info'
+}
+
+function formatCost(value) {
+  if (value == null || value === '') return '-'
+  const n = Number(value)
+  return Number.isFinite(n) ? n.toFixed(6) : String(value)
 }
 
 function handleClean() {
@@ -245,6 +374,9 @@ getList()
 </script>
 
 <style scoped>
+.mb12 { margin-bottom: 12px; }
+.ai-log-tabs { margin-bottom: 12px; }
+.ml6 { margin-left: 6px; }
 .ai-log-detail {
   min-height: 220px;
 }

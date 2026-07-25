@@ -2,6 +2,7 @@ package com.example.sillyspringboot.admin.web;
 
 import com.example.sillyspringboot.admin.security.AdminPermitted;
 import com.example.sillyspringboot.admin.web.support.AdminAjaxResult;
+import com.example.sillyspringboot.billing.service.WalletLedgerService;
 import com.example.sillyspringboot.ops.service.EntitlementAuditLogService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,9 +21,27 @@ import java.util.Map;
 public class AdminJiugaiEntitlementLogController {
 
     private final EntitlementAuditLogService auditLogService;
+    private final WalletLedgerService walletLedgerService;
 
-    public AdminJiugaiEntitlementLogController(EntitlementAuditLogService auditLogService) {
+    public AdminJiugaiEntitlementLogController(
+            EntitlementAuditLogService auditLogService,
+            WalletLedgerService walletLedgerService
+    ) {
         this.auditLogService = auditLogService;
+        this.walletLedgerService = walletLedgerService;
+    }
+
+    @GetMapping("/wallet-consumption")
+    public Map<String, Object> walletConsumption(
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String bizType
+    ) {
+        return AdminAjaxResult.table(
+                walletLedgerService.countAdmin(keyword, bizType, "CONSUMPTION"),
+                walletLedgerService.listAdmin(keyword, bizType, "CONSUMPTION", pageNum, pageSize)
+        );
     }
 
     @GetMapping("/list")
@@ -32,11 +51,14 @@ public class AdminJiugaiEntitlementLogController {
             @RequestParam(required = false) String scopeType,
             @RequestParam(required = false) String actionType,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String targetUserId
+            @RequestParam(required = false) String targetUserId,
+            @RequestParam(required = false) String groupType
     ) {
         Long safeTargetUserId = parsePositiveId(targetUserId);
-        long total = auditLogService.countList(scopeType, actionType, keyword, safeTargetUserId);
-        List<Map<String, Object>> rows = auditLogService.listPage(scopeType, actionType, keyword, safeTargetUserId, pageNum, pageSize);
+        long total = auditLogService.countList(scopeType, actionType, keyword, safeTargetUserId, groupType);
+        List<Map<String, Object>> rows = auditLogService.listPage(
+                scopeType, actionType, keyword, safeTargetUserId, groupType, pageNum, pageSize
+        );
         return AdminAjaxResult.table(total, rows);
     }
 

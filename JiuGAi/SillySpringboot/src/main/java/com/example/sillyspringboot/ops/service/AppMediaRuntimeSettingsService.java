@@ -54,6 +54,7 @@ public class AppMediaRuntimeSettingsService {
             settings.setRateWindowSeconds(intValue(body.get("rateWindowSeconds"), settings.getRateWindowSeconds(), 10, 3600));
             applyLimits(settings.getTts(), nested(body.get("tts")));
             applyLimits(settings.getStt(), nested(body.get("stt")));
+            applyLimits(settings.getVoiceClone(), nested(body.get("voiceClone")));
         }
         settings = sanitize(settings, defaults());
         try {
@@ -71,6 +72,7 @@ public class AppMediaRuntimeSettingsService {
         data.put("rateWindowSeconds", safe.getRateWindowSeconds());
         data.put("tts", limitsMap(safe.getTts()));
         data.put("stt", limitsMap(safe.getStt()));
+        data.put("voiceClone", limitsMap(safe.getVoiceClone()));
         return data;
     }
 
@@ -80,6 +82,7 @@ public class AppMediaRuntimeSettingsService {
         settings.setRateWindowSeconds(properties.getRateWindowSeconds());
         settings.setTts(copy(properties.getTts()));
         settings.setStt(copy(properties.getStt()));
+        settings.setVoiceClone(new AppMediaRuntimeSettings.Limits(3, 1, 3));
         return settings;
     }
 
@@ -99,6 +102,7 @@ public class AppMediaRuntimeSettingsService {
         safe.setRateWindowSeconds(clamp(safe.getRateWindowSeconds(), 10, 3600, fallback.getRateWindowSeconds()));
         safe.setTts(sanitizeLimits(safe.getTts(), fallback.getTts()));
         safe.setStt(sanitizeLimits(safe.getStt(), fallback.getStt()));
+        safe.setVoiceClone(sanitizeLimits(safe.getVoiceClone(), fallback.getVoiceClone()));
         return safe;
     }
 

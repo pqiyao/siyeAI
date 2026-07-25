@@ -5,6 +5,7 @@ import com.example.sillyspringboot.ops.generation.model.GenerationAttemptEvent;
 import com.example.sillyspringboot.ops.generation.service.GenerationTelemetryService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import org.springframework.stereotype.Service;
+import org.slf4j.MDC;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -81,6 +82,7 @@ public class AiMediaAttemptTelemetry {
             telemetryService.recordAsync(new GenerationAttemptEvent(
                     null,
                     attempt.requestId(),
+                    safe(MDC.get("traceId")),
                     attempt.attemptNo(),
                     attempt.providerKey(),
                     attempt.capability().defaultRouteKey(),
@@ -94,6 +96,7 @@ public class AiMediaAttemptTelemetry {
                     httpStatus,
                     status,
                     errorCode,
+                    safe(error == null ? null : error.getMessage()),
                     null,
                     false,
                     null,

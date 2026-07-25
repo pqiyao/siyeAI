@@ -8,6 +8,7 @@ public class AiRoutingProperties {
     private boolean enabled = false;
     private boolean shadowEnabled = true;
     private int chatCanaryPercent = 0;
+    private boolean visionEnabled = false;
     private boolean imageEnabled = false;
     private boolean ttsEnabled = false;
     private boolean sttEnabled = false;
@@ -20,6 +21,8 @@ public class AiRoutingProperties {
     public void setChatCanaryPercent(int chatCanaryPercent) {
         this.chatCanaryPercent = Math.max(0, Math.min(100, chatCanaryPercent));
     }
+    public boolean isVisionEnabled() { return visionEnabled; }
+    public void setVisionEnabled(boolean visionEnabled) { this.visionEnabled = visionEnabled; }
     public boolean isImageEnabled() { return imageEnabled; }
     public void setImageEnabled(boolean imageEnabled) { this.imageEnabled = imageEnabled; }
     public boolean isTtsEnabled() { return ttsEnabled; }

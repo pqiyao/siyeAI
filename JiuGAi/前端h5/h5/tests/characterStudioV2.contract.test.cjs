@@ -1,0 +1,94 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const editor = fs.readFileSync(path.join(root, 'pages/tavern/tavernEditor.vue'), 'utf8');
+const chat = fs.readFileSync(path.join(root, 'pages/tavern/tavernChat.vue'), 'utf8');
+const api = fs.readFileSync(path.join(root, 'common/tavernApi.js'), 'utf8');
+const membersEditor = fs.readFileSync(path.join(root, 'components/tavern/character-members-editor.vue'), 'utf8');
+const openingsEditor = fs.readFileSync(path.join(root, 'components/tavern/character-openings-editor.vue'), 'utf8');
+const worldbookEditor = fs.readFileSync(path.join(root, 'components/tavern/character-worldbook-editor.vue'), 'utf8');
+
+assert.match(editor, /cardType/);
+assert.match(editor, /character-members-editor/);
+assert.match(editor, /character-openings-editor/);
+assert.match(editor, /character-worldbook-editor/);
+assert.match(editor, /alternateGreetings/);
+assert.match(editor, /@pick-reference="pickMemberReference"/);
+assert.match(editor, /uploadMemberImage\(index, file, 'imageReferenceUrl'\)/);
+assert.match(editor, /delete member\.settingsOpen/);
+assert.match(editor, /delete entry\.advancedOpen/);
+assert.match(editor, /savedForm && savedForm\.id != null/);
+assert.doesNotMatch(editor, /next\.id\s*\?/);
+assert.match(editor, /JSON\.parse\(rawVoiceConfig\)/);
+assert.match(editor, /defaultOpeningIndex/);
+assert.match(editor, /legacyOpeningOrder/);
+assert.match(editor, /editorTabs/);
+assert.match(editor, /singleCard && index === 0 \? this\.form\.name/);
+assert.match(editor, /:voice-feature-enabled="featureConfigReady && featureConfig\.voiceFeatureEnabled !== false"/);
+assert.match(editor, /:image-generation-enabled="featureConfigReady && featureConfig\.imageGenerationEnabled !== false"/);
+assert.match(editor, /voiceFeatureEnabled: require\('@\/common\/tavernApi\.js'\)\.isVoiceFeatureEnabled\(\)/);
+assert.match(editor, /imageGenerationEnabled: require\('@\/common\/tavernApi\.js'\)\.isImageGenerationEnabled\(\)/);
+assert.match(editor, /this\.featureConfigReady = true/);
+assert.match(editor, /this\.featureConfig\.imageGenerationEnabled === false/);
+assert.match(editor, /onShow\(\)[\s\S]{0,120}syncFeatureConfig\(true\)/);
+assert.match(editor, /:character-id="id"/);
+assert.match(editor, /collectVoiceBindingChanges/);
+assert.match(editor, /syncPrivateVoiceBindings/);
+assert.match(editor, /putUserTtsVoiceBinding/);
+assert.match(editor, /delete member\.ttsUserVoiceId/);
+assert.match(editor, /delete member\.ttsUserVoiceBindingDirty/);
+
+assert.match(membersEditor, /ttsModelName/);
+assert.match(membersEditor, /ttsVoiceName/);
+assert.match(membersEditor, /ttsVoiceTemplateCode/);
+assert.match(membersEditor, /pick-reference/);
+assert.match(membersEditor, /moveMember\(index, offset\)/);
+assert.match(membersEditor, /人设字数/);
+assert.doesNotMatch(membersEditor, /listTavernUserAiProviderModels/);
+assert.doesNotMatch(membersEditor, /<text class="settings-label">TTS 模型<\/text>/);
+assert.match(membersEditor, /getUserTtsVoices/);
+assert.match(membersEditor, /getUserTtsVoiceBinding/);
+assert.match(membersEditor, /voiceCatalogPrivateVoices/);
+assert.match(membersEditor, /TTS 模型由 AI 设置统一管理/);
+assert.match(membersEditor, /voiceCatalogTemplates/);
+assert.match(membersEditor, /v-if="imageGenerationEnabled \|\| voiceFeatureEnabled"/);
+assert.match(membersEditor, /v-if="imageGenerationEnabled" class="member-reference"/);
+assert.match(membersEditor, /v-if="voiceFeatureEnabled" class="member-advanced-action"/);
+assert.match(membersEditor, /v-if="voiceFeatureEnabled && member\.settingsOpen"/);
+assert.match(membersEditor, /if \(!this\.voiceFeatureEnabled\) return Promise\.resolve\(\[\]\)/);
+
+assert.match(openingsEditor, /moveOpening\(index, offset\)/);
+
+assert.match(worldbookEditor, /secondaryKeywords/);
+assert.match(worldbookEditor, /matchMode/);
+assert.match(worldbookEditor, /scanDepth/);
+assert.match(worldbookEditor, /injectionPosition/);
+assert.match(worldbookEditor, /BEFORE_CHARACTER/);
+assert.match(worldbookEditor, /AFTER_CHARACTER/);
+assert.match(worldbookEditor, /BEFORE_HISTORY/);
+
+assert.match(chat, /mode === 'sessions'/);
+assert.match(chat, /mode === 'openings'/);
+assert.match(chat, /mode === 'branches'/);
+assert.match(chat, /source\.title \|\| this/);
+assert.match(chat, /postTavernBranchRename/);
+assert.match(chat, /postTavernBranchDelete/);
+assert.match(chat, /deleteStorySession/);
+assert.match(chat, /postTavernSessionDeleteOne/);
+assert.match(chat, /speakerMemberId/);
+assert.match(chat, /currentEnsembleSpeakerMemberId/);
+assert.match(chat, /studioMembers/);
+assert.match(chat, /assistantVoiceSegmentsForRow/);
+assert.match(chat, /sentenceSpeakerMemberIds/);
+assert.match(chat, /buildCharacterVoiceTtsPayload\([\s\S]*speakerMemberId/);
+assert.doesNotMatch(chat, /branch-row[\s\S]{0,500}m\.speakerName/);
+
+assert.match(api, /\/api\/v1\/tavern\/sessions\/create/);
+assert.match(api, /\/api\/v1\/tavern\/sessions\/activate/);
+assert.match(api, /\/api\/v1\/tavern\/sessions\/delete-one/);
+assert.match(api, /\/api\/v1\/tavern\/branches\/rename/);
+assert.match(api, /\/api\/v1\/tavern\/branches\/delete/);
+
+console.log('character studio v2 contract passed');

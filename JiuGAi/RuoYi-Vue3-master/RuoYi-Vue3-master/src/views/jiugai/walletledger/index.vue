@@ -8,6 +8,11 @@
       :title="alertTitle"
     />
 
+    <el-tabs v-model="activeGroup" class="ledger-tabs" @tab-change="handleGroupChange">
+      <el-tab-pane label="充值收益" name="REVENUE" />
+      <el-tab-pane label="其他资金变动" name="OTHER" />
+    </el-tabs>
+
     <el-form :model="queryParams" inline v-show="showSearch">
       <el-form-item :label="labels.keyword">
         <el-input
@@ -20,11 +25,12 @@
       </el-form-item>
       <el-form-item :label="labels.bizType">
         <el-select v-model="queryParams.bizType" :placeholder="labels.all" clearable style="width: 180px">
-          <el-option :label="labels.payment" value="PAYMENT" />
-          <el-option :label="labels.chat" value="CHAT_CONSUME" />
-          <el-option :label="labels.image" value="IMAGE_CONSUME" />
-          <el-option :label="labels.tts" value="TTS_CONSUME" />
-          <el-option :label="labels.ttsRefund" value="TTS_REFUND" />
+          <el-option
+            v-for="option in currentBizTypeOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -85,17 +91,23 @@ import { jiugaiRequestErrorMessage } from '@/utils/jiugaiRequestError'
 
 const { proxy } = getCurrentInstance()
 
-const alertTitle = '记录钻石/金币入账与消耗流水：充值入账、聊天/生图/语音超额扣费等，便于排查双轨钱包变化。'
+const alertTitle = '资金流水按用途分开查看：充值收益用于核对用户充值入账，其他资金变动保留签到、消费和退款等完整账本。'
 const labels = {
   keyword: '关键字',
   keywordPh: '用户ID / 业务单号 / 备注',
   bizType: '业务类型',
   all: '全部',
   payment: '充值入账',
+  checkin: '签到奖励',
   chat: '聊天消耗',
   image: '生图消耗',
+  imageRefund: '生图退款',
   tts: '语音消耗',
   ttsRefund: '语音退款',
+  stt: '语音识别消耗',
+  sttRefund: '语音识别退款',
+  vision: '识图消耗',
+  visionRefund: '识图退款',
   search: '搜索',
   reset: '重置',
   id: 'ID',
@@ -108,6 +120,7 @@ const labels = {
 }
 
 const dataList = ref([])
+const activeGroup = ref('REVENUE')
 const loading = ref(true)
 const showSearch = ref(true)
 const total = ref(0)
@@ -117,11 +130,30 @@ const data = reactive({
     pageNum: 1,
     pageSize: 10,
     keyword: undefined,
-    bizType: undefined
+    bizType: undefined,
+    groupType: 'REVENUE'
   }
 })
 
 const { queryParams } = toRefs(data)
+
+const currentBizTypeOptions = computed(() => {
+  if (activeGroup.value === 'REVENUE') {
+    return [{ label: labels.payment, value: 'PAYMENT' }]
+  }
+  return [
+    { label: labels.checkin, value: 'CHECKIN' },
+    { label: labels.chat, value: 'CHAT_CONSUME' },
+    { label: labels.image, value: 'IMAGE_CONSUME' },
+    { label: labels.imageRefund, value: 'IMAGE_REFUND' },
+    { label: labels.tts, value: 'TTS_CONSUME' },
+    { label: labels.ttsRefund, value: 'TTS_REFUND' },
+    { label: labels.stt, value: 'STT_CONSUME' },
+    { label: labels.sttRefund, value: 'STT_REFUND' },
+    { label: labels.vision, value: 'VISION_CONSUME' },
+    { label: labels.visionRefund, value: 'VISION_REFUND' }
+  ]
+})
 
 function getList() {
   loading.value = true
@@ -143,6 +175,13 @@ function handleQuery() {
   getList()
 }
 
+function handleGroupChange(group) {
+  queryParams.value.pageNum = 1
+  queryParams.value.bizType = undefined
+  queryParams.value.groupType = group
+  getList()
+}
+
 function resetQuery() {
   queryParams.value.keyword = undefined
   queryParams.value.bizType = undefined
@@ -158,10 +197,16 @@ function formatDelta(value) {
 function formatBizType(value) {
   const labelsByType = {
     PAYMENT: labels.payment,
+    CHECKIN: labels.checkin,
     CHAT_CONSUME: labels.chat,
     IMAGE_CONSUME: labels.image,
+    IMAGE_REFUND: labels.imageRefund,
     TTS_CONSUME: labels.tts,
-    TTS_REFUND: labels.ttsRefund
+    TTS_REFUND: labels.ttsRefund,
+    STT_CONSUME: labels.stt,
+    STT_REFUND: labels.sttRefund,
+    VISION_CONSUME: labels.vision,
+    VISION_REFUND: labels.visionRefund
   }
   return labelsByType[String(value || '').toUpperCase()] || value || '-'
 }
@@ -179,6 +224,7 @@ getList()
 <style scoped>
 .mb12 { margin-bottom: 12px; }
 .mb8 { margin-bottom: 8px; }
+.ledger-tabs { margin-bottom: 12px; }
 .sub-line { color: var(--el-text-color-secondary); font-size: 12px; }
 .delta-plus { color: var(--el-color-success); font-weight: 600; }
 .delta-minus { color: var(--el-color-danger); font-weight: 600; }

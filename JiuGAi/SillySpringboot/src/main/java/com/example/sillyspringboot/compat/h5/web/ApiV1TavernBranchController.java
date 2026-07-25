@@ -5,6 +5,8 @@ import com.example.sillyspringboot.chat.entity.AppMessage;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
 import com.example.sillyspringboot.chat.service.AppChatService;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
+import com.example.sillyspringboot.character.entity.AppCharacterOpening;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.conversation.dto.ConversationDetailDto;
 import com.example.sillyspringboot.conversation.entity.AppConversation;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -36,6 +39,9 @@ public class ApiV1TavernBranchController {
     private final AppMessageMapper messageMapper;
     private final ChatSnapshotService snapshotService;
     private final AppChatService chatService;
+
+    @Autowired(required = false)
+    private CharacterStudioMapper characterStudioMapper;
 
     public ApiV1TavernBranchController(
             H5ClientUidAuthService h5Auth,
@@ -105,6 +111,34 @@ public class ApiV1TavernBranchController {
         ));
     }
 
+    @PostMapping("/rename")
+    public ApiV1Result<Map<String, Object>> rename(@RequestBody Map<String, Object> payload) {
+        BranchRequestContext context = requireContext(payload, false);
+        long branchId = requireLong(payload, "branchId");
+        String title = requireString(payload, "title");
+        AppConversation conversation = requireConversation(context.conversationId(), context.userId());
+        branchService.renameBranch(conversation, branchId, title);
+        return ApiV1Result.ok(buildBranchEnvelope(
+                context.conversationId(),
+                context.userId(),
+                loadOpeningVariants(context)
+        ));
+    }
+
+    @PostMapping("/delete")
+    public ApiV1Result<Map<String, Object>> delete(@RequestBody Map<String, Object> payload) {
+        BranchRequestContext context = requireContext(payload, false);
+        long branchId = requireLong(payload, "branchId");
+        AppConversation conversation = requireConversation(context.conversationId(), context.userId());
+        AppConversationBranch active = branchService.deleteBranch(conversation, branchId);
+        snapshotService.saveSnapshotFromDb(context.conversationId(), active.getId(), 800);
+        return ApiV1Result.ok(buildBranchEnvelope(
+                context.conversationId(),
+                context.userId(),
+                loadOpeningVariants(context)
+        ));
+    }
+
     private Map<String, Object> buildBranchEnvelope(
             long conversationId,
             long userId,
@@ -123,14 +157,34 @@ public class ApiV1TavernBranchController {
         out.put("conversationId", conversationId);
         out.put("activeBranchId", active.getId());
         out.put("branches", branches);
-        out.put("openings", toOpeningRows(conversationId, branchEntities, openingVariants, active.getId()));
+        out.put("openings", toOpeningRows(
+                conversationId,
+                branchEntities,
+                openingVariants,
+                openingTitles(conversation.getCharacterId(), openingVariants.size()),
+                active.getId()
+        ));
         return out;
+    }
+
+    private List<String> openingTitles(long characterId, int count) {
+        if (characterStudioMapper == null || count <= 0) return List.of();
+        try {
+            return characterStudioMapper.listOpenings(characterId).stream()
+                    .map(AppCharacterOpening::getTitle)
+                    .map(value -> value == null ? "" : value.trim())
+                    .limit(count)
+                    .toList();
+        } catch (RuntimeException ignored) {
+            return List.of();
+        }
     }
 
     private List<Map<String, Object>> toOpeningRows(
             long conversationId,
             List<AppConversationBranch> branches,
             List<String> openingVariants,
+            List<String> openingTitles,
             long activeBranchId
     ) {
         Map<Integer, AppConversationBranch> branchesByVariant = new HashMap<>();
@@ -149,6 +203,9 @@ public class ApiV1TavernBranchController {
             row.put("active", branchId > 0 && branchId == activeBranchId);
             row.put("created", branchId > 0);
             row.put("preview", preview(openingVariants.get(i)));
+            row.put("title", openingTitles != null && i < openingTitles.size() && !openingTitles.get(i).isBlank()
+                    ? openingTitles.get(i)
+                    : "Opening " + (i + 1));
             row.put("messageCount", branchId > 0
                     ? messageMapper.countVisibleByConversationBranch(conversationId, branchId)
                     : 0);

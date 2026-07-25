@@ -196,6 +196,7 @@
           <div class="voice-columns">
             <section class="control-section voice-panel"><header class="service-title"><el-icon><Headset /></el-icon><div><h2>TTS 语音合成</h2><p>按 AI 消息稳定任务 ID 分段生成，整条回复只计费一次。</p></div></header><limit-form v-model="voiceForm.runtime.tts" :window-seconds="voiceForm.runtime.rateWindowSeconds" /><div class="billing-line"><span>当前计费</span><strong>{{ costLabel(voiceForm.ttsScoreCost, voiceForm.ttsGoldCost) }}</strong></div></section>
             <section class="control-section voice-panel"><header class="service-title"><el-icon><Microphone /></el-icon><div><h2>STT 语音识别</h2><p>每段录音成功识别后计费，失败会退款。</p></div></header><limit-form v-model="voiceForm.runtime.stt" :window-seconds="voiceForm.runtime.rateWindowSeconds" /><div class="billing-line"><span>当前计费</span><strong>{{ costLabel(voiceForm.sttScoreCost, voiceForm.sttGoldCost) }}</strong></div></section>
+            <section class="control-section voice-panel"><header class="service-title"><el-icon><UserFilled /></el-icon><div><h2>用户音色克隆</h2><p>只允许用户自己的硅基流动 Key；独立并发与频率限制，不占 TTS 播放通道。</p></div></header><limit-form v-model="voiceForm.runtime.voiceClone" :window-seconds="voiceForm.runtime.rateWindowSeconds" /><div class="billing-line"><span>平台计费</span><strong>不扣平台钱包</strong></div></section>
           </div>
 
           <section class="control-section"><header class="section-header"><div><h2>公共窗口</h2><p>仅影响语音请求计数，不改变聊天生成链路。</p></div></header><el-form label-position="top"><el-row :gutter="16"><el-col :xs="24" :md="8"><el-form-item label="频率窗口（秒）"><el-input-number v-model="voiceForm.runtime.rateWindowSeconds" :min="10" :max="3600" controls-position="right" style="width: 100%" /></el-form-item></el-col><el-col :xs="24" :md="8"><el-form-item label="并发计数 TTL（秒）"><el-input-number v-model="voiceForm.runtime.counterTtlSeconds" :min="10" :max="7200" controls-position="right" style="width: 100%" /></el-form-item></el-col></el-row></el-form></section>
@@ -214,6 +215,31 @@
             <el-table-column prop="sortOrder" label="排序" width="90" />
             <el-table-column label="操作" width="130" fixed="right"><template #default="scope"><el-button v-hasPermi="['content:voice-template:edit']" link type="primary" :icon="Edit" @click="openVoiceTemplate(scope.row)">编辑</el-button><el-button v-hasPermi="['content:voice-template:edit']" link type="danger" :icon="Delete" @click="removeVoiceTemplate(scope.row)">删除</el-button></template></el-table-column>
           </el-table>
+        </section>
+      </el-tab-pane>
+
+      <el-tab-pane name="userVoices">
+        <template #label><span class="tab-label"><el-icon><UserFilled /></el-icon>用户自建音色</span></template>
+        <section class="control-section template-section">
+          <header class="section-header section-header--table">
+            <div><h2>用户私有音色运行状态</h2><p>这里只提供风控停用与恢复；私有 voice URI 和用户 API Key 不会返回后台页面。</p></div>
+            <div class="table-tools">
+              <el-input v-model="userVoiceQuery.keyword" clearable placeholder="用户 ID 或音色名称" @keyup.enter="loadUserVoices"><template #prefix><el-icon><Search /></el-icon></template></el-input>
+              <el-select v-model="userVoiceQuery.status" clearable placeholder="全部状态" style="width: 130px" @change="loadUserVoices"><el-option label="可用" value="READY" /><el-option label="创建失败" value="FAILED" /><el-option label="创建中" value="PROVISIONING" /></el-select>
+              <el-button :icon="Refresh" @click="loadUserVoices">刷新</el-button>
+            </div>
+          </header>
+          <el-table v-loading="userVoiceLoading" :data="userVoiceRows" stripe>
+            <el-table-column prop="id" label="ID" width="90" />
+            <el-table-column prop="userId" label="用户 ID" width="110" />
+            <el-table-column prop="displayName" label="音色名称" min-width="180" />
+            <el-table-column prop="modelName" label="创建模型" min-width="230" show-overflow-tooltip />
+            <el-table-column label="状态" width="110"><template #default="scope"><el-tag :type="userVoiceStatusType(scope.row)">{{ userVoiceStatusText(scope.row) }}</el-tag></template></el-table-column>
+            <el-table-column prop="lastError" label="最近错误" min-width="230" show-overflow-tooltip />
+            <el-table-column prop="createdAt" label="创建时间" width="170" />
+            <el-table-column label="操作" width="120" fixed="right"><template #default="scope"><el-button v-hasPermi="['ops:media:user-voice:manage']" link :type="scope.row.disabled ? 'success' : 'danger'" @click="toggleUserVoice(scope.row)">{{ scope.row.disabled ? '恢复' : '停用' }}</el-button></template></el-table-column>
+          </el-table>
+          <pagination v-show="userVoiceTotal > 0" :total="userVoiceTotal" v-model:page="userVoiceQuery.pageNum" v-model:limit="userVoiceQuery.pageSize" @pagination="loadUserVoices" />
         </section>
       </el-tab-pane>
     </el-tabs>
@@ -256,16 +282,18 @@
 <script setup name="JgMediaCenter">
 import { computed, defineComponent, getCurrentInstance, h, onMounted, reactive, ref } from 'vue'
 import { ElForm, ElFormItem, ElInputNumber, ElMessageBox } from 'element-plus'
-import { Check, Connection, Cpu, Delete, Edit, Headset, Microphone, Picture, Plus, Refresh, RefreshLeft, Search, Upload } from '@element-plus/icons-vue'
+import { Check, Connection, Cpu, Delete, Edit, Headset, Microphone, Picture, Plus, Refresh, RefreshLeft, Search, Upload, UserFilled } from '@element-plus/icons-vue'
 import {
   deleteCharacterImagePolicy,
   getCharacterImagePolicy,
   getMediaImagePolicy,
   getMediaVoicePolicy,
+  listUserTtsVoices,
   listCharacterImagePolicies,
   updateCharacterImagePolicy,
   updateMediaImagePolicy,
-  updateMediaVoicePolicy
+  updateMediaVoicePolicy,
+  updateUserTtsVoiceDisabled
 } from '@/api/jiugai/media'
 import { addTtsVoiceTemplate, deleteTtsVoiceTemplate, listTtsVoiceTemplates, updateTtsVoiceTemplate } from '@/api/jiugai/ttsVoiceTemplate'
 import { getToken } from '@/utils/auth'
@@ -445,7 +473,7 @@ function modeTagType(mode) { return mode === 'strong' ? 'danger' : mode === 'bal
 const voiceLoading = ref(false)
 const voiceSaving = ref(false)
 const defaultLimits = () => ({ globalConcurrentLimit: 1, perUserConcurrentLimit: 1, perUserRequestsPerWindow: 6 })
-const voiceForm = reactive({ featureEnabled: true, userByokEnabled: false, userByokVipMinLevel: 0, ttsScoreCost: 0, ttsGoldCost: 0, sttScoreCost: 0, sttGoldCost: 0, runtime: { counterTtlSeconds: 180, rateWindowSeconds: 60, tts: { ...defaultLimits(), globalConcurrentLimit: 8, perUserRequestsPerWindow: 12 }, stt: { ...defaultLimits(), globalConcurrentLimit: 4 } } })
+const voiceForm = reactive({ featureEnabled: true, userByokEnabled: false, userByokVipMinLevel: 0, ttsScoreCost: 0, ttsGoldCost: 0, sttScoreCost: 0, sttGoldCost: 0, runtime: { counterTtlSeconds: 180, rateWindowSeconds: 60, tts: { ...defaultLimits(), globalConcurrentLimit: 8, perUserRequestsPerWindow: 12 }, stt: { ...defaultLimits(), globalConcurrentLimit: 4 }, voiceClone: { ...defaultLimits(), globalConcurrentLimit: 3, perUserConcurrentLimit: 1, perUserRequestsPerWindow: 3 } } })
 const ttsRouting = reactive(emptyRouting('TTS'))
 const sttRouting = reactive(emptyRouting('STT'))
 const voiceRoutes = computed(() => [
@@ -455,7 +483,7 @@ const voiceRoutes = computed(() => [
 
 function applyVoicePolicy(data) {
   Object.assign(voiceForm, data || {})
-  voiceForm.runtime = { counterTtlSeconds: 180, rateWindowSeconds: 60, ...(data.runtime || {}), tts: { ...defaultLimits(), ...(data.runtime && data.runtime.tts || {}) }, stt: { ...defaultLimits(), ...(data.runtime && data.runtime.stt || {}) } }
+  voiceForm.runtime = { counterTtlSeconds: 180, rateWindowSeconds: 60, ...(data.runtime || {}), tts: { ...defaultLimits(), ...(data.runtime && data.runtime.tts || {}) }, stt: { ...defaultLimits(), ...(data.runtime && data.runtime.stt || {}) }, voiceClone: { ...defaultLimits(), globalConcurrentLimit: 3, perUserConcurrentLimit: 1, perUserRequestsPerWindow: 3, ...(data.runtime && data.runtime.voiceClone || {}) } }
   Object.assign(ttsRouting, emptyRouting('TTS'), data.ttsRouting || {})
   Object.assign(sttRouting, emptyRouting('STT'), data.sttRouting || {})
 }
@@ -519,7 +547,25 @@ function audioUploadSuccess(response) { if (response && Number(response.code) ==
 function imageUploadSuccess(response) { if (response && Number(response.code) === 200 && response.fileName) templateForm.coverImageUrl = response.fileName; else proxy.$modal.msgError((response && response.msg) || '封面上传失败') }
 function assetUrl(url) { const value = String(url || '').trim(); if (!value || /^(https?:|data:|blob:)/i.test(value)) return value; return value.startsWith('/') ? baseApi + value : value }
 
-onMounted(() => { loadImagePolicy(); loadCharacters(); loadVoicePolicy(); loadTemplates() })
+const userVoiceLoading = ref(false)
+const userVoiceRows = ref([])
+const userVoiceTotal = ref(0)
+const userVoiceQuery = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '' })
+async function loadUserVoices() {
+  userVoiceLoading.value = true
+  try { const res = await listUserTtsVoices({ ...userVoiceQuery }); userVoiceRows.value = Array.isArray(res.rows) ? res.rows : []; userVoiceTotal.value = Number(res.total || 0) }
+  catch (error) { proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '加载用户音色失败')) }
+  finally { userVoiceLoading.value = false }
+}
+function userVoiceStatusType(row) { if (row && row.disabled) return 'info'; return row && row.status === 'READY' ? 'success' : row && row.status === 'FAILED' ? 'danger' : 'warning' }
+function userVoiceStatusText(row) { if (row && row.disabled) return '已停用'; return ({ READY: '可用', FAILED: '失败', PROVISIONING: '创建中', PENDING: '等待中' })[row && row.status] || '未知' }
+async function toggleUserVoice(row) {
+  const next = !(row && row.disabled)
+  try { await updateUserTtsVoiceDisabled(row.id, next); proxy.$modal.msgSuccess(next ? '音色已停用' : '音色已恢复'); await loadUserVoices() }
+  catch (error) { proxy.$modal.msgError(jiugaiRequestErrorMessage(error, next ? '停用失败' : '恢复失败')) }
+}
+
+onMounted(() => { loadImagePolicy(); loadCharacters(); loadVoicePolicy(); loadTemplates(); loadUserVoices() })
 </script>
 
 <style scoped>

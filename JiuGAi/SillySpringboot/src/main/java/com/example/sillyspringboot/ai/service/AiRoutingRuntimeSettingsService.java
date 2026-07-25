@@ -26,6 +26,7 @@ public class AiRoutingRuntimeSettingsService {
             boolean enabled,
             boolean shadowEnabled,
             int chatCanaryPercent,
+            boolean visionEnabled,
             boolean imageEnabled,
             boolean ttsEnabled,
             boolean sttEnabled,
@@ -75,6 +76,7 @@ public class AiRoutingRuntimeSettingsService {
                 bool(body.get("enabled"), current.enabled()),
                 bool(body.get("shadowEnabled"), current.shadowEnabled()),
                 integer(body.get("chatCanaryPercent"), current.chatCanaryPercent(), 0, 100),
+                bool(body.get("visionEnabled"), current.visionEnabled()),
                 bool(body.get("imageEnabled"), current.imageEnabled()),
                 bool(body.get("ttsEnabled"), current.ttsEnabled()),
                 bool(body.get("sttEnabled"), current.sttEnabled()),
@@ -104,6 +106,7 @@ public class AiRoutingRuntimeSettingsService {
         result.put("enabled", value.enabled());
         result.put("shadowEnabled", value.shadowEnabled());
         result.put("chatCanaryPercent", value.chatCanaryPercent());
+        result.put("visionEnabled", value.visionEnabled());
         result.put("imageEnabled", value.imageEnabled());
         result.put("ttsEnabled", value.ttsEnabled());
         result.put("sttEnabled", value.sttEnabled());
@@ -122,6 +125,7 @@ public class AiRoutingRuntimeSettingsService {
                     root.path("enabled").asBoolean(fallback.enabled()),
                     root.path("shadowEnabled").asBoolean(fallback.shadowEnabled()),
                     Math.max(0, Math.min(100, root.path("chatCanaryPercent").asInt(fallback.chatCanaryPercent()))),
+                    root.path("visionEnabled").asBoolean(fallback.visionEnabled()),
                     root.path("imageEnabled").asBoolean(fallback.imageEnabled()),
                     root.path("ttsEnabled").asBoolean(fallback.ttsEnabled()),
                     root.path("sttEnabled").asBoolean(fallback.sttEnabled()),
@@ -136,6 +140,7 @@ public class AiRoutingRuntimeSettingsService {
     private Settings environmentDefaults() {
         return new Settings(
                 defaults.isEnabled(), defaults.isShadowEnabled(), defaults.getChatCanaryPercent(),
+                defaults.isVisionEnabled(),
                 defaults.isImageEnabled(), defaults.isTtsEnabled(), defaults.isSttEnabled(), "environment");
     }
 

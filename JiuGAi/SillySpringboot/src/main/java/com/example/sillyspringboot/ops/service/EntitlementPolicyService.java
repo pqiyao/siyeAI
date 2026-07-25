@@ -60,6 +60,10 @@ public class EntitlementPolicyService {
             current.setGuestCharacterCreateLimit(intVal(body.get("guestCharacterCreateLimit"), current.getGuestCharacterCreateLimit()));
             current.setVipCharacterCreateLimit(intVal(body.get("vipCharacterCreateLimit"), current.getVipCharacterCreateLimit()));
             current.setSvipCharacterCreateLimit(intVal(body.get("svipCharacterCreateLimit"), current.getSvipCharacterCreateLimit()));
+            current.setUserVoiceCreationEnabled(boolVal(body.get("userVoiceCreationEnabled"), current.isUserVoiceCreationEnabled()));
+            current.setGuestUserVoiceLimit(nonNegativeIntVal(body.get("guestUserVoiceLimit"), current.getGuestUserVoiceLimit(), 20));
+            current.setVipUserVoiceLimit(nonNegativeIntVal(body.get("vipUserVoiceLimit"), current.getVipUserVoiceLimit(), 20));
+            current.setSvipUserVoiceLimit(nonNegativeIntVal(body.get("svipUserVoiceLimit"), current.getSvipUserVoiceLimit(), 20));
             current.setGuestCanAccessVipCharacters(boolVal(body.get("guestCanAccessVipCharacters"), current.isGuestCanAccessVipCharacters()));
             current.setVipCanAccessVipCharacters(boolVal(body.get("vipCanAccessVipCharacters"), current.isVipCanAccessVipCharacters()));
             current.setSvipCanAccessVipCharacters(boolVal(body.get("svipCanAccessVipCharacters"), current.isSvipCanAccessVipCharacters()));
@@ -76,6 +80,8 @@ public class EntitlementPolicyService {
             current.setTtsGoldCost(intVal(body.get("ttsGoldCost"), current.getTtsGoldCost()));
             current.setSttScoreCost(intVal(body.get("sttScoreCost"), current.getSttScoreCost()));
             current.setSttGoldCost(intVal(body.get("sttGoldCost"), current.getSttGoldCost()));
+            current.setVisionScoreCost(intVal(body.get("visionScoreCost"), current.getVisionScoreCost()));
+            current.setVisionGoldCost(intVal(body.get("visionGoldCost"), current.getVisionGoldCost()));
         }
         runtimeSettingMapper.upsert(SETTING_KEY, writeJson(current));
         return current;
@@ -95,6 +101,10 @@ public class EntitlementPolicyService {
         data.put("guestCharacterCreateLimit", policy.getGuestCharacterCreateLimit());
         data.put("vipCharacterCreateLimit", policy.getVipCharacterCreateLimit());
         data.put("svipCharacterCreateLimit", policy.getSvipCharacterCreateLimit());
+        data.put("userVoiceCreationEnabled", policy.isUserVoiceCreationEnabled());
+        data.put("guestUserVoiceLimit", policy.getGuestUserVoiceLimit());
+        data.put("vipUserVoiceLimit", policy.getVipUserVoiceLimit());
+        data.put("svipUserVoiceLimit", policy.getSvipUserVoiceLimit());
         data.put("guestCanAccessVipCharacters", policy.isGuestCanAccessVipCharacters());
         data.put("vipCanAccessVipCharacters", policy.isVipCanAccessVipCharacters());
         data.put("svipCanAccessVipCharacters", policy.isSvipCanAccessVipCharacters());
@@ -111,7 +121,16 @@ public class EntitlementPolicyService {
         data.put("ttsGoldCost", policy.getTtsGoldCost());
         data.put("sttScoreCost", policy.getSttScoreCost());
         data.put("sttGoldCost", policy.getSttGoldCost());
+        data.put("visionScoreCost", policy.getVisionScoreCost());
+        data.put("visionGoldCost", policy.getVisionGoldCost());
         return data;
+    }
+
+    public int userVoiceLimitFor(EntitlementPolicy policy, int vipLevel) {
+        EntitlementPolicy safe = policy == null ? new EntitlementPolicy() : policy;
+        if (vipLevel >= 2) return Math.max(0, safe.getSvipUserVoiceLimit());
+        if (vipLevel >= 1) return Math.max(0, safe.getVipUserVoiceLimit());
+        return Math.max(0, safe.getGuestUserVoiceLimit());
     }
 
     public boolean refreshEffectiveQuota(AppH5UserProfileExt ext) {
@@ -250,6 +269,10 @@ public class EntitlementPolicyService {
         } catch (Exception ignored) {
             return fallback;
         }
+    }
+
+    private static int nonNegativeIntVal(Object value, int fallback, int max) {
+        return Math.min(Math.max(0, max), intVal(value, fallback));
     }
 
     private static boolean boolVal(Object value, boolean fallback) {

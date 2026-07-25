@@ -16,7 +16,8 @@ public interface AppEntitlementAuditLogMapper {
             @Param("scopeType") String scopeType,
             @Param("actionType") String actionType,
             @Param("keyword") String keyword,
-            @Param("targetUserId") Long targetUserId
+            @Param("targetUserId") Long targetUserId,
+            @Param("groupType") String groupType
     );
 
     List<Map<String, Object>> listPage(
@@ -24,6 +25,7 @@ public interface AppEntitlementAuditLogMapper {
             @Param("actionType") String actionType,
             @Param("keyword") String keyword,
             @Param("targetUserId") Long targetUserId,
+            @Param("groupType") String groupType,
             @Param("offset") int offset,
             @Param("limit") int limit
     );

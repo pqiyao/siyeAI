@@ -39,6 +39,22 @@ export function recalculateCharacterPublicProfile(id) {
   })
 }
 
+export function getCharacterPromotionSettings() {
+  return sillyRequest({
+    url: '/admin/jiugai/entitlement/runtime-settings',
+    method: 'get'
+  })
+}
+
+export function promoteCharacterCopy(id, keepCreatorAttribution) {
+  return sillyRequest({
+    url: '/admin/jiugai/character/' + id + '/promote-copy',
+    method: 'post',
+    data: { keepCreatorAttribution },
+    timeout: 120000
+  })
+}
+
 export function listCharacterWorldbookOptions() {
   return sillyRequest({
     url: '/admin/jiugai/character/worldbooks/options',

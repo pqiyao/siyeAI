@@ -5,6 +5,8 @@ import com.example.sillyspringboot.chat.entity.AppGenerationTask;
 import com.example.sillyspringboot.chat.entity.AppMessage;
 import com.example.sillyspringboot.chat.mapper.AppGenerationTaskMapper;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.mapper.AppConversationArchiveMapper;
 import com.example.sillyspringboot.conversation.entity.AppConversation;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
@@ -16,12 +18,14 @@ import com.example.sillyspringboot.ops.service.OperationalStatsService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.List;
 
 @Service
 public class ChatAuditService {
@@ -35,6 +39,9 @@ public class ChatAuditService {
     private final OperationalStatsService operationalStatsService;
     private final ConversationMemoryAutoRefreshService memoryAutoRefreshService;
     private final ConversationBranchService branchService;
+
+    @Autowired(required = false)
+    private CharacterStudioMapper characterStudioMapper;
 
     public ChatAuditService(
             AppConversationMapper conversationMapper,
@@ -232,6 +239,7 @@ public class ChatAuditService {
         operationalStatsService.recordGenerationTaskStatus(taskId, "SUCCESS");
         messageMapper.updateStatusAndContent(assistantMessageId, "SUCCESS", finalAssistantText, null, traceId);
         AppMessage message = touchConversationByAssistantMessageId(assistantMessageId);
+        updateEnsembleSpeakerSnapshot(message, finalAssistantText);
         if (message != null && message.getConversationId() != null) {
             incrementRevisionForVisibleAssistant(message);
             triggerMemoryRefreshAfterCommit(message.getConversationId(), message.getBranchId());
@@ -246,6 +254,7 @@ public class ChatAuditService {
         operationalStatsService.recordGenerationTaskStatus(taskId, "STOPPED");
         messageMapper.updateStatusAndContent(assistantMessageId, "STOPPED", partialAssistantText, null, traceId);
         AppMessage message = touchConversationByAssistantMessageId(assistantMessageId);
+        updateEnsembleSpeakerSnapshot(message, partialAssistantText);
         if (message != null && message.getConversationId() != null) {
             incrementRevisionForVisibleAssistant(message);
             triggerMemoryRefreshAfterCommit(message.getConversationId(), message.getBranchId());
@@ -312,6 +321,33 @@ public class ChatAuditService {
         String normalized = userMessage.strip().replaceAll("\\s+", " ");
         int max = 30;
         return normalized.length() <= max ? normalized : normalized.substring(0, max);
+    }
+
+    private void updateEnsembleSpeakerSnapshot(AppMessage message, String content) {
+        if (characterStudioMapper == null || message == null || message.getConversationId() == null
+                || message.getUserId() == null || content == null) {
+            return;
+        }
+        try {
+            AppConversation conversation = conversationMapper.findByIdForUser(
+                    message.getConversationId(), message.getUserId());
+            if (conversation == null) return;
+            List<AppCharacterMember> members = characterStudioMapper.listMembers(conversation.getCharacterId());
+            if (members == null || members.size() < 2) return;
+            String text = content.strip();
+            if (!text.startsWith("【")) return;
+            int end = text.indexOf('】');
+            if (end <= 1 || end > 81) return;
+            String speaker = text.substring(1, end).strip();
+            for (AppCharacterMember member : members) {
+                if (member != null && speaker.equalsIgnoreCase(member.getName())) {
+                    messageMapper.updateSpeakerSnapshot(message.getId(), member.getId(), member.getName());
+                    return;
+                }
+            }
+        } catch (Exception ignored) {
+            // Speaker metadata is an enhancement; never fail a completed chat response over it.
+        }
     }
 
     private AppMessage touchConversationByAssistantMessageId(long assistantMessageId) {

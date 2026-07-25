@@ -15,6 +15,7 @@ import com.example.sillyspringboot.conversation.service.AppConversationService;
 import com.example.sillyspringboot.integration.sillytavern.StModelRoutingService;
 import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.ops.service.H5EntitlementService;
+import com.example.sillyspringboot.ops.service.UserTtsVoiceService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +52,7 @@ class ApiV1TavernChatControllerSttBillingTest {
     @Mock AppFeatureSettingsService featureSettingsService;
     @Mock H5UserAiProviderService userAiProviderService;
     @Mock StModelRoutingService modelRoutingService;
+    @Mock UserTtsVoiceService userTtsVoiceService;
     @Mock MediaConcurrencyGate.Lease lease;
 
     private ApiV1TavernChatController controller;
@@ -74,7 +76,8 @@ class ApiV1TavernChatControllerSttBillingTest {
                 visitorTrialGuardService,
                 featureSettingsService,
                 userAiProviderService,
-                modelRoutingService
+                modelRoutingService,
+                userTtsVoiceService
         );
         audio = new MockMultipartFile("file", "voice.wav", "audio/wav", new byte[]{1, 2, 3});
         ticket = new H5EntitlementService.AccessTicket(

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.mapper.AppUserTtsVoiceMapper">
+    <resultMap id="UserVoiceMap" type="com.example.sillyspringboot.ops.entity.AppUserTtsVoice">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="request_id" property="requestId"/>
+        <result column="display_name" property="displayName"/>
+        <result column="provider_source" property="providerSource"/>
+        <result column="model_name" property="modelName"/>
+        <result column="config_fingerprint" property="configFingerprint"/>
+        <result column="voice_uri" property="voiceUri"/>
+        <result column="status" property="status"/>
+        <result column="last_error" property="lastError"/>
+        <result column="disabled" property="disabled"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted_at" property="deletedAt"/>
+    </resultMap>
+
+    <sql id="Columns">id, user_id, request_id, display_name, provider_source, model_name,
+        config_fingerprint, voice_uri, status, last_error, disabled, created_at, updated_at, deleted_at</sql>
+
+    <select id="findById" resultMap="UserVoiceMap">
+        SELECT <include refid="Columns"/> FROM app_user_tts_voice WHERE id = #{id} LIMIT 1
+    </select>
+    <select id="findOwnedById" resultMap="UserVoiceMap">
+        SELECT <include refid="Columns"/> FROM app_user_tts_voice
+        WHERE id = #{id} AND user_id = #{userId} AND deleted_at IS NULL LIMIT 1
+    </select>
+    <select id="findByUserIdAndRequestId" resultMap="UserVoiceMap">
+        SELECT <include refid="Columns"/> FROM app_user_tts_voice
+        WHERE user_id = #{userId} AND request_id = #{requestId} LIMIT 1
+    </select>
+    <select id="listByUserId" resultMap="UserVoiceMap">
+        SELECT <include refid="Columns"/> FROM app_user_tts_voice
+        WHERE user_id = #{userId} AND deleted_at IS NULL
+        ORDER BY updated_at DESC, id DESC
+    </select>
+    <select id="listAdmin" resultMap="UserVoiceMap">
+        SELECT <include refid="Columns"/> FROM app_user_tts_voice
+        <where>
+            deleted_at IS NULL
+            <if test="status != null and status != ''">AND status = #{status}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (display_name LIKE CONCAT('%', #{keyword}, '%') OR CAST(user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY updated_at DESC, id DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*) FROM app_user_tts_voice
+        <where>
+            deleted_at IS NULL
+            <if test="status != null and status != ''">AND status = #{status}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (display_name LIKE CONCAT('%', #{keyword}, '%') OR CAST(user_id AS CHAR) LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+    </select>
+    <select id="countOccupyingByUserId" resultType="int">
+        SELECT COUNT(*) FROM app_user_tts_voice
+        WHERE user_id = #{userId} AND deleted_at IS NULL AND status IN ('PENDING', 'PROVISIONING', 'READY')
+    </select>
+    <insert id="insert" parameterType="com.example.sillyspringboot.ops.entity.AppUserTtsVoice" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_user_tts_voice
+        (user_id, request_id, display_name, provider_source, model_name, config_fingerprint, voice_uri, status, last_error, disabled)
+        VALUES
+        (#{userId}, #{requestId}, #{displayName}, #{providerSource}, #{modelName}, #{configFingerprint}, #{voiceUri}, #{status}, #{lastError}, #{disabled})
+    </insert>
+    <update id="updateProvisionResult" parameterType="com.example.sillyspringboot.ops.entity.AppUserTtsVoice">
+        UPDATE app_user_tts_voice
+        SET model_name = #{modelName}, config_fingerprint = #{configFingerprint}, voice_uri = #{voiceUri},
+            status = #{status}, last_error = #{lastError}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND user_id = #{userId} AND deleted_at IS NULL
+    </update>
+    <update id="updateDisplayName">
+        UPDATE app_user_tts_voice SET display_name = #{displayName}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND user_id = #{userId} AND deleted_at IS NULL
+    </update>
+    <update id="updateDisabled">
+        UPDATE app_user_tts_voice SET disabled = #{disabled}, updated_at = CURRENT_TIMESTAMP WHERE id = #{id} AND deleted_at IS NULL
+    </update>
+    <update id="softDelete">
+        UPDATE app_user_tts_voice SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND user_id = #{userId} AND deleted_at IS NULL
+    </update>
+</mapper>

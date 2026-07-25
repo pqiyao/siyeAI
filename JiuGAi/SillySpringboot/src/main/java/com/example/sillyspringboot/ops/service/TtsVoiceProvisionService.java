@@ -68,6 +68,9 @@ public class TtsVoiceProvisionService {
     ) {
     }
 
+    public record ProvisionedUserVoice(String voiceUri, String modelName, String configFingerprint) {
+    }
+
     private final TtsVoiceTemplateService templateService;
     private final AppUserTtsVoiceInstanceMapper instanceMapper;
     private final H5UploadService uploadService;
@@ -103,7 +106,10 @@ public class TtsVoiceProvisionService {
         if (!runtimeContext.hasApiKey()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先填写当前 TTS 的 API Key");
         }
-        String effectiveModelName = runtimeContext.effectiveModelName(template.getTtsModelName());
+        String templateModelName = blank(template.getTtsModelName());
+        String effectiveModelName = StringUtils.hasText(templateModelName)
+                ? templateModelName
+                : runtimeContext.effectiveModelName("");
         if (!StringUtils.hasText(effectiveModelName)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先填写 TTS 模型，或在模板里配置推荐模型");
         }
@@ -155,6 +161,65 @@ public class TtsVoiceProvisionService {
             instance.setLastError(trim(ex.getMessage(), 255));
             persistInstance(instance);
             throw ex;
+        }
+    }
+
+    public ProvisionedUserVoice provisionUserVoice(
+            long userId,
+            long voiceId,
+            String sampleText,
+            byte[] audioBytes,
+            String mimeType,
+            TtsRuntimeContext runtimeContext
+    ) {
+        requireSiliconFlowByok(runtimeContext);
+        String modelName = runtimeContext.effectiveModelName("");
+        if (!StringUtils.hasText(modelName)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先在 AI 设置中配置硅基流动 TTS 模型");
+        }
+        validateReferenceAudioSize(audioBytes);
+        String safeMimeType = MediaPayloadValidator.requireAudio(audioBytes, mimeType);
+        String safeText = trim(sampleText, 255);
+        if (!StringUtils.hasText(safeText)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请填写参考音频中准确的朗读文本");
+        }
+        AppTtsVoiceTemplate request = new AppTtsVoiceTemplate();
+        request.setTemplateCode("user-" + userId + "-" + voiceId);
+        request.setSampleScript(safeText);
+        String voiceUri = uploadDynamicVoice(
+                request,
+                runtimeContext,
+                modelName,
+                new ReferenceAudio(audioBytes, safeMimeType)
+        );
+        if (!StringUtils.hasText(voiceUri)) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "硅基流动没有返回可用的音色标识");
+        }
+        return new ProvisionedUserVoice(
+                voiceUri,
+                modelName,
+                buildRuntimeFingerprint(runtimeContext, modelName)
+        );
+    }
+
+    public static String buildRuntimeFingerprint(TtsRuntimeContext runtimeContext, String modelName) {
+        return sha256Hex(String.join("|",
+                blank(runtimeContext == null ? null : runtimeContext.providerSource()),
+                blank(runtimeContext == null ? null : runtimeContext.baseUrl()),
+                blank(runtimeContext == null ? null : runtimeContext.apiKey()),
+                blank(modelName)
+        ));
+    }
+
+    private static void requireSiliconFlowByok(TtsRuntimeContext runtimeContext) {
+        if (runtimeContext == null || !runtimeContext.customModeActive()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "自建音色必须使用你自己的硅基流动 API Key");
+        }
+        if (!"siliconflow".equalsIgnoreCase(blank(runtimeContext.providerSource()))) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "第一期自建音色仅支持硅基流动");
+        }
+        if (!runtimeContext.hasApiKey()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先填写硅基流动 TTS API Key");
         }
     }
 

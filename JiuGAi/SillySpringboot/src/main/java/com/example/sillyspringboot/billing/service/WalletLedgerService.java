@@ -25,6 +25,8 @@ public class WalletLedgerService {
     public static final String BIZ_TTS_REFUND = "TTS_REFUND";
     public static final String BIZ_STT_CONSUME = "STT_CONSUME";
     public static final String BIZ_STT_REFUND = "STT_REFUND";
+    public static final String BIZ_VISION_CONSUME = "VISION_CONSUME";
+    public static final String BIZ_VISION_REFUND = "VISION_REFUND";
     public static final String BIZ_CHECKIN = "CHECKIN";
 
     private final AppWalletLedgerMapper walletLedgerMapper;
@@ -243,17 +245,24 @@ public class WalletLedgerService {
     }
 
     @Transactional(readOnly = true)
-    public long countAdmin(String keyword, String bizType) {
-        return walletLedgerMapper.countAdminList(trimToNull(keyword), normalizeBizTypeAllowBlank(bizType));
+    public long countAdmin(String keyword, String bizType, String groupType) {
+        return walletLedgerMapper.countAdminList(
+                trimToNull(keyword),
+                normalizeBizTypeAllowBlank(bizType),
+                normalizeLedgerGroup(groupType)
+        );
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listAdmin(String keyword, String bizType, int pageNum, int pageSize) {
+    public List<Map<String, Object>> listAdmin(
+            String keyword, String bizType, String groupType, int pageNum, int pageSize
+    ) {
         int safePage = Math.max(1, pageNum);
         int safeSize = Math.max(1, Math.min(100, pageSize));
         return walletLedgerMapper.listAdminPage(
                         trimToNull(keyword),
                         normalizeBizTypeAllowBlank(bizType),
+                        normalizeLedgerGroup(groupType),
                         (safePage - 1) * safeSize,
                         safeSize
                 ).stream()
@@ -289,6 +298,18 @@ public class WalletLedgerService {
             return null;
         }
         return bizType.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static String normalizeLedgerGroup(String groupType) {
+        String value = trimToNull(groupType);
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.toUpperCase(Locale.ROOT);
+        if (!List.of("REVENUE", "OTHER", "CONSUMPTION").contains(normalized)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "钱包流水分组无效");
+        }
+        return normalized;
     }
 
     private static String trimToNull(String value) {

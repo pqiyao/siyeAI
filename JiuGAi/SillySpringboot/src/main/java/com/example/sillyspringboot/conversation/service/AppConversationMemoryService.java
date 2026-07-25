@@ -1019,6 +1019,40 @@ public class AppConversationMemoryService {
         }
     }
 
+    public Map<String, Object> saveManualMemoryEntry(
+            long conversationId,
+            long branchId,
+            Long entryId,
+            String memoryType,
+            String title,
+            String content,
+            List<String> keywords,
+            List<String> secondaryKeywords,
+            int priority,
+            boolean constantInjection,
+            boolean manualPinned
+    ) {
+        String key = memoryKey(conversationId, branchId);
+        ReentrantLock lock = operationLock(key);
+        if (!lock.tryLock()) {
+            throw new BusinessException(ErrorCode.SERVICE_BUSY, "记忆正在处理中，请稍后再试");
+        }
+        try {
+            if (memoryApplyService == null) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "记忆编辑服务暂不可用");
+            }
+            long savedId = memoryApplyService.saveManualMemoryEntry(
+                    conversationId, branchId, entryId, memoryType, title, content, keywords,
+                    secondaryKeywords, priority, constantInjection, manualPinned);
+            syncWorldbookKeepingFailureState(conversationId, branchId);
+            Map<String, Object> result = toH5MemoryDetailMap(conversationId, branchId);
+            result.put("savedEntryId", savedId);
+            return result;
+        } finally {
+            releaseOperationLock(lock);
+        }
+    }
+
     private Map<String, Object> toH5MemoryEntryMap(AppConversationMemoryEntry entry) {
         Map<String, Object> out = new HashMap<>();
         if (entry == null) {

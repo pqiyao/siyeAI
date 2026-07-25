@@ -41,6 +41,8 @@ public interface StAdapter {
 
     Object importCharacterPng(byte[] bytes, String originalFilename, StCharacterImportRequest request);
 
+    byte[] exportCharacterPng(String avatarUrl);
+
     boolean deleteCharacter(String avatarUrl, boolean deleteChats);
 
     boolean deleteChat(String avatarUrl, String chatFileName);

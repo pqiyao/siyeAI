@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /** Applies an already-produced memory result in one short, revision-fenced transaction. */
 @Service
@@ -174,6 +175,53 @@ public class ConversationMemoryApplyService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "记忆条目不存在");
         }
         updateManualState(locked.memory());
+    }
+
+    @Transactional
+    public long saveManualMemoryEntry(
+            long conversationId,
+            long branchId,
+            Long entryId,
+            String memoryType,
+            String title,
+            String content,
+            List<String> keywords,
+            List<String> secondaryKeywords,
+            int priority,
+            boolean constantInjection,
+            boolean manualPinned
+    ) {
+        LockedState locked = lockCurrent(conversationId, branchId);
+        String entryKey = "manual_" + UUID.randomUUID().toString().replace("-", "");
+        if (entryId != null && entryId > 0) {
+            AppConversationMemoryEntry existing = entryMapper.findByIdForConversationBranch(
+                    entryId, conversationId, branchId);
+            if (existing == null || existing.getDeletedAt() != null || existing.getRetiredAt() != null) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "记忆条目不存在或已归档");
+            }
+            entryKey = existing.getEntryKey();
+        }
+
+        AppConversationMemoryEntry entry;
+        try {
+            entry = sanitizer.toManualEntity(
+                    conversationId, branchId, entryKey, memoryType, title, content, keywords,
+                    secondaryKeywords, priority, constantInjection, manualPinned);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, ex.getMessage());
+        }
+
+        if (entryId != null && entryId > 0) {
+            entry.setId(entryId);
+            if (entryMapper.updateManualById(entry) != 1) {
+                throw new BusinessException(ErrorCode.SERVICE_BUSY, "记忆内容已变化，请刷新后重试");
+            }
+        } else {
+            entryMapper.insertManual(entry);
+        }
+        capacityService.enforceAfterRefresh(conversationId, branchId);
+        updateManualState(locked.memory());
+        return entry.getId();
     }
 
     @Transactional

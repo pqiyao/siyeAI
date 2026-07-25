@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.AppCharacterSystemPromotionMapper">
+
+    <resultMap id="PromotionMap" type="com.example.sillyspringboot.admin.entity.AppCharacterSystemPromotion">
+        <id column="id" property="id"/>
+        <result column="source_character_id" property="sourceCharacterId"/>
+        <result column="source_user_id" property="sourceUserId"/>
+        <result column="target_character_id" property="targetCharacterId"/>
+        <result column="keep_creator_attribution" property="keepCreatorAttribution"/>
+        <result column="promoted_by" property="promotedBy"/>
+        <result column="promoted_at" property="promotedAt"/>
+    </resultMap>
+
+    <select id="findBySourceCharacterId" resultMap="PromotionMap">
+        SELECT id, source_character_id, source_user_id, target_character_id,
+               keep_creator_attribution, promoted_by, promoted_at
+        FROM app_character_system_promotion
+        WHERE source_character_id = #{sourceCharacterId}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.admin.entity.AppCharacterSystemPromotion"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_character_system_promotion (
+            source_character_id, source_user_id, target_character_id,
+            keep_creator_attribution, promoted_by
+        ) VALUES (
+            #{sourceCharacterId}, #{sourceUserId}, #{targetCharacterId},
+            #{keepCreatorAttribution}, #{promotedBy}
+        )
+    </insert>
+</mapper>

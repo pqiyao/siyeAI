@@ -59,6 +59,19 @@
         <if test="bizType != null and bizType != ''">
             AND biz_type = #{bizType}
         </if>
+        <if test="groupType == 'REVENUE'">
+            AND biz_type = 'PAYMENT'
+        </if>
+        <if test="groupType == 'OTHER'">
+            AND biz_type != 'PAYMENT'
+        </if>
+        <if test="groupType == 'CONSUMPTION'">
+            AND biz_type IN (
+                'CHAT_CONSUME', 'IMAGE_CONSUME', 'IMAGE_REFUND',
+                'TTS_CONSUME', 'TTS_REFUND', 'STT_CONSUME', 'STT_REFUND',
+                'VISION_CONSUME', 'VISION_REFUND'
+            )
+        </if>
     </select>
 
     <select id="listAdminPage" resultMap="AppWalletLedgerResultMap">
@@ -77,6 +90,19 @@
         </if>
         <if test="bizType != null and bizType != ''">
             AND biz_type = #{bizType}
+        </if>
+        <if test="groupType == 'REVENUE'">
+            AND biz_type = 'PAYMENT'
+        </if>
+        <if test="groupType == 'OTHER'">
+            AND biz_type != 'PAYMENT'
+        </if>
+        <if test="groupType == 'CONSUMPTION'">
+            AND biz_type IN (
+                'CHAT_CONSUME', 'IMAGE_CONSUME', 'IMAGE_REFUND',
+                'TTS_CONSUME', 'TTS_REFUND', 'STT_CONSUME', 'STT_REFUND',
+                'VISION_CONSUME', 'VISION_REFUND'
+            )
         </if>
         ORDER BY id DESC
         LIMIT #{limit} OFFSET #{offset}

@@ -224,17 +224,21 @@ public class EntitlementAuditLogService {
     }
 
     @Transactional(readOnly = true)
-    public long countList(String scopeType, String actionType, String keyword, Long targetUserId) {
+    public long countList(String scopeType, String actionType, String keyword, Long targetUserId, String groupType) {
         return auditLogMapper.countList(
                 trimToNull(scopeType),
                 trimToNull(actionType),
                 trimToNull(keyword),
-                positiveId(targetUserId)
+                positiveId(targetUserId),
+                normalizeGroupType(groupType)
         );
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listPage(String scopeType, String actionType, String keyword, Long targetUserId, int pageNum, int pageSize) {
+    public List<Map<String, Object>> listPage(
+            String scopeType, String actionType, String keyword, Long targetUserId,
+            String groupType, int pageNum, int pageSize
+    ) {
         int safePage = Math.max(1, pageNum);
         int safeSize = Math.max(1, Math.min(MAX_PAGE_SIZE, pageSize));
         return auditLogMapper.listPage(
@@ -242,6 +246,7 @@ public class EntitlementAuditLogService {
                 trimToNull(actionType),
                 trimToNull(keyword),
                 positiveId(targetUserId),
+                normalizeGroupType(groupType),
                 (safePage - 1) * safeSize,
                 safeSize
         );
@@ -361,6 +366,15 @@ public class EntitlementAuditLogService {
 
     private static Long positiveId(Long value) {
         return value == null || value <= 0 ? null : value;
+    }
+
+    private static String normalizeGroupType(String groupType) {
+        String value = trimToNull(groupType);
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.toUpperCase(java.util.Locale.ROOT);
+        return List.of("OPERATIONS", "CONSUMPTION").contains(normalized) ? normalized : null;
     }
 
     private static int intVal(Object value) {

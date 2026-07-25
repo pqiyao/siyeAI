@@ -190,6 +190,45 @@
             updated_at = CURRENT_TIMESTAMP
     </insert>
 
+    <insert id="insertManual" parameterType="com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntry"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_conversation_memory_entry (
+            conversation_id, branch_id, entry_key, memory_type, title, content,
+            keywords_json, secondary_keywords_json, priority, position,
+            constant_injection, selective, enabled, manual_disabled, manual_deleted, manual_pinned,
+            confidence, source_message_from_id, source_message_to_id
+        ) VALUES (
+            #{conversationId}, #{branchId}, #{entryKey}, #{memoryType}, #{title}, #{content},
+            #{keywordsJson}, #{secondaryKeywordsJson}, #{priority}, #{position},
+            #{constantInjection}, #{selective}, TRUE, FALSE, FALSE, #{manualPinned},
+            #{confidence}, NULL, NULL
+        )
+    </insert>
+
+
+    <update id="updateManualById">
+        UPDATE app_conversation_memory_entry
+        SET memory_type = #{entry.memoryType},
+            title = #{entry.title},
+            content = #{entry.content},
+            keywords_json = #{entry.keywordsJson},
+            secondary_keywords_json = #{entry.secondaryKeywordsJson},
+            priority = #{entry.priority},
+            position = #{entry.position},
+            constant_injection = #{entry.constantInjection},
+            selective = #{entry.selective},
+            manual_pinned = #{entry.manualPinned},
+            confidence = 1.0000,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{entry.id}
+          AND conversation_id = #{entry.conversationId}
+          AND branch_id = #{entry.branchId}
+          AND manual_deleted = FALSE
+          AND deleted_at IS NULL
+          AND retired_reason IS NULL
+          AND retired_at IS NULL
+    </update>
+
     <update id="disableByKey">
         UPDATE app_conversation_memory_entry
         SET enabled = 0,

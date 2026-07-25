@@ -34,6 +34,7 @@ class OfficialAudioRoutingIsolationTest {
         assertThat(selected.modelName()).isEqualTo("official-model");
         assertThat(selected.voiceName()).isEqualTo("official-voice");
         assertThat(selected.voiceTemplateCode()).isEmpty();
+        assertThat(ChatAudioSpeechService.privateVoiceIdForRuntime(false, 91L)).isNull();
     }
 
     @Test
@@ -51,6 +52,8 @@ class OfficialAudioRoutingIsolationTest {
         assertThat(selected.modelName()).isEqualTo("client-model");
         assertThat(selected.voiceName()).isEqualTo("client-voice");
         assertThat(selected.voiceTemplateCode()).isEqualTo("client-template");
+        assertThat(ChatAudioSpeechService.privateVoiceIdForRuntime(true, 91L)).isEqualTo(91L);
+        assertThat(ChatAudioSpeechService.privateVoiceIdForRuntime(true, 0L)).isNull();
     }
 
     @Test

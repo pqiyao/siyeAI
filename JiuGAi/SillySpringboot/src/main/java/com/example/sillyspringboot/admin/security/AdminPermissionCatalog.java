@@ -91,6 +91,8 @@ public class AdminPermissionCatalog {
                         item("ops:media:view", "查看 AI 媒体中心", "media", "AI 媒体中心", "view", "查看", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops", "content")),
                         item("ops:media:image:edit", "编辑聊天生图策略", "media-image", "聊天生图策略", "edit", "编辑", RiskLevel.HIGH, roles("super-admin", "admin", "ops")),
                         item("ops:media:voice:edit", "编辑语音运行策略", "media-voice", "语音运行策略", "edit", "编辑", RiskLevel.HIGH, roles("super-admin", "admin", "ops")),
+                        item("ops:media:user-voice:view", "查看用户自建音色", "user-voice", "用户自建音色", "view", "查看", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops", "support")),
+                        item("ops:media:user-voice:manage", "停用或恢复用户自建音色", "user-voice", "用户自建音色", "manage", "管理", RiskLevel.HIGH, roles("super-admin", "admin", "ops")),
                         item("content:voice-template:edit", "编辑角色音色模板", "voice-template", "角色音色模板", "edit", "编辑", RiskLevel.HIGH, roles("super-admin", "admin", "ops", "content")),
                         item("ops:ailog:view", "\u67e5\u770b AI \u65e5\u5fd7", "ai-log", "AI \u65e5\u5fd7", "view", "\u67e5\u770b", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops")),
                         item("ops:ailog:clean", "\u6e05\u7406 AI \u65e5\u5fd7", "ai-log", "AI \u65e5\u5fd7", "clean", "\u6e05\u7406", RiskLevel.HIGH, roles("super-admin", "admin", "ops"))
@@ -213,6 +215,8 @@ public class AdminPermissionCatalog {
                          "ops:media:view",
                          "ops:media:image:edit",
                          "ops:media:voice:edit",
+                         "ops:media:user-voice:view",
+                         "ops:media:user-voice:manage",
                          "content:voice-template:edit",
                         "ops:ailog:view",
                         "ops:ailog:clean",

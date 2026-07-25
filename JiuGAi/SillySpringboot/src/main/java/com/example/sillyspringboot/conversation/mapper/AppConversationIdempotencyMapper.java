@@ -12,5 +12,9 @@ public interface AppConversationIdempotencyMapper {
     void insert(AppConversationIdempotency row);
 
     void deleteByConversationForUser(@Param("conversationId") long conversationId, @Param("userId") long userId);
+
+    int updateConversationId(@Param("userId") long userId,
+                             @Param("idempotencyKey") String idempotencyKey,
+                             @Param("conversationId") long conversationId);
 }
 

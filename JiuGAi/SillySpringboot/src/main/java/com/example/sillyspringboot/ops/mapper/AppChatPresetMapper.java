@@ -13,7 +13,24 @@ public interface AppChatPresetMapper {
 
     AppChatPreset findEnabledPublicById(@Param("id") long id);
 
+    AppChatPreset findEnabledAvailableById(@Param("id") long id, @Param("userId") long userId);
+
+    AppChatPreset findPrivateByIdForOwner(@Param("id") long id, @Param("userId") long userId);
+
     List<AppChatPreset> listPublicEnabled();
+
+    List<AppChatPreset> listPrivateByOwner(@Param("userId") long userId);
+
+    void insertPrivate(AppChatPreset preset);
+
+    int updatePrivate(@Param("id") long id,
+                      @Param("userId") long userId,
+                      @Param("name") String name,
+                      @Param("description") String description,
+                      @Param("bundleJson") String bundleJson,
+                      @Param("enabled") boolean enabled);
+
+    int deletePrivate(@Param("id") long id, @Param("userId") long userId);
 
     List<AppChatPreset> listAdmin(
             @Param("keyword") String keyword,

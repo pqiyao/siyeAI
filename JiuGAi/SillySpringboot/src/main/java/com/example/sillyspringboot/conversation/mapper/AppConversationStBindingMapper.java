@@ -17,5 +17,7 @@ public interface AppConversationStBindingMapper {
 
     void updateChatPresetId(@Param("conversationId") long conversationId, @Param("chatPresetId") Long chatPresetId);
 
+    void clearChatPresetId(@Param("chatPresetId") long chatPresetId);
+
     void deleteByConversationId(@Param("conversationId") long conversationId);
 }

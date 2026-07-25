@@ -10,7 +10,11 @@
 		"test:recharge-entry": "node tests/rechargeEntry.contract.test.cjs",
 		"test:checkin": "node tests/checkin.contract.test.cjs"
 		,"test:local-media": "node tests/localMediaStore.contract.test.cjs",
-		"test:media-experience": "node tests/mediaExperience.contract.test.cjs"
+		"test:media-experience": "node tests/mediaExperience.contract.test.cjs",
+		"test:user-tts-voice": "node tests/userTtsVoice.contract.test.cjs",
+		"test:vision-routing": "node tests/visionRouting.contract.test.cjs",
+		"test:character-studio-v2": "node tests/characterStudioV2.contract.test.cjs",
+		"test:chat-settings-preset": "node tests/chatSettingsPreset.contract.test.cjs"
 	},
 	"dependencies": {
     "@ffmpeg/core": "^0.12.10",

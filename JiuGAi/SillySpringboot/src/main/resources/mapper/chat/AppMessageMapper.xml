@@ -24,6 +24,9 @@
         <result column="trace_id" property="traceId"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
+        <result column="speaker_member_id" property="speakerMemberId"/>
+        <result column="speaker_name_snapshot" property="speakerNameSnapshot"/>
+        <result column="speaker_avatar_snapshot" property="speakerAvatarSnapshot"/>
     </resultMap>
 
     <sql id="MemorySourcePredicate">
@@ -42,11 +45,11 @@
         INSERT INTO app_message (
             user_id, conversation_id, branch_id, parent_message_id, role, message_kind, continue_from_message_id, client_message_id,
             content, voice_url, voice_duration_ms, st_message_ref, swipe_index,
-            status, error_code, trace_id
+            status, error_code, trace_id, speaker_member_id, speaker_name_snapshot, speaker_avatar_snapshot
         ) VALUES (
             #{userId}, #{conversationId}, #{branchId}, #{parentMessageId}, #{role}, COALESCE(#{messageKind}, 'NORMAL'), #{continueFromMessageId}, #{clientMessageId},
             #{content}, #{voiceUrl}, #{voiceDurationMs}, #{stMessageRef}, #{swipeIndex},
-            #{status}, #{errorCode}, #{traceId}
+            #{status}, #{errorCode}, #{traceId}, #{speakerMemberId}, #{speakerNameSnapshot}, #{speakerAvatarSnapshot}
         )
     </insert>
 
@@ -95,6 +98,7 @@
         ORDER BY id ASC
         LIMIT #{limit}
     </select>
+
 
     <select id="listByConversationBranchAsc" resultMap="AppMessageResultMap">
         SELECT *
@@ -215,6 +219,14 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateSpeakerSnapshot">
+        UPDATE app_message
+        SET speaker_member_id = #{speakerMemberId},
+            speaker_name_snapshot = #{speakerNameSnapshot}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+    </update>
+
     <update id="updateContinuationMeta">
         UPDATE app_message
         SET message_kind = #{messageKind},
@@ -223,6 +235,7 @@
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
+
 
     <select id="findMaxSwipeIndex" resultType="java.lang.Integer">
         SELECT MAX(swipe_index)

@@ -518,6 +518,10 @@ function pickBrowserPngFile() {
 	return pickBrowserFile('.png,image/png');
 }
 
+function pickBrowserAudioFile() {
+	return pickBrowserFile('.mp3,.wav,.m4a,.ogg,audio/mpeg,audio/wav,audio/mp4,audio/ogg');
+}
+
 function notifyUploadProgress(callback, rawPercent) {
 	if (typeof callback !== 'function') {
 		return;
@@ -2278,6 +2282,27 @@ function fetchTavernSessions(clientUid) {
 	});
 }
 
+function fetchTavernCharacterSessions(characterId, clientUid) {
+	var q = '?characterId=' + encodeURIComponent(characterId) + '&clientUid=' + encodeURIComponent(clientUid || getClientUid());
+	return requestJson('GET', '/api/v1/tavern/sessions/by-character' + q, null, 20000);
+}
+
+function postTavernSessionCreate(payload) {
+	return requestJson('POST', '/api/v1/tavern/sessions/create', payload || {}, 30000);
+}
+
+function postTavernSessionActivate(payload) {
+	return requestJson('POST', '/api/v1/tavern/sessions/activate', payload || {}, 30000);
+}
+
+function postTavernSessionRename(payload) {
+	return requestJson('POST', '/api/v1/tavern/sessions/rename', payload || {}, 20000);
+}
+
+function postTavernSessionDeleteOne(payload) {
+	return requestJson('POST', '/api/v1/tavern/sessions/delete-one', payload || {}, 30000);
+}
+
 function postTavernChat(payload) {
 	return requestJson('POST', '/api/v1/tavern/chat', payload, CHAT_GENERATION_TIMEOUT);
 }
@@ -2374,6 +2399,26 @@ function putTavernConversationPreset(clientUid, conversationId, presetId) {
 	);
 }
 
+function postTavernChatPresetCopy(clientUid, sourcePresetId, name) {
+	return requestJson('POST', '/api/v1/tavern/chat-presets/copy', {
+		clientUid: clientUid || '',
+		sourcePresetId: sourcePresetId,
+		name: name || ''
+	}, 15000);
+}
+
+function putTavernPrivateChatPreset(clientUid, presetId, payload) {
+	return requestJson('PUT', '/api/v1/tavern/chat-presets/' + encodeURIComponent(String(presetId)), Object.assign({
+		clientUid: clientUid || ''
+	}, payload || {}), 15000);
+}
+
+function deleteTavernPrivateChatPreset(clientUid, presetId) {
+	return requestJson('DELETE', '/api/v1/tavern/chat-presets/' + encodeURIComponent(String(presetId)), {
+		clientUid: clientUid || ''
+	}, 15000);
+}
+
 function buildUserAiProviderQuery(clientUid) {
 	return '?clientUid=' + encodeURIComponent(clientUid || '');
 }
@@ -2384,6 +2429,97 @@ function getTavernUserAiProvider(clientUid) {
 
 function putTavernUserAiProvider(clientUid, body) {
 	return requestJson('PUT', '/api/v1/tavern/ai-provider' + buildUserAiProviderQuery(clientUid), body, 15000);
+}
+
+function buildUserVoiceQuery(clientUid, extra) {
+	var query = ['clientUid=' + encodeURIComponent(clientUid || getClientUid())];
+	var source = extra && typeof extra === 'object' ? extra : {};
+	Object.keys(source).forEach(function (key) {
+		if (source[key] != null && source[key] !== '') {
+			query.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(source[key])));
+		}
+	});
+	return '?' + query.join('&');
+}
+
+function getUserTtsVoices(clientUid) {
+	return requestJson('GET', '/api/v1/tavern/user-voices' + buildUserVoiceQuery(clientUid), null, 20000);
+}
+
+function createUserTtsVoice(clientUid, filePath, payload) {
+	var data = payload && typeof payload === 'object' ? payload : {};
+	var path = '/api/v1/tavern/user-voices' + buildUserVoiceQuery(clientUid);
+	var fields = {
+		requestId: String(data.requestId || ''),
+		displayName: String(data.displayName || ''),
+		sampleText: String(data.sampleText || ''),
+		durationMs: String(Math.max(0, Number(data.durationMs || 0)))
+	};
+	if (isBrowserFileObject(filePath)) {
+		return uploadBrowserMultipart(path, filePath, fields, 120000, '自建音色创建失败', null, 8 * 1024 * 1024);
+	}
+	return new Promise(function (resolve, reject) {
+		uni.uploadFile({
+			url: baseUrl() + path,
+			filePath: filePath,
+			name: 'file',
+			timeout: 120000,
+			header: buildRequestHeaders(),
+			formData: fields,
+			success: function (res) {
+				captureResponseDeviceToken(res);
+				try {
+					var body = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+					if (res.statusCode >= 200 && res.statusCode < 300 && body && Number(body.code) === 1) {
+						resolve(body.data);
+						return;
+					}
+					reject(new Error((body && body.msg) || '自建音色创建失败'));
+				} catch (error) {
+					reject(error);
+				}
+			},
+			fail: function (error) {
+				reject(error || new Error('自建音色上传失败'));
+			}
+		});
+	});
+}
+
+function renameUserTtsVoice(clientUid, voiceId, displayName) {
+	return requestJson(
+		'PUT',
+		'/api/v1/tavern/user-voices/' + encodeURIComponent(String(voiceId)) + buildUserVoiceQuery(clientUid),
+		{ displayName: String(displayName || '') },
+		15000
+	);
+}
+
+function deleteUserTtsVoice(clientUid, voiceId) {
+	return requestJson(
+		'DELETE',
+		'/api/v1/tavern/user-voices/' + encodeURIComponent(String(voiceId)) + buildUserVoiceQuery(clientUid),
+		null,
+		15000
+	);
+}
+
+function getUserTtsVoiceBinding(clientUid, scope) {
+	return requestJson(
+		'GET',
+		'/api/v1/tavern/user-voices/binding' + buildUserVoiceQuery(clientUid, scope),
+		null,
+		15000
+	);
+}
+
+function putUserTtsVoiceBinding(clientUid, scope) {
+	return requestJson(
+		'PUT',
+		'/api/v1/tavern/user-voices/binding' + buildUserVoiceQuery(clientUid),
+		scope || {},
+		15000
+	);
 }
 
 function testTavernUserAiProvider(clientUid, body) {
@@ -2413,6 +2549,10 @@ function postTavernMemoryRefresh(payload) {
 
 function postTavernMemoryEntries(payload) {
 	return requestJson('POST', '/api/v1/tavern/memory/entries', payload, 20000);
+}
+
+function postTavernMemorySaveEntry(payload) {
+	return requestJson('POST', '/api/v1/tavern/memory/save-entry', payload, 30000);
 }
 
 function postTavernMemoryDisableEntry(payload) {
@@ -3105,6 +3245,14 @@ function postTavernBranchFork(payload) {
 	return requestJson('POST', '/api/v1/tavern/branches/fork', payload, 20000);
 }
 
+function postTavernBranchRename(payload) {
+	return requestJson('POST', '/api/v1/tavern/branches/rename', payload, 15000);
+}
+
+function postTavernBranchDelete(payload) {
+	return requestJson('POST', '/api/v1/tavern/branches/delete', payload, 20000);
+}
+
 module.exports = {
 	jgEnabled: jgEnabled,
 	resolveJgAssetUrl: resolveJgAssetUrl,
@@ -3196,12 +3344,24 @@ module.exports = {
 	postTavernOpeningBranchSelect: postTavernOpeningBranchSelect,
 	postTavernBranchSwitch: postTavernBranchSwitch,
 	postTavernBranchFork: postTavernBranchFork,
+	postTavernBranchRename: postTavernBranchRename,
+	postTavernBranchDelete: postTavernBranchDelete,
 	getTavernProfile: getTavernProfile,
 	putTavernProfile: putTavernProfile,
 	fetchTavernChatPresets: fetchTavernChatPresets,
 	putTavernConversationPreset: putTavernConversationPreset,
+	postTavernChatPresetCopy: postTavernChatPresetCopy,
+	putTavernPrivateChatPreset: putTavernPrivateChatPreset,
+	deleteTavernPrivateChatPreset: deleteTavernPrivateChatPreset,
 	getTavernUserAiProvider: getTavernUserAiProvider,
 	putTavernUserAiProvider: putTavernUserAiProvider,
+	pickBrowserAudioFile: pickBrowserAudioFile,
+	getUserTtsVoices: getUserTtsVoices,
+	createUserTtsVoice: createUserTtsVoice,
+	renameUserTtsVoice: renameUserTtsVoice,
+	deleteUserTtsVoice: deleteUserTtsVoice,
+	getUserTtsVoiceBinding: getUserTtsVoiceBinding,
+	putUserTtsVoiceBinding: putUserTtsVoiceBinding,
 	testTavernUserAiProvider: testTavernUserAiProvider,
 	listTavernUserAiProviderModels: listTavernUserAiProviderModels,
 	postTavernRegenerate: postTavernRegenerate,
@@ -3209,12 +3369,18 @@ module.exports = {
 	postTavernChatStop: postTavernChatStop,
 	postTavernMemoryRefresh: postTavernMemoryRefresh,
 	postTavernMemoryEntries: postTavernMemoryEntries,
+	postTavernMemorySaveEntry: postTavernMemorySaveEntry,
 	postTavernMemoryDisableEntry: postTavernMemoryDisableEntry,
 	postTavernMemorySetEntryEnabled: postTavernMemorySetEntryEnabled,
 	postTavernMemoryDeleteEntry: postTavernMemoryDeleteEntry,
 	postTavernMemorySync: postTavernMemorySync,
 	postTavernSessionDelete: postTavernSessionDelete,
 	postTavernSessionRestart: postTavernSessionRestart,
+	fetchTavernCharacterSessions: fetchTavernCharacterSessions,
+	postTavernSessionCreate: postTavernSessionCreate,
+	postTavernSessionActivate: postTavernSessionActivate,
+	postTavernSessionRename: postTavernSessionRename,
+	postTavernSessionDeleteOne: postTavernSessionDeleteOne,
 	cleanupLocalConversationArtifacts: cleanupLocalConversationArtifacts,
 	cleanupLocalCharacterArtifacts: cleanupLocalCharacterArtifacts,
 	postCharacterInteraction: postCharacterInteraction,

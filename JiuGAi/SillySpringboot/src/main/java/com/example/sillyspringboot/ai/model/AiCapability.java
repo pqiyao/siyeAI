@@ -4,6 +4,7 @@ import java.util.Locale;
 
 public enum AiCapability {
     CHAT,
+    VISION,
     IMAGE,
     TTS,
     STT;

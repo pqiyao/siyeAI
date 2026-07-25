@@ -17,6 +17,11 @@
         <result column="raw_entry_json" property="rawEntryJson"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
+        <result column="title" property="title"/>
+        <result column="member_id" property="memberId"/>
+        <result column="secondary_keywords_csv" property="secondaryKeywordsCsv"/>
+        <result column="match_mode" property="matchMode"/>
+        <result column="injection_position" property="injectionPosition"/>
     </resultMap>
 
     <select id="countByCharacterId" resultType="long">
@@ -39,6 +44,13 @@
         WHERE character_id = #{characterId}
           AND enabled = 1
         ORDER BY constant_injection DESC, priority DESC, id ASC
+    </select>
+
+    <select id="listAllByCharacterId" resultMap="LorebookEntryResultMap">
+        SELECT *
+        FROM app_lorebook_entry
+        WHERE character_id = #{characterId}
+        ORDER BY priority DESC, id ASC
     </select>
 
     <select id="summarizeByCharacterIds" resultType="map">
@@ -66,9 +78,11 @@
     <insert id="insert" parameterType="com.example.sillyspringboot.character.entity.AppLorebookEntry"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO app_lorebook_entry (
-            character_id, keywords_csv, content, priority, constant_injection, scan_depth, enabled, source_type, raw_entry_json
+            character_id, title, member_id, keywords_csv, secondary_keywords_csv, match_mode,
+            content, priority, constant_injection, scan_depth, injection_position, enabled, source_type, raw_entry_json
         ) VALUES (
-            #{characterId}, #{keywordsCsv}, #{content}, #{priority}, #{constantInjection}, #{scanDepth}, #{enabled},
+            #{characterId}, #{title}, #{memberId}, #{keywordsCsv}, #{secondaryKeywordsCsv}, #{matchMode},
+            #{content}, #{priority}, #{constantInjection}, #{scanDepth}, #{injectionPosition}, #{enabled},
             COALESCE(#{source}, 'manual'), #{rawEntryJson}
         )
     </insert>
@@ -76,11 +90,16 @@
     <update id="updateById" parameterType="com.example.sillyspringboot.character.entity.AppLorebookEntry">
         UPDATE app_lorebook_entry
         SET character_id = #{characterId},
+            title = #{title},
+            member_id = #{memberId},
             keywords_csv = #{keywordsCsv},
+            secondary_keywords_csv = #{secondaryKeywordsCsv},
+            match_mode = #{matchMode},
             content = #{content},
             priority = #{priority},
             constant_injection = #{constantInjection},
             scan_depth = #{scanDepth},
+            injection_position = #{injectionPosition},
             enabled = #{enabled},
             source_type = COALESCE(#{source}, source_type),
             raw_entry_json = COALESCE(#{rawEntryJson}, raw_entry_json),

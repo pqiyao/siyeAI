@@ -4,6 +4,7 @@ import java.util.Locale;
 
 public enum AiProtocol {
     OPENAI_CHAT,
+    OPENAI_VISION,
     OPENAI_IMAGE,
     OPENAI_TTS,
     OPENAI_STT;
@@ -23,6 +24,7 @@ public enum AiProtocol {
     public static AiProtocol forCapability(AiCapability capability) {
         return switch (capability) {
             case CHAT -> OPENAI_CHAT;
+            case VISION -> OPENAI_VISION;
             case IMAGE -> OPENAI_IMAGE;
             case TTS -> OPENAI_TTS;
             case STT -> OPENAI_STT;

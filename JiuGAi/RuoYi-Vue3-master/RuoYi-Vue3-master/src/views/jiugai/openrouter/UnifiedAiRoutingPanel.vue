@@ -362,6 +362,9 @@
         <el-form-item label="聊天灰度">
           <el-slider v-model="runtimeDraft.chatCanaryPercent" :min="0" :max="100" show-input />
         </el-form-item>
+        <el-form-item label="官方识图路由">
+          <el-switch v-model="runtimeDraft.visionEnabled" />
+        </el-form-item>
         <el-form-item label="官方生图路由">
           <el-switch v-model="runtimeDraft.imageEnabled" />
         </el-form-item>
@@ -397,7 +400,8 @@ import {
   Right,
   Setting,
   Sort,
-  Upload
+  Upload,
+  View
 } from '@element-plus/icons-vue'
 import {
   deleteAiAccount,
@@ -418,6 +422,7 @@ const pageRoute = useRoute()
 
 const capabilityOptions = [
   { value: 'CHAT', label: '文本聊天', icon: ChatDotRound },
+  { value: 'VISION', label: '视觉理解', icon: View },
   { value: 'IMAGE', label: '生图', icon: Picture },
   { value: 'TTS', label: '语音合成', icon: Headset },
   { value: 'STT', label: '语音识别', icon: Microphone }
@@ -455,6 +460,7 @@ const runtimeDraft = reactive({
   enabled: false,
   shadowEnabled: true,
   chatCanaryPercent: 0,
+  visionEnabled: false,
   imageEnabled: false,
   ttsEnabled: false,
   sttEnabled: false
@@ -559,6 +565,7 @@ function openRuntimeDialog() {
     enabled: flags.enabled === true,
     shadowEnabled: flags.shadowEnabled !== false,
     chatCanaryPercent: Number(flags.chatCanaryPercent || 0),
+    visionEnabled: flags.visionEnabled === true,
     imageEnabled: flags.imageEnabled === true,
     ttsEnabled: flags.ttsEnabled === true,
     sttEnabled: flags.sttEnabled === true

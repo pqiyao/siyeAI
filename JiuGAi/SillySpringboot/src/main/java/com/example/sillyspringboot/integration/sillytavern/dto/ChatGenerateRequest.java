@@ -1,5 +1,7 @@
 package com.example.sillyspringboot.integration.sillytavern.dto;
 
+import com.example.sillyspringboot.ai.model.AiCapability;
+
 import java.util.List;
 import java.util.Set;
 
@@ -23,8 +25,33 @@ public record ChatGenerateRequest(
         List<String> stWorldNames,
         UserModelOverride userModelOverride,
         String tailSystemPrompt,
-        String runtimePresetBundle
+        String runtimePresetBundle,
+        AiCapability routingCapability
 ) {
+
+    public ChatGenerateRequest(
+            Long conversationId,
+            String userMessage,
+            List<ChatMessage> messages,
+            String clientMessageId,
+            boolean stream,
+            String mode,
+            Set<String> allowedFeatures,
+            String userName,
+            String charName,
+            List<String> groupNames,
+            String stAvatarUrl,
+            String stChatFileName,
+            String stMessageRef,
+            List<String> stWorldNames,
+            UserModelOverride userModelOverride,
+            String tailSystemPrompt,
+            String runtimePresetBundle
+    ) {
+        this(conversationId, userMessage, messages, clientMessageId, stream, mode, allowedFeatures,
+                userName, charName, groupNames, stAvatarUrl, stChatFileName, stMessageRef, stWorldNames,
+                userModelOverride, tailSystemPrompt, runtimePresetBundle, AiCapability.CHAT);
+    }
 
     public ChatGenerateRequest(
             Long conversationId,
@@ -60,7 +87,8 @@ public record ChatGenerateRequest(
                 stWorldNames,
                 userModelOverride,
                 null,
-                null
+                null,
+                AiCapability.CHAT
         );
     }
 
@@ -99,8 +127,13 @@ public record ChatGenerateRequest(
                 stWorldNames,
                 userModelOverride,
                 tailSystemPrompt,
-                null
+                null,
+                AiCapability.CHAT
         );
+    }
+
+    public AiCapability routingCapabilityOrChat() {
+        return routingCapability == null ? AiCapability.CHAT : routingCapability;
     }
 
     public boolean hasImageInput() {

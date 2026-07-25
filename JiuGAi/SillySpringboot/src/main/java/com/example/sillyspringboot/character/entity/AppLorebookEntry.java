@@ -16,6 +16,11 @@ public class AppLorebookEntry {
     private String rawEntryJson;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private String title;
+    private Long memberId;
+    private String secondaryKeywordsCsv;
+    private String matchMode;
+    private String injectionPosition;
 
     public Long getId() {
         return id;
@@ -112,4 +117,15 @@ public class AppLorebookEntry {
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
     }
+
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
+    public Long getMemberId() { return memberId; }
+    public void setMemberId(Long memberId) { this.memberId = memberId; }
+    public String getSecondaryKeywordsCsv() { return secondaryKeywordsCsv; }
+    public void setSecondaryKeywordsCsv(String secondaryKeywordsCsv) { this.secondaryKeywordsCsv = secondaryKeywordsCsv; }
+    public String getMatchMode() { return matchMode; }
+    public void setMatchMode(String matchMode) { this.matchMode = matchMode; }
+    public String getInjectionPosition() { return injectionPosition; }
+    public void setInjectionPosition(String injectionPosition) { this.injectionPosition = injectionPosition; }
 }

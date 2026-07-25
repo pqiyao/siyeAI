@@ -42,6 +42,27 @@
         LIMIT 1
     </select>
 
+    <select id="findEnabledAvailableById" resultMap="AppChatPresetResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_chat_preset
+        WHERE id = #{id}
+          AND enabled = 1
+          AND (
+              (scope = 'PUBLIC' AND owner_user_id IS NULL)
+              OR (scope = 'PRIVATE' AND owner_user_id = #{userId})
+          )
+        LIMIT 1
+    </select>
+
+    <select id="findPrivateByIdForOwner" resultMap="AppChatPresetResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_chat_preset
+        WHERE id = #{id}
+          AND scope = 'PRIVATE'
+          AND owner_user_id = #{userId}
+        LIMIT 1
+    </select>
+
     <select id="listPublicEnabled" resultMap="AppChatPresetResultMap">
         SELECT <include refid="BaseColumns"/>
         FROM app_chat_preset
@@ -49,6 +70,44 @@
           AND enabled = 1
         ORDER BY sort_order ASC, id ASC
     </select>
+
+    <select id="listPrivateByOwner" resultMap="AppChatPresetResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_chat_preset
+        WHERE scope = 'PRIVATE'
+          AND owner_user_id = #{userId}
+        ORDER BY updated_at DESC, id DESC
+    </select>
+
+    <insert id="insertPrivate" parameterType="com.example.sillyspringboot.ops.entity.AppChatPreset"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_chat_preset (
+            owner_user_id, scope, source_type, api_type, source_name, name, description,
+            bundle_json, enabled, sort_order
+        ) VALUES (
+            #{ownerUserId}, 'PRIVATE', 'USER_COPY', 'openai', #{sourceName}, #{name}, #{description},
+            #{bundleJson}, #{enabled}, 100
+        )
+    </insert>
+
+    <update id="updatePrivate">
+        UPDATE app_chat_preset
+        SET name = #{name},
+            description = #{description},
+            bundle_json = #{bundleJson},
+            enabled = #{enabled},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND scope = 'PRIVATE'
+          AND owner_user_id = #{userId}
+    </update>
+
+    <delete id="deletePrivate">
+        DELETE FROM app_chat_preset
+        WHERE id = #{id}
+          AND scope = 'PRIVATE'
+          AND owner_user_id = #{userId}
+    </delete>
 
     <sql id="AdminWhere">
         WHERE scope = 'PUBLIC'

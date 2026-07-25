@@ -39,6 +39,11 @@ public interface AppConversationMemoryEntryMapper {
 
     void upsert(AppConversationMemoryEntry entry);
 
+    void insertManual(AppConversationMemoryEntry entry);
+
+
+    int updateManualById(@Param("entry") AppConversationMemoryEntry entry);
+
     void disableByKey(@Param("conversationId") long conversationId, @Param("entryKey") String entryKey);
 
     void disableByKeyForBranch(@Param("conversationId") long conversationId,

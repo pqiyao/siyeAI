@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 public class GenerationAttemptRow {
 
     private Long generationTaskId;
+    private String requestId;
+    private String traceId;
     private Long conversationId;
     private Long characterId;
     private Integer attemptNo;
@@ -23,6 +25,7 @@ public class GenerationAttemptRow {
     private Integer httpStatus;
     private String status;
     private String errorCode;
+    private String errorMessage;
     private Integer promptTokens;
     private Integer completionTokens;
     private Boolean promptTokensEstimated;
@@ -40,6 +43,10 @@ public class GenerationAttemptRow {
 
     public Long getGenerationTaskId() { return generationTaskId; }
     public void setGenerationTaskId(Long value) { this.generationTaskId = value; }
+    public String getRequestId() { return requestId; }
+    public void setRequestId(String value) { this.requestId = value; }
+    public String getTraceId() { return traceId; }
+    public void setTraceId(String value) { this.traceId = value; }
     public Long getConversationId() { return conversationId; }
     public void setConversationId(Long value) { this.conversationId = value; }
     public Long getCharacterId() { return characterId; }
@@ -74,6 +81,8 @@ public class GenerationAttemptRow {
     public void setStatus(String value) { this.status = value; }
     public String getErrorCode() { return errorCode; }
     public void setErrorCode(String value) { this.errorCode = value; }
+    public String getErrorMessage() { return errorMessage; }
+    public void setErrorMessage(String value) { this.errorMessage = value; }
     public Integer getPromptTokens() { return promptTokens; }
     public void setPromptTokens(Integer value) { this.promptTokens = value; }
     public Integer getCompletionTokens() { return completionTokens; }

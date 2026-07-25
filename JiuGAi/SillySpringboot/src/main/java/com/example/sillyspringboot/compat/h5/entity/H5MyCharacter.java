@@ -42,6 +42,7 @@ public class H5MyCharacter {
     private Integer dislikeCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private String cardType;
 
     public Long getId() {
         return id;
@@ -346,5 +347,8 @@ public class H5MyCharacter {
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
     }
+
+    public String getCardType() { return cardType; }
+    public void setCardType(String cardType) { this.cardType = cardType; }
 }
 

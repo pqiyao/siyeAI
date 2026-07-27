@@ -10,6 +10,7 @@
           {{ flags.enabled ? '新路由已启用' : '旧路由生效中' }}
         </el-tag>
         <el-button
+          v-if="activeCapability !== 'CHAT' || chatWorkspace === 'providers'"
           v-hasPermi="['ops:openrouter:edit']"
           :icon="Upload"
           :loading="importingLegacy"
@@ -72,6 +73,15 @@
       </div>
     </div>
 
+    <div v-if="activeCapability === 'CHAT'" class="chat-workspace-tabs">
+      <el-radio-group v-model="chatWorkspace">
+        <el-radio-button value="offerings">用户可选模型</el-radio-button>
+        <el-radio-button value="providers">供应商与兜底</el-radio-button>
+      </el-radio-group>
+      <span>公开名称、价格与权限和真实上游账户分开管理</span>
+    </div>
+
+    <template v-if="activeCapability !== 'CHAT' || chatWorkspace === 'providers'">
     <div class="provider-table-wrap">
       <el-table v-loading="loading" :data="capabilityDeployments" row-key="id">
         <el-table-column label="供应商" min-width="190">
@@ -154,6 +164,78 @@
         <el-button link type="danger" @click="removeAccount(account)">删除账户</el-button>
       </div>
     </div>
+    </template>
+
+    <template v-else>
+      <div class="offering-toolbar">
+        <div class="offering-rollout-state">
+          <el-tag :type="chatModelSettings.enabled ? 'success' : 'info'" effect="plain">
+            {{ chatModelSettings.enabled ? `已开放 ${chatModelSettings.canaryPercent}%` : '用户端未开放' }}
+          </el-tag>
+          <span>先配置并验证模型，再逐步提高灰度；关闭后旧聊天链路继续生效。</span>
+        </div>
+        <div class="offering-toolbar-actions">
+          <el-button :icon="Setting" @click="openChatModelSettings">开放策略</el-button>
+          <el-button type="primary" :icon="Plus" @click="openOfferingDrawer()">新增用户模型</el-button>
+        </div>
+      </div>
+
+      <div class="provider-table-wrap offering-table-wrap">
+        <el-table v-loading="loading" :data="chatOfferings" row-key="id">
+          <el-table-column label="用户看到的模型" min-width="240">
+            <template #default="{ row }">
+              <div class="offering-name-cell">
+                <div>
+                  <strong>{{ row.displayName }}</strong>
+                  <el-tag v-if="row.badge" size="small" effect="plain">{{ row.badge }}</el-tag>
+                  <el-tag v-if="row.defaultOffering" size="small" type="success" effect="plain">默认</el-tag>
+                </div>
+                <span>{{ row.shortDescription || '尚未填写用户说明' }}</span>
+                <small>{{ row.offeringCode }}</small>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="体验标签" min-width="180">
+            <template #default="{ row }">
+              <div class="tag-line">
+                <el-tag v-for="tag in row.tags" :key="tag" size="small" type="info" effect="plain">{{ tag }}</el-tag>
+              </div>
+              <small>速度 {{ row.speedLevel }}/5 · 质量 {{ row.qualityLevel }}/5</small>
+            </template>
+          </el-table-column>
+          <el-table-column label="用户价格" min-width="190">
+            <template #default="{ row }">
+              <strong>{{ offeringPriceSummary(row) }}</strong>
+              <small v-if="row.prices?.length > 1">含 {{ row.prices.length - 1 }} 条会员价格</small>
+            </template>
+          </el-table-column>
+          <el-table-column label="绑定路由" min-width="190">
+            <template #default="{ row }">
+              <span class="mono-cell">{{ row.routeKey }}</span>
+              <small :class="row.routeReady ? 'route-ready' : 'route-missing'">
+                {{ row.routeReady ? `${row.routeMemberCount} 个供应商节点` : '路由未就绪' }}
+              </small>
+            </template>
+          </el-table-column>
+          <el-table-column label="发布状态" width="130">
+            <template #default="{ row }">
+              <el-tag :type="row.maintenance ? 'warning' : (row.enabled ? 'success' : 'info')" effect="plain">
+                {{ row.maintenance ? '维护中' : (row.enabled ? '已发布' : '草稿') }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="160" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openOfferingDrawer(row)">编辑</el-button>
+              <el-button link type="danger" :disabled="row.enabled" @click="removeOffering(row)">删除</el-button>
+            </template>
+          </el-table-column>
+          <template #empty>
+            <el-empty description="还没有用户可选模型。先创建专属 CHAT 路由，再发布模型。" :image-size="72" />
+          </template>
+        </el-table>
+      </div>
+    </template>
 
     <el-dialog
       v-model="providerDialogVisible"
@@ -381,6 +463,190 @@
         <el-button type="primary" :loading="savingRuntime" @click="submitRuntimeSettings">确认并保存</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer
+      v-model="offeringDrawerVisible"
+      :title="offeringForm.id ? '编辑用户可选模型' : '新增用户可选模型'"
+      size="min(860px, 96vw)"
+      destroy-on-close
+    >
+      <el-form label-position="top" class="offering-form">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="用户只会看到公开名称、说明和价格"
+          description="真实供应商、API Key 和上游模型由绑定路由管理；同一方案内可在首 Token 前 fallback。"
+        />
+
+        <div class="offering-section-head">
+          <div>
+            <strong>展示信息</strong>
+            <span>这些内容会出现在用户端模型选择器中</span>
+          </div>
+          <el-button :icon="Connection" @click="smartFillOffering">根据路由智能填写</el-button>
+        </div>
+        <div class="form-grid two-col">
+          <el-form-item label="公开编码">
+            <el-input v-model="offeringForm.offeringCode" :disabled="!!offeringForm.id" placeholder="例如 immersive_chat" maxlength="64" />
+          </el-form-item>
+          <el-form-item label="用户看到的名称">
+            <el-input v-model="offeringForm.displayName" placeholder="例如 沉浸创作" maxlength="128" />
+          </el-form-item>
+          <el-form-item label="短说明" class="span-two">
+            <el-input v-model="offeringForm.shortDescription" placeholder="一句话说明模型特点与适用场景" maxlength="255" show-word-limit />
+          </el-form-item>
+          <el-form-item label="完整说明" class="span-two">
+            <el-input v-model="offeringForm.description" type="textarea" :rows="3" maxlength="1000" show-word-limit />
+          </el-form-item>
+          <el-form-item label="体验标签">
+            <el-input v-model="offeringTagsText" placeholder="沉浸、长文本、创作" />
+          </el-form-item>
+          <el-form-item label="角标文案">
+            <el-input v-model="offeringForm.badge" placeholder="推荐 / 高质量 / 免费" maxlength="64" />
+          </el-form-item>
+          <el-form-item label="上下文说明">
+            <el-input v-model="offeringForm.contextLabel" placeholder="例如 长上下文" maxlength="64" />
+          </el-form-item>
+          <el-form-item label="最低会员等级">
+            <el-input-number v-model="offeringForm.vipMinLevel" :min="0" :max="99" />
+          </el-form-item>
+          <el-form-item label="速度等级">
+            <el-slider v-model="offeringForm.speedLevel" :min="1" :max="5" show-stops />
+          </el-form-item>
+          <el-form-item label="质量等级">
+            <el-slider v-model="offeringForm.qualityLevel" :min="1" :max="5" show-stops />
+          </el-form-item>
+        </div>
+
+        <div class="offering-section-head">
+          <div>
+            <strong>模型路由</strong>
+            <span>只允许绑定 CHAT 路由；fallback 顺序在“供应商与兜底”中维护</span>
+          </div>
+        </div>
+        <el-form-item label="绑定 CHAT 路由">
+          <el-select v-model="offeringForm.routeKey" filterable allow-create placeholder="选择路由或填写 chat.offer.模型编码" @change="syncOfferingRouteMembers">
+            <el-option
+              v-for="route in chatRoutes"
+              :key="route.routeKey"
+              :label="`${route.displayName} (${route.routeKey})`"
+              :value="route.routeKey"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="供应商 fallback 顺序">
+          <el-select v-model="offeringForm.routeDeploymentIds" multiple filterable placeholder="按希望的执行顺序选择 CHAT 供应商模型">
+            <el-option
+              v-for="deployment in chatDeployments"
+              :key="deployment.id"
+              :label="`${accountFor(deployment)?.displayName || '--'} · ${deployment.modelName}`"
+              :value="deployment.id"
+            />
+          </el-select>
+          <div class="normalized-url">选择顺序就是首 Token 前的 fallback 顺序；保存方案时会同步保存这条专属路由。</div>
+          <div v-if="offeringForm.routeDeploymentIds.length" class="offering-fallback-order">
+            <div v-for="(deploymentId, index) in offeringForm.routeDeploymentIds" :key="deploymentId" class="offering-fallback-row">
+              <b>{{ index + 1 }}</b>
+              <div>
+                <strong>{{ accountFor(deployments.find((item) => item.id === deploymentId))?.displayName || '--' }}</strong>
+                <span>{{ deployments.find((item) => item.id === deploymentId)?.modelName || '模型已删除' }}</span>
+              </div>
+              <el-button :icon="SortUp" circle text title="上移" :disabled="index === 0" @click="moveOfferingDeployment(index, -1)" />
+              <el-button :icon="SortDown" circle text title="下移" :disabled="index === offeringForm.routeDeploymentIds.length - 1" @click="moveOfferingDeployment(index, 1)" />
+            </div>
+          </div>
+        </el-form-item>
+
+        <div class="offering-section-head">
+          <div>
+            <strong>计费与会员价格</strong>
+            <span>普通用户价格必填；系统会自动生成用户端价格说明</span>
+          </div>
+          <el-button :icon="Plus" @click="addOfferingPrice">增加会员价格</el-button>
+        </div>
+        <div class="price-rule-list">
+          <div v-for="(price, index) in offeringForm.prices" :key="`${price.vipLevel}-${index}`" class="price-rule-row">
+            <el-form-item label="会员等级">
+              <el-input-number v-model="price.vipLevel" :min="0" :max="99" :disabled="index === 0" />
+            </el-form-item>
+            <el-form-item label="计费方式">
+              <el-select v-model="price.billingMode" @change="normalizeOfferingPrice(price)">
+                <el-option v-for="mode in billingModes" :key="mode.value" :label="mode.label" :value="mode.value">
+                  <div class="billing-mode-option">
+                    <strong>{{ mode.label }}</strong>
+                    <span>{{ mode.description }}</span>
+                  </div>
+                </el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="priceNeedsQuota(price)" label="每次消耗次数">
+              <el-input-number v-model="price.quotaUnits" :min="1" :max="1000" />
+            </el-form-item>
+            <el-form-item v-if="priceNeedsDiamonds(price)" label="钻石">
+              <el-input-number v-model="price.diamondCost" :min="1" :max="1000000" />
+            </el-form-item>
+            <el-form-item v-if="priceNeedsGold(price)" label="金币">
+              <el-input-number v-model="price.goldCost" :min="1" :max="1000000" />
+            </el-form-item>
+            <el-button v-if="index > 0" :icon="Close" circle text title="删除会员价格" @click="removeOfferingPrice(index)" />
+            <div class="price-rule-preview">用户看到：{{ priceText(price) }}</div>
+          </div>
+        </div>
+
+        <div class="offering-section-head">
+          <div>
+            <strong>发布控制</strong>
+            <span>发布前会校验路由和价格；维护状态会阻止新请求</span>
+          </div>
+        </div>
+        <div class="form-grid three-col offering-switches">
+          <el-form-item label="推荐展示"><el-switch v-model="offeringForm.recommended" /></el-form-item>
+          <el-form-item label="设为默认"><el-switch v-model="offeringForm.defaultOffering" /></el-form-item>
+          <el-form-item label="维护状态"><el-switch v-model="offeringForm.maintenance" /></el-form-item>
+          <el-form-item label="发布给用户"><el-switch v-model="offeringForm.enabled" /></el-form-item>
+          <el-form-item label="排序"><el-input-number v-model="offeringForm.sortOrder" :min="0" :max="100000" /></el-form-item>
+        </div>
+
+        <div class="offering-preview">
+          <span>用户端预览</span>
+          <div>
+            <strong>{{ offeringForm.displayName || '模型名称' }}</strong>
+            <el-tag v-if="offeringForm.badge" size="small" effect="plain">{{ offeringForm.badge }}</el-tag>
+            <b>{{ offeringDraftPriceText }}</b>
+          </div>
+          <p>{{ offeringForm.shortDescription || '这里会显示模型的简短说明。' }}</p>
+        </div>
+      </el-form>
+      <template #footer>
+        <div class="drawer-footer">
+          <el-button @click="offeringDrawerVisible = false">取消</el-button>
+          <el-button type="primary" :loading="savingOffering" @click="submitOffering">保存模型方案</el-button>
+        </div>
+      </template>
+    </el-drawer>
+
+    <el-dialog v-model="chatModelSettingsVisible" title="用户聊天模型开放策略" width="600px">
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        title="关闭时不会接管现有聊天"
+        description="建议先用少量灰度验证真实发送、继续和重新生成，再逐步全量。"
+      />
+      <el-form label-position="top" class="runtime-form">
+        <el-form-item label="开放用户模型选择">
+          <el-switch v-model="chatModelSettingsDraft.enabled" />
+        </el-form-item>
+        <el-form-item label="用户灰度比例">
+          <el-slider v-model="chatModelSettingsDraft.canaryPercent" :min="0" :max="100" show-input />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="chatModelSettingsVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingChatModelSettings" @click="submitChatModelSettings">保存开放策略</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -400,11 +666,14 @@ import {
   Right,
   Setting,
   Sort,
+  SortDown,
+  SortUp,
   Upload,
   View
 } from '@element-plus/icons-vue'
 import {
   deleteAiAccount,
+  deleteAiChatOffering,
   deleteAiDeployment,
   discoverAiModels,
   getAiRouting,
@@ -412,6 +681,8 @@ import {
   probeAiCapability,
   resetAiRoutingRuntimeSettings,
   saveAiProvider,
+  saveAiChatModelSettings,
+  saveAiChatOfferingBundle,
   saveAiRoutingRuntimeSettings,
   saveAiRoute
 } from '@/api/jiugai/openrouterGeneration'
@@ -455,6 +726,16 @@ const matchedOnly = ref(true)
 const modelSummary = ref('')
 const routeDraft = ref([])
 const routeCandidateId = ref(null)
+const chatWorkspace = ref('offerings')
+const chatOfferings = ref([])
+const billingModes = ref([])
+const offeringDrawerVisible = ref(false)
+const chatModelSettingsVisible = ref(false)
+const savingOffering = ref(false)
+const savingChatModelSettings = ref(false)
+const chatModelSettings = reactive({ enabled: false, canaryPercent: 0 })
+const chatModelSettingsDraft = reactive({ enabled: false, canaryPercent: 0 })
+const offeringForm = reactive(defaultOfferingForm())
 const providerForm = reactive(defaultProviderForm())
 const runtimeDraft = reactive({
   enabled: false,
@@ -467,6 +748,15 @@ const runtimeDraft = reactive({
 })
 
 const capabilityLabel = computed(() => capabilityName(activeCapability.value))
+const chatRoutes = computed(() => routes.value.filter((item) => item.capability === 'CHAT'))
+const chatDeployments = computed(() => deployments.value.filter((item) => item.capability === 'CHAT' && item.enabled !== false))
+const offeringTagsText = computed({
+  get: () => (Array.isArray(offeringForm.tags) ? offeringForm.tags : []).join('、'),
+  set: (value) => {
+    offeringForm.tags = String(value || '').split(/[|,，、]/).map((item) => item.trim()).filter(Boolean).slice(0, 8)
+  }
+})
+const offeringDraftPriceText = computed(() => priceText(offeringForm.prices?.[0]))
 const capabilityDeployments = computed(() => deployments.value.filter((item) => item.capability === activeCapability.value))
 const capabilityRoute = computed(() => routes.value.find((item) => item.capability === activeCapability.value && item.routeKey === defaultRouteKey(activeCapability.value)))
 const routeDeploymentRows = computed(() => {
@@ -508,6 +798,31 @@ watch(() => pageRoute.query.capability, (value) => {
   activeCapability.value = capabilityFromQuery(value)
 })
 
+function defaultOfferingForm() {
+  return {
+    id: null,
+    versionNo: 0,
+    offeringCode: '',
+    displayName: '',
+    shortDescription: '',
+    description: '',
+    tags: [],
+    badge: '',
+    contextLabel: '',
+    speedLevel: 3,
+    qualityLevel: 3,
+    routeKey: '',
+    routeDeploymentIds: [],
+    vipMinLevel: 0,
+    recommended: false,
+    defaultOffering: false,
+    sortOrder: 100,
+    enabled: false,
+    maintenance: false,
+    prices: [{ vipLevel: 0, billingMode: 'QUOTA_ONLY', quotaUnits: 1, diamondCost: 0, goldCost: 0 }]
+  }
+}
+
 function defaultProviderForm() {
   return {
     accountId: null,
@@ -543,9 +858,197 @@ function load() {
       routes.value = data.routes || []
       catalog.value = data.catalog || []
       Object.assign(flags, data.flags || {})
+      const chatCatalog = data.chatModelCatalog || {}
+      chatOfferings.value = chatCatalog.offerings || []
+      billingModes.value = chatCatalog.billingModes || []
+      Object.assign(chatModelSettings, chatCatalog.settings || {})
     })
     .catch((error) => proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '加载统一模型路由失败')))
     .finally(() => { loading.value = false })
+}
+
+function openOfferingDrawer(row) {
+  const draft = defaultOfferingForm()
+  if (row) {
+    Object.assign(draft, JSON.parse(JSON.stringify(row)))
+    draft.prices = Array.isArray(row.prices) && row.prices.length
+      ? JSON.parse(JSON.stringify(row.prices))
+      : defaultOfferingForm().prices
+    const route = routes.value.find((item) => item.routeKey === row.routeKey)
+    draft.routeDeploymentIds = route?.deploymentIds ? [...route.deploymentIds] : []
+  }
+  Object.assign(offeringForm, draft)
+  if (!offeringForm.routeKey && offeringForm.offeringCode) {
+    offeringForm.routeKey = `chat.offer.${offeringForm.offeringCode}`
+  }
+  offeringDrawerVisible.value = true
+}
+
+function syncOfferingRouteMembers(routeKey) {
+  const route = routes.value.find((item) => item.routeKey === routeKey)
+  offeringForm.routeDeploymentIds = route?.deploymentIds ? [...route.deploymentIds] : []
+}
+
+function moveOfferingDeployment(index, offset) {
+  const target = index + offset
+  if (index < 0 || target < 0 || target >= offeringForm.routeDeploymentIds.length) return
+  const next = [...offeringForm.routeDeploymentIds]
+  const current = next[index]
+  next[index] = next[target]
+  next[target] = current
+  offeringForm.routeDeploymentIds = next
+}
+
+function smartFillOffering() {
+  const route = routes.value.find((item) => item.routeKey === offeringForm.routeKey)
+  const deploymentId = offeringForm.routeDeploymentIds?.[0] || route?.deploymentIds?.[0]
+  const deployment = deployments.value.find((item) => item.id === deploymentId)
+  if (!deployment) {
+    proxy.$modal.msgWarning('请先选择路由或至少一个 CHAT 供应商模型')
+    return
+  }
+  const model = String(deployment.modelName || '').toLowerCase()
+  let preset = {
+    name: '精选对话', desc: '兼顾回复质量和速度，适合日常角色扮演与连续剧情。',
+    tags: ['均衡', '角色扮演', '日常对话'], speed: 3, quality: 3
+  }
+  if (/claude/.test(model)) preset = { name: '沉浸创作', desc: '更擅长细腻表达、长篇剧情和角色一致性。', tags: ['沉浸', '长文本', '创作'], speed: 3, quality: 5 }
+  else if (/deepseek|reason|r1/.test(model)) preset = { name: '深度推理', desc: '适合复杂设定、逻辑分析和需要充分思考的剧情。', tags: ['推理', '逻辑', '复杂设定'], speed: 2, quality: 5 }
+  else if (/grok/.test(model)) preset = { name: '自然畅聊', desc: '回复自然直接，适合节奏轻快的日常互动。', tags: ['自然', '畅聊', '快速'], speed: 4, quality: 4 }
+  else if (/gpt|openai/.test(model)) preset = { name: '全能对话', desc: '理解稳定、风格均衡，适合大多数角色扮演场景。', tags: ['全能', '稳定', '均衡'], speed: 4, quality: 4 }
+  else if (/gemini/.test(model)) preset = { name: '长篇理解', desc: '适合长上下文、复杂人物关系和连续剧情。', tags: ['长上下文', '理解', '剧情'], speed: 4, quality: 4 }
+  if (!offeringForm.displayName) offeringForm.displayName = preset.name
+  if (!offeringForm.shortDescription) offeringForm.shortDescription = preset.desc
+  if (!offeringForm.description) offeringForm.description = `${preset.desc} 实际体验取决于当前角色卡、预设、世界书和会话上下文。`
+  if (!offeringForm.tags?.length) offeringForm.tags = preset.tags
+  if (!offeringForm.contextLabel && preset.tags.includes('长上下文')) offeringForm.contextLabel = '长上下文'
+  offeringForm.speedLevel = preset.speed
+  offeringForm.qualityLevel = preset.quality
+  if (!offeringForm.offeringCode) {
+    offeringForm.offeringCode = `model_${deployment.id}`
+    offeringForm.routeKey = `chat.offer.${offeringForm.offeringCode}`
+  }
+}
+
+function addOfferingPrice() {
+  const levels = offeringForm.prices.map((item) => Number(item.vipLevel || 0))
+  let nextLevel = 1
+  while (levels.includes(nextLevel)) nextLevel += 1
+  offeringForm.prices.push({ vipLevel: nextLevel, billingMode: 'QUOTA_THEN_DIAMOND', quotaUnits: 1, diamondCost: 1, goldCost: 0 })
+}
+
+function removeOfferingPrice(index) {
+  offeringForm.prices.splice(index, 1)
+}
+
+function priceNeedsQuota(price) {
+  return String(price?.billingMode || '').includes('QUOTA')
+}
+
+function priceNeedsDiamonds(price) {
+  const mode = String(price?.billingMode || '')
+  return mode.includes('DIAMOND') || mode === 'QUOTA_THEN_MIXED'
+}
+
+function priceNeedsGold(price) {
+  const mode = String(price?.billingMode || '')
+  return mode.includes('GOLD') || mode === 'QUOTA_THEN_MIXED'
+}
+
+function normalizeOfferingPrice(price) {
+  if (!priceNeedsQuota(price)) price.quotaUnits = 0
+  else if (!Number(price.quotaUnits)) price.quotaUnits = 1
+  if (!priceNeedsDiamonds(price)) price.diamondCost = 0
+  else if (!Number(price.diamondCost)) price.diamondCost = 1
+  if (!priceNeedsGold(price)) price.goldCost = 0
+  else if (!Number(price.goldCost)) price.goldCost = 1
+}
+
+function priceText(price) {
+  if (!price) return '--'
+  const mode = String(price.billingMode || '')
+  const q = Number(price.quotaUnits || 0)
+  const d = Number(price.diamondCost || 0)
+  const g = Number(price.goldCost || 0)
+  const labels = {
+    FREE: '免费', QUOTA_ONLY: `${q}次`, DIAMOND_ONLY: `${d}钻石/次`, GOLD_ONLY: `${g}金币/次`,
+    QUOTA_THEN_DIAMOND: `${q}次，用完后${d}钻石`, QUOTA_THEN_GOLD: `${q}次，用完后${g}金币`,
+    DIAMOND_AND_GOLD: `${d}钻石 + ${g}金币/次`, QUOTA_THEN_MIXED: `${q}次，用完后${d}钻石 + ${g}金币`
+  }
+  return labels[mode] || '--'
+}
+
+function offeringPriceSummary(row) {
+  const base = (row?.prices || []).find((item) => Number(item.vipLevel || 0) === 0) || row?.prices?.[0]
+  return priceText(base)
+}
+
+function submitOffering() {
+  if (!offeringForm.offeringCode || !offeringForm.displayName) {
+    proxy.$modal.msgWarning('请填写公开编码和用户看到的名称')
+    return
+  }
+  if (!offeringForm.routeKey) offeringForm.routeKey = `chat.offer.${offeringForm.offeringCode}`
+  if (!offeringForm.routeDeploymentIds?.length) {
+    proxy.$modal.msgWarning('请至少选择一个 CHAT 供应商模型')
+    return
+  }
+  const vipLevels = offeringForm.prices.map((item) => Number(item.vipLevel || 0))
+  if (!offeringForm.prices.length || !vipLevels.includes(0) || new Set(vipLevels).size !== vipLevels.length) {
+    proxy.$modal.msgWarning('普通用户价格必填，且会员等级不能重复')
+    return
+  }
+  offeringForm.prices.forEach((price) => normalizeOfferingPrice(price))
+  const existingRoute = routes.value.find((item) => item.routeKey === offeringForm.routeKey)
+  savingOffering.value = true
+  const routePayload = {
+    id: existingRoute?.id || null,
+    routeKey: offeringForm.routeKey,
+    displayName: `${offeringForm.displayName}路由`,
+    capability: 'CHAT',
+    deploymentIds: [...offeringForm.routeDeploymentIds],
+    enabled: true,
+    note: `用户可选模型 ${offeringForm.offeringCode} 专属路由`
+  }
+  const offeringPayload = {
+      ...offeringForm,
+      tags: [...offeringForm.tags],
+      prices: offeringForm.prices.map((item) => ({ ...item }))
+  }
+  saveAiChatOfferingBundle({ route: routePayload, offering: offeringPayload })
+    .then(() => {
+      proxy.$modal.msgSuccess('用户可选模型已保存')
+      offeringDrawerVisible.value = false
+      return load()
+    })
+    .catch((error) => proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '保存用户可选模型失败')))
+    .finally(() => { savingOffering.value = false })
+}
+
+function removeOffering(row) {
+  proxy.$modal.confirm(`确认删除用户模型“${row.displayName}”吗？`)
+    .then(() => deleteAiChatOffering(row.id))
+    .then(() => load())
+    .catch((error) => {
+      if (error !== 'cancel' && error !== 'close') proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '删除用户模型失败'))
+    })
+}
+
+function openChatModelSettings() {
+  Object.assign(chatModelSettingsDraft, chatModelSettings)
+  chatModelSettingsVisible.value = true
+}
+
+function submitChatModelSettings() {
+  savingChatModelSettings.value = true
+  saveAiChatModelSettings({ ...chatModelSettingsDraft })
+    .then(() => {
+      proxy.$modal.msgSuccess('用户聊天模型开放策略已保存')
+      chatModelSettingsVisible.value = false
+      return load()
+    })
+    .catch((error) => proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '保存开放策略失败')))
+    .finally(() => { savingChatModelSettings.value = false })
 }
 
 function importLegacy() {
@@ -987,6 +1490,43 @@ load()
 .route-editor { display: grid; gap: 14px; }
 .route-editor-item { display: grid; grid-template-columns: 24px 28px minmax(0, 1fr) 34px; align-items: center; gap: 10px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-bg-color); }
 .drag-handle { cursor: grab; color: var(--el-text-color-secondary); }
+.chat-workspace-tabs { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-extra-light); }
+.chat-workspace-tabs > span { color: var(--el-text-color-secondary); font-size: 12px; }
+.offering-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 24px; border-top: 1px solid var(--el-border-color-lighter); }
+.offering-rollout-state { display: flex; align-items: center; gap: 12px; color: var(--el-text-color-secondary); font-size: 13px; }
+.offering-toolbar-actions { display: flex; gap: 10px; }
+.offering-name-cell, .offering-table-wrap td small { display: flex; flex-direction: column; gap: 5px; }
+.offering-name-cell > div { display: flex; align-items: center; gap: 7px; }
+.offering-name-cell > span { overflow: hidden; color: var(--el-text-color-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.offering-name-cell > small { color: var(--el-text-color-placeholder); font-family: Consolas, monospace; }
+.tag-line { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+.route-ready { color: var(--el-color-success); }
+.route-missing { color: var(--el-color-danger); }
+.offering-form { padding-right: 8px; }
+.offering-form > .el-alert { margin-bottom: 24px; }
+.offering-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 26px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--el-border-color-lighter); }
+.offering-section-head > div { display: flex; flex-direction: column; gap: 4px; }
+.offering-section-head strong { font-size: 15px; }
+.offering-section-head span { color: var(--el-text-color-secondary); font-size: 12px; }
+.price-rule-list { display: grid; gap: 10px; }
+.price-rule-row { display: grid; grid-template-columns: 110px minmax(180px, 1.5fr) repeat(3, minmax(110px, 1fr)) 34px; align-items: end; gap: 10px; padding: 12px; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-fill-color-extra-light); }
+.price-rule-row .el-form-item { margin-bottom: 0; }
+.price-rule-row :deep(.el-input-number), .offering-form :deep(.el-select) { width: 100%; }
+.offering-switches :deep(.el-input-number) { width: 100%; }
+.offering-preview { margin: 24px 0 8px; padding: 16px 18px; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-fill-color-extra-light); }
+.offering-preview > span { color: var(--el-text-color-secondary); font-size: 12px; }
+.offering-preview > div { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.offering-preview b { margin-left: auto; color: var(--el-color-primary); }
+.offering-preview p { margin: 8px 0 0; color: var(--el-text-color-secondary); font-size: 13px; }
+.offering-fallback-order { display: grid; gap: 7px; margin-top: 12px; }
+.offering-fallback-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) 32px 32px; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; background: var(--el-fill-color-extra-light); }
+.offering-fallback-row > b { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; background: var(--el-color-primary-light-9); color: var(--el-color-primary); font-size: 12px; }
+.offering-fallback-row > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.offering-fallback-row span { overflow: hidden; color: var(--el-text-color-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.billing-mode-option { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.billing-mode-option span { color: var(--el-text-color-secondary); font-size: 12px; }
+.price-rule-preview { grid-column: 1 / -1; color: var(--el-color-primary); font-size: 12px; }
+.drawer-footer { display: flex; justify-content: flex-end; gap: 10px; }
 
 @media (max-width: 900px) {
   .routing-header, .capability-toolbar { align-items: flex-start; flex-direction: column; }
@@ -998,5 +1538,8 @@ load()
   .two-col, .three-col { grid-template-columns: 1fr; }
   .span-two { grid-column: auto; }
   .key-row { align-items: stretch; flex-direction: column; }
+  .chat-workspace-tabs, .offering-toolbar, .offering-rollout-state { align-items: flex-start; flex-direction: column; }
+  .offering-toolbar-actions { width: 100%; flex-wrap: wrap; }
+  .price-rule-row { grid-template-columns: 1fr; }
 }
 </style>

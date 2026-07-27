@@ -2,6 +2,8 @@ package com.example.sillyspringboot.compat.h5.web;
 
 import com.example.sillyspringboot.integration.sillytavern.SillyTavernProperties;
 import com.example.sillyspringboot.integration.sillytavern.StClient;
+import com.example.sillyspringboot.compat.h5.service.H5StAssetUrls;
+import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -56,6 +58,8 @@ public class ApiV1StAssetProxyController {
 
     private final StClient stClient;
     private final SillyTavernProperties sillyTavernProperties;
+    private final H5StAssetUrls stAssetUrls;
+    private final AppCharacterMapper characterMapper;
     private final Map<String, CachedAsset> memoryCache = Collections.synchronizedMap(
             new LinkedHashMap<String, CachedAsset>(96, 0.75f, true) {
                 @Override
@@ -65,16 +69,28 @@ public class ApiV1StAssetProxyController {
             }
     );
 
-    public ApiV1StAssetProxyController(StClient stClient, SillyTavernProperties sillyTavernProperties) {
+    public ApiV1StAssetProxyController(
+            StClient stClient,
+            SillyTavernProperties sillyTavernProperties,
+            H5StAssetUrls stAssetUrls,
+            AppCharacterMapper characterMapper
+    ) {
         this.stClient = stClient;
         this.sillyTavernProperties = sillyTavernProperties;
+        this.stAssetUrls = stAssetUrls;
+        this.characterMapper = characterMapper;
     }
 
     @GetMapping("/characters/{fileName:.+}")
     public ResponseEntity<byte[]> characterFile(
             @PathVariable("fileName") String fileName,
+            @RequestParam(name = "expires", required = false) Long expires,
+            @RequestParam(name = "sig", required = false) String signature,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch
     ) {
+        if (!canReadCharacterAsset(fileName, expires, signature)) {
+            return ResponseEntity.notFound().build();
+        }
         return returnCharacterAsset(fileName, null, OutputFormat.AUTO, ifNoneMatch, ORIGINAL_BROWSER_CACHE_TTL);
     }
 
@@ -82,9 +98,14 @@ public class ApiV1StAssetProxyController {
     public ResponseEntity<byte[]> characterThumbFile(
             @PathVariable("fileName") String fileName,
             @RequestParam(name = "preset", required = false, defaultValue = "card") String preset,
+            @RequestParam(name = "expires", required = false) Long expires,
+            @RequestParam(name = "sig", required = false) String signature,
             @RequestHeader(value = HttpHeaders.ACCEPT, required = false) String accept,
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch
     ) {
+        if (!canReadCharacterAsset(fileName, expires, signature)) {
+            return ResponseEntity.notFound().build();
+        }
         ImagePreset imagePreset = ImagePreset.from(preset);
         return returnCharacterAsset(
                 fileName,
@@ -93,6 +114,19 @@ public class ApiV1StAssetProxyController {
                 ifNoneMatch,
                 THUMB_BROWSER_CACHE_TTL
         );
+    }
+
+    private boolean canReadCharacterAsset(String fileName, Long expires, String signature) {
+        String safeFileName = normalizeFileName(fileName);
+        if (safeFileName.isEmpty()) {
+            return false;
+        }
+        var privateCharacter = characterMapper.findActivePrivateByStAvatarUrl(safeFileName);
+        var systemCharacter = characterMapper.findActiveSystemByStAvatarUrl(safeFileName);
+        if (stAssetUrls.hasValidSignature(safeFileName, expires, signature)) {
+            return privateCharacter != null || systemCharacter != null;
+        }
+        return privateCharacter == null && systemCharacter != null;
     }
 
     private ResponseEntity<byte[]> returnCharacterAsset(

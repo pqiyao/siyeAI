@@ -10,13 +10,22 @@ const chat = fs.readFileSync(path.join(root, 'pages/tavern/tavernChat.vue'), 'ut
 assert.match(api, /\/api\/v1\/tavern\/chat-presets\/copy/);
 assert.match(api, /putTavernPrivateChatPreset/);
 assert.match(api, /deleteTavernPrivateChatPreset/);
+assert.match(api, /systemChatPresetEntryVisible: raw\.systemChatPresetEntryVisible !== false/);
+assert.match(api, /userChatPresetEntryVisible: raw\.userChatPresetEntryVisible !== false/);
+assert.match(settings, /conversationId && presetFeatureConfigReady && showPresetSection/);
+assert.match(settings, /showSystemPresets\(\)/);
+assert.match(settings, /showUserPresets\(\)/);
+assert.match(settings, /showSystemPresets && showUserPresets/);
+assert.match(settings, /v-if="showUserPresets" class="copy-button"/);
+assert.match(settings, /fetchAppRuntimeConfig\(true\)/);
 assert.match(settings, /presetTab === 'official'/);
 assert.match(settings, /presetTab === 'mine'/);
 assert.match(settings, /postTavernChatPresetCopy/);
-assert.match(settings, /temperature: Number\(e\.temperature\)/);
-assert.match(settings, /topP: Number\(e\.topP\)/);
-assert.match(settings, /maxTokens: Number\(e\.maxTokens\)/);
-assert.match(settings, /maxContext: Number\(e\.maxContext\)/);
+assert.match(settings, /form\.fieldText\(s\.temperature, 1\)/);
+assert.match(settings, /form\.requiredNumber\(e\.temperature\)/);
+assert.match(settings, /if \(!saved\) this\.officialDraftId = previousOfficialId/);
+assert.match(settings, /if \(!this\.showSystemPresets \|\| this\.presetSaving\) return;/);
+assert.match(settings, /复制生成参数到我的预设/);
 assert.doesNotMatch(settings, /api.?key|reverse.?proxy|provider.?url|prompt.?manager/i);
 assert.doesNotMatch(chat, /postTavernChatPresetCopy|putTavernPrivateChatPreset|deleteTavernPrivateChatPreset/);
 

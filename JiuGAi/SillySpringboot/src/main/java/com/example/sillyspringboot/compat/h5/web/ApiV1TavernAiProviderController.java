@@ -1,6 +1,7 @@
 package com.example.sillyspringboot.compat.h5.web;
 
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
+import com.example.sillyspringboot.compat.h5.service.H5UserAiSettingsService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -16,9 +17,14 @@ import java.util.Map;
 public class ApiV1TavernAiProviderController {
 
     private final H5UserAiProviderService userAiProviderService;
+    private final H5UserAiSettingsService userAiSettingsService;
 
-    public ApiV1TavernAiProviderController(H5UserAiProviderService userAiProviderService) {
+    public ApiV1TavernAiProviderController(
+            H5UserAiProviderService userAiProviderService,
+            H5UserAiSettingsService userAiSettingsService
+    ) {
         this.userAiProviderService = userAiProviderService;
+        this.userAiSettingsService = userAiSettingsService;
     }
 
     @GetMapping("/ai-provider")
@@ -34,6 +40,14 @@ public class ApiV1TavernAiProviderController {
             @RequestBody(required = false) Map<String, Object> body
     ) {
         return ApiV1Result.ok(userAiProviderService.save(clientUid, body));
+    }
+
+    @PutMapping("/ai-provider/settings")
+    public ApiV1Result<Map<String, Object>> saveSettings(
+            @RequestParam("clientUid") String clientUid,
+            @RequestBody(required = false) Map<String, Object> body
+    ) {
+        return ApiV1Result.ok(userAiSettingsService.save(clientUid, body));
     }
 
     @PostMapping("/ai-provider/test")

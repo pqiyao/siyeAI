@@ -140,6 +140,46 @@
 						<text v-if="modelListMessage" class="field-tip">{{ modelListMessage }}</text>
 					</view>
 
+					<view class="field chat-model-library">
+						<view class="field-head">
+							<view class="chat-model-library__heading">
+								<text class="field-label">聊天模型库</text>
+								<text class="field-tip">同一个平台和 API Key 可保存多个模型，聊天时直接切换。</text>
+							</view>
+							<view
+								class="model-load-btn model-load-btn--primary"
+								:class="{ 'model-load-btn--disabled': !String(form.modelName || '').trim() || chatModelCollection.length >= 50 }"
+								@tap="addCurrentChatModel"
+							>加入当前模型</view>
+						</view>
+						<view v-if="chatModelCollection.length" class="chat-model-library__list">
+							<view
+								v-for="(item, index) in chatModelCollection"
+								:key="item.localKey"
+								class="chat-model-library__item"
+								:class="{ 'chat-model-library__item--default': item.defaultModel }"
+							>
+								<view class="chat-model-library__default" @tap="setDefaultChatModel(index)">
+									<u-icon :name="item.defaultModel ? 'checkmark-circle-fill' : 'radio-button-off'" :color="item.defaultModel ? '#d76e44' : '#78909c'" size="30"></u-icon>
+									<text>{{ item.defaultModel ? '默认' : '设为默认' }}</text>
+								</view>
+								<view class="chat-model-library__copy">
+									<input v-model="item.displayName" maxlength="128" :placeholder="chatModelDisplayName(item)" />
+									<text>{{ item.modelName }}</text>
+								</view>
+								<view class="chat-model-library__actions">
+									<view :class="{ 'chat-model-library__action--disabled': index === 0 }" @tap="moveChatModel(index, -1)"><u-icon name="arrow-up" size="28" color="#486777"></u-icon></view>
+									<view :class="{ 'chat-model-library__action--disabled': index === chatModelCollection.length - 1 }" @tap="moveChatModel(index, 1)"><u-icon name="arrow-down" size="28" color="#486777"></u-icon></view>
+									<view @tap="removeChatModel(index)"><u-icon name="trash" size="28" color="#b65449"></u-icon></view>
+								</view>
+							</view>
+						</view>
+						<view v-else class="chat-model-library__empty">
+							<text>获取或输入模型 ID 后，点“加入当前模型”。</text>
+						</view>
+						<text class="field-tip">默认模型用于旧版聊天入口；模型选择功能开放后，可在聊天页切换这里保存的其他模型。</text>
+					</view>
+
 					<view class="field">
 						<view class="field-head">
 							<text class="field-label">{{ auxModelsTitleText }}</text>
@@ -1096,6 +1136,7 @@ export default {
 			loadingModels: false,
 			loadingTtsModels: false,
 			loadingImageModels: false,
+			loadingChatModels: false,
 			loadingConfig: false,
 			hasLoadedConfig: false,
 			cleanFormSignature: '',
@@ -1119,6 +1160,8 @@ export default {
 			imageProviderModelItems: [],
 			imageModelListMessage: '',
 			presetExpanded: {},
+			chatModelCollection: [],
+			chatModelLocalSequence: 0,
 			form: {
 				mode: 'system',
 				providerSource: 'siliconflow',
@@ -2207,7 +2250,14 @@ export default {
 				clearStoredImageKey: this.form.clearStoredImageKey === true,
 				apiKey: String(this.form.apiKey || '').trim(),
 				customUrl: String(this.form.customUrl || '').trim(),
-				clearStoredKey: this.form.clearStoredKey === true
+				clearStoredKey: this.form.clearStoredKey === true,
+				chatModels: this.chatModelCollection.map((item, index) => ({
+					modelName: String(item.modelName || '').trim(),
+					displayName: String(item.displayName || '').trim(),
+					defaultModel: item.defaultModel === true,
+					enabled: item.enabled !== false,
+					sortOrder: index
+				}))
 			});
 		},
 		applyProviderStateToForm(data) {
@@ -2252,7 +2302,6 @@ export default {
 			this.imageProviderModelItems = [];
 			this.imageModelListMessage = '';
 			this.hasLoadedConfig = true;
-			this.markConfigClean();
 			this.$nextTick(() => {
 				if (this.form.mode === 'custom' && this.canLoadModels) {
 					this.loadProviderModels(false);
@@ -2312,9 +2361,15 @@ export default {
 				return;
 			}
 			this.loadingConfig = true;
+			this.loadingChatModels = true;
 			const clientUid = tavernApi.getClientUid();
-			tavernApi.getTavernUserAiProvider(clientUid).then((data) => {
-				this.applyProviderStateToForm(data);
+			Promise.all([
+				tavernApi.getTavernUserAiProvider(clientUid),
+				tavernApi.getTavernUserChatModels(clientUid).catch(() => [])
+			]).then((results) => {
+				this.applyProviderStateToForm(results[0]);
+				this.applyChatModelCollection(results[1]);
+				this.markConfigClean();
 			}).catch((err) => {
 				uni.showToast({
 					title: (err && err.message) || '加载失败',
@@ -2322,7 +2377,127 @@ export default {
 				});
 			}).finally(() => {
 				this.loadingConfig = false;
+				this.loadingChatModels = false;
 			});
+		},
+		chatModelDisplayName(item) {
+			const modelName = String(item && item.modelName || '').trim();
+			if (!modelName) return '模型显示名';
+			const parts = modelName.split('/');
+			return parts[parts.length - 1] || modelName;
+		},
+		nextChatModelLocalKey() {
+			this.chatModelLocalSequence += 1;
+			return 'chat_model_' + Date.now() + '_' + this.chatModelLocalSequence;
+		},
+		normalizeChatModelRow(item, index) {
+			const source = item && typeof item === 'object' ? item : {};
+			const modelName = String(source.modelName || '').trim();
+			if (!modelName) return null;
+			return {
+				id: source.id || null,
+				localKey: source.localKey || this.nextChatModelLocalKey(),
+				modelName,
+				displayName: String(source.displayName || '').trim(),
+				defaultModel: source.defaultModel === true,
+				enabled: source.enabled !== false,
+				sortOrder: Number.isFinite(Number(source.sortOrder)) ? Number(source.sortOrder) : index,
+				lastTestStatus: String(source.lastTestStatus || 'unknown')
+			};
+		},
+		applyChatModelCollection(rows) {
+			const seen = {};
+			const normalized = (Array.isArray(rows) ? rows : [])
+				.map((item, index) => this.normalizeChatModelRow(item, index))
+				.filter((item) => {
+					if (!item) return false;
+					const key = item.modelName.toLowerCase();
+					if (seen[key]) return false;
+					seen[key] = true;
+					return true;
+				})
+				.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
+			if (!normalized.length && String(this.form.modelName || '').trim()) {
+				normalized.push(this.normalizeChatModelRow({
+					modelName: this.form.modelName,
+					displayName: '',
+					defaultModel: true,
+					enabled: true,
+					sortOrder: 0
+				}, 0));
+			}
+			if (normalized.length && !normalized.some((item) => item.defaultModel)) {
+				normalized[0].defaultModel = true;
+			}
+			const selected = normalized.find((item) => item.defaultModel);
+			if (selected && !String(this.form.modelName || '').trim()) this.form.modelName = selected.modelName;
+			this.chatModelCollection = normalized;
+		},
+		addCurrentChatModel() {
+			const modelName = String(this.form.modelName || '').trim();
+			if (!modelName || this.chatModelCollection.length >= 50) return;
+			const existingIndex = this.chatModelCollection.findIndex((item) => String(item.modelName || '').toLowerCase() === modelName.toLowerCase());
+			if (existingIndex >= 0) {
+				uni.showToast({ title: '这个模型已经在模型库中', icon: 'none' });
+				return;
+			}
+			this.chatModelCollection.push(this.normalizeChatModelRow({
+				modelName,
+				displayName: '',
+				defaultModel: this.chatModelCollection.length === 0,
+				enabled: true,
+				sortOrder: this.chatModelCollection.length
+			}, this.chatModelCollection.length));
+		},
+		setDefaultChatModel(index) {
+			const target = this.chatModelCollection[index];
+			if (!target) return;
+			this.chatModelCollection.forEach((item, itemIndex) => {
+				item.defaultModel = itemIndex === index;
+			});
+			this.form.modelName = target.modelName;
+		},
+		moveChatModel(index, offset) {
+			const targetIndex = index + offset;
+			if (index < 0 || targetIndex < 0 || targetIndex >= this.chatModelCollection.length) return;
+			const item = this.chatModelCollection.splice(index, 1)[0];
+			this.chatModelCollection.splice(targetIndex, 0, item);
+		},
+		removeChatModel(index) {
+			const removed = this.chatModelCollection[index];
+			if (!removed) return;
+			this.chatModelCollection.splice(index, 1);
+			if (removed.defaultModel && this.chatModelCollection.length) {
+				this.setDefaultChatModel(0);
+			}
+		},
+		ensureCurrentChatModelInCollection() {
+			const modelName = String(this.form.modelName || '').trim();
+			if (!modelName) return;
+			let index = this.chatModelCollection.findIndex((item) => String(item.modelName || '').toLowerCase() === modelName.toLowerCase());
+			if (index < 0) {
+				this.chatModelCollection.push(this.normalizeChatModelRow({ modelName, defaultModel: true, enabled: true }, this.chatModelCollection.length));
+				index = this.chatModelCollection.length - 1;
+			}
+			this.chatModelCollection.forEach((item, itemIndex) => {
+				item.defaultModel = itemIndex === index;
+			});
+		},
+		buildChatModelCollectionPayload() {
+			this.ensureCurrentChatModelInCollection();
+			const models = this.chatModelCollection.slice(0, 50).map((item, index) => ({
+				id: item.id || null,
+				modelName: String(item.modelName || '').trim(),
+				displayName: String(item.displayName || '').trim(),
+				sortOrder: index,
+				enabled: item.enabled !== false
+			})).filter((item) => item.modelName);
+			const selected = this.chatModelCollection.find((item) => item.defaultModel);
+			return {
+				models,
+				defaultModelId: selected && selected.id ? selected.id : null,
+				defaultModelName: selected ? selected.modelName : ''
+			};
 		},
 		selectSystemMode() {
 			this.form.mode = 'system';
@@ -3322,9 +3497,16 @@ export default {
 		},
 		submitSave() {
 			this.saving = true;
-			tavernApi.putTavernUserAiProvider(tavernApi.getClientUid(), this.buildPayload()).then((data) => {
+			const clientUid = tavernApi.getClientUid();
+			const chatModelsPayload = this.buildChatModelCollectionPayload();
+			tavernApi.putTavernUserAiSettings(clientUid, {
+				provider: this.buildPayload(),
+				chatModels: chatModelsPayload
+			}).then((result) => {
 				this.saving = false;
-				this.applyProviderStateToForm(data);
+				this.applyProviderStateToForm(result.provider);
+				this.applyChatModelCollection(result.chatModels);
+				this.markConfigClean();
 				uni.showToast({
 					title: this.copy.saveSuccess,
 					icon: 'success'
@@ -3673,6 +3855,134 @@ export default {
 
 .field-tip--warning {
 	color: #b46a57;
+}
+
+.chat-model-library {
+	padding: 22rpx;
+	border: 1rpx solid rgba(72, 103, 119, 0.2);
+	border-radius: 8rpx;
+	background: rgba(244, 248, 247, 0.76);
+}
+
+.chat-model-library__heading {
+	min-width: 0;
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 5rpx;
+}
+
+.chat-model-library__heading .field-tip {
+	margin-top: 0;
+}
+
+.chat-model-library__list {
+	display: flex;
+	flex-direction: column;
+	gap: 12rpx;
+	margin: 18rpx 0 14rpx;
+}
+
+.chat-model-library__item {
+	display: grid;
+	grid-template-columns: 132rpx minmax(0, 1fr) 156rpx;
+	align-items: center;
+	gap: 14rpx;
+	padding: 16rpx;
+	border: 1rpx solid #d3dee0;
+	border-radius: 8rpx;
+	background: #ffffff;
+}
+
+.chat-model-library__item--default {
+	border-color: rgba(215, 110, 68, 0.65);
+	box-shadow: inset 5rpx 0 0 #d76e44;
+}
+
+.chat-model-library__default {
+	display: flex;
+	align-items: center;
+	gap: 7rpx;
+	color: #5f7885;
+	font-size: 21rpx;
+}
+
+.chat-model-library__copy {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 7rpx;
+}
+
+.chat-model-library__copy input {
+	width: 100%;
+	height: 52rpx;
+	padding: 0 12rpx;
+	border: 1rpx solid #d7e1e2;
+	border-radius: 6rpx;
+	box-sizing: border-box;
+	background: #f8faf9;
+	color: #203846;
+	font-size: 23rpx;
+}
+
+.chat-model-library__copy > text {
+	overflow: hidden;
+	color: #6f838d;
+	font-size: 19rpx;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.chat-model-library__actions {
+	display: grid;
+	grid-template-columns: repeat(3, 48rpx);
+	gap: 6rpx;
+	justify-content: end;
+}
+
+.chat-model-library__actions > view {
+	width: 48rpx;
+	height: 48rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1rpx solid #d5dfe0;
+	border-radius: 6rpx;
+	background: #f7f9f8;
+}
+
+.chat-model-library__action--disabled {
+	opacity: 0.35;
+	pointer-events: none;
+}
+
+.chat-model-library__empty {
+	min-height: 110rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	margin: 16rpx 0 12rpx;
+	border: 1rpx dashed #c8d5d8;
+	border-radius: 8rpx;
+	color: #718893;
+	font-size: 22rpx;
+	text-align: center;
+}
+
+@media (max-width: 420px) {
+	.chat-model-library > .field-head {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.chat-model-library__item {
+		grid-template-columns: minmax(0, 1fr) 156rpx;
+	}
+
+	.chat-model-library__default {
+		grid-column: 1 / -1;
+	}
 }
 
 .picker-shell {

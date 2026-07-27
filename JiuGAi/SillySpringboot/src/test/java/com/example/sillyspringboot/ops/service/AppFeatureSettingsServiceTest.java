@@ -27,6 +27,10 @@ class AppFeatureSettingsServiceTest {
         assertTrue((Boolean) service.toMap(service.getSettings()).get("rechargeEntryVisible"));
         assertTrue(service.getSettings().isCheckinEntryVisible());
         assertTrue((Boolean) service.toMap(service.getSettings()).get("checkinEntryVisible"));
+        assertTrue(service.getSettings().isSystemChatPresetEntryVisible());
+        assertTrue((Boolean) service.toMap(service.getSettings()).get("systemChatPresetEntryVisible"));
+        assertTrue(service.getSettings().isUserChatPresetEntryVisible());
+        assertTrue((Boolean) service.toMap(service.getSettings()).get("userChatPresetEntryVisible"));
         assertFalse(service.getSettings().isUserCharacterPromotionEnabled());
         assertFalse((Boolean) service.toMap(service.getSettings()).get("userCharacterPromotionEnabled"));
     }
@@ -117,6 +121,24 @@ class AppFeatureSettingsServiceTest {
         ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
         verify(mapper).upsert(eq("app_feature_settings"), json.capture());
         assertTrue(json.getValue().contains("\"checkinEntryVisible\":false"));
+    }
+
+    @Test
+    void chatPresetEntrySwitchesCanBeExplicitlyHiddenAndAreSerialized() {
+        AppRuntimeSettingMapper mapper = mock(AppRuntimeSettingMapper.class);
+        AppFeatureSettingsService service = new AppFeatureSettingsService(mapper);
+
+        AppFeatureSettings saved = service.saveSettings(Map.of(
+                "systemChatPresetEntryVisible", false,
+                "userChatPresetEntryVisible", false
+        ));
+
+        assertFalse(saved.isSystemChatPresetEntryVisible());
+        assertFalse(saved.isUserChatPresetEntryVisible());
+        ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+        verify(mapper).upsert(eq("app_feature_settings"), json.capture());
+        assertTrue(json.getValue().contains("\"systemChatPresetEntryVisible\":false"));
+        assertTrue(json.getValue().contains("\"userChatPresetEntryVisible\":false"));
     }
 
     @Test

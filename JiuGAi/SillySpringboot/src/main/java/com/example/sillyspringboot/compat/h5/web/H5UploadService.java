@@ -72,6 +72,37 @@ public class H5UploadService {
         return saveOwnedAndGetUrl(file, ownerUserId);
     }
 
+    public String copyUnownedImageAndGetUrl(String sourceUrl) {
+        Path source = resolveUploadedFilePath(sourceUrl, true);
+        String ext = normalizeKnownExt(source.getFileName().toString());
+        if (!isImageExt(ext)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "系统角色媒体不是支持的图片格式");
+        }
+        Path folder = ensureUploadFolder();
+        String name = UUID.randomUUID() + "." + ext;
+        Path target = folder.resolve(name);
+        try {
+            Files.copy(source, target);
+            return "/uploads/h5/" + name;
+        } catch (Exception e) {
+            try {
+                Files.deleteIfExists(target);
+            } catch (Exception cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "系统角色媒体复制失败");
+        }
+    }
+
+    public void deleteUnownedUploadIfExists(String url) {
+        Path target = resolveUploadedFilePath(url, false);
+        try {
+            Files.deleteIfExists(target);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "系统角色媒体清理失败");
+        }
+    }
+
     private static void validateImage(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "图片不能为空");
@@ -105,7 +136,7 @@ public class H5UploadService {
     }
 
     public byte[] readUploadedFileBytes(String url) {
-        Path path = resolveUploadedFilePath(url);
+        Path path = resolveUploadedFilePath(url, true);
         try {
             return Files.readAllBytes(path);
         } catch (Exception e) {
@@ -114,7 +145,7 @@ public class H5UploadService {
     }
 
     public String detectUploadedFileContentType(String url) {
-        Path path = resolveUploadedFilePath(url);
+        Path path = resolveUploadedFilePath(url, true);
         try {
             String contentType = Files.probeContentType(path);
             if (contentType != null && !contentType.isBlank()) {
@@ -143,7 +174,7 @@ public class H5UploadService {
         }
     }
 
-    private Path resolveUploadedFilePath(String url) {
+    private Path resolveUploadedFilePath(String url, boolean requireExisting) {
         String safeUrl = url == null ? "" : url.trim();
         if (!safeUrl.startsWith("/uploads/h5/")) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "参考音频地址不可用");
@@ -155,7 +186,9 @@ public class H5UploadService {
         try {
             Path folder = ensureUploadFolder();
             Path path = folder.resolve(relative).normalize();
-            if (!path.startsWith(folder) || !Files.exists(path) || Files.isDirectory(path)) {
+            if (!path.startsWith(folder)
+                    || Files.isDirectory(path)
+                    || (requireExisting && !Files.exists(path))) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED, "参考音频已不存在");
             }
             return path;
@@ -206,6 +239,13 @@ public class H5UploadService {
     private static boolean isAudioExt(String ext) {
         return switch (ext) {
             case "mp3", "wav", "m4a", "webm", "ogg", "aac", "amr" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isImageExt(String ext) {
+        return switch (ext) {
+            case "png", "jpg", "jpeg", "webp", "gif" -> true;
             default -> false;
         };
     }

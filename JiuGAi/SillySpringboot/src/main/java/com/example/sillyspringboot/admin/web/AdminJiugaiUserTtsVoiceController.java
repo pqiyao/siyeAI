@@ -48,4 +48,11 @@ public class AdminJiugaiUserTtsVoiceController {
         voiceService.setAdminDisabled(voiceId, disabled);
         return AdminAjaxResult.ok(disabled ? "已停用" : "已恢复");
     }
+
+    @PutMapping("/{voiceId}/finish-provisioning")
+    @AdminPermitted("ops:media:user-voice:manage")
+    public Map<String, Object> finishProvisioning(@PathVariable long voiceId) {
+        voiceService.finishAdminProvisioning(voiceId);
+        return AdminAjaxResult.ok("异常创建任务已结束，用户音色名额已释放");
+    }
 }

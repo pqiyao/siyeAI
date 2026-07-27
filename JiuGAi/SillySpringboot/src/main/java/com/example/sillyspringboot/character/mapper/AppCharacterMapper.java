@@ -14,6 +14,10 @@ public interface AppCharacterMapper {
 
     AppCharacter findByStAvatarUrl(@Param("stAvatarUrl") String stAvatarUrl);
 
+    AppCharacter findPublicVisibleById(@Param("id") long id);
+
+    AppCharacter findActiveSystemByStAvatarUrl(@Param("stAvatarUrl") String stAvatarUrl);
+
     AppCharacter findSystemByStAvatarUrlAny(@Param("stAvatarUrl") String stAvatarUrl);
 
     AppCharacter findActivePrivateByStAvatarUrl(@Param("stAvatarUrl") String stAvatarUrl);

@@ -104,6 +104,36 @@ class ExternalCleanupTaskServiceTest {
     }
 
     @Test
+    void promotionRollbackPersistsStAndCopiedMediaForDurableCleanup() {
+        Map<String, ExternalCleanupTask> persisted = new LinkedHashMap<>();
+        when(mapper.insertOrKeep(any())).thenAnswer(invocation -> {
+            ExternalCleanupTask task = invocation.getArgument(0);
+            persisted.putIfAbsent(task.getTaskKey(), task);
+            return 1;
+        });
+        when(mapper.findByTaskKey(anyString())).thenAnswer(invocation -> persisted.get(invocation.getArgument(0)));
+        String copiedFile = UUID.randomUUID() + ".png";
+
+        List<String> ids = service.enqueueArtifactRollbackTasks(
+                7L,
+                "system_copy_failed.png",
+                List.of("/uploads/h5/" + copiedFile)
+        );
+
+        assertThat(ids).hasSize(2);
+        assertThat(persisted.values())
+                .extracting(ExternalCleanupTask::getResourceType)
+                .containsExactly(
+                        ExternalCleanupTaskService.TYPE_ST_CHARACTER,
+                        ExternalCleanupTaskService.TYPE_LOCAL_UPLOAD
+                );
+        assertThat(persisted.values())
+                .filteredOn(task -> ExternalCleanupTaskService.TYPE_LOCAL_UPLOAD.equals(task.getResourceType()))
+                .extracting(ExternalCleanupTask::getPrimaryRef)
+                .containsExactly(copiedFile);
+    }
+
+    @Test
     void immediateFailureIsRecordedForRetryWithExponentialBackoff() {
         ExternalCleanupTask task = task("task-retry", ExternalCleanupTaskService.TYPE_ST_CHAT, 0, 3);
         installClaimBehavior(task);

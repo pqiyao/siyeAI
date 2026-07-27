@@ -760,6 +760,8 @@ function normalizeRuntimeFeatureConfig(source) {
 		illustrationEntryEnabled: raw.illustrationEntryEnabled !== false,
 		rechargeEntryVisible: raw.rechargeEntryVisible !== false,
 		checkinEntryVisible: raw.checkinEntryVisible !== false,
+		systemChatPresetEntryVisible: raw.systemChatPresetEntryVisible !== false,
+		userChatPresetEntryVisible: raw.userChatPresetEntryVisible !== false,
 		userByokVipMinLevel: normalizeNonNegativeInt(raw.userByokVipMinLevel, 0)
 	};
 }
@@ -850,6 +852,14 @@ function isRechargeEntryVisible() {
 
 function isCheckinEntryVisible() {
 	return getRuntimeFeatureConfig().checkinEntryVisible !== false;
+}
+
+function isSystemChatPresetEntryVisible() {
+	return getRuntimeFeatureConfig().systemChatPresetEntryVisible !== false;
+}
+
+function isUserChatPresetEntryVisible() {
+	return getRuntimeFeatureConfig().userChatPresetEntryVisible !== false;
 }
 
 function normalizeNonNegativeInt(value, fallback) {
@@ -2431,6 +2441,10 @@ function putTavernUserAiProvider(clientUid, body) {
 	return requestJson('PUT', '/api/v1/tavern/ai-provider' + buildUserAiProviderQuery(clientUid), body, 15000);
 }
 
+function putTavernUserAiSettings(clientUid, body) {
+	return requestJson('PUT', '/api/v1/tavern/ai-provider/settings' + buildUserAiProviderQuery(clientUid), body, 20000);
+}
+
 function buildUserVoiceQuery(clientUid, extra) {
 	var query = ['clientUid=' + encodeURIComponent(clientUid || getClientUid())];
 	var source = extra && typeof extra === 'object' ? extra : {};
@@ -2530,6 +2544,24 @@ function listTavernUserAiProviderModels(clientUid, body) {
 	return requestJson('POST', '/api/v1/tavern/ai-provider/models' + buildUserAiProviderQuery(clientUid), body, 25000);
 }
 
+function getTavernChatModels(clientUid, conversationId) {
+	var query = '?clientUid=' + encodeURIComponent(clientUid || getClientUid());
+	if (Number(conversationId) > 0) query += '&conversationId=' + encodeURIComponent(String(conversationId));
+	return requestJson('GET', '/api/v1/tavern/chat-models' + query, null, 20000);
+}
+
+function selectTavernChatModel(payload) {
+	return requestJson('PUT', '/api/v1/tavern/chat-models/selection', payload || {}, 20000);
+}
+
+function getTavernUserChatModels(clientUid) {
+	return requestJson('GET', '/api/v1/tavern/ai-provider/chat-models' + buildUserAiProviderQuery(clientUid), null, 20000);
+}
+
+function saveTavernUserChatModels(clientUid, payload) {
+	return requestJson('PUT', '/api/v1/tavern/ai-provider/chat-models' + buildUserAiProviderQuery(clientUid), payload || {}, 20000);
+}
+
 function postTavernRegenerate(payload) {
 	return requestJson('POST', '/api/v1/tavern/chat/regenerate', payload, CHAT_GENERATION_TIMEOUT);
 }
@@ -2591,51 +2623,6 @@ function postCharacterInteraction(payload) {
 
 function createCharacterDraft(payload) {
 	return requestJson('POST', '/api/v1/characters/create-draft', payload, 20000);
-}
-
-/**
- * 上传 PNG 角色卡（小程序/App 本地路径）。H5 需用 input[type=file] + FormData 自行请求同一路径。
- * @returns {Promise<{id:number}>}
- */
-function uploadSillyTavernPng(filePath) {
-	return new Promise(function (resolve, reject) {
-		if (!jgEnabled() || !filePath) {
-			reject(new Error('invalid'));
-			return;
-		}
-		if (isBrowserFileObject(filePath)) {
-			uploadBrowserMultipart(
-				'/api/v1/characters/import-sillytavern-png',
-				filePath,
-				null,
-				120000,
-				'PNG \u5bfc\u5165\u5931\u8d25'
-			).then(resolve).catch(reject);
-			return;
-		}
-		uni.uploadFile({
-			url: baseUrl() + '/api/v1/characters/import-sillytavern-png',
-			filePath: filePath,
-			name: 'file',
-			header: buildRequestHeaders(),
-			success: function (res) {
-				captureResponseDeviceToken(res);
-				try {
-					var data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-					if (data && Number(data.code) === 1) {
-						resolve(data.data);
-					} else {
-						reject(new Error((data && data.msg) || 'PNG 导入失败'));
-					}
-				} catch (e) {
-					reject(e);
-				}
-			},
-			fail: function (err) {
-				reject(err || new Error('upload'));
-			}
-		});
-	});
 }
 
 /**
@@ -3283,6 +3270,8 @@ module.exports = {
 	isIllustrationEntryEnabled: isIllustrationEntryEnabled,
 	isRechargeEntryVisible: isRechargeEntryVisible,
 	isCheckinEntryVisible: isCheckinEntryVisible,
+	isSystemChatPresetEntryVisible: isSystemChatPresetEntryVisible,
+	isUserChatPresetEntryVisible: isUserChatPresetEntryVisible,
 	markCharacterAccessRefreshNeeded: markCharacterAccessRefreshNeeded,
 	consumeCharacterAccessRefreshNeeded: consumeCharacterAccessRefreshNeeded,
 	buildLoginUrl: buildLoginUrl,
@@ -3355,6 +3344,7 @@ module.exports = {
 	deleteTavernPrivateChatPreset: deleteTavernPrivateChatPreset,
 	getTavernUserAiProvider: getTavernUserAiProvider,
 	putTavernUserAiProvider: putTavernUserAiProvider,
+	putTavernUserAiSettings: putTavernUserAiSettings,
 	pickBrowserAudioFile: pickBrowserAudioFile,
 	getUserTtsVoices: getUserTtsVoices,
 	createUserTtsVoice: createUserTtsVoice,
@@ -3364,6 +3354,10 @@ module.exports = {
 	putUserTtsVoiceBinding: putUserTtsVoiceBinding,
 	testTavernUserAiProvider: testTavernUserAiProvider,
 	listTavernUserAiProviderModels: listTavernUserAiProviderModels,
+	getTavernChatModels: getTavernChatModels,
+	selectTavernChatModel: selectTavernChatModel,
+	getTavernUserChatModels: getTavernUserChatModels,
+	saveTavernUserChatModels: saveTavernUserChatModels,
 	postTavernRegenerate: postTavernRegenerate,
 	postTavernContinue: postTavernContinue,
 	postTavernChatStop: postTavernChatStop,
@@ -3389,6 +3383,5 @@ module.exports = {
 	deleteMyCharacter: deleteMyCharacter,
 	uploadMyCharacterImage: uploadMyCharacterImage,
 	importMyCharacterPng: importMyCharacterPng,
-	uploadSupportImage: uploadSupportImage,
-	uploadSillyTavernPng: uploadSillyTavernPng
+	uploadSupportImage: uploadSupportImage
 };

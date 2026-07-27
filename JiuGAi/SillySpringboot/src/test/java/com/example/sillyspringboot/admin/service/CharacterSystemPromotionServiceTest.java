@@ -10,6 +10,7 @@ import com.example.sillyspringboot.character.entity.AppLorebookEntry;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.character.mapper.AppLorebookEntryMapper;
 import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
+import com.example.sillyspringboot.compat.h5.web.H5UploadService;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterImportRequest;
 import com.example.sillyspringboot.ops.dto.AppFeatureSettings;
@@ -19,10 +20,13 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
@@ -72,7 +76,10 @@ class CharacterSystemPromotionServiceTest {
         when(fixture.characterMapper.findById(1L)).thenReturn(source);
         when(fixture.stAdapter.exportCharacterPng("h5draft_u7_source.png")).thenReturn(exportedPng);
         when(fixture.stAdapter.importCharacterPng(same(exportedPng), eq("h5draft_u7_source.png"), any()))
-                .thenReturn(Map.of("file_name", "system_copy_1_new.png"));
+                .thenAnswer(invocation -> Map.of(
+                        "file_name",
+                        ((StCharacterImportRequest) invocation.getArgument(2)).preservedName()
+                ));
         doAnswer(invocation -> {
             ((AppCharacter) invocation.getArgument(0)).setId(100L);
             return null;
@@ -135,7 +142,7 @@ class CharacterSystemPromotionServiceTest {
         assertThat(character.getValue().getClientVisible()).isFalse();
         assertThat(character.getValue().getReviewStatus()).isEqualTo("APPROVED");
         assertThat(character.getValue().getLikeCount()).isZero();
-        assertThat(character.getValue().getStAvatarUrl()).isEqualTo("system_copy_1_new.png");
+        assertThat(character.getValue().getStAvatarUrl()).isEqualTo(result.stAvatarUrl());
 
         ArgumentCaptor<AppCharacterMember> copiedMember = ArgumentCaptor.forClass(AppCharacterMember.class);
         verify(fixture.studioMapper).insertMember(copiedMember.capture());
@@ -159,17 +166,22 @@ class CharacterSystemPromotionServiceTest {
         assertThat(audit.getValue().getSourceUserId()).isEqualTo(7L);
         assertThat(audit.getValue().getTargetCharacterId()).isEqualTo(100L);
         assertThat(audit.getValue().getPromotedBy()).isEqualTo("alice");
-        verify(fixture.stAdapter, never()).deleteCharacter("system_copy_1_new.png", false);
+        verify(fixture.stAdapter, never()).deleteCharacter(anyString(), anyBoolean());
     }
 
     @Test
     void databaseFailureDeletesNewStFileWhenNoTransactionSynchronizationIsActive() {
         Fixture fixture = fixture(true);
         byte[] exportedPng = new byte[] { (byte) 0x89, 0x50, 0x4e, 0x47 };
+        AtomicReference<String> failedAvatar = new AtomicReference<>();
         when(fixture.characterMapper.findById(1L)).thenReturn(sourceCharacter());
         when(fixture.stAdapter.exportCharacterPng("h5draft_u7_source.png")).thenReturn(exportedPng);
         when(fixture.stAdapter.importCharacterPng(same(exportedPng), eq("h5draft_u7_source.png"), any()))
-                .thenReturn(Map.of("file_name", "system_copy_1_failed.png"));
+                .thenAnswer(invocation -> {
+                    String fileName = ((StCharacterImportRequest) invocation.getArgument(2)).preservedName();
+                    failedAvatar.set(fileName);
+                    return Map.of("file_name", fileName);
+                });
         doThrow(new IllegalStateException("db failed"))
                 .when(fixture.characterMapper).insertFull(any(AppCharacter.class));
 
@@ -177,7 +189,67 @@ class CharacterSystemPromotionServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("db failed");
 
-        verify(fixture.stAdapter).deleteCharacter("system_copy_1_failed.png", false);
+        verify(fixture.cleanupTaskService).enqueueArtifactRollbackTasks(
+                7L, failedAvatar.get(), Set.of()
+        );
+        verify(fixture.stAdapter, never()).deleteCharacter(anyString(), anyBoolean());
+    }
+
+    @Test
+    void promotionCopiesManagedWebsiteImagesOnceAsIndependentSystemMedia() {
+        Fixture fixture = fixture(true);
+        AppCharacter source = sourceCharacter();
+        source.setAvatarUrl("/uploads/h5/source-avatar.png");
+        source.setCoverUrl("/uploads/h5/source-avatar.png");
+        byte[] exportedPng = new byte[] { (byte) 0x89, 0x50, 0x4e, 0x47 };
+        when(fixture.characterMapper.findById(1L)).thenReturn(source);
+        when(fixture.stAdapter.exportCharacterPng("h5draft_u7_source.png")).thenReturn(exportedPng);
+        when(fixture.stAdapter.importCharacterPng(same(exportedPng), eq("h5draft_u7_source.png"), any()))
+                .thenAnswer(invocation -> Map.of(
+                        "file_name",
+                        ((StCharacterImportRequest) invocation.getArgument(2)).preservedName()
+                ));
+        when(fixture.uploadService.copyUnownedImageAndGetUrl("/uploads/h5/source-avatar.png"))
+                .thenReturn("/uploads/h5/system-avatar.png");
+        doAnswer(invocation -> {
+            ((AppCharacter) invocation.getArgument(0)).setId(101L);
+            return null;
+        }).when(fixture.characterMapper).insertFull(any(AppCharacter.class));
+
+        fixture.service.promote(1L, true, "operator");
+
+        ArgumentCaptor<AppCharacter> character = ArgumentCaptor.forClass(AppCharacter.class);
+        verify(fixture.characterMapper).insertFull(character.capture());
+        assertThat(character.getValue().getAvatarUrl()).isEqualTo("/uploads/h5/system-avatar.png");
+        assertThat(character.getValue().getCoverUrl()).isEqualTo("/uploads/h5/system-avatar.png");
+        verify(fixture.uploadService).copyUnownedImageAndGetUrl("/uploads/h5/source-avatar.png");
+    }
+
+    @Test
+    void signedSourceStProxyIsRemappedToIndependentSystemStFile() {
+        Fixture fixture = fixture(true);
+        AppCharacter source = sourceCharacter();
+        source.setAvatarUrl("/api/v1/st-assets/characters/h5draft_u7_source.png?expires=4102444800&sig=old");
+        source.setCoverUrl("/api/v1/st-assets/characters-thumb/h5draft_u7_source.png?expires=4102444800&sig=old&preset=card");
+        byte[] exportedPng = new byte[] { (byte) 0x89, 0x50, 0x4e, 0x47 };
+        when(fixture.characterMapper.findById(1L)).thenReturn(source);
+        when(fixture.stAdapter.exportCharacterPng("h5draft_u7_source.png")).thenReturn(exportedPng);
+        when(fixture.stAdapter.importCharacterPng(same(exportedPng), eq("h5draft_u7_source.png"), any()))
+                .thenAnswer(invocation -> Map.of(
+                        "file_name",
+                        ((StCharacterImportRequest) invocation.getArgument(2)).preservedName()
+                ));
+        doAnswer(invocation -> {
+            ((AppCharacter) invocation.getArgument(0)).setId(102L);
+            return null;
+        }).when(fixture.characterMapper).insertFull(any(AppCharacter.class));
+
+        CharacterSystemPromotionService.PromotionResult result = fixture.service.promote(1L, true, "operator");
+
+        ArgumentCaptor<AppCharacter> character = ArgumentCaptor.forClass(AppCharacter.class);
+        verify(fixture.characterMapper).insertFull(character.capture());
+        assertThat(character.getValue().getAvatarUrl()).isEqualTo(result.stAvatarUrl());
+        assertThat(character.getValue().getCoverUrl()).isEqualTo(result.stAvatarUrl());
     }
 
     @Test
@@ -204,15 +276,28 @@ class CharacterSystemPromotionServiceTest {
         AppLorebookEntryMapper lorebookMapper = mock(AppLorebookEntryMapper.class);
         AppCharacterSystemPromotionMapper promotionMapper = mock(AppCharacterSystemPromotionMapper.class);
         StAdapter stAdapter = mock(StAdapter.class);
+        H5UploadService uploadService = mock(H5UploadService.class);
+        ExternalCleanupTaskService cleanupTaskService = mock(ExternalCleanupTaskService.class);
         CharacterSystemPromotionService service = new CharacterSystemPromotionService(
                 settingsService,
                 characterMapper,
                 studioMapper,
                 lorebookMapper,
                 promotionMapper,
-                stAdapter
+                stAdapter,
+                uploadService,
+                cleanupTaskService
         );
-        return new Fixture(service, characterMapper, studioMapper, lorebookMapper, promotionMapper, stAdapter);
+        return new Fixture(
+                service,
+                characterMapper,
+                studioMapper,
+                lorebookMapper,
+                promotionMapper,
+                stAdapter,
+                uploadService,
+                cleanupTaskService
+        );
     }
 
     private static AppCharacter sourceCharacter() {
@@ -235,7 +320,9 @@ class CharacterSystemPromotionServiceTest {
             CharacterStudioMapper studioMapper,
             AppLorebookEntryMapper lorebookMapper,
             AppCharacterSystemPromotionMapper promotionMapper,
-            StAdapter stAdapter
+            StAdapter stAdapter,
+            H5UploadService uploadService,
+            ExternalCleanupTaskService cleanupTaskService
     ) {
     }
 }

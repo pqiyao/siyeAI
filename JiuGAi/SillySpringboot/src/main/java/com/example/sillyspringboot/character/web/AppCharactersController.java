@@ -33,7 +33,7 @@ public class AppCharactersController {
 
     @GetMapping("/{characterId}")
     public ApiResult<StCharacterDetail> get(@PathVariable long characterId) {
-        AppCharacter c = catalog.ensureCharacter(characterId);
+        AppCharacter c = catalog.ensurePublicCharacter(characterId);
         if (c == null || c.getStAvatarUrl() == null || c.getStAvatarUrl().isBlank()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "角色不存在");
         }

@@ -87,7 +87,12 @@ public class H5TavernSessionService {
     }
 
     @Transactional
-    public void wipeConversationMessages(long conversationId) {
+    public void wipeConversationMessages(long userId, long conversationId) {
+        requireOwnedConversation(userId, conversationId);
+        wipeConversationMessagesInternal(conversationId);
+    }
+
+    private void wipeConversationMessagesInternal(long conversationId) {
         clearStaleActiveGenerationRows(conversationId);
         int activeTasks = taskMapper.countActiveByConversationId(conversationId);
         int activeMessages = messageMapper.countActiveByConversationId(conversationId);
@@ -150,8 +155,9 @@ public class H5TavernSessionService {
      * 删会话：归档（收件箱隐藏）+ 清空消息；ST 快照写空头。下次成功生成后会自动取消归档以回到收件箱。
      */
     @Transactional
-    public void archiveHideAndWipe(long conversationId) {
-        wipeConversationMessages(conversationId);
+    public void archiveHideAndWipe(long userId, long conversationId) {
+        requireOwnedConversation(userId, conversationId);
+        wipeConversationMessagesInternal(conversationId);
         try {
             snapshotService.saveEmptySnapshot(conversationId);
         } catch (Exception e) {
@@ -163,12 +169,19 @@ public class H5TavernSessionService {
      * 聊天内「重新开始」：取消归档 + 清空消息 + 空头快照。
      */
     @Transactional
-    public void restartFresh(long conversationId) {
-        wipeConversationMessages(conversationId);
+    public void restartFresh(long userId, long conversationId) {
+        requireOwnedConversation(userId, conversationId);
+        wipeConversationMessagesInternal(conversationId);
         try {
             snapshotService.saveEmptySnapshot(conversationId);
         } catch (Exception e) {
             log.warn("ST 快照清空失败（业务消息已删），conversationId={}: {}", conversationId, e.toString());
+        }
+    }
+
+    private void requireOwnedConversation(long userId, long conversationId) {
+        if (conversationMapper.findByIdForUser(conversationId, userId) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "会话不存在");
         }
     }
 }

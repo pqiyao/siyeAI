@@ -67,7 +67,16 @@
           AND c.deleted_at IS NULL
           AND c.private_card = 0
           AND c.owner_user_id IS NULL
+          AND c.review_status = 'APPROVED'
           AND c.client_visible = 1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM app_character private_row
+              WHERE private_row.st_avatar_url = c.st_avatar_url
+                AND private_row.private_card = 1
+                AND private_row.owner_user_id IS NOT NULL
+                AND private_row.deleted_at IS NULL
+          )
     </select>
 
     <select id="listFavoriteCharacterIds" resultType="long">

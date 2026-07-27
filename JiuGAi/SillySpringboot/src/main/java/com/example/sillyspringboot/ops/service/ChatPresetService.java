@@ -58,23 +58,32 @@ public class ChatPresetService {
         JsonNode envelope = stClient.readStSettingsEnvelope();
         JsonNode names = envelope == null ? null : envelope.path("openai_setting_names");
         JsonNode settings = envelope == null ? null : envelope.path("openai_settings");
+        if (names == null || !names.isArray() || settings == null || !settings.isArray()) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "ST chat preset payload invalid");
+        }
         int imported = 0;
-        int skipped = 0;
+        int skipped = Math.abs(names.size() - settings.size());
         List<String> namesImported = new ArrayList<>();
-        int count = Math.min(names != null && names.isArray() ? names.size() : 0,
-                settings != null && settings.isArray() ? settings.size() : 0);
+        List<String> warnings = new ArrayList<>();
+        if (names.size() != settings.size()) {
+            warnings.add("ST preset names/settings count mismatch: " + names.size() + "/" + settings.size());
+        }
+        int count = Math.min(names.size(), settings.size());
         LocalDateTime now = LocalDateTime.now();
+        presetMapper.markAllPlatformPresetsSourceUnavailable(API_OPENAI);
         for (int i = 0; i < count; i++) {
             String name = names.get(i).asText("").trim();
             String rawJson = settings.get(i).asText("");
             if (!StringUtils.hasText(name) || !StringUtils.hasText(rawJson)) {
                 skipped++;
+                addSyncWarning(warnings, "ST preset at index " + i + " is missing name or settings");
                 continue;
             }
             try {
                 JsonNode generation = objectMapper.readTree(rawJson);
                 if (!generation.isObject()) {
                     skipped++;
+                    addSyncWarning(warnings, "ST preset '" + name + "' settings must be a JSON object");
                     continue;
                 }
                 AppChatPreset preset = new AppChatPreset();
@@ -87,6 +96,7 @@ public class ChatPresetService {
                 preset.setDescription(buildDescription(generation));
                 preset.setBundleJson(buildBundleJson(generation));
                 preset.setEnabled(true);
+                preset.setSourceAvailable(true);
                 preset.setSortOrder(100 + i);
                 preset.setLastSyncedAt(now);
                 presetMapper.upsertPlatformPreset(preset);
@@ -94,13 +104,23 @@ public class ChatPresetService {
                 namesImported.add(name);
             } catch (Exception ignored) {
                 skipped++;
+                addSyncWarning(warnings, "ST preset '" + name + "' contains invalid JSON");
+            }
+        }
+
+        List<Long> unavailableIds = presetMapper.listUnavailablePlatformPresetIds(API_OPENAI);
+        for (Long presetId : unavailableIds) {
+            if (presetId != null && presetId > 0) {
+                bindingMapper.clearChatPresetId(presetId);
             }
         }
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("imported", imported);
         data.put("skipped", skipped);
+        data.put("unavailable", unavailableIds.size());
         data.put("names", namesImported);
+        data.put("warnings", warnings);
         return data;
     }
 
@@ -131,7 +151,8 @@ public class ChatPresetService {
         if (source == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "platform preset not found");
         }
-        if (presetMapper.listPrivateByOwner(userId).size() >= MAX_PRIVATE_PRESETS) {
+        lockOwnerOrThrow(userId);
+        if (presetMapper.countPrivateByOwner(userId) >= MAX_PRIVATE_PRESETS) {
             throw new BusinessException(ErrorCode.CONFLICT, "最多可保存 20 个我的预设");
         }
         PrivateGeneration generation = readSourceGeneration(source.getBundleJson());
@@ -145,6 +166,7 @@ public class ChatPresetService {
         preset.setDescription(privateDescription(generation));
         preset.setBundleJson(writePrivateBundle(generation));
         preset.setEnabled(true);
+        preset.setSourceAvailable(true);
         presetMapper.insertPrivate(preset);
         return toH5Row(preset);
     }
@@ -160,6 +182,7 @@ public class ChatPresetService {
             int maxContext,
             boolean enabled
     ) {
+        lockOwnerOrThrow(userId);
         AppChatPreset existing = presetMapper.findPrivateByIdForOwner(presetId, userId);
         if (existing == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "private preset not found");
@@ -185,12 +208,19 @@ public class ChatPresetService {
 
     @Transactional
     public boolean deletePrivatePreset(long userId, long presetId) {
+        lockOwnerOrThrow(userId);
         AppChatPreset existing = presetMapper.findPrivateByIdForOwner(presetId, userId);
         if (existing == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "private preset not found");
         }
         bindingMapper.clearChatPresetId(presetId);
         return presetMapper.deletePrivate(presetId, userId) == 1;
+    }
+
+    private void lockOwnerOrThrow(long userId) {
+        if (presetMapper.lockOwnerUser(userId) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "user not found");
+        }
     }
 
     @Transactional
@@ -256,7 +286,7 @@ public class ChatPresetService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> adminDetail(long id) {
-        AppChatPreset preset = presetMapper.findById(id);
+        AppChatPreset preset = presetMapper.findPublicById(id);
         if (preset == null) {
             return Map.of();
         }
@@ -267,7 +297,20 @@ public class ChatPresetService {
 
     @Transactional
     public boolean updateStatus(long id, boolean enabled) {
-        return presetMapper.updateStatus(id, enabled) > 0;
+        AppChatPreset preset = presetMapper.findPublicById(id);
+        if (preset == null) {
+            return false;
+        }
+        if (enabled && Boolean.FALSE.equals(preset.getSourceAvailable())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "ST preset source unavailable");
+        }
+        if (presetMapper.updateStatus(id, enabled) != 1) {
+            return false;
+        }
+        if (!enabled) {
+            bindingMapper.clearChatPresetId(id);
+        }
+        return true;
     }
 
     @Transactional
@@ -277,7 +320,11 @@ public class ChatPresetService {
 
     @Transactional
     public boolean delete(long id) {
-        return presetMapper.deleteById(id) > 0;
+        if (presetMapper.findPublicById(id) == null) {
+            return false;
+        }
+        bindingMapper.clearChatPresetId(id);
+        return presetMapper.deleteById(id) == 1;
     }
 
     private Map<String, Object> toH5Row(AppChatPreset preset) {
@@ -290,6 +337,7 @@ public class ChatPresetService {
         row.put("sortOrder", preset.getSortOrder());
         row.put("scope", preset.getScope());
         row.put("enabled", Boolean.TRUE.equals(preset.getEnabled()));
+        row.put("sourceAvailable", !Boolean.FALSE.equals(preset.getSourceAvailable()));
         row.put("editable", SCOPE_PRIVATE.equalsIgnoreCase(preset.getScope()));
         row.put("summary", summarizeBundle(preset.getBundleJson()));
         return row;
@@ -413,6 +461,7 @@ public class ChatPresetService {
         row.put("apiType", preset.getApiType());
         row.put("sourceName", preset.getSourceName());
         row.put("enabled", Boolean.TRUE.equals(preset.getEnabled()));
+        row.put("sourceAvailable", !Boolean.FALSE.equals(preset.getSourceAvailable()));
         row.put("sortOrder", preset.getSortOrder());
         row.put("lastSyncedAt", preset.getLastSyncedAt());
         row.put("createdAt", preset.getCreatedAt());
@@ -501,6 +550,12 @@ public class ChatPresetService {
             }
         }
         return "";
+    }
+
+    private static void addSyncWarning(List<String> warnings, String warning) {
+        if (warnings.size() < 20 && StringUtils.hasText(warning)) {
+            warnings.add(warning);
+        }
     }
 
     private static String modelFieldForSource(String source) {

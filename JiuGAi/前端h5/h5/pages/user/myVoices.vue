@@ -3,7 +3,7 @@
     <image class="page-bg" src="/static/login.png" mode="aspectFill" />
     <tavern-nav-bar title="我的自建音色" mode="dark" @back="goBack" />
 
-    <scroll-view scroll-y class="body">
+    <scroll-view v-if="featureEnabled" scroll-y class="body">
       <view class="hero">
         <text class="eyebrow">PRIVATE VOICES</text>
         <text class="title">只使用你的 API Key</text>
@@ -16,7 +16,7 @@
 
       <view v-if="overview.canCreate" class="panel">
         <text class="panel-title">创建新的音色</text>
-        <text class="panel-tip">请上传 5 到 20 秒、清晰无背景音乐的人声，并填写音频中的准确台词。仅可使用本人声音或已获得明确授权的声音。</text>
+        <text class="panel-tip">请上传 5 到 60 秒、清晰无背景音乐的人声，推荐 20 到 30 秒，并填写音频中的准确台词。仅可使用本人声音或已获得明确授权的声音。</text>
         <input v-model="form.displayName" class="input" maxlength="64" placeholder="音色名称，例如：温柔女声" />
         <textarea v-model="form.sampleText" class="textarea" maxlength="255" placeholder="参考音频中实际朗读的文字" />
         <view class="source-actions">
@@ -64,6 +64,9 @@
         </view>
       </view>
     </scroll-view>
+    <view v-else-if="featureEnabled === false" class="body">
+      <view class="panel"><text class="panel-title">语音功能暂未开放</text></view>
+    </view>
   </view>
 </template>
 
@@ -97,6 +100,7 @@ export default {
       browserChunks: [],
       discardRecordingResult: false,
       pageActive: false,
+      featureEnabled: null,
       form: { displayName: '', sampleText: '' }
     };
   },
@@ -115,7 +119,7 @@ export default {
     },
     audioDurationText() {
       const seconds = Math.round(Number(this.audioDurationMs || 0) / 100) / 10;
-      return seconds > 0 ? seconds + ' 秒 · 建议 5 到 20 秒' : '将在创建时由平台校验音频';
+      return seconds > 0 ? seconds + ' 秒 · 推荐 20 到 30 秒' : '将在创建时由平台校验真实时长';
     }
   },
   onLoad(options) {
@@ -126,7 +130,7 @@ export default {
     this.memberId = characterId > 0 ? memberId : 0;
     this.scopeType = characterId > 0 && memberId > 0 ? 'MEMBER' : (characterId > 0 ? 'CHARACTER' : 'GLOBAL');
   },
-  onShow() { this.load(); },
+  onShow() { this.checkFeatureAndLoad(); },
   onUnload() {
     this.pageActive = false;
     this.releaseRecording();
@@ -134,7 +138,14 @@ export default {
   methods: {
     clientUid() { return tavernApi.getClientUid(); },
     goBack() { uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/user/user' }) }); },
+    checkFeatureAndLoad() {
+      tavernApi.fetchAppRuntimeConfig(true).then((config) => {
+        this.featureEnabled = !(config && config.voiceFeatureEnabled === false);
+        if (this.featureEnabled) this.load();
+      });
+    },
     load() {
+      if (this.featureEnabled === false) return;
       this.loading = true;
       tavernApi.getUserTtsVoices(this.clientUid()).then((data) => {
         const value = data || {};
@@ -180,8 +191,8 @@ export default {
     acceptSelectedAudio(source, name, declaredSize) {
       const size = Number(declaredSize || (source && source.size) || 0);
       if (!source) return;
-      if (size > 8 * 1024 * 1024) {
-        uni.showToast({ title: '音频不能超过 8MB', icon: 'none' });
+      if (size > 15 * 1024 * 1024) {
+        uni.showToast({ title: '音频不能超过 15MB', icon: 'none' });
         return;
       }
       this.clearSelectedAudio();
@@ -248,8 +259,8 @@ export default {
       this.recordSeconds = 0;
       if (this.recordTimer) clearInterval(this.recordTimer);
       this.recordTimer = setInterval(() => {
-        this.recordSeconds = Math.min(20, Math.floor((Date.now() - this.recordStartedAt) / 1000));
-        if (Date.now() - this.recordStartedAt >= 20000) this.stopRecording();
+        this.recordSeconds = Math.min(60, Math.floor((Date.now() - this.recordStartedAt) / 1000));
+        if (Date.now() - this.recordStartedAt >= 60000) this.stopRecording();
       }, 250);
     },
     finishRecordTimer() {
@@ -258,7 +269,7 @@ export default {
       this.recordTimer = null;
       this.recordStartedAt = 0;
       this.recordSeconds = 0;
-      return Math.min(20000, Math.max(0, Math.round(duration)));
+      return Math.min(60000, Math.max(0, Math.round(duration)));
     },
     startBrowserRecording() {
       navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
@@ -351,7 +362,7 @@ export default {
         if (!allowed || !this.pageActive) return;
         try {
           this.discardRecordingResult = false;
-          recorder.start({ duration: 20000, sampleRate: 16000, numberOfChannels: 1, encodeBitRate: 96000, format: 'mp3' });
+          recorder.start({ duration: 60000, sampleRate: 16000, numberOfChannels: 1, encodeBitRate: 96000, format: 'mp3' });
           this.recording = true;
           this.beginRecordTimer();
         } catch (error) {
@@ -487,8 +498,8 @@ export default {
         uni.showToast({ title: '请填写名称和参考台词', icon: 'none' });
         return;
       }
-      if (this.audioDurationMs > 0 && (this.audioDurationMs < 5000 || this.audioDurationMs > 20000)) {
-        uni.showToast({ title: '参考音频时长需为 5 到 20 秒', icon: 'none' });
+      if (this.audioDurationMs > 0 && (this.audioDurationMs < 5000 || this.audioDurationMs > 60000)) {
+        uni.showToast({ title: '参考音频时长需为 5 到 60 秒', icon: 'none' });
         return;
       }
       this.creating = true;

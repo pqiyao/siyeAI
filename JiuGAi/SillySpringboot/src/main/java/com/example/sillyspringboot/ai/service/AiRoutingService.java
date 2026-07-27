@@ -5,6 +5,9 @@ import com.example.sillyspringboot.ai.entity.AiProviderDeployment;
 import com.example.sillyspringboot.ai.entity.AiResolvedDeployment;
 import com.example.sillyspringboot.ai.entity.AiRoute;
 import com.example.sillyspringboot.ai.entity.AiRouteMember;
+import com.example.sillyspringboot.ai.entity.AiChatModelSettings;
+import com.example.sillyspringboot.ai.entity.AiChatOffering;
+import com.example.sillyspringboot.ai.mapper.AiChatModelMapper;
 import com.example.sillyspringboot.ai.mapper.AiRoutingMapper;
 import com.example.sillyspringboot.ai.model.AiCapability;
 import com.example.sillyspringboot.ai.model.AiProtocol;
@@ -81,6 +84,7 @@ public class AiRoutingService {
     private final AiRoutingRuntimeSettingsService runtimeSettingsService;
     private final StModelProviderMapper legacyProviderMapper;
     private final StModelRouteMapper legacyRouteMapper;
+    private final AiChatModelMapper chatModelMapper;
 
     public AiRoutingService(
             AiRoutingMapper mapper,
@@ -88,7 +92,8 @@ public class AiRoutingService {
             SensitiveTextCrypto crypto,
             AiRoutingRuntimeSettingsService runtimeSettingsService,
             StModelProviderMapper legacyProviderMapper,
-            StModelRouteMapper legacyRouteMapper
+            StModelRouteMapper legacyRouteMapper,
+            AiChatModelMapper chatModelMapper
     ) {
         this.mapper = mapper;
         this.catalogService = catalogService;
@@ -96,6 +101,7 @@ public class AiRoutingService {
         this.runtimeSettingsService = runtimeSettingsService;
         this.legacyProviderMapper = legacyProviderMapper;
         this.legacyRouteMapper = legacyRouteMapper;
+        this.chatModelMapper = chatModelMapper;
     }
 
     @Transactional(readOnly = true)
@@ -211,6 +217,7 @@ public class AiRoutingService {
 
     @Transactional
     public Map<String, Object> saveProvider(Map<String, Object> body) {
+        boolean protectLiveDefaultRoute = isLiveDefaultChatRouteReady();
         Long accountId = longValue(body == null ? null : body.get("accountId"));
         Long deploymentId = longValue(body == null ? null : body.get("deploymentId"));
         AiProviderAccount current = accountId == null ? null : mapper.findAccountById(accountId);
@@ -340,6 +347,7 @@ public class AiRoutingService {
         } catch (DataIntegrityViolationException ex) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "该账户下已存在相同能力、模型和音色配置");
         }
+        if (protectLiveDefaultRoute) validateLiveDefaultChatRoute();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("account", accountView(mapper.findAccountById(account.getId())));
         result.put("deployment", deploymentView(mapper.findDeploymentById(deployment.getId())));
@@ -348,6 +356,7 @@ public class AiRoutingService {
 
     @Transactional
     public Map<String, Object> saveRoute(Map<String, Object> body) {
+        boolean protectLiveDefaultRoute = isLiveDefaultChatRouteReady();
         Long id = longValue(body == null ? null : body.get("id"));
         AiRoute route = id == null ? null : mapper.findRouteById(id);
         if (id != null && route == null) {
@@ -398,6 +407,7 @@ public class AiRoutingService {
             member.setSortOrder(order++);
             mapper.insertRouteMember(member);
         }
+        if (protectLiveDefaultRoute) validateLiveDefaultChatRoute();
         return adminSnapshot();
     }
 
@@ -516,6 +526,10 @@ public class AiRoutingService {
 
     @Transactional
     public void deleteRoute(long id) {
+        AiRoute route = mapper.findRouteById(id);
+        if (route != null && mapper.countChatOfferingsForRoute(route.getRouteKey()) > 0) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "该路由已绑定用户可选聊天模型，请先解除绑定");
+        }
         mapper.deleteRouteMembers(id);
         mapper.deleteRoute(id);
     }
@@ -563,6 +577,42 @@ public class AiRoutingService {
             active.add(provider);
         }
         return List.copyOf(active);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isRouteConfigured(String routeKey, AiCapability capability) {
+        if (routeKey == null || routeKey.isBlank() || capability == null) return false;
+        AiRoute route = mapper.findRouteByKey(routeKey.trim());
+        if (route == null || !Boolean.TRUE.equals(route.getEnabled())
+                || !capability.name().equalsIgnoreCase(route.getCapability())) return false;
+        for (AiResolvedDeployment row : mapper.resolveRoute(routeKey.trim())) {
+            if (capability.name().equalsIgnoreCase(row.getCapability())
+                    && StringUtils.hasText(decryptQuietly(row.getApiKeyCipher()))) return true;
+        }
+        return false;
+    }
+
+    private void validateLiveDefaultChatRoute() {
+        if (chatModelMapper == null) return;
+        AiChatModelSettings settings = chatModelMapper.findSettings();
+        if (settings == null || !Boolean.TRUE.equals(settings.getEnabled())
+                || settings.getCanaryPercent() == null || settings.getCanaryPercent() <= 0) return;
+        AiChatOffering offering = chatModelMapper.findDefaultOffering();
+        if (offering == null || !isRouteConfigured(offering.getRouteKey(), AiCapability.CHAT)) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_FAILED,
+                    "聊天模型选择已开放，不能停用默认模型的最后一条可用供应商线路"
+            );
+        }
+    }
+
+    private boolean isLiveDefaultChatRouteReady() {
+        if (chatModelMapper == null) return false;
+        AiChatModelSettings settings = chatModelMapper.findSettings();
+        if (settings == null || !Boolean.TRUE.equals(settings.getEnabled())
+                || settings.getCanaryPercent() == null || settings.getCanaryPercent() <= 0) return false;
+        AiChatOffering offering = chatModelMapper.findDefaultOffering();
+        return offering != null && isRouteConfigured(offering.getRouteKey(), AiCapability.CHAT);
     }
 
     @Transactional(readOnly = true)

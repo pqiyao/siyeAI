@@ -148,8 +148,11 @@ public class ApiV1CharactersController {
             if (!ownerId.equals(userId)) {
                 return ApiV1Result.fail("角色不存在");
             }
-        } else if (Boolean.FALSE.equals(row.getClientVisible())) {
-            return ApiV1Result.fail("角色不存在");
+        } else {
+            row = characterMapper.findPublicVisibleById(characterId);
+            if (row == null) {
+                return ApiV1Result.fail("角色不存在");
+            }
         }
 
         StCharacterDetail detail = null;

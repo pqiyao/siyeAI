@@ -9,6 +9,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -78,15 +80,34 @@ public class ExternalCleanupTaskService {
         collectStCharacterDrafts(drafts, ownedCharacters);
         collectLocalUploadDrafts(drafts, localAssetUrls);
 
+        return persistDrafts(userId, drafts);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public List<String> enqueueArtifactRollbackTasks(
+            long sourceUserId,
+            String stAvatarUrl,
+            Collection<String> localAssetUrls
+    ) {
+        if (sourceUserId <= 0) {
+            throw new IllegalArgumentException("sourceUserId must be positive");
+        }
+        Map<String, CleanupDraft> drafts = new LinkedHashMap<>();
+        addDraft(drafts, TYPE_ST_CHARACTER, stAvatarUrl, "");
+        collectLocalUploadDrafts(drafts, localAssetUrls);
+        return persistDrafts(sourceUserId, drafts);
+    }
+
+    private List<String> persistDrafts(long sourceUserId, Map<String, CleanupDraft> drafts) {
         List<String> taskIds = new ArrayList<>(drafts.size());
         LocalDateTime now = LocalDateTime.now();
         int maxAttempts = clamp(properties.getMaxAttempts(), 1, 100);
         for (CleanupDraft draft : drafts.values()) {
-            String taskKey = taskKey(userId, draft);
+            String taskKey = taskKey(sourceUserId, draft);
             ExternalCleanupTask task = new ExternalCleanupTask();
             task.setId(UUID.randomUUID().toString());
             task.setTaskKey(taskKey);
-            task.setSourceUserId(userId);
+            task.setSourceUserId(sourceUserId);
             task.setResourceType(draft.resourceType());
             task.setPrimaryRef(draft.primaryRef());
             task.setSecondaryRef(draft.secondaryRef());
@@ -333,13 +354,13 @@ public class ExternalCleanupTaskService {
 
     private void collectLocalUploadDrafts(
             Map<String, CleanupDraft> drafts,
-            Set<String> assetUrls
+            Collection<String> assetUrls
     ) {
         if (assetUrls == null) {
             return;
         }
         for (String assetUrl : assetUrls) {
-            String relativePath = normalizeOwnedUploadRelativePath(assetUrl);
+            String relativePath = normalizeLocalUploadReference(assetUrl);
             addDraft(drafts, TYPE_LOCAL_UPLOAD, relativePath, "");
         }
     }
@@ -365,6 +386,14 @@ public class ExternalCleanupTaskService {
             throw new IllegalArgumentException("owned upload path is invalid");
         }
         return path;
+    }
+
+    private static String normalizeLocalUploadReference(String rawPath) {
+        String path = text(rawPath).replace('\\', '/');
+        if (path.startsWith("/uploads/h5/")) {
+            path = path.substring("/uploads/h5/".length());
+        }
+        return normalizeOwnedUploadRelativePath(path);
     }
 
     private String taskKey(long userId, CleanupDraft draft) {

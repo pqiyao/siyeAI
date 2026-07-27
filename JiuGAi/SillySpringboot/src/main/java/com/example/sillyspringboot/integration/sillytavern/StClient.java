@@ -984,7 +984,21 @@ public final class StClient {
                 throw new BusinessException(ErrorCode.SERVICE_BUSY, "官方识图暂时没有可用供应商");
             }
             return providers.stream()
-                    .map(item -> toV2RuntimeProviderOverride(item, AiCapability.VISION))
+                    .map(item -> toV2RuntimeProviderOverride(item, AiCapability.VISION, AiCapability.VISION.defaultRouteKey()))
+                    .toList();
+        }
+        String explicitRouteKey = request == null ? "" : request.routingRouteKeyOrEmpty();
+        if (!explicitRouteKey.isBlank()) {
+            if (aiRoutingService == null || !aiRoutingService.isCapabilityEnabled(AiCapability.CHAT)) {
+                throw new BusinessException(ErrorCode.SERVICE_BUSY, "平台聊天模型路由尚未启用");
+            }
+            List<AiRoutingService.ResolvedProvider> selectedProviders =
+                    aiRoutingService.resolveRoute(explicitRouteKey, AiCapability.CHAT);
+            if (selectedProviders.isEmpty()) {
+                throw new BusinessException(ErrorCode.SERVICE_BUSY, "所选平台模型暂时没有可用供应商");
+            }
+            return selectedProviders.stream()
+                    .map(item -> toV2RuntimeProviderOverride(item, AiCapability.CHAT, explicitRouteKey))
                     .toList();
         }
         StModelRoutingService.ResolvedRoute route = modelRoutingService.resolveForScene(StModelRoutingService.DEFAULT_SCENE);
@@ -1022,7 +1036,7 @@ public final class StClient {
             }
             List<RuntimeProviderOverride> result = new java.util.ArrayList<>();
             for (AiRoutingService.ResolvedProvider item : v2Providers) {
-                result.add(toV2RuntimeProviderOverride(item, AiCapability.CHAT));
+                result.add(toV2RuntimeProviderOverride(item, AiCapability.CHAT, AiCapability.CHAT.defaultRouteKey()));
             }
             // During canary rollout the proven legacy chain remains the last pre-token recovery path.
             if (!aiRoutingService.isChatFullyRolledOut()) {
@@ -1040,14 +1054,15 @@ public final class StClient {
 
     private static RuntimeProviderOverride toV2RuntimeProviderOverride(
             AiRoutingService.ResolvedProvider provider,
-            AiCapability capability
+            AiCapability capability,
+            String routeKey
     ) {
         String vendor = firstNonBlank(provider.vendor()).toLowerCase(java.util.Locale.ROOT);
         boolean custom = "custom".equals(vendor);
         return new RuntimeProviderOverride(
                 provider.providerKey(),
                 provider.displayName(),
-                capability.defaultRouteKey(),
+                firstNonBlank(routeKey, capability.defaultRouteKey()),
                 custom ? "custom" : vendor,
                 provider.modelName(),
                 custom ? "" : provider.baseUrl(),

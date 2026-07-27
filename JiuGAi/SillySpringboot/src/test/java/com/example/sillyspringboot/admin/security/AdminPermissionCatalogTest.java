@@ -1,9 +1,12 @@
 package com.example.sillyspringboot.admin.security;
 
+import com.example.sillyspringboot.admin.web.AdminAiRoutingController;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -134,5 +137,18 @@ class AdminPermissionCatalogTest {
                     assertThat(validKeys).as(template.key() + " references " + permission).contains(permission)
             );
         });
+    }
+
+    @Test
+    void atomicChatOfferingSaveRequiresOpenRouterEditPermission() throws Exception {
+        Method method = AdminAiRoutingController.class.getDeclaredMethod(
+                "saveChatOfferingBundle",
+                Map.class
+        );
+
+        AdminPermitted permitted = method.getAnnotation(AdminPermitted.class);
+
+        assertThat(permitted).isNotNull();
+        assertThat(permitted.value()).contains("ops:openrouter:edit");
     }
 }

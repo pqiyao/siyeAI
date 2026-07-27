@@ -164,6 +164,7 @@ export default {
 			voiceCatalogError: '',
 			voiceCatalogMessage: '',
 			voiceCatalogModelName: '',
+			voiceCatalogProviderSource: '',
 			voiceCatalogCustomMode: false,
 			voiceCatalogTemplates: [],
 			voiceCatalogPrivateVoices: []
@@ -243,6 +244,11 @@ export default {
 		writeVoice(member, value) {
 			const next = Object.assign({}, value && typeof value === 'object' ? value : {});
 			delete next.ttsModelName;
+			if (next.ttsVoiceName || next.ttsVoiceTemplateCode) {
+				next.ttsProviderSource = String(this.voiceCatalogProviderSource || '').trim().toLowerCase();
+			} else {
+				delete next.ttsProviderSource;
+			}
 			this.$set(member, 'voiceConfigJson', Object.keys(next).length ? JSON.stringify(next) : '');
 			this.$emit('input', this.members);
 		},
@@ -358,6 +364,9 @@ export default {
 					const providerState = results[0] && typeof results[0] === 'object' ? results[0] : {};
 					const voiceState = results[1] && typeof results[1] === 'object' ? results[1] : {};
 					this.voiceCatalogCustomMode = providerState.mode === 'custom';
+					this.voiceCatalogProviderSource = String(
+						providerState.effectiveTtsProviderSource || providerState.ttsProviderSource || providerState.providerSource || ''
+					).trim().toLowerCase();
 					this.voiceCatalogModelName = String(providerState.ttsModelName || '').trim();
 					this.voiceCatalogTemplates = (Array.isArray(providerState.ttsVoiceTemplates) ? providerState.ttsVoiceTemplates : [])
 						.filter(item => item && item.code);

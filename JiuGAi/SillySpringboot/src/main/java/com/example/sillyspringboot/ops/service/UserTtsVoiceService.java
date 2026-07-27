@@ -4,6 +4,8 @@ import com.example.sillyspringboot.compat.h5.entity.AppH5UserProfileExt;
 import com.example.sillyspringboot.compat.h5.mapper.AppH5UserProfileExtMapper;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.chat.service.MediaConcurrencyGate;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.ops.dto.EntitlementPolicy;
 import com.example.sillyspringboot.ops.entity.AppUserTtsVoice;
 import com.example.sillyspringboot.ops.entity.AppUserTtsVoiceBinding;
@@ -12,12 +14,16 @@ import com.example.sillyspringboot.ops.mapper.AppUserTtsVoiceMapper;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import com.example.sillyspringboot.shared.net.MediaPayloadValidator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -26,13 +32,17 @@ import java.util.Map;
 @Service
 public class UserTtsVoiceService {
 
-    private static final int MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+    private static final Logger log = LoggerFactory.getLogger(UserTtsVoiceService.class);
+    private static final int MAX_AUDIO_BYTES = 15 * 1024 * 1024;
     private static final int MIN_DURATION_MS = 5_000;
-    private static final int MAX_DURATION_MS = 20_000;
+    private static final int MAX_DURATION_MS = 60_000;
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_PROVISIONING = "PROVISIONING";
     private static final String STATUS_READY = "READY";
     private static final String STATUS_FAILED = "FAILED";
+    private static final long STALE_PROVISIONING_MINUTES = 3L;
+    private static final String STALE_PROVISIONING_ERROR = "创建任务超过 3 分钟未完成，系统已自动结束，请重新创建";
+    private static final String ADMIN_FINISHED_ERROR = "创建任务已由管理员结束，请重新创建";
 
     public record RuntimeVoice(String voiceUri, String modelName) {}
 
@@ -44,6 +54,8 @@ public class UserTtsVoiceService {
     private final TtsVoiceProvisionService provisionService;
     private final UserTtsVoiceReservationService reservationService;
     private final MediaConcurrencyGate mediaGate;
+    private final H5EntitlementService entitlementService;
+    private final CharacterStudioMapper characterStudioMapper;
 
     public UserTtsVoiceService(
             AppUserTtsVoiceMapper voiceMapper,
@@ -53,7 +65,9 @@ public class UserTtsVoiceService {
             H5UserAiProviderService userAiProviderService,
             TtsVoiceProvisionService provisionService,
             UserTtsVoiceReservationService reservationService,
-            MediaConcurrencyGate mediaGate
+            MediaConcurrencyGate mediaGate,
+            H5EntitlementService entitlementService,
+            CharacterStudioMapper characterStudioMapper
     ) {
         this.voiceMapper = voiceMapper;
         this.bindingMapper = bindingMapper;
@@ -63,9 +77,12 @@ public class UserTtsVoiceService {
         this.provisionService = provisionService;
         this.reservationService = reservationService;
         this.mediaGate = mediaGate;
+        this.entitlementService = entitlementService;
+        this.characterStudioMapper = characterStudioMapper;
     }
 
     public Map<String, Object> overview(long userId) {
+        recoverStaleProvisioningForUser(userId);
         EntitlementPolicy policy = entitlementPolicyService.getPolicy();
         int limit = limitForUser(policy, userId);
         int used = Math.max(0, voiceMapper.countOccupyingByUserId(userId));
@@ -106,11 +123,16 @@ public class UserTtsVoiceService {
             MultipartFile file
     ) {
         String safeRequestId = normalizeRequestId(requestId);
+        recoverStaleProvisioningForUser(userId);
         AppUserTtsVoice existing = voiceMapper.findByUserIdAndRequestId(userId, safeRequestId);
         if (existing != null) return toUserMap(existing, activeSettings(userId), null);
 
-        byte[] audio = readAndValidateAudio(file, durationMs);
+        byte[] audio = readAndValidateAudio(file);
         String mimeType = MediaPayloadValidator.requireAudio(audio, file == null ? "" : file.getContentType());
+        long actualDurationMs = AudioDurationInspector.durationMillis(audio, mimeType);
+        if (actualDurationMs < MIN_DURATION_MS || actualDurationMs > MAX_DURATION_MS) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "参考音频时长需为 5 到 60 秒");
+        }
         String safeDisplayName = requiredText(displayName, 64, "请填写音色名称");
         String safeSampleText = requiredText(sampleText, 255, "请填写参考音频中准确的朗读文本");
         EntitlementPolicy policy = entitlementPolicyService.getPolicy();
@@ -155,13 +177,15 @@ public class UserTtsVoiceService {
                 row.setConfigFingerprint(result.configFingerprint());
                 row.setStatus(STATUS_READY);
                 row.setLastError("");
-                voiceMapper.updateProvisionResult(row);
+                if (voiceMapper.completeProvisioning(row) != 1) {
+                    throw new BusinessException(ErrorCode.CONFLICT, "创建任务已结束，请重新创建");
+                }
                 return toUserMap(voiceMapper.findOwnedById(userId, row.getId()), settings, null);
             } catch (RuntimeException ex) {
                 row.setVoiceUri("");
                 row.setStatus(STATUS_FAILED);
                 row.setLastError(trim(ex.getMessage(), 255));
-                voiceMapper.updateProvisionResult(row);
+                voiceMapper.failProvisioningById(row.getId(), row.getLastError());
                 throw ex;
             }
         }
@@ -189,6 +213,7 @@ public class UserTtsVoiceService {
             Long voiceId
     ) {
         BindingScope scope = normalizeScope(scopeType, characterId, memberId);
+        validateBindingTarget(userId, scope);
         if (voiceId == null || voiceId <= 0) {
             bindingMapper.deleteScope(userId, scope.type(), scope.characterId(), scope.memberId());
             return bindingMap(scope, null);
@@ -218,6 +243,7 @@ public class UserTtsVoiceService {
 
     public Map<String, Object> getBinding(long userId, String scopeType, long characterId, long memberId) {
         BindingScope scope = normalizeScope(scopeType, characterId, memberId);
+        validateBindingTarget(userId, scope);
         return bindingMap(scope, bindingVoiceId(userId, scope.type(), scope.characterId(), scope.memberId()));
     }
 
@@ -269,6 +295,7 @@ public class UserTtsVoiceService {
     }
 
     public Map<String, Object> listAdmin(String keyword, String status, int pageNum, int pageSize) {
+        recoverAllStaleProvisioning();
         int safePage = Math.max(1, pageNum);
         int safeSize = Math.max(1, Math.min(100, pageSize));
         String safeKeyword = trim(keyword, 80);
@@ -291,6 +318,49 @@ public class UserTtsVoiceService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "用户音色不存在");
         }
         voiceMapper.updateDisabled(voiceId, disabled);
+    }
+
+    @Transactional
+    public void finishAdminProvisioning(long voiceId) {
+        AppUserTtsVoice voice = voiceMapper.findById(voiceId);
+        if (voice == null || voice.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "用户音色不存在");
+        }
+        if (!isProvisioningStatus(voice.getStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "只有等待中或创建中的任务可以结束");
+        }
+        if (voiceMapper.failProvisioningById(voiceId, ADMIN_FINISHED_ERROR) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "任务状态已变化，请刷新后重试");
+        }
+    }
+
+    @Scheduled(
+            initialDelayString = "${app.user-tts-voice.stale-recovery-initial-delay-ms:60000}",
+            fixedDelayString = "${app.user-tts-voice.stale-recovery-interval-ms:60000}"
+    )
+    @Transactional
+    public void scheduledRecoverStaleProvisioning() {
+        try {
+            int recovered = recoverAllStaleProvisioning();
+            if (recovered > 0) {
+                log.info("recovered {} stale user TTS voice provisioning tasks", recovered);
+            }
+        } catch (RuntimeException ex) {
+            log.error("failed to recover stale user TTS voice provisioning tasks", ex);
+        }
+    }
+
+    int recoverAllStaleProvisioning() {
+        return voiceMapper.failAllStaleProvisioning(staleProvisioningCutoff(), STALE_PROVISIONING_ERROR);
+    }
+
+    private int recoverStaleProvisioningForUser(long userId) {
+        return voiceMapper.failStaleProvisioningByUserId(
+                userId, staleProvisioningCutoff(), STALE_PROVISIONING_ERROR);
+    }
+
+    private static LocalDateTime staleProvisioningCutoff() {
+        return LocalDateTime.now().minusMinutes(STALE_PROVISIONING_MINUTES);
     }
 
     private int limitForUser(EntitlementPolicy policy, long userId) {
@@ -390,6 +460,24 @@ public class UserTtsVoiceService {
         return row == null ? null : row.getVoiceId();
     }
 
+    private void validateBindingTarget(long userId, BindingScope scope) {
+        if ("GLOBAL".equals(scope.type())) return;
+        entitlementService.requireCharacterVisibleToUser(scope.characterId(), userId);
+        if (!"MEMBER".equals(scope.type())) return;
+        List<AppCharacterMember> members = characterStudioMapper.listMembers(scope.characterId());
+        boolean belongsToCharacter = members != null && members.stream()
+                .anyMatch(member -> member != null && member.getId() != null
+                        && member.getId().longValue() == scope.memberId());
+        if (!belongsToCharacter) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "角色成员不存在或不属于当前角色");
+        }
+    }
+
+    private static boolean isProvisioningStatus(String status) {
+        String normalized = safe(status).toUpperCase(Locale.ROOT);
+        return STATUS_PENDING.equals(normalized) || STATUS_PROVISIONING.equals(normalized);
+    }
+
     private static BindingScope normalizeScope(String scopeType, long characterId, long memberId) {
         String scope = safe(scopeType).toUpperCase(Locale.ROOT);
         if ("GLOBAL".equals(scope)) return new BindingScope(scope, 0, 0);
@@ -407,13 +495,10 @@ public class UserTtsVoiceService {
         return data;
     }
 
-    private static byte[] readAndValidateAudio(MultipartFile file, int durationMs) {
+    private static byte[] readAndValidateAudio(MultipartFile file) {
         if (file == null || file.isEmpty()) throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请选择参考音频");
         if (file.getSize() <= 0 || file.getSize() > MAX_AUDIO_BYTES) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "参考音频需小于 8MB");
-        }
-        if (durationMs > 0 && (durationMs < MIN_DURATION_MS || durationMs > MAX_DURATION_MS)) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "参考音频时长需为 5 到 20 秒");
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "参考音频不能超过 15MB");
         }
         try { return file.getBytes(); }
         catch (Exception ex) { throw new BusinessException(ErrorCode.VALIDATION_FAILED, "参考音频读取失败"); }

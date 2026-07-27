@@ -2,6 +2,7 @@ package com.example.sillyspringboot.compat.h5.web;
 
 import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.ops.service.H5EntitlementService;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.ops.service.UserTtsVoiceService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,17 +25,21 @@ public class ApiV1UserTtsVoiceController {
 
     private final H5EntitlementService entitlementService;
     private final UserTtsVoiceService voiceService;
+    private final AppFeatureSettingsService featureSettingsService;
 
     public ApiV1UserTtsVoiceController(
             H5EntitlementService entitlementService,
-            UserTtsVoiceService voiceService
+            UserTtsVoiceService voiceService,
+            AppFeatureSettingsService featureSettingsService
     ) {
         this.entitlementService = entitlementService;
         this.voiceService = voiceService;
+        this.featureSettingsService = featureSettingsService;
     }
 
     @GetMapping
     public ApiV1Result<Map<String, Object>> overview(@RequestParam("clientUid") String clientUid) {
+        featureSettingsService.ensureVoiceFeatureEnabled();
         return ApiV1Result.ok(voiceService.overview(user(clientUid).getId()));
     }
 
@@ -47,6 +52,7 @@ public class ApiV1UserTtsVoiceController {
             @RequestPart("durationMs") String durationMs,
             @RequestPart("file") MultipartFile file
     ) {
+        featureSettingsService.ensureVoiceFeatureEnabled();
         return ApiV1Result.ok(voiceService.create(
                 user(clientUid).getId(), requestId, displayName, sampleText, intValue(durationMs), file));
     }
@@ -57,6 +63,7 @@ public class ApiV1UserTtsVoiceController {
             @PathVariable long voiceId,
             @RequestBody(required = false) Map<String, Object> body
     ) {
+        featureSettingsService.ensureVoiceFeatureEnabled();
         return ApiV1Result.ok(voiceService.rename(
                 user(clientUid).getId(), voiceId, body == null ? "" : String.valueOf(body.getOrDefault("displayName", ""))));
     }
@@ -66,6 +73,7 @@ public class ApiV1UserTtsVoiceController {
             @RequestParam("clientUid") String clientUid,
             @PathVariable long voiceId
     ) {
+        featureSettingsService.ensureVoiceFeatureEnabled();
         voiceService.remove(user(clientUid).getId(), voiceId);
         return ApiV1Result.ok(null);
     }
@@ -77,6 +85,7 @@ public class ApiV1UserTtsVoiceController {
             @RequestParam(defaultValue = "0") long characterId,
             @RequestParam(defaultValue = "0") long memberId
     ) {
+        featureSettingsService.ensureVoiceFeatureEnabled();
         return ApiV1Result.ok(voiceService.getBinding(
                 user(clientUid).getId(), scopeType, characterId, memberId));
     }
@@ -86,6 +95,7 @@ public class ApiV1UserTtsVoiceController {
             @RequestParam("clientUid") String clientUid,
             @RequestBody(required = false) Map<String, Object> body
     ) {
+        featureSettingsService.ensureVoiceFeatureEnabled();
         Map<String, Object> safe = body == null ? Map.of() : body;
         return ApiV1Result.ok(voiceService.saveBinding(
                 user(clientUid).getId(),

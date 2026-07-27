@@ -13,6 +13,7 @@ import com.example.sillyspringboot.chat.service.ChatGenerationDispatcher;
 import com.example.sillyspringboot.chat.service.ChatGenerationTimeout;
 import com.example.sillyspringboot.chat.service.MediaConcurrencyGate;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
+import com.example.sillyspringboot.ai.service.AiChatModelService;
 import com.example.sillyspringboot.character.entity.AppCharacterMember;
 import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -93,6 +94,9 @@ public class ApiV1TavernChatController {
     private final StModelRoutingService modelRoutingService;
 
     @Autowired(required = false)
+    private AiChatModelService chatModelService;
+
+    @Autowired(required = false)
     private CharacterStudioMapper characterStudioMapper;
 
     private final ObjectMapper memberVoiceMapper = new ObjectMapper();
@@ -144,10 +148,12 @@ public class ApiV1TavernChatController {
 
         visitorTrialGuardService.guardAnonymousChatAttempt(clientUid);
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
-        H5EntitlementService.AccessTicket accessTicket =
-                entitlementService.guardChat(clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.GENERATE);
         long conversationId = ensureConversationId(characterId, clientUid, token);
-        String clientMessageId = "h5_" + System.currentTimeMillis();
+        String clientMessageId = generationRequestId(payload, "h5");
+        AiChatModelService.ResolvedChatModel chatModel = resolveChatModel(token, conversationId, payload);
+        H5EntitlementService.AccessTicket accessTicket = guardChat(
+                clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.GENERATE,
+                chatModel, clientMessageId, conversationId);
 
         AppChatStreamRequest req = new AppChatStreamRequest();
         req.setConversationId(conversationId);
@@ -162,8 +168,10 @@ public class ApiV1TavernChatController {
         req.setReplySplitMode(payload.getReplySplitMode());
         req.setVisionRequestId(payload.getVisionRequestId());
         req.setClientMessageId(clientMessageId);
+        applyChatModel(req, chatModel);
 
-        return runStream(req, token, conversationId, clientMessageId, userText, StreamKind.GENERATE, 0L, accessTicket);
+        return runStream(req, token, conversationId, clientMessageId, userText,
+                StreamKind.GENERATE, 0L, accessTicket, chatModel);
     }
 
     @PostMapping(value = "/chat")
@@ -177,10 +185,12 @@ public class ApiV1TavernChatController {
 
         visitorTrialGuardService.guardAnonymousChatAttempt(clientUid);
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
-        H5EntitlementService.AccessTicket accessTicket =
-                entitlementService.guardChat(clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.GENERATE);
         long conversationId = ensureConversationId(characterId, clientUid, token);
-        String clientMessageId = "h5_http_" + System.currentTimeMillis();
+        String clientMessageId = generationRequestId(payload, "h5_http");
+        AiChatModelService.ResolvedChatModel chatModel = resolveChatModel(token, conversationId, payload);
+        H5EntitlementService.AccessTicket accessTicket = guardChat(
+                clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.GENERATE,
+                chatModel, clientMessageId, conversationId);
 
         AppChatStreamRequest req = new AppChatStreamRequest();
         req.setConversationId(conversationId);
@@ -195,9 +205,11 @@ public class ApiV1TavernChatController {
         req.setReplySplitMode(payload.getReplySplitMode());
         req.setVisionRequestId(payload.getVisionRequestId());
         req.setClientMessageId(clientMessageId);
+        applyChatModel(req, chatModel);
 
         return ApiV1Result.ok(
-                runBlockingGenerate(req, token, conversationId, clientMessageId, userText, StreamKind.GENERATE, 0L, accessTicket)
+                runBlockingGenerate(req, token, conversationId, clientMessageId, userText,
+                        StreamKind.GENERATE, 0L, accessTicket, chatModel)
         );
     }
 
@@ -207,10 +219,12 @@ public class ApiV1TavernChatController {
         String clientUid = requireClientUid(payload);
         visitorTrialGuardService.guardAnonymousChatAttempt(clientUid);
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
-        H5EntitlementService.AccessTicket accessTicket =
-                entitlementService.guardChat(clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.CONTINUE);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
-        String clientMessageId = "h5_http_cont_" + System.currentTimeMillis();
+        String clientMessageId = generationRequestId(payload, "h5_http_cont");
+        AiChatModelService.ResolvedChatModel chatModel = resolveChatModel(token, conversationId, payload);
+        H5EntitlementService.AccessTicket accessTicket = guardChat(
+                clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.CONTINUE,
+                chatModel, clientMessageId, conversationId);
 
         long anchorId = resolveAssistantAnchor(payload, conversationId, token);
         AppChatContinueRequest req = new AppChatContinueRequest();
@@ -220,8 +234,10 @@ public class ApiV1TavernChatController {
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
         req.setReplySplitMode(payload.getReplySplitMode());
+        applyChatModel(req, chatModel);
         return ApiV1Result.ok(
-                runBlockingGenerate(req, token, conversationId, clientMessageId, "", StreamKind.CONTINUE, anchorId, accessTicket)
+                runBlockingGenerate(req, token, conversationId, clientMessageId, "",
+                        StreamKind.CONTINUE, anchorId, accessTicket, chatModel)
         );
     }
 
@@ -231,10 +247,12 @@ public class ApiV1TavernChatController {
         String clientUid = requireClientUid(payload);
         visitorTrialGuardService.guardAnonymousChatAttempt(clientUid);
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
-        H5EntitlementService.AccessTicket accessTicket =
-                entitlementService.guardChat(clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.REGENERATE);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
-        String clientMessageId = "h5_http_regen_" + System.currentTimeMillis();
+        String clientMessageId = generationRequestId(payload, "h5_http_regen");
+        AiChatModelService.ResolvedChatModel chatModel = resolveChatModel(token, conversationId, payload);
+        H5EntitlementService.AccessTicket accessTicket = guardChat(
+                clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.REGENERATE,
+                chatModel, clientMessageId, conversationId);
 
         long anchorId = resolveAssistantAnchor(payload, conversationId, token);
         AppChatRegenerateRequest req = new AppChatRegenerateRequest();
@@ -244,8 +262,10 @@ public class ApiV1TavernChatController {
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
         req.setReplySplitMode(payload.getReplySplitMode());
+        applyChatModel(req, chatModel);
         return ApiV1Result.ok(
-                runBlockingGenerate(req, token, conversationId, clientMessageId, "", StreamKind.REGENERATE, anchorId, accessTicket)
+                runBlockingGenerate(req, token, conversationId, clientMessageId, "",
+                        StreamKind.REGENERATE, anchorId, accessTicket, chatModel)
         );
     }
 
@@ -255,10 +275,12 @@ public class ApiV1TavernChatController {
         String clientUid = requireClientUid(payload);
         visitorTrialGuardService.guardAnonymousChatAttempt(clientUid);
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
-        H5EntitlementService.AccessTicket accessTicket =
-                entitlementService.guardChat(clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.CONTINUE);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
-        String clientMessageId = "h5_cont_" + System.currentTimeMillis();
+        String clientMessageId = generationRequestId(payload, "h5_cont");
+        AiChatModelService.ResolvedChatModel chatModel = resolveChatModel(token, conversationId, payload);
+        H5EntitlementService.AccessTicket accessTicket = guardChat(
+                clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.CONTINUE,
+                chatModel, clientMessageId, conversationId);
         long anchorId = resolveAssistantAnchor(payload, conversationId, token);
 
         AppChatContinueRequest req = new AppChatContinueRequest();
@@ -268,7 +290,9 @@ public class ApiV1TavernChatController {
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
         req.setReplySplitMode(payload.getReplySplitMode());
-        return runStream(req, token, conversationId, clientMessageId, "", StreamKind.CONTINUE, anchorId, accessTicket);
+        applyChatModel(req, chatModel);
+        return runStream(req, token, conversationId, clientMessageId, "",
+                StreamKind.CONTINUE, anchorId, accessTicket, chatModel);
     }
 
     @PostMapping(value = "/chat/regenerate/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -277,10 +301,12 @@ public class ApiV1TavernChatController {
         String clientUid = requireClientUid(payload);
         visitorTrialGuardService.guardAnonymousChatAttempt(clientUid);
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
-        H5EntitlementService.AccessTicket accessTicket =
-                entitlementService.guardChat(clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.REGENERATE);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
-        String clientMessageId = "h5_regen_" + System.currentTimeMillis();
+        String clientMessageId = generationRequestId(payload, "h5_regen");
+        AiChatModelService.ResolvedChatModel chatModel = resolveChatModel(token, conversationId, payload);
+        H5EntitlementService.AccessTicket accessTicket = guardChat(
+                clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.REGENERATE,
+                chatModel, clientMessageId, conversationId);
         long anchorId = resolveAssistantAnchor(payload, conversationId, token);
 
         AppChatRegenerateRequest req = new AppChatRegenerateRequest();
@@ -290,7 +316,9 @@ public class ApiV1TavernChatController {
         req.setExpressionHints(payload.getExpressionHints());
         req.setAvoidExpressionHints(payload.getAvoidExpressionHints());
         req.setReplySplitMode(payload.getReplySplitMode());
-        return runStream(req, token, conversationId, clientMessageId, "", StreamKind.REGENERATE, anchorId, accessTicket);
+        applyChatModel(req, chatModel);
+        return runStream(req, token, conversationId, clientMessageId, "",
+                StreamKind.REGENERATE, anchorId, accessTicket, chatModel);
     }
 
     @PostMapping("/chat/stop")
@@ -367,7 +395,16 @@ public class ApiV1TavernChatController {
                 payload.getTtsSegmentCount()
         );
         long userId = chatService.resolveUserId(token);
+        requireMemberVoiceCharacterVisible(payload, userId);
         boolean userByokTts = userAiProviderService.isCustomModeSelectedForUser(userId);
+        H5UserAiProviderService.UserTtsSettings activeTtsSettings = userByokTts
+                ? userAiProviderService.resolveActiveTtsSettingsForUser(userId)
+                : null;
+        boolean roleOverrideActive = ttsOverrideScopeMatchesProvider(
+                payload.getTtsProviderSource(), activeTtsSettings);
+        String roleModelOverride = roleOverrideActive ? payload.getTtsModelName() : "";
+        String roleVoiceOverride = roleOverrideActive ? payload.getTtsVoiceName() : "";
+        String roleTemplateOverride = roleOverrideActive ? payload.getTtsVoiceTemplateCode() : "";
         H5EntitlementService.AccessTicket ttsTicket = null;
         boolean ttsChargeCreated = false;
         if (!userByokTts) {
@@ -381,17 +418,20 @@ public class ApiV1TavernChatController {
         try {
             try (MediaConcurrencyGate.Lease ignored =
                          mediaConcurrencyGate.acquire(MediaConcurrencyGate.Capability.TTS, userId, ttsRequestId)) {
-                MemberVoiceOverride memberVoice = resolveMemberVoiceOverride(payload);
+                MemberVoiceOverride memberVoice = resolveMemberVoiceOverride(
+                        payload,
+                        activeTtsSettings == null ? "" : activeTtsSettings.providerSource());
                 Long boundUserVoiceId = payload.getTtsUserVoiceId();
-                if (boundUserVoiceId == null || boundUserVoiceId <= 0) {
+                if (shouldResolveSpecificPrivateVoice(
+                        boundUserVoiceId, roleVoiceOverride, roleTemplateOverride)) {
                     boundUserVoiceId = userTtsVoiceService.resolveSpecificBoundVoiceId(
                             userId,
                             payload.getCharacterId() == null ? 0L : payload.getCharacterId(),
                             payload.getSpeakerMemberId() == null ? 0L : payload.getSpeakerMemberId());
                     if (shouldUseGlobalPrivateVoice(
                             boundUserVoiceId,
-                            payload.getTtsVoiceName(),
-                            payload.getTtsVoiceTemplateCode(),
+                            roleVoiceOverride,
+                            roleTemplateOverride,
                             memberVoice.voiceName(),
                             memberVoice.voiceTemplateCode())) {
                         boundUserVoiceId = userTtsVoiceService.resolveGlobalBoundVoiceId(userId);
@@ -400,13 +440,22 @@ public class ApiV1TavernChatController {
                 if (boundUserVoiceId != null && boundUserVoiceId <= 0) {
                     boundUserVoiceId = null;
                 }
+                String finalModelOverride = firstVoiceValue(roleModelOverride, memberVoice.modelName());
+                String finalVoiceOverride = firstVoiceValue(roleVoiceOverride, memberVoice.voiceName());
+                String finalTemplateOverride = firstVoiceValue(roleTemplateOverride, memberVoice.voiceTemplateCode());
+                String overrideProviderScope = hasVoiceValue(
+                        finalModelOverride, finalVoiceOverride, finalTemplateOverride)
+                        && activeTtsSettings != null
+                        ? activeTtsSettings.providerSource()
+                        : "";
                 ChatAudioSpeechService.AudioSpeechResult result = chatAudioSpeechService.synthesizeForUser(
                         userId,
                         text,
-                        firstVoiceValue(payload.getTtsModelName(), memberVoice.modelName()),
-                        firstVoiceValue(payload.getTtsVoiceName(), memberVoice.voiceName()),
-                        firstVoiceValue(payload.getTtsVoiceTemplateCode(), memberVoice.voiceTemplateCode()),
-                        boundUserVoiceId
+                        finalModelOverride,
+                        finalVoiceOverride,
+                        finalTemplateOverride,
+                        boundUserVoiceId,
+                        overrideProviderScope
                 );
                 Map<String, Object> data = new HashMap<>();
                 data.put("audioDataUrl", "data:" + result.mimeType() + ";base64," + Base64.getEncoder().encodeToString(result.audioBytes()));
@@ -423,7 +472,7 @@ public class ApiV1TavernChatController {
         }
     }
 
-    private MemberVoiceOverride resolveMemberVoiceOverride(H5ChatPayload payload) {
+    private MemberVoiceOverride resolveMemberVoiceOverride(H5ChatPayload payload, String activeProviderSource) {
         if (characterStudioMapper == null || payload == null || payload.getCharacterId() == null
                 || payload.getCharacterId() <= 0 || payload.getSpeakerMemberId() == null
                 || payload.getSpeakerMemberId() <= 0) {
@@ -437,8 +486,12 @@ public class ApiV1TavernChatController {
                     continue;
                 }
                 JsonNode root = memberVoiceMapper.readTree(member.getVoiceConfigJson());
+                String providerSource = voiceJsonText(root, "ttsProviderSource", "providerSource");
+                if (!sameProviderSource(providerSource, activeProviderSource)) {
+                    return MemberVoiceOverride.EMPTY;
+                }
                 return new MemberVoiceOverride(
-                        voiceJsonText(root, "ttsModelName", "modelName", "model"),
+                        "",
                         voiceJsonText(root, "ttsVoiceName", "voiceName", "voice"),
                         voiceJsonText(root, "ttsVoiceTemplateCode", "voiceTemplateCode", "templateCode")
                 );
@@ -450,6 +503,15 @@ public class ApiV1TavernChatController {
         return MemberVoiceOverride.EMPTY;
     }
 
+    private void requireMemberVoiceCharacterVisible(H5ChatPayload payload, long userId) {
+        if (characterStudioMapper == null || payload == null || payload.getCharacterId() == null
+                || payload.getCharacterId() <= 0 || payload.getSpeakerMemberId() == null
+                || payload.getSpeakerMemberId() <= 0) {
+            return;
+        }
+        entitlementService.requireCharacterVisibleToUser(payload.getCharacterId(), userId);
+    }
+
     private static String voiceJsonText(JsonNode root, String... keys) {
         if (root == null || keys == null) return "";
         for (String key : keys) {
@@ -459,8 +521,37 @@ public class ApiV1TavernChatController {
         return "";
     }
 
+    private static boolean hasVoiceValue(String... values) {
+        if (values == null) return false;
+        for (String value : values) if (value != null && !value.isBlank()) return true;
+        return false;
+    }
+
+    static boolean shouldResolveSpecificPrivateVoice(
+            Long requestedPrivateVoiceId,
+            String requestedVoiceName,
+            String requestedTemplateCode
+    ) {
+        return (requestedPrivateVoiceId == null || requestedPrivateVoiceId <= 0)
+                && !hasVoiceValue(requestedVoiceName, requestedTemplateCode);
+    }
+
     private static String firstVoiceValue(String requested, String fallback) {
         return requested != null && !requested.trim().isBlank() ? requested.trim() : fallback;
+    }
+
+    static boolean ttsOverrideScopeMatchesProvider(
+            String requestedProviderSource,
+            H5UserAiProviderService.UserTtsSettings activeSettings
+    ) {
+        return activeSettings != null
+                && sameProviderSource(requestedProviderSource, activeSettings.providerSource());
+    }
+
+    private static boolean sameProviderSource(String left, String right) {
+        return left != null && right != null
+                && !left.trim().isBlank()
+                && left.trim().equalsIgnoreCase(right.trim());
     }
 
     static boolean shouldUseGlobalPrivateVoice(
@@ -521,6 +612,79 @@ public class ApiV1TavernChatController {
         return segmentIndex;
     }
 
+    private AiChatModelService.ResolvedChatModel resolveChatModel(
+            String token,
+            long conversationId,
+            H5ChatPayload payload
+    ) {
+        if (chatModelService == null) return null;
+        long userId = chatService.resolveUserId(token);
+        return chatModelService.resolveForGeneration(
+                userId,
+                conversationId,
+                payload == null ? "" : payload.getChatModelSource(),
+                payload == null ? "" : payload.getChatModelRef(),
+                payload == null ? null : payload.getChatModelSelectionVersion()
+        );
+    }
+
+    private H5EntitlementService.AccessTicket guardChat(
+            String clientUid,
+            long characterId,
+            EntitlementPolicyService.ChatQuotaAction action,
+            AiChatModelService.ResolvedChatModel chatModel,
+            String generationRequestId,
+            long conversationId
+    ) {
+        if (chatModel == null || chatModel.byok()) {
+            return entitlementService.guardChat(clientUid, characterId, action);
+        }
+        return entitlementService.guardChatModel(
+                clientUid, characterId, action, chatModel, generationRequestId, conversationId);
+    }
+
+    private static String generationRequestId(H5ChatPayload payload, String prefix) {
+        String supplied = payload == null || payload.getGenerationRequestId() == null
+                ? "" : payload.getGenerationRequestId().trim();
+        if (!supplied.isBlank()) {
+            if (supplied.length() > 96 || !supplied.matches("[A-Za-z0-9_.:-]+")) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "生成请求 ID 不合法");
+            }
+            return supplied;
+        }
+        return prefix + "_" + System.currentTimeMillis() + "_" + UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    private static void applyChatModel(
+            AppChatStreamRequest request,
+            AiChatModelService.ResolvedChatModel model
+    ) {
+        if (model == null) return;
+        request.setChatModelSource(model.source());
+        request.setChatRouteKey(model.routeKey());
+        request.setChatModelName(model.modelName());
+    }
+
+    private static void applyChatModel(
+            AppChatContinueRequest request,
+            AiChatModelService.ResolvedChatModel model
+    ) {
+        if (model == null) return;
+        request.setChatModelSource(model.source());
+        request.setChatRouteKey(model.routeKey());
+        request.setChatModelName(model.modelName());
+    }
+
+    private static void applyChatModel(
+            AppChatRegenerateRequest request,
+            AiChatModelService.ResolvedChatModel model
+    ) {
+        if (model == null) return;
+        request.setChatModelSource(model.source());
+        request.setChatRouteKey(model.routeKey());
+        request.setChatModelName(model.modelName());
+    }
+
     private enum StreamKind { GENERATE, CONTINUE, REGENERATE }
 
     private static String channelFor(StreamKind kind, boolean streaming) {
@@ -551,7 +715,8 @@ public class ApiV1TavernChatController {
             String userMessage,
             StreamKind kind,
             long anchorOrTargetMessageId,
-            H5EntitlementService.AccessTicket accessTicket
+            H5EntitlementService.AccessTicket accessTicket,
+            AiChatModelService.ResolvedChatModel chatModel
     ) {
         String traceId = traceId();
         StStreamControl control = new StStreamControl();
@@ -577,14 +742,16 @@ public class ApiV1TavernChatController {
                     ensureUserMessage,
                     voiceUrl,
                     voiceDurationMs,
-                    auditModelForToken(token, ensureUserMessage)
+                    auditModelForToken(token, ensureUserMessage, chatModel)
             );
             chatService.bindControlTask(conversationId, audit.taskId(), control);
         } catch (RuntimeException ex) {
             control.cancel();
             chatService.unregisterControl(conversationId, control);
+            refundFailedChatQuietly(accessTicket, false, "blocking audit queue failed");
             throw ex;
         }
+        boolean[] contentEmitted = {false};
         try (var lease = chatService.acquireLease(token);
              ChatGenerationTimeout timeout = ChatGenerationTimeout.start(control, chatService.generationTimeoutSeconds())) {
             auditService.onGenerating(audit.assistantMessageId(), audit.taskId(), traceId);
@@ -601,6 +768,7 @@ public class ApiV1TavernChatController {
                             userRef,
                             c -> {
                                 if (isFrontendBridgeChunk(c)) frontendBridgeGenerated[0] = true;
+                                observeChatContent(accessTicket, contentEmitted, c);
                                 appendDelta(assistant, c);
                             },
                             control
@@ -611,6 +779,7 @@ public class ApiV1TavernChatController {
                         token,
                         c -> {
                             if (isFrontendBridgeChunk(c)) frontendBridgeGenerated[0] = true;
+                            observeChatContent(accessTicket, contentEmitted, c);
                             appendDelta(assistant, c);
                         },
                         control
@@ -620,6 +789,7 @@ public class ApiV1TavernChatController {
                         token,
                         c -> {
                             if (isFrontendBridgeChunk(c)) frontendBridgeGenerated[0] = true;
+                            observeChatContent(accessTicket, contentEmitted, c);
                             appendDelta(assistant, c);
                         },
                         control
@@ -667,15 +837,22 @@ public class ApiV1TavernChatController {
                     && !assistantSynced) {
                 saveSnapshotQuietly(conversationId);
             }
-            entitlementService.recordSuccessfulChat(accessTicket, !content.isBlank());
+            entitlementService.settleBlockingChat(
+                    accessTicket,
+                    cancelled,
+                    contentEmitted[0],
+                    !content.isBlank()
+            );
             Map<String, Object> done = buildDonePayload(kind, anchorOrTargetMessageId, audit, content);
             done.put("cancelled", cancelled);
             return done;
         } catch (BusinessException be) {
+            entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
             auditService.onFailed(audit.assistantMessageId(), audit.taskId(), be, traceId);
             restoreSnapshotAfterFailedMutation(kind, conversationId);
             throw be;
         } catch (Exception ex) {
+            entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
             auditService.onFailed(audit.assistantMessageId(), audit.taskId(), ex, ErrorCode.INTERNAL_ERROR, traceId);
             restoreSnapshotAfterFailedMutation(kind, conversationId);
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "服务暂时不可用，请稍后重试");
@@ -793,8 +970,17 @@ public class ApiV1TavernChatController {
         return "db_" + dbId;
     }
 
-    private String auditModelForToken(String token, boolean preferVisionModel) {
+    private String auditModelForToken(
+            String token,
+            boolean preferVisionModel,
+            AiChatModelService.ResolvedChatModel selectedModel
+    ) {
         try {
+            if (selectedModel != null) {
+                return selectedModel.byok()
+                        ? firstNonBlank(selectedModel.modelName())
+                        : firstNonBlank(selectedModel.offeringCode(), selectedModel.displayName());
+            }
             long userId = chatService.resolveUserId(token);
             UserModelOverride override = userAiProviderService.resolveActiveOverrideForUser(userId);
             if (override != null) {
@@ -868,7 +1054,8 @@ public class ApiV1TavernChatController {
             String userMessage,
             StreamKind kind,
             long anchorOrTargetMessageId,
-            H5EntitlementService.AccessTicket accessTicket
+            H5EntitlementService.AccessTicket accessTicket,
+            AiChatModelService.ResolvedChatModel chatModel
     ) {
         SseEmitter emitter = new SseEmitter(chatService.sseTimeoutMillis());
         StStreamControl control = new StStreamControl();
@@ -914,18 +1101,20 @@ public class ApiV1TavernChatController {
                     ensureUserMessage,
                     voiceUrl,
                     voiceDurationMs,
-                    auditModelForToken(token, ensureUserMessage)
+                    auditModelForToken(token, ensureUserMessage, chatModel)
             );
             chatService.bindControlTask(conversationId, audit.taskId(), control);
         } catch (RuntimeException ex) {
             cancelHeartbeat(heartbeat);
             control.cancel();
             chatService.unregisterControl(conversationId, control);
+            refundFailedChatQuietly(accessTicket, false, "stream audit queue failed");
             throw ex;
         }
 
         try {
             dispatcher.submit(() -> {
+                boolean[] contentEmitted = {false};
                 try {
                     long start = System.nanoTime();
                     long maxWaitNanos = Duration.ofSeconds(chatService.maxQueueWaitSeconds()).toNanos();
@@ -947,6 +1136,7 @@ public class ApiV1TavernChatController {
                                             userRef,
                                             c -> {
                                                 if (isFrontendBridgeChunk(c)) frontendBridgeGenerated[0] = true;
+                                                observeChatContent(accessTicket, contentEmitted, c);
                                                 streamDelta(emitter, assistant, c, control);
                                             },
                                             control
@@ -957,6 +1147,7 @@ public class ApiV1TavernChatController {
                                         token,
                                         c -> {
                                             if (isFrontendBridgeChunk(c)) frontendBridgeGenerated[0] = true;
+                                            observeChatContent(accessTicket, contentEmitted, c);
                                             streamDelta(emitter, assistant, c, control);
                                         },
                                         control
@@ -966,6 +1157,7 @@ public class ApiV1TavernChatController {
                                         token,
                                         c -> {
                                             if (isFrontendBridgeChunk(c)) frontendBridgeGenerated[0] = true;
+                                            observeChatContent(accessTicket, contentEmitted, c);
                                             streamDelta(emitter, assistant, c, control);
                                         },
                                         control
@@ -984,6 +1176,7 @@ public class ApiV1TavernChatController {
                                         "generation timed out after " + chatService.generationTimeoutSeconds() + " seconds"
                                 );
                                 restoreSnapshotAfterFailedMutation(kind, conversationId);
+                                entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
                                 sendEvent(emitter, "error", Map.of("message", "生成超时，请稍后重试"), control);
                                 emitter.complete();
                                 return;
@@ -1019,7 +1212,8 @@ public class ApiV1TavernChatController {
                                 saveSnapshotQuietly(conversationId);
                             }
 
-                            entitlementService.recordSuccessfulChat(accessTicket, !content.isBlank());
+                            entitlementService.settleStreamingChat(
+                                    accessTicket, contentEmitted[0], !content.isBlank());
 
                             Map<String, Object> done = buildDonePayload(kind, anchorOrTargetMessageId, audit, content);
                             done.put("cancelled", cancelled);
@@ -1047,6 +1241,7 @@ public class ApiV1TavernChatController {
                     }
 
                     auditService.onStopped(audit.assistantMessageId(), audit.taskId(), "", traceId);
+                    entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
                     markUserMessageSuccessIfQueued(audit);
                     restoreSnapshotAfterFailedMutation(kind, conversationId);
                     Map<String, Object> done;
@@ -1066,6 +1261,7 @@ public class ApiV1TavernChatController {
                     sendEvent(emitter, "done", done, control);
                     emitter.complete();
                 } catch (BusinessException be) {
+                    entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
                     log.warn("h5 stream business error conversationId={} kind={} code={} message={}",
                             conversationId, kind, be.getErrorCode(), be.getMessage());
                     try {
@@ -1076,6 +1272,7 @@ public class ApiV1TavernChatController {
                         completeEmitterQuietly(emitter);
                     }
                 } catch (Exception ex) {
+                    entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
                     log.error("h5 stream unhandled error conversationId={} kind={} clientMessageId={}",
                             conversationId, kind, clientMessageId, ex);
                     try {
@@ -1091,6 +1288,7 @@ public class ApiV1TavernChatController {
                 }
             });
         } catch (RejectedExecutionException ex) {
+            entitlementService.refundFailedChat(accessTicket, false);
             chatService.unregisterControl(conversationId, control);
             try {
                 recordStreamFailureQuietly(conversationId, kind, audit, ex, traceId);
@@ -1106,6 +1304,28 @@ public class ApiV1TavernChatController {
     private static void appendDelta(StringBuilder assistant, ChatGenerateChunk chunk) {
         if (chunk.delta() != null) {
             assistant.append(chunk.delta());
+        }
+    }
+
+    private void observeChatContent(
+            H5EntitlementService.AccessTicket accessTicket,
+            boolean[] contentEmitted,
+            ChatGenerateChunk chunk
+    ) {
+        if (chunk == null || chunk.delta() == null || chunk.delta().isEmpty() || contentEmitted[0]) return;
+        contentEmitted[0] = true;
+        entitlementService.markChatFirstContent(accessTicket);
+    }
+
+    private void refundFailedChatQuietly(
+            H5EntitlementService.AccessTicket accessTicket,
+            boolean contentEmitted,
+            String reason
+    ) {
+        try {
+            entitlementService.refundFailedChat(accessTicket, contentEmitted);
+        } catch (RuntimeException refundError) {
+            log.error("chat charge refund failed: reason={}", reason, refundError);
         }
     }
 

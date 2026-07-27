@@ -3,6 +3,7 @@ package com.example.sillyspringboot.admin.web;
 import com.example.sillyspringboot.admin.security.AdminPermitted;
 import com.example.sillyspringboot.admin.web.support.AdminAjaxResult;
 import com.example.sillyspringboot.ai.service.AiProviderProbeService;
+import com.example.sillyspringboot.ai.service.AiChatModelService;
 import com.example.sillyspringboot.ai.service.AiRoutingService;
 import com.example.sillyspringboot.ai.service.AiRoutingRuntimeSettingsService;
 import com.example.sillyspringboot.shared.error.BusinessException;
@@ -25,22 +26,51 @@ public class AdminAiRoutingController {
     private final AiRoutingService routingService;
     private final AiProviderProbeService probeService;
     private final AiRoutingRuntimeSettingsService runtimeSettingsService;
+    private final AiChatModelService chatModelService;
 
     public AdminAiRoutingController(
             AiRoutingService routingService,
             AiProviderProbeService probeService,
-            AiRoutingRuntimeSettingsService runtimeSettingsService
+            AiRoutingRuntimeSettingsService runtimeSettingsService,
+            AiChatModelService chatModelService
     ) {
         this.routingService = routingService;
         this.probeService = probeService;
         this.runtimeSettingsService = runtimeSettingsService;
+        this.chatModelService = chatModelService;
     }
 
     @GetMapping
     public Map<String, Object> snapshot() {
         Map<String, Object> result = AdminAjaxResult.ok();
-        result.put("data", routingService.adminSnapshot());
+        Map<String, Object> snapshot = routingService.adminSnapshot();
+        snapshot.put("chatModelCatalog", chatModelService.adminSnapshot());
+        result.put("data", snapshot);
         return result;
+    }
+
+    @PutMapping("/chat-model-settings")
+    @AdminPermitted("ops:openrouter:edit")
+    public Map<String, Object> saveChatModelSettings(@RequestBody(required = false) Map<String, Object> body) {
+        return dataResult("聊天模型开放策略已更新", () -> chatModelService.saveSettings(body));
+    }
+
+    @PutMapping("/chat-offering")
+    @AdminPermitted("ops:openrouter:edit")
+    public Map<String, Object> saveChatOffering(@RequestBody(required = false) Map<String, Object> body) {
+        return dataResult("用户可选模型已保存", () -> chatModelService.saveOffering(body));
+    }
+
+    @PutMapping("/chat-offering-bundle")
+    @AdminPermitted("ops:openrouter:edit")
+    public Map<String, Object> saveChatOfferingBundle(@RequestBody(required = false) Map<String, Object> body) {
+        return dataResult("用户可选模型与 fallback 路由已保存", () -> chatModelService.saveOfferingBundle(body));
+    }
+
+    @DeleteMapping("/chat-offering/{id}")
+    @AdminPermitted({"ops:openrouter:delete", "ops:openrouter:edit"})
+    public Map<String, Object> deleteChatOffering(@PathVariable("id") long id) {
+        return actionResult("用户可选模型已删除", () -> chatModelService.deleteOffering(id));
     }
 
     @PostMapping("/models")

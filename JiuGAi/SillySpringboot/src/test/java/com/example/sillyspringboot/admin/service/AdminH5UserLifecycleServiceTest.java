@@ -41,6 +41,7 @@ class AdminH5UserLifecycleServiceTest {
         transactionManager = mock(PlatformTransactionManager.class);
         transactionStatus = mock(TransactionStatus.class);
         when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
+        when(cleanupMapper.lockAppUser(7L)).thenReturn(7L);
         when(cleanupMapper.listConversationStRefs(7L)).thenReturn(List.of(Map.of(
                 "stAvatarUrl", "/characters/example.png",
                 "stChatFileName", "chat.jsonl"
@@ -68,6 +69,7 @@ class AdminH5UserLifecycleServiceTest {
     void deletesExternalResourcesOnlyAfterDatabaseCommit() {
         service.deleteUserById(7L);
 
+        verify(cleanupMapper).deletePrivateChatPresetsByUser(7L);
         InOrder order = inOrder(transactionManager, externalCleanupTaskService);
         order.verify(transactionManager).commit(transactionStatus);
         order.verify(externalCleanupTaskService).processImmediately(List.of("cleanup-task-1"));

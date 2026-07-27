@@ -4,6 +4,7 @@ import com.example.sillyspringboot.ops.entity.AppUserTtsVoice;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Mapper
@@ -33,7 +34,25 @@ public interface AppUserTtsVoiceMapper {
 
     void insert(AppUserTtsVoice row);
 
-    void updateProvisionResult(AppUserTtsVoice row);
+    int updateProvisionResult(AppUserTtsVoice row);
+
+    int completeProvisioning(AppUserTtsVoice row);
+
+    int failStaleProvisioningByUserId(
+            @Param("userId") long userId,
+            @Param("cutoff") LocalDateTime cutoff,
+            @Param("lastError") String lastError
+    );
+
+    int failAllStaleProvisioning(
+            @Param("cutoff") LocalDateTime cutoff,
+            @Param("lastError") String lastError
+    );
+
+    int failProvisioningById(
+            @Param("id") long id,
+            @Param("lastError") String lastError
+    );
 
     void updateDisplayName(
             @Param("userId") long userId,

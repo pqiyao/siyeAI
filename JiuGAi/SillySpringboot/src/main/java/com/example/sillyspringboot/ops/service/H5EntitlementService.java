@@ -1,5 +1,8 @@
 package com.example.sillyspringboot.ops.service;
 
+import com.example.sillyspringboot.ai.entity.ChatGenerationContext;
+import com.example.sillyspringboot.ai.mapper.AiChatModelMapper;
+import com.example.sillyspringboot.ai.service.AiChatModelService;
 import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.auth.token.AppTokenService;
 import com.example.sillyspringboot.billing.service.WalletLedgerService;
@@ -19,13 +22,17 @@ import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.security.SecureRandom;
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -54,8 +61,31 @@ public class H5EntitlementService {
             int scoreCost,
             int goldCost,
             String consumeBizRef,
-            boolean walletChargeCreated
+            boolean walletChargeCreated,
+            boolean upfrontReserved,
+            boolean quotaChargeCreated,
+            String generationRequestId,
+            Long generationContextId
     ) {
+        public AccessTicket(
+                long userId,
+                String clientUid,
+                boolean consumesQuota,
+                int consumeAmount,
+                QuotaBucket quotaBucket,
+                Long characterId,
+                String action,
+                boolean usesWallet,
+                int scoreCost,
+                int goldCost,
+                String consumeBizRef,
+                boolean walletChargeCreated
+        ) {
+            this(userId, clientUid, consumesQuota, consumeAmount, quotaBucket, characterId, action,
+                    usesWallet, scoreCost, goldCost, consumeBizRef, walletChargeCreated,
+                    false, false, "", null);
+        }
+
         public AccessTicket(
                 long userId,
                 String clientUid,
@@ -70,7 +100,8 @@ public class H5EntitlementService {
                 String consumeBizRef
         ) {
             this(userId, clientUid, consumesQuota, consumeAmount, quotaBucket, characterId, action,
-                    usesWallet, scoreCost, goldCost, consumeBizRef, false);
+                    usesWallet, scoreCost, goldCost, consumeBizRef, false,
+                    false, false, "", null);
         }
 
         public AccessTicket(
@@ -83,7 +114,8 @@ public class H5EntitlementService {
                 String action
         ) {
             this(userId, clientUid, consumesQuota, consumeAmount, quotaBucket, characterId, action,
-                    false, 0, 0, "", false);
+                    false, 0, 0, "", false,
+                    false, false, "", null);
         }
     }
 
@@ -108,6 +140,9 @@ public class H5EntitlementService {
     private final EntitlementAuditLogService auditLogService;
     private final WalletLedgerService walletLedgerService;
     private final AppCheckinActivityMapper checkinActivityMapper;
+
+    @Autowired(required = false)
+    private AiChatModelMapper chatModelMapper;
     private final SecureRandom secureRandom = new SecureRandom();
     private volatile ZoneId dailyUsageZone = DEFAULT_DAILY_USAGE_ZONE;
     private volatile long dailyUsageZoneRefreshAt;
@@ -139,37 +174,12 @@ public class H5EntitlementService {
     }
 
     @Transactional
-    public void guardCharacterCreation(AppUser user, int additionalActiveCount) {
-        if (user == null || additionalActiveCount <= 0) {
-            return;
-        }
-        AppFeatureSettings settings = featureSettingsService.getSettings();
-        if (!settings.isUserCharacterCreationEnabled()) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "当前已关闭用户端自建角色卡");
-        }
-        AppH5UserProfileExt ext = ensureProfileExt(user);
-        if (!Integer.valueOf(1).equals(ext.getCharacterCreateAllowed())) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "当前账号暂未开通自建角色卡权限");
-        }
-        EntitlementPolicy policy = entitlementPolicyService.getPolicy();
-        int vipLevel = entitlementPolicyService.effectiveVipLevel(ext);
-        int limit = entitlementPolicyService.characterCreateLimitFor(policy, vipLevel);
-        if (limit <= 0) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "当前权益暂不支持自建角色卡");
-        }
-        int activeCount = h5MyCharacterMapper.countMineActive(user.getId());
-        if (activeCount + additionalActiveCount > limit) {
-            throw new BusinessException(
-                    ErrorCode.FORBIDDEN,
-                    "当前权益最多可自建 " + limit + " 张角色卡，已达到上限"
-            );
-        }
-    }
-
-    @Transactional
     public void requireCharacterCreationAccess(AppUser user, int additionalActiveCount) {
         if (user == null) {
             return;
+        }
+        if (h5MyCharacterMapper.lockOwnerUser(user.getId()) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "user not found");
         }
         CharacterCreationAccess access = resolveCharacterCreationAccess(user);
         int requested = Math.max(1, additionalActiveCount);
@@ -315,6 +325,104 @@ public class H5EntitlementService {
         );
     }
 
+    /**
+     * Reserves model-specific CHAT billing without changing the legacy ticket path.
+     */
+    @Transactional
+    public AccessTicket guardChatModel(
+            String clientUid,
+            long characterId,
+            EntitlementPolicyService.ChatQuotaAction action,
+            AiChatModelService.ResolvedChatModel selection,
+            String generationRequestId,
+            long conversationId
+    ) {
+        if (selection == null || selection.byok() || chatModelMapper == null) {
+            return guardChat(clientUid, characterId, action);
+        }
+        String requestId = normalizeGenerationRequestId(generationRequestId);
+        AppUser user = resolveUser(clientUid);
+        AppCharacter character = characterMapper.findById(characterId);
+        if (character == null || character.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "角色不存在或已下架");
+        }
+        assertCharacterVisibleToUser(character, user.getId());
+        AppH5UserProfileExt initialExt = ensureProfileExt(user);
+        if (Boolean.TRUE.equals(character.getVipOnly()) && !entitlementPolicyService.canAccessVipCharacter(initialExt)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "当前角色仅会员可用，请先开通会员");
+        }
+
+        String actionName = action == null ? "" : action.name();
+        ChatGenerationContext context = generationContext(
+                user.getId(), conversationId, requestId, actionName, selection);
+        try {
+            chatModelMapper.insertGenerationContext(context);
+        } catch (DuplicateKeyException ex) {
+            throw new BusinessException(ErrorCode.CONFLICT, "该生成请求已受理，请勿重复提交");
+        }
+
+        boolean actionConsumes = entitlementPolicyService.consumesChatQuota(action);
+        if (!actionConsumes || "FREE".equals(selection.billingMode())) {
+            chatModelMapper.updateGenerationChargeStatus(context.getId(), "FREE", "");
+            return modelTicket(user, clientUid, characterId, actionName, selection, context,
+                    false, false, "", 0, 0);
+        }
+
+        AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(user.getId());
+        if (ext == null) throw new BusinessException(ErrorCode.INTERNAL_ERROR, "用户权益数据不存在");
+        boolean changed = refreshUsageWindow(ext);
+        if (entitlementPolicyService.refreshEffectiveQuota(ext)) changed = true;
+        if (changed) {
+            profileExtMapper.upsert(ext);
+            ext = profileExtMapper.findByUserIdForUpdate(user.getId());
+        }
+
+        String mode = selection.billingMode();
+        int units = Math.max(0, selection.quotaUnits());
+        boolean quotaMode = mode.startsWith("QUOTA_") || "QUOTA_ONLY".equals(mode);
+        boolean quotaReserved = false;
+        if (quotaMode && units > 0) {
+            int remaining = Math.max(0,
+                    nvl(ext.getDailyChatQuota()) + nvl(ext.getDailyChatBonus()) - nvl(ext.getDailyChatUsed()));
+            if (remaining >= units) {
+                ext.setDailyChatUsed(nvl(ext.getDailyChatUsed()) + units);
+                profileExtMapper.upsert(ext);
+                quotaReserved = true;
+            } else if ("QUOTA_ONLY".equals(mode)) {
+                throw new BusinessException(ErrorCode.RATE_LIMITED, "当前模型可用聊天次数不足");
+            }
+        }
+
+        int scoreCost = 0;
+        int goldCost = 0;
+        if (!quotaReserved) {
+            switch (mode) {
+                case "DIAMOND_ONLY", "QUOTA_THEN_DIAMOND" -> scoreCost = Math.max(0, selection.diamondCost());
+                case "GOLD_ONLY", "QUOTA_THEN_GOLD" -> goldCost = Math.max(0, selection.goldCost());
+                case "DIAMOND_AND_GOLD", "QUOTA_THEN_MIXED" -> {
+                    scoreCost = Math.max(0, selection.diamondCost());
+                    goldCost = Math.max(0, selection.goldCost());
+                }
+                default -> { }
+            }
+        }
+
+        String bizRef = "";
+        boolean walletCreated = false;
+        if (scoreCost > 0 || goldCost > 0) {
+            bizRef = hashedConsumeBizRef("chat_model", user.getId(), requestId + ":" + actionName);
+            walletCreated = walletLedgerService.consumeDiamonds(
+                    user.getId(), scoreCost, goldCost,
+                    WalletLedgerService.BIZ_CHAT_CONSUME, bizRef,
+                    "聊天模型消费：" + selection.displayName()
+            );
+        }
+        chatModelMapper.updateGenerationChargeStatus(
+                context.getId(), quotaReserved || walletCreated ? "RESERVED" : "FREE", bizRef);
+        return modelTicket(user, clientUid, characterId, actionName, selection, context,
+                quotaReserved, walletCreated, bizRef, scoreCost, goldCost);
+    }
+
     @Transactional(readOnly = true)
     public boolean canAccessVipCharacters(String clientUid) {
         if (clientUid == null || clientUid.isBlank()) {
@@ -341,6 +449,15 @@ public class H5EntitlementService {
                 || !CharacterReviewStatus.APPROVED.equals(CharacterReviewStatus.normalize(character.getReviewStatus()))) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "character not found");
         }
+    }
+
+    @Transactional(readOnly = true)
+    public void requireCharacterVisibleToUser(long characterId, long userId) {
+        AppCharacter character = characterMapper.findById(characterId);
+        if (character == null || character.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "角色不存在或已下架");
+        }
+        assertCharacterVisibleToUser(character, userId);
     }
 
     @Transactional(readOnly = true)
@@ -371,6 +488,12 @@ public class H5EntitlementService {
     @Transactional
     public void recordSuccessfulChat(AccessTicket ticket, boolean generatedContentReady) {
         if (ticket == null || !generatedContentReady) {
+            return;
+        }
+        if (ticket.upfrontReserved()) {
+            if (chatModelMapper != null && ticket.generationContextId() != null) {
+                chatModelMapper.completeGenerationReservation(ticket.generationContextId());
+            }
             return;
         }
         if (ticket.usesWallet()) {
@@ -658,6 +781,123 @@ public class H5EntitlementService {
                 ticket.userId(), ticket.scoreCost(), ticket.goldCost(),
                 WalletLedgerService.BIZ_STT_REFUND, "refund:" + ticket.consumeBizRef(), "语音识别失败退回"
         );
+    }
+
+    @Transactional
+    public void settleBlockingChat(
+            AccessTicket ticket,
+            boolean cancelled,
+            boolean contentEmitted,
+            boolean generatedContentReady
+    ) {
+        if (!contentEmitted && (cancelled || !generatedContentReady)) {
+            refundFailedChat(ticket, false);
+            return;
+        }
+        recordSuccessfulChat(ticket, contentEmitted || generatedContentReady);
+    }
+
+    @Transactional
+    public void settleStreamingChat(
+            AccessTicket ticket,
+            boolean contentEmitted,
+            boolean generatedContentReady
+    ) {
+        if (!contentEmitted && !generatedContentReady) {
+            refundFailedChat(ticket, false);
+            return;
+        }
+        recordSuccessfulChat(ticket, true);
+    }
+
+    @Transactional
+    public void markChatFirstContent(AccessTicket ticket) {
+        if (ticket == null || !ticket.upfrontReserved() || ticket.generationContextId() == null
+                || chatModelMapper == null) return;
+        chatModelMapper.markFirstContentEmitted(ticket.generationContextId());
+    }
+
+    @Transactional
+    public void refundFailedChat(AccessTicket ticket, boolean contentEmitted) {
+        if (ticket == null || !ticket.upfrontReserved()) return;
+        if (contentEmitted) {
+            completeEmittedReservation(ticket.generationContextId());
+            return;
+        }
+        if (chatModelMapper != null && ticket.generationContextId() != null
+                && chatModelMapper.claimGenerationRefund(ticket.generationContextId()) != 1) {
+            completeEmittedReservation(ticket.generationContextId());
+            return;
+        }
+        if (ticket.quotaChargeCreated()) {
+            AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(ticket.userId());
+            if (ext != null) {
+                refreshUsageWindow(ext);
+                ext.setDailyChatUsed(Math.max(0,
+                        nvl(ext.getDailyChatUsed()) - Math.max(1, ticket.consumeAmount())));
+                profileExtMapper.upsert(ext);
+            }
+        }
+        if (ticket.walletChargeCreated() && ticket.usesWallet()
+                && ticket.consumeBizRef() != null && !ticket.consumeBizRef().isBlank()) {
+            walletLedgerService.refundConsume(
+                    ticket.userId(), ticket.scoreCost(), ticket.goldCost(),
+                    WalletLedgerService.BIZ_CHAT_REFUND,
+                    "refund:" + ticket.consumeBizRef(),
+                    "聊天模型首个内容前失败退回"
+            );
+        }
+        if (chatModelMapper != null && ticket.generationContextId() != null) {
+            chatModelMapper.updateGenerationChargeStatus(
+                    ticket.generationContextId(), "REFUNDED", ticket.consumeBizRef());
+        }
+    }
+
+    @Transactional
+    public void reconcileStaleChatCharge(ChatGenerationContext context) {
+        if (context == null || context.getId() == null || chatModelMapper == null) return;
+        if (Boolean.TRUE.equals(context.getFirstContentEmitted())) {
+            completeEmittedReservation(context.getId());
+            return;
+        }
+        String status = context.getChargeStatus() == null ? "" : context.getChargeStatus().trim().toUpperCase(Locale.ROOT);
+        if ("RESERVED".equals(status) && chatModelMapper.claimGenerationRefund(context.getId()) != 1) {
+            completeEmittedReservation(context.getId());
+            return;
+        }
+        if ("REFUNDING".equals(status) && chatModelMapper.claimStaleGenerationRefund(
+                context.getId(), LocalDateTime.now().minusMinutes(5)) != 1) return;
+        if (!"RESERVED".equals(status) && !"REFUNDING".equals(status)) return;
+
+        String bizRef = context.getConsumeBizRef() == null ? "" : context.getConsumeBizRef().trim();
+        int quotaUnits = Math.max(0, nvl(context.getQuotaUnits()));
+        if (bizRef.isBlank() && quotaUnits > 0
+                && context.getBillingMode() != null
+                && context.getBillingMode().toUpperCase(Locale.ROOT).startsWith("QUOTA")) {
+            AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(context.getUserId());
+            if (ext != null) {
+                refreshUsageWindow(ext);
+                ext.setDailyChatUsed(Math.max(0, nvl(ext.getDailyChatUsed()) - quotaUnits));
+                profileExtMapper.upsert(ext);
+            }
+        }
+        if (!bizRef.isBlank()) {
+            walletLedgerService.refundConsume(
+                    context.getUserId(),
+                    Math.max(0, nvl(context.getDiamondCost())),
+                    Math.max(0, nvl(context.getGoldCost())),
+                    WalletLedgerService.BIZ_CHAT_REFUND,
+                    "refund:" + bizRef,
+                    "聊天模型超时任务自动退回"
+            );
+        }
+        chatModelMapper.updateGenerationChargeStatus(context.getId(), "REFUNDED", bizRef);
+    }
+
+    private void completeEmittedReservation(Long generationContextId) {
+        if (chatModelMapper != null && generationContextId != null) {
+            chatModelMapper.completeGenerationIfContentEmitted(generationContextId);
+        }
     }
 
     /**
@@ -957,6 +1197,65 @@ public class H5EntitlementService {
         } catch (Exception ignored) {
             return DEFAULT_DAILY_USAGE_ZONE;
         }
+    }
+
+    private static ChatGenerationContext generationContext(
+            long userId,
+            long conversationId,
+            String requestId,
+            String actionName,
+            AiChatModelService.ResolvedChatModel selection
+    ) {
+        ChatGenerationContext context = new ChatGenerationContext();
+        context.setUserId(userId);
+        context.setConversationId(conversationId);
+        context.setGenerationRequestId(requestId);
+        context.setActionType(actionName);
+        context.setSourceType(selection.source());
+        context.setOfferingId(selection.offeringId());
+        context.setOfferingCode(selection.offeringCode());
+        context.setOfferingName(selection.displayName());
+        context.setUserModelId(selection.userModelId());
+        context.setModelNameSnapshot(selection.modelName());
+        context.setRouteKey(selection.routeKey());
+        context.setBillingMode(selection.billingMode());
+        context.setQuotaUnits(selection.quotaUnits());
+        context.setDiamondCost(selection.diamondCost());
+        context.setGoldCost(selection.goldCost());
+        context.setChargeStatus("PENDING");
+        context.setConsumeBizRef("");
+        return context;
+    }
+
+    private static AccessTicket modelTicket(
+            AppUser user,
+            String clientUid,
+            long characterId,
+            String actionName,
+            AiChatModelService.ResolvedChatModel selection,
+            ChatGenerationContext context,
+            boolean quotaReserved,
+            boolean walletCreated,
+            String bizRef,
+            int scoreCost,
+            int goldCost
+    ) {
+        return new AccessTicket(
+                user.getId(), blankClientUid(clientUid), quotaReserved,
+                quotaReserved ? Math.max(1, selection.quotaUnits()) : 0,
+                QuotaBucket.OFFICIAL_CHAT, characterId, actionName,
+                walletCreated, scoreCost, goldCost, bizRef, walletCreated,
+                true, quotaReserved, context.getGenerationRequestId(), context.getId()
+        );
+    }
+
+    private static String normalizeGenerationRequestId(String value) {
+        String requestId = value == null ? "" : value.trim();
+        if (requestId.isBlank() || requestId.length() > 96
+                || !requestId.matches("[A-Za-z0-9_.:-]+")) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "生成请求 ID 不合法");
+        }
+        return requestId;
     }
 
     private AccessTicket buildWalletOverageTicket(

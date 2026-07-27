@@ -13,6 +13,7 @@ import com.example.sillyspringboot.compat.h5.mapper.AppH5ClientUidMapper;
 import com.example.sillyspringboot.compat.h5.service.AppUserMessageService;
 import com.example.sillyspringboot.compat.h5.web.CharacterJsonSupport;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
+import com.example.sillyspringboot.integration.sillytavern.StCharacterFileNamePolicy;
 import com.example.sillyspringboot.integration.sillytavern.StWorldbookCatalogService;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterDetail;
 import com.example.sillyspringboot.ops.service.TagLibraryService;
@@ -447,7 +448,10 @@ public class AdminJiugaiCharacterService {
         row.setDislikeCount(payload.getDislikeCount() != null ? payload.getDislikeCount() : 0);
         row.setSortOrder(payload.getSortOrder() != null ? payload.getSortOrder() : 0);
         applyPayload(row, payload);
-        row.setStAvatarUrl(stAdapter.syncCharacterCard(toStDetail(row), row.getStAvatarUrl()));
+        row.setStAvatarUrl(requireStableSyncResult(
+                row.getStAvatarUrl(),
+                stAdapter.syncCharacterCard(toStDetail(row), row.getStAvatarUrl())
+        ));
         characterMapper.insertFull(row);
         tagLibraryService.ensureTagsExist(CharacterJsonSupport.parseStringArrayJson(row.getTagsJson()));
         return characterMapper.findById(row.getId());
@@ -465,14 +469,26 @@ public class AdminJiugaiCharacterService {
         LocalDateTime createdAt = row.getCreatedAt();
         Long originalOwnerUserId = row.getOwnerUserId();
         Boolean originalPrivateCard = row.getPrivateCard();
+        String originalStAvatarUrl = row.getStAvatarUrl();
         applyPayload(row, payload);
         row.setOwnerUserId(originalOwnerUserId);
         row.setPrivateCard(Boolean.TRUE.equals(originalPrivateCard) || originalOwnerUserId != null);
+        row.setStAvatarUrl(originalStAvatarUrl);
         row.setCreatedAt(createdAt);
-        row.setStAvatarUrl(stAdapter.syncCharacterCard(toStDetail(row), row.getStAvatarUrl()));
+        row.setStAvatarUrl(requireStableSyncResult(
+                row.getStAvatarUrl(),
+                stAdapter.syncCharacterCard(toStDetail(row), row.getStAvatarUrl())
+        ));
         characterMapper.updateById(row);
         tagLibraryService.ensureTagsExist(CharacterJsonSupport.parseStringArrayJson(row.getTagsJson()));
         return characterMapper.findById(payload.getId());
+    }
+
+    private static String requireStableSyncResult(String expectedFileName, String returnedFileName) {
+        if (!StCharacterFileNamePolicy.isStableSyncResult(expectedFileName, returnedFileName)) {
+            throw new IllegalStateException("ST 返回了不同的角色文件名，本次保存已取消");
+        }
+        return StCharacterFileNamePolicy.normalize(returnedFileName);
     }
 
     private static StCharacterDetail toStDetail(AppCharacter row) {

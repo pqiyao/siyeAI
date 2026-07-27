@@ -66,6 +66,12 @@ public class AppFeatureSettingsService {
             settings.setCheckinEntryVisible(
                     boolVal(body.get("checkinEntryVisible"), settings.isCheckinEntryVisible())
             );
+            settings.setSystemChatPresetEntryVisible(
+                    boolVal(body.get("systemChatPresetEntryVisible"), settings.isSystemChatPresetEntryVisible())
+            );
+            settings.setUserChatPresetEntryVisible(
+                    boolVal(body.get("userChatPresetEntryVisible"), settings.isUserChatPresetEntryVisible())
+            );
             settings.setUserByokVipMinLevel(
                     boundedIntVal(body.get("userByokVipMinLevel"), settings.getUserByokVipMinLevel(), 0, 2)
             );
@@ -98,6 +104,8 @@ public class AppFeatureSettingsService {
         data.put("illustrationEntryEnabled", settings.isIllustrationEntryEnabled());
         data.put("rechargeEntryVisible", settings.isRechargeEntryVisible());
         data.put("checkinEntryVisible", settings.isCheckinEntryVisible());
+        data.put("systemChatPresetEntryVisible", settings.isSystemChatPresetEntryVisible());
+        data.put("userChatPresetEntryVisible", settings.isUserChatPresetEntryVisible());
         data.put("userByokVipMinLevel", settings.getUserByokVipMinLevel());
         data.put("anonymousTrialChatLimit", settings.getAnonymousTrialChatLimit());
         data.put("anonymousTrialConversationLimit", settings.getAnonymousTrialConversationLimit());

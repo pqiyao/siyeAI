@@ -14,7 +14,8 @@
 		"test:user-tts-voice": "node tests/userTtsVoice.contract.test.cjs",
 		"test:vision-routing": "node tests/visionRouting.contract.test.cjs",
 		"test:character-studio-v2": "node tests/characterStudioV2.contract.test.cjs",
-		"test:chat-settings-preset": "node tests/chatSettingsPreset.contract.test.cjs"
+		"test:chat-settings-preset": "node tests/chatPresetForm.unit.test.cjs && node tests/chatSettingsPreset.contract.test.cjs"
+		,"test:chat-model-selection": "node tests/chatModelSelection.contract.test.cjs"
 	},
 	"dependencies": {
     "@ffmpeg/core": "^0.12.10",

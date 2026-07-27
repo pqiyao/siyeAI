@@ -97,6 +97,22 @@
           <el-switch v-model="runtimeSettings.checkinEntryVisible" />
         </div>
 
+        <div class="runtime-item">
+          <div class="runtime-item__meta">
+            <div class="runtime-item__title">显示系统预设选择</div>
+            <div class="runtime-item__desc">关闭后隐藏用户端的官方聊天预设选择和复制入口；已绑定系统预设的会话仍按原预设生成。</div>
+          </div>
+          <el-switch v-model="runtimeSettings.systemChatPresetEntryVisible" />
+        </div>
+
+        <div class="runtime-item">
+          <div class="runtime-item__meta">
+            <div class="runtime-item__title">显示我的预设设置</div>
+            <div class="runtime-item__desc">关闭后隐藏用户端的私有预设选择、编辑和删除入口；已绑定我的预设的会话仍按原预设生成。</div>
+          </div>
+          <el-switch v-model="runtimeSettings.userChatPresetEntryVisible" />
+        </div>
+
         <div class="runtime-item runtime-item--stack">
           <div class="runtime-item__meta">
             <div class="runtime-item__title">匿名试玩限制</div>
@@ -418,6 +434,8 @@ const runtimeSettings = reactive({
   illustrationEntryEnabled: true,
   rechargeEntryVisible: true,
   checkinEntryVisible: true,
+  systemChatPresetEntryVisible: true,
+  userChatPresetEntryVisible: true,
   userByokVipMinLevel: 0,
   anonymousTrialChatLimit: 30,
   anonymousTrialConversationLimit: 6,
@@ -438,6 +456,8 @@ function applyRuntimeSettings(data) {
   runtimeSettings.illustrationEntryEnabled = data.illustrationEntryEnabled !== false
   runtimeSettings.rechargeEntryVisible = data.rechargeEntryVisible !== false
   runtimeSettings.checkinEntryVisible = data.checkinEntryVisible !== false
+  runtimeSettings.systemChatPresetEntryVisible = data.systemChatPresetEntryVisible !== false
+  runtimeSettings.userChatPresetEntryVisible = data.userChatPresetEntryVisible !== false
   runtimeSettings.userByokVipMinLevel = normalizeLimit(data.userByokVipMinLevel, 0)
   runtimeSettings.anonymousTrialChatLimit = normalizeLimit(data.anonymousTrialChatLimit, 30)
   runtimeSettings.anonymousTrialConversationLimit = normalizeLimit(data.anonymousTrialConversationLimit, 6)
@@ -509,6 +529,8 @@ function submitRuntimeSettings() {
     illustrationEntryEnabled: runtimeSettings.illustrationEntryEnabled,
     rechargeEntryVisible: runtimeSettings.rechargeEntryVisible,
     checkinEntryVisible: runtimeSettings.checkinEntryVisible,
+    systemChatPresetEntryVisible: runtimeSettings.systemChatPresetEntryVisible,
+    userChatPresetEntryVisible: runtimeSettings.userChatPresetEntryVisible,
     userByokVipMinLevel: runtimeSettings.userByokVipMinLevel,
     anonymousTrialChatLimit: runtimeSettings.anonymousTrialChatLimit,
     anonymousTrialConversationLimit: runtimeSettings.anonymousTrialConversationLimit,

@@ -32,6 +32,10 @@ public class AppChatStreamRequest {
     /** 稳定的识图请求 ID，仅在包含图片时使用，负责官方识图账单幂等。 */
     private String visionRequestId;
 
+    private String chatModelSource;
+    private String chatRouteKey;
+    private String chatModelName;
+
     /** 客户端消息 ID，用于 chunk 对齐和流式归属。 */
     @NotBlank
     private String clientMessageId;
@@ -139,4 +143,11 @@ public class AppChatStreamRequest {
     public void setVisionRequestId(String visionRequestId) {
         this.visionRequestId = visionRequestId;
     }
+
+    public String getChatModelSource() { return chatModelSource; }
+    public void setChatModelSource(String chatModelSource) { this.chatModelSource = chatModelSource; }
+    public String getChatRouteKey() { return chatRouteKey; }
+    public void setChatRouteKey(String chatRouteKey) { this.chatRouteKey = chatRouteKey; }
+    public String getChatModelName() { return chatModelName; }
+    public void setChatModelName(String chatModelName) { this.chatModelName = chatModelName; }
 }

@@ -15,6 +15,8 @@ public class AppFeatureSettings {
     private boolean illustrationEntryEnabled = true;
     private boolean rechargeEntryVisible = true;
     private boolean checkinEntryVisible = true;
+    private boolean systemChatPresetEntryVisible = true;
+    private boolean userChatPresetEntryVisible = true;
     private int userByokVipMinLevel = 0;
     private int anonymousTrialChatLimit = 30;
     private int anonymousTrialConversationLimit = 6;
@@ -98,6 +100,22 @@ public class AppFeatureSettings {
 
     public void setCheckinEntryVisible(boolean checkinEntryVisible) {
         this.checkinEntryVisible = checkinEntryVisible;
+    }
+
+    public boolean isSystemChatPresetEntryVisible() {
+        return systemChatPresetEntryVisible;
+    }
+
+    public void setSystemChatPresetEntryVisible(boolean systemChatPresetEntryVisible) {
+        this.systemChatPresetEntryVisible = systemChatPresetEntryVisible;
+    }
+
+    public boolean isUserChatPresetEntryVisible() {
+        return userChatPresetEntryVisible;
+    }
+
+    public void setUserChatPresetEntryVisible(boolean userChatPresetEntryVisible) {
+        this.userChatPresetEntryVisible = userChatPresetEntryVisible;
     }
 
     public int getUserByokVipMinLevel() {

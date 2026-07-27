@@ -42,6 +42,7 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
         long conversationId = insertConversation(userId, characterId);
         long branchId = insertBranch(userId, conversationId);
         jdbc.update("UPDATE app_conversation SET active_branch_id = ? WHERE id = ?", branchId, conversationId);
+        insertPrivateChatPreset(userId);
         insertMessage(userId, conversationId, branchId);
         insertMemory(conversationId, branchId);
         insertPasswordResetToken(userId);
@@ -90,6 +91,7 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
         assertThat(count("app_h5_visitor_device", "id", deviceId)).isZero();
         assertThat(count("app_h5_client_uid", "user_id", userId)).isZero();
         assertThat(count("app_h5_upload_asset", "owner_user_id", userId)).isZero();
+        assertThat(count("app_chat_preset", "owner_user_id", userId)).isZero();
 
         List<Map<String, Object>> cleanupTasks = jdbc.queryForList(
                 """
@@ -127,6 +129,7 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
             assertThat(securityEvent.get("ua_hash")).isNull();
             assertThat(securityEvent.get("detail")).isNull();
         }
+        assertNoDirectUserReferencesRemain(userId);
     }
 
     @Test
@@ -138,7 +141,7 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
         insertOwnedUpload(victimUserId, victimUrl, victimPath);
         jdbc.update("UPDATE app_user SET photo_url = ? WHERE id = ?", victimUrl, deletingUserId);
         jdbc.update(
-                "INSERT INTO app_character (owner_user_id, name, st_avatar_url, avatar_url) VALUES (?, ?, '', ?)",
+                "INSERT INTO app_character (owner_user_id, private_card, name, st_avatar_url, avatar_url) VALUES (?, TRUE, ?, '', ?)",
                 deletingUserId,
                 "Referenced victim upload",
                 victimUrl
@@ -156,6 +159,166 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
                 deletingUserId
         );
         assertThat(cleanupCount).isZero();
+    }
+
+    @Test
+    void deletesPromotedSourceCharacterWithoutDeletingIndependentSystemCharacter() {
+        long userId = insertUser();
+        long sourceCharacterId = insertOwnedCharacter(userId);
+        long targetCharacterId = insertPublicCharacter();
+        jdbc.update(
+                """
+                INSERT INTO app_character_system_promotion
+                    (source_character_id, source_user_id, target_character_id, promoted_by)
+                VALUES (?, ?, ?, 'integration-test')
+                """,
+                sourceCharacterId,
+                userId,
+                targetCharacterId
+        );
+
+        Map<String, Object> result = service.deleteUserById(userId);
+
+        assertThat(result.get("deleted")).isEqualTo(true);
+        assertThat(count("app_user", "id", userId)).isZero();
+        assertThat(count("app_character", "id", sourceCharacterId)).isZero();
+        assertThat(count("app_character", "id", targetCharacterId)).isEqualTo(1);
+        assertThat(count("app_character_system_promotion", "source_user_id", userId)).isZero();
+    }
+
+    @Test
+    void hardDeletesAllAuxiliaryUserDataWithoutTouchingAnotherUser() {
+        long deletingUserId = insertUser();
+        long survivingUserId = insertUser();
+        insertAuxiliaryUserData(deletingUserId, "delete-" + IDS.incrementAndGet());
+        insertAuxiliaryUserData(survivingUserId, "keep-" + IDS.incrementAndGet());
+
+        Map<String, Object> result = service.deleteUserById(deletingUserId);
+
+        assertThat(result.get("deleted")).isEqualTo(true);
+        assertAuxiliaryUserDataCount(deletingUserId, 0);
+        assertAuxiliaryUserDataCount(survivingUserId, 1);
+        assertThat(count("app_user", "id", survivingUserId)).isEqualTo(1);
+        assertNoDirectUserReferencesRemain(deletingUserId);
+    }
+
+    private void insertAuxiliaryUserData(long userId, String suffix) {
+        jdbc.update(
+                "INSERT INTO app_user_tts_voice (user_id, request_id, display_name) VALUES (?, ?, ?)",
+                userId,
+                "voice-request-" + suffix,
+                "Voice " + suffix
+        );
+        long voiceId = jdbc.queryForObject(
+                "SELECT id FROM app_user_tts_voice WHERE user_id = ? AND request_id = ?",
+                Long.class,
+                userId,
+                "voice-request-" + suffix
+        );
+        jdbc.update(
+                """
+                INSERT INTO app_user_tts_voice_binding
+                    (user_id, scope_type, character_id, member_id, voice_id)
+                VALUES (?, 'GLOBAL', 0, 0, ?)
+                """,
+                userId,
+                voiceId
+        );
+        jdbc.update(
+                "INSERT INTO app_user_tts_voice_instance (user_id, template_code) VALUES (?, ?)",
+                userId,
+                "template-" + suffix
+        );
+        jdbc.update(
+                "INSERT INTO app_h5_user_ai_chat_model (user_id, model_name) VALUES (?, ?)",
+                userId,
+                "model-" + suffix
+        );
+        jdbc.update(
+                """
+                INSERT INTO app_chat_model_preference
+                    (user_id, conversation_id, branch_id, source_type)
+                VALUES (?, 0, 0, 'USER')
+                """,
+                userId
+        );
+        jdbc.update(
+                """
+                INSERT INTO app_chat_generation_context
+                    (user_id, conversation_id, generation_request_id, action_type, source_type)
+                VALUES (?, 0, ?, 'GENERATE', 'USER')
+                """,
+                userId,
+                "generation-" + suffix
+        );
+        long activityId = jdbc.queryForObject(
+                "SELECT id FROM app_checkin_activity WHERE code = 'daily_checkin'",
+                Long.class
+        );
+        jdbc.update(
+                "INSERT INTO app_checkin_claim (user_id, activity_id, biz_date) VALUES (?, ?, CURRENT_DATE)",
+                userId,
+                activityId
+        );
+        jdbc.update(
+                "INSERT INTO app_user_inbox_ad_read (user_id, ad_id) VALUES (?, ?)",
+                userId,
+                IDS.incrementAndGet()
+        );
+        jdbc.update(
+                """
+                INSERT INTO app_illustration_work
+                    (title, slug, cover_url, image_url, source, submitter_user_id)
+                VALUES (?, ?, ?, ?, 'USER', ?)
+                """,
+                "Illustration " + suffix,
+                "illustration-" + suffix,
+                "/uploads/h5/cover-" + suffix + ".png",
+                "/uploads/h5/image-" + suffix + ".png",
+                userId
+        );
+    }
+
+    private void assertAuxiliaryUserDataCount(long userId, int expected) {
+        assertThat(count("app_user_tts_voice_binding", "user_id", userId)).isEqualTo(expected);
+        assertThat(count("app_user_tts_voice", "user_id", userId)).isEqualTo(expected);
+        assertThat(count("app_user_tts_voice_instance", "user_id", userId)).isEqualTo(expected);
+        assertThat(count("app_h5_user_ai_chat_model", "user_id", userId)).isEqualTo(expected);
+        assertThat(count("app_chat_model_preference", "user_id", userId)).isEqualTo(expected);
+        assertThat(count("app_chat_generation_context", "user_id", userId)).isEqualTo(expected);
+        assertThat(count("app_checkin_claim", "user_id", userId)).isEqualTo(expected);
+        assertThat(count("app_user_inbox_ad_read", "user_id", userId)).isEqualTo(expected);
+        assertThat(count("app_illustration_work", "submitter_user_id", userId)).isEqualTo(expected);
+    }
+
+    private void assertNoDirectUserReferencesRemain(long userId) {
+        List<Map<String, Object>> userReferenceColumns = jdbc.queryForList(
+                """
+                SELECT table_name, column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'PUBLIC'
+                  AND column_name IN (
+                      'USER_ID', 'OWNER_USER_ID', 'TARGET_USER_ID', 'SUBMITTER_USER_ID',
+                      'SOURCE_USER_ID', 'FIRST_USER_ID', 'LATEST_USER_ID', 'TRUSTED_USER_ID'
+                  )
+                ORDER BY table_name, column_name
+                """
+        );
+        for (Map<String, Object> reference : userReferenceColumns) {
+            String table = String.valueOf(reference.get("table_name"));
+            String column = String.valueOf(reference.get("column_name"));
+            if ("APP_EXTERNAL_CLEANUP_TASK".equals(table) && "SOURCE_USER_ID".equals(column)) {
+                continue;
+            }
+            Integer remaining = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM " + table + " WHERE " + column + " = ?",
+                    Integer.class,
+                    userId
+            );
+            assertThat(remaining)
+                    .as("remaining user reference in %s.%s", table, column)
+                    .isZero();
+        }
     }
 
     private long insertUser() {
@@ -194,6 +357,21 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
         );
     }
 
+    private long insertOwnedCharacter(long userId) {
+        String name = "Owned Delete Test " + IDS.incrementAndGet();
+        jdbc.update(
+                "INSERT INTO app_character (owner_user_id, private_card, name, st_avatar_url) VALUES (?, TRUE, ?, '')",
+                userId,
+                name
+        );
+        return jdbc.queryForObject(
+                "SELECT id FROM app_character WHERE owner_user_id = ? AND name = ?",
+                Long.class,
+                userId,
+                name
+        );
+    }
+
     private long insertConversation(long userId, long characterId) {
         jdbc.update(
                 "INSERT INTO app_conversation (user_id, character_id, title) VALUES (?, ?, 'Delete Test')",
@@ -204,6 +382,19 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
                 "SELECT id FROM app_conversation WHERE user_id = ? ORDER BY id DESC LIMIT 1",
                 Long.class,
                 userId
+        );
+    }
+
+    private void insertPrivateChatPreset(long userId) {
+        String sourceName = "delete-preset-" + IDS.incrementAndGet();
+        jdbc.update(
+                """
+                INSERT INTO app_chat_preset
+                    (owner_user_id, scope, source_type, api_type, source_name, name, bundle_json)
+                VALUES (?, 'PRIVATE', 'USER_COPY', 'openai', ?, 'Delete Test Preset', '{}')
+                """,
+                userId,
+                sourceName
         );
     }
 

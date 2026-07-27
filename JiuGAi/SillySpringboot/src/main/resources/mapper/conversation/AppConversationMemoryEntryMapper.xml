@@ -364,6 +364,8 @@
           AND branch_id = #{branchId}
           AND manual_disabled = 0
           AND manual_deleted = 0
+          AND manual_pinned = 0
+          AND LEFT(entry_key, 7) != 'manual_'
           AND (
               deleted_at IS NULL
               OR (

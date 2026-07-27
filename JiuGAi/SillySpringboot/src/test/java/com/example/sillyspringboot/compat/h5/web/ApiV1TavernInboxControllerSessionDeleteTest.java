@@ -34,7 +34,7 @@ class ApiV1TavernInboxControllerSessionDeleteTest {
 
         fixture.controller.deleteOneSession(payload());
 
-        verify(fixture.sessionService).archiveHideAndWipe(11L);
+        verify(fixture.sessionService).archiveHideAndWipe(7L, 11L);
         verify(fixture.archiveMapper).upsert(7L, 11L);
     }
 
@@ -50,7 +50,7 @@ class ApiV1TavernInboxControllerSessionDeleteTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("请先切换到其他故事");
 
-        verify(fixture.sessionService, never()).archiveHideAndWipe(11L);
+        verify(fixture.sessionService, never()).archiveHideAndWipe(7L, 11L);
         verify(fixture.archiveMapper, never()).upsert(7L, 11L);
     }
 

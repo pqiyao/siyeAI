@@ -673,11 +673,7 @@ public class H5UserAiProviderService {
 
     @Transactional(readOnly = true)
     public UserModelOverride resolveActiveOverrideForUser(long userId) {
-        AppFeatureSettings settings = featureSettingsService.getSettings();
-        if (!settings.isUserByokEnabled()) {
-            return null;
-        }
-        if (currentVipLevel(userId) < settings.getUserByokVipMinLevel()) {
+        if (!isCustomModeAllowedForUser(userId)) {
             return null;
         }
         AppH5UserAiProvider row = mapper.findByUserId(userId);
@@ -736,6 +732,13 @@ public class H5UserAiProviderService {
     public boolean isCustomModeSelectedForUser(long userId) {
         AppH5UserAiProvider row = mapper.findByUserId(userId);
         return row != null && "custom".equals(normalizeMode(row.getProviderMode()));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isCustomModeAllowedForUser(long userId) {
+        AppFeatureSettings settings = featureSettingsService.getSettings();
+        return settings.isUserByokEnabled()
+                && currentVipLevel(userId) >= settings.getUserByokVipMinLevel();
     }
 
     @Transactional(readOnly = true)

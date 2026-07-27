@@ -31,6 +31,8 @@ public interface H5MyCharacterMapper {
 
     void archiveStAvatarUrlAfterStDelete(@Param("id") long id, @Param("userId") long userId);
 
+    Long lockOwnerUser(@Param("userId") long userId);
+
     int countMineActive(@Param("userId") long userId);
 }
 

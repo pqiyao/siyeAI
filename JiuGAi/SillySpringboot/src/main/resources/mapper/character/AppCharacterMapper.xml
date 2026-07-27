@@ -80,6 +80,37 @@
         LIMIT 1
     </select>
 
+    <select id="findPublicVisibleById" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character c
+        WHERE c.id = #{id}
+          AND c.deleted_at IS NULL
+          AND c.private_card = 0
+          AND c.owner_user_id IS NULL
+          AND c.review_status = 'APPROVED'
+          AND c.client_visible = 1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM app_character private_row
+              WHERE private_row.st_avatar_url = c.st_avatar_url
+                AND private_row.private_card = 1
+                AND private_row.owner_user_id IS NOT NULL
+                AND private_row.deleted_at IS NULL
+          )
+        LIMIT 1
+    </select>
+
+    <select id="findActiveSystemByStAvatarUrl" resultMap="AppCharacterResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM app_character
+        WHERE st_avatar_url = #{stAvatarUrl}
+          AND private_card = 0
+          AND owner_user_id IS NULL
+          AND deleted_at IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
     <select id="findSystemByStAvatarUrlAny" resultMap="AppCharacterResultMap">
         SELECT <include refid="AllColumns"/>
         FROM app_character
@@ -234,12 +265,20 @@
 
     <select id="listPublicDiscover" resultMap="AppCharacterResultMap">
         SELECT <include refid="AllColumns"/>
-        FROM app_character
-        WHERE deleted_at IS NULL
-          AND private_card = 0
-          AND owner_user_id IS NULL
-          AND review_status = 'APPROVED'
-          AND client_visible = 1
+        FROM app_character c
+        WHERE c.deleted_at IS NULL
+          AND c.private_card = 0
+          AND c.owner_user_id IS NULL
+          AND c.review_status = 'APPROVED'
+          AND c.client_visible = 1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM app_character private_row
+              WHERE private_row.st_avatar_url = c.st_avatar_url
+                AND private_row.private_card = 1
+                AND private_row.owner_user_id IS NOT NULL
+                AND private_row.deleted_at IS NULL
+          )
         ORDER BY sort_order ASC, id DESC
         LIMIT #{limit}
     </select>

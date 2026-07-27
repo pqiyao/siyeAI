@@ -38,4 +38,27 @@ class ApiV1AppRuntimeConfigTest {
         assertThat(result.code()).isEqualTo(1);
         assertThat(result.data()).containsEntry("rechargeEntryVisible", false);
     }
+
+    @Test
+    void runtimeConfigExposesBothChatPresetEntrySwitches() {
+        AppFeatureSettingsService featureSettingsService = mock(AppFeatureSettingsService.class);
+        AppFeatureSettings settings = new AppFeatureSettings();
+        settings.setSystemChatPresetEntryVisible(false);
+        settings.setUserChatPresetEntryVisible(false);
+        Map<String, Object> data = Map.of(
+                "systemChatPresetEntryVisible", false,
+                "userChatPresetEntryVisible", false
+        );
+        when(featureSettingsService.getSettings()).thenReturn(settings);
+        when(featureSettingsService.toMap(settings)).thenReturn(data);
+        ApiV1AppController controller = new ApiV1AppController(
+                null, null, null, null, null, null, null, null, null, null, featureSettingsService
+        );
+
+        ApiV1Result<Map<String, Object>> result = controller.runtimeConfig();
+
+        assertThat(result.data())
+                .containsEntry("systemChatPresetEntryVisible", false)
+                .containsEntry("userChatPresetEntryVisible", false);
+    }
 }

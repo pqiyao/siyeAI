@@ -149,7 +149,7 @@ public class ApiV1TavernInboxController {
             throw new BusinessException(ErrorCode.CONFLICT, "请先切换到其他故事，再删除当前故事");
         }
         long userId = tokenService.validateAndLoadUser(token).getId();
-        tavernSessionService.archiveHideAndWipe(conversationId);
+        tavernSessionService.archiveHideAndWipe(userId, conversationId);
         archiveMapper.upsert(userId, conversationId);
         return ApiV1Result.ok(true);
     }
@@ -395,7 +395,7 @@ public class ApiV1TavernInboxController {
             return ApiV1Result.ok(true);
         }
         archiveMapper.deleteByUserAndConversation(userId, conversationId);
-        tavernSessionService.restartFresh(conversationId);
+        tavernSessionService.restartFresh(userId, conversationId);
         return ApiV1Result.ok(true);
     }
 
@@ -425,7 +425,7 @@ public class ApiV1TavernInboxController {
             return ApiV1Result.ok(true);
         }
         archiveMapper.deleteByUserAndConversation(userId, conversationId);
-        tavernSessionService.restartFresh(conversationId);
+        tavernSessionService.restartFresh(userId, conversationId);
         return ApiV1Result.ok(true);
     }
 

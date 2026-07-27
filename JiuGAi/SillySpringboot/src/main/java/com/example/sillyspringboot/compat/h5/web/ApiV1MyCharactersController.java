@@ -2,6 +2,7 @@ package com.example.sillyspringboot.compat.h5.web;
 
 import com.example.sillyspringboot.admin.service.CharacterContentScreeningService;
 import com.example.sillyspringboot.admin.service.CharacterReviewAuditLogService;
+import com.example.sillyspringboot.admin.service.ExternalCleanupTaskService;
 import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.auth.token.AppTokenService;
 import com.example.sillyspringboot.character.entity.AppCharacter;
@@ -17,6 +18,7 @@ import com.example.sillyspringboot.compat.h5.service.H5TavernSessionService;
 import com.example.sillyspringboot.compat.h5.service.H5VisitorTrialGuardService;
 import com.example.sillyspringboot.compat.h5.web.dto.H5MyCharacterSaveRequest;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
+import com.example.sillyspringboot.integration.sillytavern.StCharacterFileNamePolicy;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterDetail;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterGetRequest;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterImportRequest;
@@ -29,6 +31,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,6 +50,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -70,6 +75,7 @@ public class ApiV1MyCharactersController {
     private final H5TavernSessionService tavernSessionService;
     private final EmbeddedLorebookSyncService embeddedLorebookSyncService;
     private final CharacterStudioService characterStudioService;
+    private final ExternalCleanupTaskService cleanupTaskService;
 
     public ApiV1MyCharactersController(
             H5ClientUidAuthService h5Auth,
@@ -86,7 +92,8 @@ public class ApiV1MyCharactersController {
             H5EntitlementService entitlementService,
             H5TavernSessionService tavernSessionService,
             EmbeddedLorebookSyncService embeddedLorebookSyncService,
-            CharacterStudioService characterStudioService
+            CharacterStudioService characterStudioService,
+            ExternalCleanupTaskService cleanupTaskService
     ) {
         this.h5Auth = h5Auth;
         this.tokenService = tokenService;
@@ -103,6 +110,7 @@ public class ApiV1MyCharactersController {
         this.tavernSessionService = tavernSessionService;
         this.embeddedLorebookSyncService = embeddedLorebookSyncService;
         this.characterStudioService = characterStudioService;
+        this.cleanupTaskService = cleanupTaskService;
     }
 
     @GetMapping("/mine")
@@ -125,6 +133,7 @@ public class ApiV1MyCharactersController {
     }
 
     @PostMapping("/create-draft")
+    @Transactional
     public ApiV1Result<Map<String, Object>> createDraft(@RequestBody Map<String, Object> body) {
         featureSettingsService.ensureUserCharacterCreationEnabled();
         String clientUid = asString(body == null ? null : body.get("clientUid"));
@@ -219,9 +228,13 @@ public class ApiV1MyCharactersController {
             if (row.getDislikeCount() == null) {
                 row.setDislikeCount(0);
             }
-            row.setStAvatarUrl(stAdapter.syncCharacterCard(toStDetail(row), row.getStAvatarUrl()));
             mineMapper.insertMine(row);
             characterStudioService.replaceStudio(userId, row.getId(), req);
+            row.setStAvatarUrl(requireStableSyncResult(
+                    row.getStAvatarUrl(),
+                    stAdapter.syncCharacterCard(toStDetail(row), row.getStAvatarUrl())
+            ));
+            mineMapper.updateMine(row);
             mineMapper.softDeletePublicSyncShadowByStAvatarUrl(row.getStAvatarUrl());
             H5MyCharacter saved = mineMapper.findEditor(row.getId(), userId);
             if (saved == null) {
@@ -237,9 +250,12 @@ public class ApiV1MyCharactersController {
         }
         existed.setOwnerUserId(userId);
         apply(existed, req);
-        existed.setStAvatarUrl(stAdapter.syncCharacterCard(toStDetail(existed), existed.getStAvatarUrl()));
-        mineMapper.updateMine(existed);
         characterStudioService.replaceStudio(userId, existed.getId(), req);
+        existed.setStAvatarUrl(requireStableSyncResult(
+                existed.getStAvatarUrl(),
+                stAdapter.syncCharacterCard(toStDetail(existed), existed.getStAvatarUrl())
+        ));
+        mineMapper.updateMine(existed);
         mineMapper.softDeletePublicSyncShadowByStAvatarUrl(existed.getStAvatarUrl());
         H5MyCharacter saved = mineMapper.findEditor(existed.getId(), userId);
         if (saved == null) {
@@ -318,6 +334,7 @@ public class ApiV1MyCharactersController {
         return ApiV1Result.ok(Map.of("url", url));
     }
     @PostMapping(value = "/mine/import-sillytavern-png", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Transactional
     public ApiV1Result<Map<String, Object>> importMinePng(
             @RequestPart("file") MultipartFile file,
             @RequestParam("clientUid") String clientUid
@@ -338,23 +355,28 @@ public class ApiV1MyCharactersController {
         AppUser user = tokenService.validateAndLoadUser(h5Auth.requireAuthenticatedTokenForClientUid(clientUid));
         long userId = user.getId();
         entitlementService.requireCharacterCreationAccess(user, 1);
+        String importedStAvatar = "";
+        boolean cleanupRegistered = false;
         try {
+            String preservedName = buildPrivateImportPreservedName(userId);
             Object raw = stAdapter.importCharacterPng(
                     file.getBytes(),
                     originalFilename,
-                    new StCharacterImportRequest("png", buildPrivateImportPreservedName(userId))
+                    new StCharacterImportRequest("png", preservedName)
             );
             String importError = extractImportError(raw);
             if (!importError.isBlank()) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED, importError);
             }
-            String stAvatarUrl = extractImportedAvatarUrl(raw);
-            if (stAvatarUrl.isBlank()) {
+            String stAvatarUrl = StCharacterFileNamePolicy.normalize(extractImportedAvatarUrl(raw));
+            if (!StCharacterFileNamePolicy.isExpectedImportResult(stAvatarUrl, preservedName)) {
                 throw new BusinessException(
                         ErrorCode.UPSTREAM_ERROR,
-                        "PNG 闂傚倷娴囬褍霉閻戣棄鏋侀柟闂寸閸屻劎鎲搁弬璺ㄦ殾闁挎繂顦獮銏′繆椤栨繃顏犵紒鎰仱閺屸剝寰勬繝鍕拡闂佺顑呴ˇ鎶铰烽崒鐐粹拻濞达絿鎳撻婊呯磼鐎ｎ偄娴柟顔芥そ瀵劍淇婃繅纾濼avern 婵犵數濮烽弫鎼佸磻濞戞瑥绶為柛銉墮缁€鍫熺節闂堟稒锛旈柤鏉跨仢闇夐柨婵嗙墱濞兼劕霉濠у灝鈧繈寮婚敓鐘茬＜婵炴垶锕╅崵瀣磽娴ｆ彃浜鹃梺閫炲苯澧撮柡宀嬬秮閹垽宕妷锕€娅楅梺姹囧焺閸ㄦ娊宕伴幇顔惧崥闁绘柨鎽滅弧鈧梺鎼炲劀閸曞灚顥ら梻鍌欑劍閹爼宕曟繝姘挃闁告洦鍨奸弫鍐归悩宸剱闁绘挻娲橀幈銊ヮ潨閸℃顫梺瀹狀嚙閻偐妲愰幒鎾寸秶闁靛ě鍛毉闂備礁缍婇ˉ鎾存叏閻㈡潌鍥偋閸喎鍔呭┑鈽嗗灠閸㈠弶绂嶉悙顑跨箚妞ゆ牗鑹鹃幃鎴濃攽椤栨哎鍋㈤柡灞炬礋瀹曠厧鈹戦崼婵冨彙缂傚倷鑳舵慨瀵哥礊婵犲洤钃熼柨鐔哄Т缁€瀣⒒閸喓銆掑ù鐘欏懐纾藉ù锝堫潐閳锋劖绻涢崗鑲╂噰妞ゃ垺宀搁弫鎰緞鐎ｎ亙姹楅梻浣告贡缁垳鏁悢纰辨晩濠㈣埖鍔栭悡鐔煎箹鏉堝墽绋婚柡鍡忔櫊閺屾稑螣閻樺弶鎼愰柣顓燁殜閺屾盯鍩勯崘顏佸闂?ST 闂傚倷娴囧畷鐢稿窗閹扮増鍋￠柨鏃傚亾閺嗘粓鏌ｉ弬鎸庢喐闁绘繆娉涢埞鎴︽偐閸欏鎮欑紒缁㈠幐閸?PNG"
+                        "PNG 导入失败：SillyTavern 返回的文件不属于本次导入，已拒绝写入。"
                 );
             }
+            importedStAvatar = stAvatarUrl;
+            cleanupRegistered = registerImportRollbackCleanup(userId, importedStAvatar);
             StCharacterDetail detail = stAdapter.getCharacter(new StCharacterGetRequest(stAvatarUrl));
             if (detail == null || detail.name() == null || detail.name().isBlank()) {
                 throw new BusinessException(
@@ -423,8 +445,14 @@ public class ApiV1MyCharactersController {
             data.put("importedLorebookEntries", importedLorebookEntries);
             return ApiV1Result.ok(data);
         } catch (BusinessException ex) {
+            if (!cleanupRegistered) {
+                cleanupImportedStCharacter(userId, importedStAvatar);
+            }
             throw ex;
         } catch (Exception ex) {
+            if (!cleanupRegistered) {
+                cleanupImportedStCharacter(userId, importedStAvatar);
+            }
             throw new BusinessException(ErrorCode.UPSTREAM_ERROR, resolveImportErrorMessage(ex), ex);
         }
     }
@@ -659,7 +687,6 @@ public class ApiV1MyCharactersController {
 
     private void applyImportedDetail(H5MyCharacter row, String stAvatarUrl, StCharacterDetail detail) {
         String safeAvatar = trimToEmpty(stAvatarUrl);
-        String assetUrl = safeAvatar.isBlank() ? "" : stAssetUrls.resolve(safeAvatar);
         String safeName = clip(firstNonBlank(detail == null ? null : detail.name(), safeAvatar, "Imported character"), 128);
         String safeDescription = clip(trimToEmpty(detail == null ? null : detail.description()), 6000);
 
@@ -675,8 +702,8 @@ public class ApiV1MyCharactersController {
         row.setMesExample(clip(trimToEmpty(detail == null ? null : detail.mesExample()), 8000));
         row.setSystemPrompt(clip(trimToEmpty(detail == null ? null : detail.systemPrompt()), 6000));
         row.setPostHistoryInstructions(clip(trimToEmpty(detail == null ? null : detail.postHistoryInstructions()), 4000));
-        row.setAvatarUrl(assetUrl);
-        row.setCoverUrl(assetUrl);
+        row.setAvatarUrl(safeAvatar);
+        row.setCoverUrl(safeAvatar);
         row.setTagsJson(toJsonArray(detail == null ? null : detail.tags()));
         boolean hasEmbeddedCharacterBook = detail != null && !trimToEmpty(detail.embeddedCharacterBookJson()).isBlank();
         row.setStWorldNamesJson(hasEmbeddedCharacterBook ? null : toJsonArray(detail == null ? null : detail.worldNames()));
@@ -701,6 +728,50 @@ public class ApiV1MyCharactersController {
             row.setTokenDisplay("<2000");
         }
         row.setUpdatedAt(LocalDateTime.now());
+    }
+
+    private String requireStableSyncResult(String expectedFileName, String returnedFileName) {
+        if (!StCharacterFileNamePolicy.isStableSyncResult(expectedFileName, returnedFileName)) {
+            throw new BusinessException(
+                    ErrorCode.UPSTREAM_ERROR,
+                    "SillyTavern 返回了不同的角色文件名，本次保存已取消。"
+            );
+        }
+        return StCharacterFileNamePolicy.normalize(returnedFileName);
+    }
+
+    private boolean registerImportRollbackCleanup(long userId, String stAvatarUrl) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return false;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                    cleanupImportedStCharacter(userId, stAvatarUrl);
+                }
+            }
+        });
+        return true;
+    }
+
+    private void cleanupImportedStCharacter(long userId, String stAvatarUrl) {
+        String safeAvatar = trimToEmpty(stAvatarUrl);
+        if (safeAvatar.isBlank()) {
+            return;
+        }
+        try {
+            List<String> taskIds = cleanupTaskService.enqueueArtifactRollbackTasks(userId, safeAvatar, Set.of());
+            cleanupTaskService.processImmediately(taskIds);
+            return;
+        } catch (Exception durableCleanupError) {
+            log.error("Failed to schedule durable imported ST character cleanup: {}", safeAvatar, durableCleanupError);
+        }
+        try {
+            stAdapter.deleteCharacter(safeAvatar, true);
+        } catch (Exception cleanupError) {
+            log.error("Failed to clean imported ST character after database rollback: {}", safeAvatar, cleanupError);
+        }
     }
 
     private static String importedExtraJson(StCharacterDetail detail) {

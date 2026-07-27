@@ -38,6 +38,15 @@ test('语音运行策略和音色模板使用各自写权限', () => {
   assert.match(api, /\/admin\/jiugai\/media\/voice-policy/)
 })
 
+test('用户自建音色页签按权限加载并支持结束异常创建任务', () => {
+  assert.match(media, /v-if="canViewUserVoices" name="userVoices"/)
+  assert.match(media, /canManageUserVoices/)
+  assert.match(media, /if \(!canViewUserVoices\.value\)/)
+  assert.match(media, /if \(canViewUserVoices\.value\) loadUserVoices\(\)/)
+  assert.match(media, /结束异常任务/)
+  assert.match(api, /finish-provisioning/)
+})
+
 test('媒体中心保留用户自定义通道并将官方平台配置统一交给模型路由', () => {
   assert.match(media, /用户自定义 API/)
   assert.match(media, /配置 IMAGE 路由/)

@@ -14,6 +14,7 @@ public class AppChatPreset {
     private String description;
     private String bundleJson;
     private Boolean enabled;
+    private Boolean sourceAvailable;
     private Integer sortOrder;
     private LocalDateTime lastSyncedAt;
     private LocalDateTime createdAt;
@@ -97,6 +98,14 @@ public class AppChatPreset {
 
     public void setEnabled(Boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public Boolean getSourceAvailable() {
+        return sourceAvailable;
+    }
+
+    public void setSourceAvailable(Boolean sourceAvailable) {
+        this.sourceAvailable = sourceAvailable;
     }
 
     public Integer getSortOrder() {

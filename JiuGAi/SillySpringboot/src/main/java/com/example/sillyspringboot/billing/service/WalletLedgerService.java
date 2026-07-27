@@ -19,6 +19,7 @@ public class WalletLedgerService {
 
     public static final String BIZ_PAYMENT = "PAYMENT";
     public static final String BIZ_CHAT_CONSUME = "CHAT_CONSUME";
+    public static final String BIZ_CHAT_REFUND = "CHAT_REFUND";
     public static final String BIZ_IMAGE_CONSUME = "IMAGE_CONSUME";
     public static final String BIZ_IMAGE_REFUND = "IMAGE_REFUND";
     public static final String BIZ_TTS_CONSUME = "TTS_CONSUME";

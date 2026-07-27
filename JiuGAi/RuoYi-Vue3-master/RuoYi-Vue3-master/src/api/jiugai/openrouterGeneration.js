@@ -135,3 +135,34 @@ export function deleteAiRoute(id) {
     method: 'delete'
   })
 }
+
+export function saveAiChatModelSettings(data) {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/chat-model-settings',
+    method: 'put',
+    data
+  })
+}
+
+export function saveAiChatOffering(data) {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/chat-offering',
+    method: 'put',
+    data
+  })
+}
+
+export function saveAiChatOfferingBundle(data) {
+  return sillyRequest({
+    url: '/admin/jiugai/ai-routing/chat-offering-bundle',
+    method: 'put',
+    data
+  })
+}
+
+export function deleteAiChatOffering(id) {
+  return sillyRequest({
+    url: `/admin/jiugai/ai-routing/chat-offering/${id}`,
+    method: 'delete'
+  })
+}

@@ -46,6 +46,7 @@ class AppChatFrontendBridgeServiceTest {
         AppChatFrontendBridgeService.BridgeJobPayload first = service.pollNext("worker-a", 1000);
         assertThat(first).isNotNull();
         assertThat(first.conversationId()).isEqualTo(1L);
+        assertThat(first.runtimePresetBundle()).contains("temperature");
 
         CompletableFuture<Void> secondCall = CompletableFuture.runAsync(() ->
                 service.streamGenerate(request(2L), chunks::add, new StStreamControl()));
@@ -91,7 +92,9 @@ class AppChatFrontendBridgeServiceTest {
                 "chat-" + conversationId,
                 "root:" + conversationId,
                 List.of("world"),
-                null
+                null,
+                null,
+                "{\"generation\":{\"temperature\":0.4}}"
         );
     }
 }

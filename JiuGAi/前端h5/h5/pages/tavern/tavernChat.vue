@@ -59,6 +59,17 @@
 		</view>
 
 		<template v-else>
+			<view
+				v-if="jgOn && jgChatLoadState === 'ready' && chatModelCatalog.enabled"
+				class="chat-model-bar"
+				:class="{ 'chat-model-bar--disabled': sending || chatModelCatalog.loading }"
+				@tap="openChatModelPicker"
+			>
+				<view class="chat-model-bar__source">{{ currentChatModelSourceLabel }}</view>
+				<text class="chat-model-bar__name">{{ currentChatModelName }}</text>
+				<text v-if="currentChatModelPrice" class="chat-model-bar__price">{{ currentChatModelPrice }}</text>
+				<u-icon name="arrow-down" size="22" color="#dbe7ef"></u-icon>
+			</view>
 			<view v-if="jgOn" class="tool-bar">
 				<text class="tool-i" :class="{ 'tool-i--disabled': !assistantTailActionState().ok }" @tap="onRegen">{{ chatUi.regen }}</text>
 				<text class="tool-i" :class="{ 'tool-i--disabled': !assistantTailActionState().ok }" @tap="onContinue">{{ chatUi.continue }}</text>
@@ -871,8 +882,8 @@
 						>{{ tx('character_voice_manual', '手动') }}</text>
 					</view>
 				</view>
-				<view class="character-voice-field" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
-					<text class="character-voice-label">{{ tx('character_voice_model', 'TTS 模型') }}</text>
+				<view v-if="characterVoiceGlobalState.mode === 'custom'" class="character-voice-field" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
+					<text class="character-voice-label">{{ tx('character_voice_model', '角色级 TTS 模型覆盖') }}</text>
 					<input
 						class="character-voice-input"
 						v-model="characterVoicePanel.ttsModelName"
@@ -881,7 +892,7 @@
 						confirm-type="done"
 					/>
 				</view>
-				<view class="character-voice-field" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
+				<view v-if="characterVoiceGlobalState.mode === 'custom'" class="character-voice-field" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
 					<view class="character-voice-label-row">
 						<text class="character-voice-label">{{ tx('character_voice_voice', '音色') }}</text>
 						<text
@@ -1159,6 +1170,75 @@
 				</view>
 			</view>
 		</view>
+		<view v-if="chatModelPicker.visible" class="chat-model-picker-mask" @tap="closeChatModelPicker" @touchmove.stop.prevent>
+			<view class="chat-model-picker" @tap.stop>
+				<view class="chat-model-picker__handle"></view>
+				<view class="chat-model-picker__head">
+					<view>
+						<text class="chat-model-picker__title">选择聊天模型</text>
+						<text class="chat-model-picker__subtitle">本次选择只改变模型，不改变角色卡、世界书和记忆</text>
+					</view>
+					<text class="chat-model-picker__close" @tap="closeChatModelPicker">×</text>
+				</view>
+				<view class="chat-model-picker__tabs">
+					<view
+						class="chat-model-picker__tab"
+						:class="{ 'chat-model-picker__tab--active': chatModelPicker.tab === 'SYSTEM' }"
+						@tap="setChatModelPickerTab('SYSTEM')"
+					>平台模型 {{ chatModelCatalog.platformModels.length }}</view>
+					<view
+						class="chat-model-picker__tab"
+						:class="{ 'chat-model-picker__tab--active': chatModelPicker.tab === 'BYOK' }"
+						@tap="setChatModelPickerTab('BYOK')"
+					>我的 API {{ chatModelCatalog.byokModels.length }}</view>
+				</view>
+				<view class="chat-model-picker__search">
+					<u-icon name="search" size="28" color="#6b7f8d"></u-icon>
+					<input v-model="chatModelPicker.search" maxlength="80" placeholder="搜索模型名称或特点" />
+					<text v-if="chatModelPicker.search" @tap="chatModelPicker.search = ''">清除</text>
+				</view>
+				<scroll-view class="chat-model-picker__list" scroll-y :show-scrollbar="false">
+					<view
+						v-for="item in visibleChatModelItems"
+						:key="item._source + '_' + item._ref"
+						class="chat-model-option"
+						:class="{
+							'chat-model-option--active': isCurrentChatModel(item),
+							'chat-model-option--disabled': item.available === false,
+							'chat-model-option--busy': chatModelPicker.selectingRef === item._ref
+						}"
+						@tap="selectChatModelItem(item)"
+					>
+						<view class="chat-model-option__top">
+							<view class="chat-model-option__identity">
+								<text class="chat-model-option__name">{{ item.displayName || item.modelName }}</text>
+								<text v-if="item.badge" class="chat-model-option__badge">{{ item.badge }}</text>
+								<text v-if="isCurrentChatModel(item)" class="chat-model-option__selected">当前</text>
+							</view>
+							<text class="chat-model-option__price">{{ chatModelItemPrice(item) }}</text>
+						</view>
+						<text v-if="item.shortDescription" class="chat-model-option__desc">{{ item.shortDescription }}</text>
+						<text v-else-if="item._source === 'BYOK'" class="chat-model-option__desc chat-model-option__desc--mono">{{ item.modelName }}</text>
+						<view v-if="item._source === 'SYSTEM'" class="chat-model-option__meta">
+							<text>{{ chatModelLevelText('质量', item.qualityLevel) }}</text>
+							<text>{{ chatModelLevelText('速度', item.speedLevel) }}</text>
+							<text v-if="item.contextLabel">{{ item.contextLabel }}</text>
+							<text v-for="tag in (item.tags || []).slice(0, 3)" :key="item._ref + '_' + tag">{{ tag }}</text>
+						</view>
+						<text v-if="item.available === false" class="chat-model-option__reason">{{ item.unavailableReason || '暂不可用' }}</text>
+					</view>
+					<view v-if="!visibleChatModelItems.length" class="chat-model-picker__empty">
+						<text>{{ chatModelPicker.search ? '没有找到匹配模型' : (chatModelPicker.tab === 'BYOK' ? '还没有保存自定义聊天模型' : '平台暂未发布可选模型') }}</text>
+						<text v-if="chatModelPicker.tab === 'BYOK' && !chatModelPicker.search" class="chat-model-picker__settings" @tap="goAiSettings">前往 AI 设置</text>
+					</view>
+				</scroll-view>
+				<view v-if="chatModelPicker.tab === 'SYSTEM'" class="chat-model-picker__wallet">
+					<text>余额</text>
+					<text>{{ chatModelCatalog.wallet.diamonds || 0 }} 钻石</text>
+					<text>{{ chatModelCatalog.wallet.gold || 0 }} 金币</text>
+				</view>
+			</view>
+		</view>
 		<chat-composer
 			v-model="draft"
 			:attachment-menu-visible="attachmentMenuVisible"
@@ -1296,7 +1376,7 @@
 	const LOCAL_EXPRESSION_DATA_URL_MAX_LENGTH = 900 * 1024;
 	const LOCAL_ASSISTANT_VOICE_PREF_PREFIX = 'tavern_assistant_voice_pref_';
 	const LOCAL_CHARACTER_VOICE_CONFIG_PREFIX = 'tavern_character_voice_cfg_';
-	const LOCAL_CHARACTER_VOICE_CONFIG_VERSION = 1;
+	const LOCAL_CHARACTER_VOICE_CONFIG_VERSION = 2;
 	const LOCAL_CHARACTER_IMAGE_CONFIG_PREFIX = 'tavern_character_image_cfg_';
 	const LOCAL_CHARACTER_IMAGE_CONFIG_VERSION = 1;
 	const LOCAL_CHARACTER_IMAGE_REFERENCE_PREFIX = 'tavern_character_image_ref_';
@@ -1382,6 +1462,7 @@
 			enabled: false,
 			autoPlayEnabled: false,
 			allowAiExpression: false,
+			ttsProviderSource: '',
 			ttsModelName: '',
 			ttsVoiceName: '',
 			ttsVoiceTemplateCode: '',
@@ -1784,12 +1865,54 @@
 				chatAppearanceChangeHandler: null,
 				chatAppearanceRequestGuard: null,
 				chatAppearanceRequestVersion: 0,
-				chatAppearanceDisposed: false
+				chatAppearanceDisposed: false,
+				chatModelRequestVersion: 0,
+				chatModelCatalog: {
+					enabled: false,
+					loading: false,
+					platformModels: [],
+					byokModels: [],
+					current: null,
+					wallet: { diamonds: 0, gold: 0 },
+					message: ''
+				},
+				chatModelPicker: {
+					visible: false,
+					tab: 'SYSTEM',
+					search: '',
+					selectingRef: ''
+				}
 			};
 		},
 		computed: {
 			chatUi() {
 				return getTavernUiText('chat');
+			},
+			currentChatModel() {
+				return this.chatModelCatalog && this.chatModelCatalog.current ? this.chatModelCatalog.current : {};
+			},
+			currentChatModelName() {
+				return this.currentChatModel.displayName || '选择聊天模型';
+			},
+			currentChatModelPrice() {
+				return this.currentChatModel.priceText || '';
+			},
+			currentChatModelSourceLabel() {
+				return this.currentChatModel.source === 'BYOK' ? '我的 API' : '平台';
+			},
+			visibleChatModelItems() {
+				const source = this.chatModelPicker.tab === 'BYOK'
+					? this.chatModelCatalog.byokModels
+					: this.chatModelCatalog.platformModels;
+				const keyword = String(this.chatModelPicker.search || '').trim().toLowerCase();
+				return (Array.isArray(source) ? source : []).map((item) => Object.assign({}, item, {
+					_source: this.chatModelPicker.tab,
+					_ref: this.chatModelPicker.tab === 'BYOK' ? String(item.id || '') : String(item.offeringCode || '')
+				})).filter((item) => {
+					if (!keyword) return true;
+					return [item.displayName, item.modelName, item.shortDescription, (item.tags || []).join(' ')]
+						.join(' ').toLowerCase().indexOf(keyword) >= 0;
+				});
 			},
 			memoryPanelBusy() {
 				const panel = this.memoryPanel || {};
@@ -2095,6 +2218,9 @@
 				this.refreshCharacterImageGlobalSummary(true, false);
 				this.refreshVoiceFeatureGlobalState(true);
 				this.refreshVisionAccessState(true);
+				if (this.jgChatLoadState === 'ready') {
+					this.refreshChatModelCatalog(true);
+				}
 				if (!identityChanged) {
 					this.maybeRecoverJgSessionOnShow();
 				}
@@ -2128,6 +2254,8 @@
 			this.disposeVoiceRecorder(true);
 			this.disposeUserVoicePlayer();
 			this.disposeAssistantVoicePlayer();
+			this.chatModelRequestVersion += 1;
+			this.chatModelPicker.visible = false;
 		},
 		methods: {
 			tx(key, fallback) {
@@ -2879,6 +3007,139 @@
 					return false;
 				}
 				return true;
+			},
+			resetChatModelCatalog() {
+				this.chatModelRequestVersion += 1;
+				this.chatModelCatalog = {
+					enabled: false,
+					loading: false,
+					platformModels: [],
+					byokModels: [],
+					current: null,
+					wallet: { diamonds: 0, gold: 0 },
+					message: ''
+				};
+				this.chatModelPicker.visible = false;
+				this.chatModelPicker.search = '';
+				this.chatModelPicker.selectingRef = '';
+			},
+			refreshChatModelCatalog(silent) {
+				const tavernApi = require('@/common/tavernApi.js');
+				if (!tavernApi.hasLoggedInUser || !tavernApi.hasLoggedInUser()) {
+					this.resetChatModelCatalog();
+					return Promise.resolve(null);
+				}
+				const requestVersion = ++this.chatModelRequestVersion;
+				this.chatModelCatalog.loading = true;
+				const conversationId = Number(this.jgConversationId || 0);
+				return tavernApi.getTavernChatModels(tavernApi.getClientUid(), conversationId > 0 ? conversationId : null)
+					.then((data) => {
+						if (requestVersion !== this.chatModelRequestVersion) return null;
+						const next = data && typeof data === 'object' ? data : {};
+						this.chatModelCatalog = {
+							enabled: next.enabled === true,
+							loading: false,
+							platformModels: Array.isArray(next.platformModels) ? next.platformModels : [],
+							byokModels: Array.isArray(next.byokModels) ? next.byokModels : [],
+							current: next.current && typeof next.current === 'object' && next.current.source ? next.current : null,
+							wallet: next.wallet && typeof next.wallet === 'object' ? next.wallet : { diamonds: 0, gold: 0 },
+							message: String(next.message || '')
+						};
+						return this.chatModelCatalog;
+					})
+					.catch((error) => {
+						if (requestVersion !== this.chatModelRequestVersion) return null;
+						this.chatModelCatalog.loading = false;
+						if (!silent) this.showErrorToast(this.jgErrMsg(error, '模型列表加载失败'));
+						return null;
+					});
+			},
+			openChatModelPicker() {
+				if (!this.chatModelCatalog.enabled) return;
+				if (this.sending) {
+					uni.showToast({ title: '生成结束后再切换模型', icon: 'none' });
+					return;
+				}
+				this.closeChatAttachmentMenu();
+				this.closeExpressionPanel();
+				this.inputFocus = false;
+				try { uni.hideKeyboard(); } catch (e) {}
+				this.chatModelPicker.search = '';
+				this.chatModelPicker.tab = this.currentChatModel.source === 'BYOK' ? 'BYOK' : 'SYSTEM';
+				this.chatModelPicker.visible = true;
+				this.refreshChatModelCatalog(true);
+			},
+			closeChatModelPicker() {
+				if (this.chatModelPicker.selectingRef) return;
+				this.chatModelPicker.visible = false;
+				this.chatModelPicker.search = '';
+			},
+			setChatModelPickerTab(tab) {
+				if (this.chatModelPicker.selectingRef) return;
+				this.chatModelPicker.tab = tab === 'BYOK' ? 'BYOK' : 'SYSTEM';
+				this.chatModelPicker.search = '';
+			},
+			isCurrentChatModel(item) {
+				return !!item && this.currentChatModel.source === item._source
+					&& String(this.currentChatModel.ref || '') === String(item._ref || '');
+			},
+			chatModelItemPrice(item) {
+				if (!item) return '';
+				if (item.available === false) return '不可用';
+				return item._source === 'BYOK' ? '自己的额度' : String(item.priceText || '');
+			},
+			chatModelLevelText(label, value) {
+				const level = Math.max(1, Math.min(5, Number(value || 3)));
+				return String(label || '') + ' ' + level + '/5';
+			},
+			selectChatModelItem(item) {
+				if (!item || this.sending || this.chatModelPicker.selectingRef) return;
+				if (item.available === false) {
+					uni.showToast({ title: item.unavailableReason || '当前模型暂不可用', icon: 'none' });
+					return;
+				}
+				if (this.isCurrentChatModel(item)) {
+					this.closeChatModelPicker();
+					return;
+				}
+				const tavernApi = require('@/common/tavernApi.js');
+				const ref = String(item._ref || '').trim();
+				if (!ref) return;
+				this.chatModelRequestVersion += 1;
+				this.chatModelCatalog.loading = false;
+				this.chatModelPicker.selectingRef = ref;
+				tavernApi.selectTavernChatModel({
+					clientUid: tavernApi.getClientUid(),
+					conversationId: Number(this.jgConversationId || 0) || null,
+					source: item._source,
+					ref
+				}).then((current) => {
+					this.chatModelCatalog.current = current && current.source ? current : this.chatModelCatalog.current;
+					this.chatModelPicker.visible = false;
+					this.chatModelPicker.search = '';
+					uni.showToast({ title: '已切换为 ' + (current && current.displayName ? current.displayName : (item.displayName || item.modelName)), icon: 'none' });
+				}).catch((error) => {
+					this.showErrorToast(this.jgErrMsg(error, '模型切换失败'));
+					this.refreshChatModelCatalog(true);
+				}).finally(() => {
+					this.chatModelPicker.selectingRef = '';
+				});
+			},
+			createChatGenerationRequestId(prefix, seed) {
+				const safePrefix = String(prefix || 'chat').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 18) || 'chat';
+				const safeSeed = String(seed || '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(-28);
+				return safePrefix + '_' + Date.now() + '_' + (safeSeed || Math.random().toString(36).slice(2, 10));
+			},
+			buildChatModelPayloadFields(generationRequestId) {
+				const fields = { generationRequestId };
+				if (this.chatModelCatalog.loading) return fields;
+				if (!this.chatModelCatalog.enabled || !this.currentChatModel.source || !this.currentChatModel.ref) return fields;
+				fields.chatModelSource = this.currentChatModel.source;
+				fields.chatModelRef = String(this.currentChatModel.ref);
+				if (this.currentChatModel.source === 'SYSTEM' && this.currentChatModel.selectionVersion != null) {
+					fields.chatModelSelectionVersion = Number(this.currentChatModel.selectionVersion);
+				}
+				return fields;
 			},
 			looksLikeVisionModel(modelName) {
 				return /(vision|visual|multimodal|qwen[^/]*vl|llava|pixtral|gpt-4o|gpt-4\.1|gemini|claude|grok[^/]*vision)/i.test(String(modelName || ''));
@@ -3904,6 +4165,9 @@
 			},
 			handleCommercialError(e, fallback, options) {
 				const msg = this.jgErrMsg(e, fallback);
+				if (msg.indexOf('模型价格或配置已更新') >= 0) {
+					this.refreshChatModelCatalog(true);
+				}
 				const prompt = this.resolveCommercialPrompt(e);
 				if (prompt) {
 					this.openCommercialPrompt(prompt, msg);
@@ -4718,6 +4982,7 @@
 				this.jgActiveBranchId = '';
 				this.jgMemory = null;
 				this.jgTavernMeta = null;
+				this.resetChatModelCatalog();
 				this.memoryRefreshing = false;
 				this.messageHistoryHasMore = false;
 				this.messageHistoryLoading = false;
@@ -4845,6 +5110,7 @@
 						this.jgChatLoadState = 'ready';
 						this.jgIdentityReloading = false;
 						this.jgLoadAutoRetried = false;
+						this.refreshChatModelCatalog(true);
 						this.scrollChatToBottom({ immediate: true, reveal: true });
 					})
 					.catch((e) => {
@@ -5553,6 +5819,7 @@
 					enabled: source.enabled === true,
 					autoPlayEnabled: source.autoPlayEnabled === true,
 					allowAiExpression: source.allowAiExpression === true,
+					ttsProviderSource: this.normalizeCharacterVoiceText(source.ttsProviderSource, 80).toLowerCase(),
 					ttsModelName: this.normalizeCharacterVoiceText(source.ttsModelName, 255),
 					ttsVoiceName: this.normalizeCharacterVoiceText(source.ttsVoiceName, 255),
 					ttsVoiceTemplateCode: this.normalizeCharacterVoiceText(source.ttsVoiceTemplateCode, 64),
@@ -5861,6 +6128,7 @@
 					return;
 				}
 				this.characterVoicePanel.ttsModelName = ttsModelName;
+				this.characterVoicePanel.ttsProviderSource = this.normalizeCharacterVoiceText(state.providerSource, 80).toLowerCase();
 				this.characterVoicePanel.ttsVoiceTemplateCode = ttsVoiceTemplateCode;
 				this.characterVoicePanel.ttsVoiceName = ttsVoiceTemplateCode ? '' : ttsVoiceName;
 				uni.showToast({
@@ -6007,6 +6275,22 @@
 			saveCharacterVoicePanel() {
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving) return;
 				const next = this.normalizeCharacterVoiceConfig(this.characterVoicePanel);
+				const hasProviderScopedOverride = !!(
+					next.ttsModelName || next.ttsVoiceName || next.ttsVoiceTemplateCode
+				);
+				if (hasProviderScopedOverride && String(this.characterVoiceGlobalState.mode || '').trim() === 'custom') {
+					const providerSource = this.normalizeCharacterVoiceText(
+						this.characterVoiceGlobalState.providerSource,
+						80
+					).toLowerCase();
+					if (!providerSource) {
+						this.showErrorToast(this.tx('character_voice_provider_missing', '当前 TTS 供应商尚未加载，请刷新后重试'));
+						return;
+					}
+					next.ttsProviderSource = providerSource;
+				} else if (!hasProviderScopedOverride) {
+					next.ttsProviderSource = '';
+				}
 				this.characterVoicePanel.saving = true;
 				const ok = this.writeCharacterVoiceConfig(next);
 				this.characterVoicePanel.saving = false;
@@ -6040,13 +6324,16 @@
 					payload.ttsSegmentCount = segmentCount;
 				}
 				const config = this.currentCharacterVoiceConfig();
-				if (config.ttsModelName) {
+				if (config.ttsProviderSource && config.ttsModelName) {
 					payload.ttsModelName = config.ttsModelName;
 				}
-				if (config.ttsVoiceTemplateCode) {
+				if (config.ttsProviderSource && config.ttsVoiceTemplateCode) {
 					payload.ttsVoiceTemplateCode = config.ttsVoiceTemplateCode;
-				} else if (config.ttsVoiceName) {
+				} else if (config.ttsProviderSource && config.ttsVoiceName) {
 					payload.ttsVoiceName = config.ttsVoiceName;
+				}
+				if (config.ttsProviderSource && (payload.ttsModelName || payload.ttsVoiceName || payload.ttsVoiceTemplateCode)) {
+					payload.ttsProviderSource = config.ttsProviderSource;
 				}
 				return payload;
 			},
@@ -8714,6 +9001,7 @@
 								this.applyBranchEnvelope(data);
 								if (!wasActive) return true;
 								this.resetMessageHistoryForBranch();
+								this.refreshChatModelCatalog(true);
 								return this.refreshJgMessages({ invalidateReplySuggestions: true });
 							})
 							.then(() => uni.showToast({ title: '分支已删除', icon: 'none' }))
@@ -8803,6 +9091,7 @@
 						this.jgConversationId = data && data.conversationId != null ? String(data.conversationId) : this.jgConversationId;
 						this.jgActiveBranchId = data && data.activeBranchId != null ? String(data.activeBranchId) : '';
 						this.resetMessageHistoryForBranch();
+						this.refreshChatModelCatalog(true);
 						return this.refreshJgMessages({ invalidateReplySuggestions: true });
 					})
 					.then(() => Promise.all([this.loadStorySessions(), this.loadBranchPanel()]))
@@ -8834,6 +9123,7 @@
 							this.jgConversationId = data && data.conversationId != null ? String(data.conversationId) : String(row.conversationId);
 							this.jgActiveBranchId = data && data.activeBranchId != null ? String(data.activeBranchId) : '';
 							this.resetMessageHistoryForBranch();
+							this.refreshChatModelCatalog(true);
 							return this.refreshJgMessages({ invalidateReplySuggestions: true });
 						})
 						.then(() => { this.closeBranchPanel(); this.scrollChatToBottom({ immediate: true }); return true; })
@@ -8850,6 +9140,7 @@
 					.then((data) => {
 						this.applyBranchEnvelope(data);
 						this.resetMessageHistoryForBranch();
+						this.refreshChatModelCatalog(true);
 						return this.refreshJgMessages({ invalidateReplySuggestions: true });
 					})
 					.then(() => {
@@ -8895,6 +9186,7 @@
 					.then((data) => {
 						this.applyBranchEnvelope(data);
 						this.resetMessageHistoryForBranch();
+						this.refreshChatModelCatalog(true);
 						return this.refreshJgMessages({ invalidateReplySuggestions: true });
 					})
 					.then(() => {
@@ -11116,6 +11408,7 @@
 						clientUid: tavernApi.getClientUid(),
 						targetAssistantMessageId: anchor.targetAssistantMessageId
 					},
+					this.buildChatModelPayloadFields(this.createChatGenerationRequestId('regen', anchor.targetAssistantMessageId)),
 					this.buildAssistantExpressionPayloadFields(),
 					this.buildChatAppearancePayloadFields()
 				);
@@ -11291,6 +11584,7 @@
 						clientUid: tavernApi.getClientUid(),
 						targetAssistantMessageId: anchor.targetAssistantMessageId
 					},
+					this.buildChatModelPayloadFields(this.createChatGenerationRequestId('continue', anchor.targetAssistantMessageId)),
 					this.buildAssistantExpressionPayloadFields(),
 					this.buildChatAppearancePayloadFields()
 				);
@@ -11591,6 +11885,7 @@
 				this.closeChatAttachmentMenu();
 				this.closeExpressionPanel();
 				const uid = 'u_' + Date.now();
+				const generationRequestId = this.createChatGenerationRequestId('send', uid);
 				const optimisticImages = imageUrls.slice();
 				this.messages = this.messages.concat({
 					id: uid,
@@ -11653,6 +11948,7 @@
 							voiceDurationMs: userVoiceMeta.durationMs,
 							temperature: 0.85
 						},
+						this.buildChatModelPayloadFields(generationRequestId),
 						this.buildAssistantExpressionPayloadFields(),
 						this.buildChatAppearancePayloadFields()
 					);
@@ -12071,6 +12367,316 @@
 	.nav-voice-config-icon {
 		width: 34rpx;
 		height: 34rpx;
+	}
+
+	.chat-model-bar {
+		flex: 0 0 64rpx;
+		height: 64rpx;
+		min-height: 64rpx;
+		display: flex;
+		align-items: center;
+		gap: 12rpx;
+		padding: 0 24rpx;
+		border-bottom: 1rpx solid rgba(255, 255, 255, 0.1);
+		background: rgba(18, 22, 31, 0.9);
+		color: #eef5f8;
+		backdrop-filter: blur(12px);
+	}
+
+	.chat-model-bar--disabled {
+		opacity: 0.7;
+		pointer-events: none;
+	}
+
+	.chat-model-bar__source {
+		flex: 0 0 auto;
+		padding: 5rpx 10rpx;
+		border: 1rpx solid rgba(250, 176, 91, 0.5);
+		border-radius: 6rpx;
+		color: #ffc47c;
+		font-size: 20rpx;
+		line-height: 1;
+	}
+
+	.chat-model-bar__name {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		font-size: 24rpx;
+		font-weight: 600;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chat-model-bar__price {
+		flex: 0 1 auto;
+		max-width: 42%;
+		overflow: hidden;
+		color: #a8c4d2;
+		font-size: 21rpx;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chat-model-picker-mask {
+		position: fixed !important;
+		inset: 0;
+		z-index: 3100 !important;
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		background: rgba(7, 11, 17, 0.66);
+	}
+
+	.chat-model-picker {
+		width: 100%;
+		max-width: 820rpx;
+		max-height: 82vh;
+		display: flex;
+		flex-direction: column;
+		padding: 10rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
+		border-top: 1rpx solid rgba(255, 255, 255, 0.12);
+		border-radius: 8rpx 8rpx 0 0;
+		background: #f4f7f6;
+		box-shadow: 0 -20rpx 60rpx rgba(0, 0, 0, 0.28);
+		color: #20313a;
+	}
+
+	.chat-model-picker__handle {
+		width: 64rpx;
+		height: 7rpx;
+		margin: 2rpx auto 16rpx;
+		border-radius: 4rpx;
+		background: #b9c6cc;
+	}
+
+	.chat-model-picker__head,
+	.chat-model-option__top,
+	.chat-model-option__identity,
+	.chat-model-picker__wallet {
+		display: flex;
+		align-items: center;
+	}
+
+	.chat-model-picker__head {
+		justify-content: space-between;
+		gap: 24rpx;
+	}
+
+	.chat-model-picker__head > view {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 5rpx;
+	}
+
+	.chat-model-picker__title {
+		font-size: 32rpx;
+		font-weight: 700;
+	}
+
+	.chat-model-picker__subtitle {
+		color: #6b7f8d;
+		font-size: 21rpx;
+		line-height: 1.45;
+	}
+
+	.chat-model-picker__close {
+		flex: 0 0 56rpx;
+		width: 56rpx;
+		height: 56rpx;
+		color: #526773;
+		font-size: 44rpx;
+		line-height: 52rpx;
+		text-align: center;
+	}
+
+	.chat-model-picker__tabs {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		gap: 8rpx;
+		margin-top: 22rpx;
+		padding: 6rpx;
+		border-radius: 8rpx;
+		background: #e4eae9;
+	}
+
+	.chat-model-picker__tab {
+		height: 60rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 6rpx;
+		color: #627783;
+		font-size: 24rpx;
+	}
+
+	.chat-model-picker__tab--active {
+		background: #ffffff;
+		box-shadow: 0 3rpx 12rpx rgba(28, 48, 58, 0.1);
+		color: #173847;
+		font-weight: 700;
+	}
+
+	.chat-model-picker__search {
+		height: 70rpx;
+		display: flex;
+		align-items: center;
+		gap: 12rpx;
+		margin: 18rpx 0 14rpx;
+		padding: 0 20rpx;
+		border: 1rpx solid #cfdbdd;
+		border-radius: 8rpx;
+		background: #ffffff;
+	}
+
+	.chat-model-picker__search input {
+		min-width: 0;
+		flex: 1;
+		font-size: 24rpx;
+	}
+
+	.chat-model-picker__search > text {
+		color: #d36c4c;
+		font-size: 22rpx;
+	}
+
+	.chat-model-picker__list {
+		min-height: 260rpx;
+		flex: 1;
+	}
+
+	.chat-model-option {
+		margin-bottom: 12rpx;
+		padding: 20rpx;
+		border: 1rpx solid #d4dfe0;
+		border-radius: 8rpx;
+		background: #ffffff;
+	}
+
+	.chat-model-option--active {
+		border-color: #e68a58;
+		box-shadow: inset 5rpx 0 0 #e68a58;
+	}
+
+	.chat-model-option--disabled {
+		background: #edf1f0;
+		opacity: 0.68;
+	}
+
+	.chat-model-option--busy {
+		pointer-events: none;
+		opacity: 0.6;
+	}
+
+	.chat-model-option__top {
+		justify-content: space-between;
+		gap: 16rpx;
+	}
+
+	.chat-model-option__identity {
+		min-width: 0;
+		flex: 1;
+		gap: 9rpx;
+	}
+
+	.chat-model-option__name {
+		min-width: 0;
+		overflow: hidden;
+		font-size: 27rpx;
+		font-weight: 700;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chat-model-option__badge,
+	.chat-model-option__selected {
+		flex: 0 0 auto;
+		padding: 4rpx 9rpx;
+		border-radius: 5rpx;
+		font-size: 19rpx;
+	}
+
+	.chat-model-option__badge {
+		background: #e8efee;
+		color: #49636f;
+	}
+
+	.chat-model-option__selected {
+		background: #fff0e7;
+		color: #c45f36;
+	}
+
+	.chat-model-option__price {
+		flex: 0 0 auto;
+		color: #c45f36;
+		font-size: 22rpx;
+		font-weight: 700;
+	}
+
+	.chat-model-option__desc {
+		display: block;
+		margin-top: 10rpx;
+		color: #5e727c;
+		font-size: 22rpx;
+		line-height: 1.5;
+	}
+
+	.chat-model-option__desc--mono {
+		word-break: break-all;
+	}
+
+	.chat-model-option__meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8rpx;
+		margin-top: 13rpx;
+	}
+
+	.chat-model-option__meta > text {
+		padding: 4rpx 9rpx;
+		border: 1rpx solid #d9e2e2;
+		border-radius: 5rpx;
+		color: #637680;
+		font-size: 19rpx;
+	}
+
+	.chat-model-option__reason {
+		display: block;
+		margin-top: 10rpx;
+		color: #a74b45;
+		font-size: 21rpx;
+	}
+
+	.chat-model-picker__empty {
+		min-height: 260rpx;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 20rpx;
+		color: #71848d;
+		font-size: 24rpx;
+	}
+
+	.chat-model-picker__settings {
+		color: #c45f36;
+		font-weight: 700;
+	}
+
+	.chat-model-picker__wallet {
+		flex: 0 0 62rpx;
+		gap: 20rpx;
+		margin-top: 8rpx;
+		padding: 0 4rpx;
+		border-top: 1rpx solid #dbe3e3;
+		color: #60747e;
+		font-size: 21rpx;
+	}
+
+	.chat-model-picker__wallet > text:first-child {
+		margin-right: auto;
+		font-weight: 700;
 	}
 
 	.tool-bar {

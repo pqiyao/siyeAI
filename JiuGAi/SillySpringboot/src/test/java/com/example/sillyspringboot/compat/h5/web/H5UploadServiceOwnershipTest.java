@@ -62,4 +62,28 @@ class H5UploadServiceOwnershipTest {
         Path folder = tempDir.resolve("h5");
         assertThat(Files.exists(folder) ? Files.list(folder).toList() : java.util.List.of()).isEmpty();
     }
+
+    @Test
+    void systemImageCopyRemainsAfterOwnedSourceIsHardDeleted() throws Exception {
+        H5UploadAssetOwnershipService ownershipService = mock(H5UploadAssetOwnershipService.class);
+        H5UploadService service = new H5UploadService(tempDir.toString(), ownershipService);
+        MockMultipartFile sourceFile = new MockMultipartFile(
+                "file", "avatar.png", "image/png", "independent-image".getBytes()
+        );
+        String sourceUrl = service.saveOwnedImageAndGetUrl(sourceFile, 42L);
+
+        String systemUrl = service.copyUnownedImageAndGetUrl(sourceUrl);
+        Path sourcePath = tempDir.resolve("h5").resolve(sourceUrl.substring("/uploads/h5/".length()));
+        Path systemPath = tempDir.resolve("h5").resolve(systemUrl.substring("/uploads/h5/".length()));
+        Files.delete(sourcePath);
+
+        assertThat(systemUrl).isNotEqualTo(sourceUrl);
+        assertThat(systemPath).exists();
+        assertThat(Files.readString(systemPath)).isEqualTo("independent-image");
+        verify(ownershipService).registerOwnedAsset(
+                42L,
+                sourceUrl,
+                sourceUrl.substring("/uploads/h5/".length())
+        );
+    }
 }

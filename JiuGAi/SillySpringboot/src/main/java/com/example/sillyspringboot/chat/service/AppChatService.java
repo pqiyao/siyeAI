@@ -422,8 +422,9 @@ public class AppChatService {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "ST binding missing (avatar_url/file_name)");
         }
         snapshotService.saveSnapshotFromDb(req.getConversationId(), activeBranchId, 800, stMessageRef);
-        UserModelOverride userModelOverride = resolveUserModelOverride(userId);
-        boolean customModeSelected = userAiProviderService.isCustomModeSelectedForUser(userId);
+        UserModelOverride userModelOverride = resolveUserModelOverride(
+                userId, req.getChatModelSource(), req.getChatModelName());
+        boolean customModeSelected = isCustomModeSelected(userId, req.getChatModelSource());
         String userName = displayNameForSt(user, userId, binding);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
         List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
@@ -503,7 +504,9 @@ public class AppChatService {
                 worldNames,
                 userModelOverride,
                 tailSystemPrompt,
-                runtimePresetBundle
+                runtimePresetBundle,
+                AiCapability.CHAT,
+                req.getChatRouteKey()
         );
 
         if (tryFrontendBridge(
@@ -535,7 +538,8 @@ public class AppChatService {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "ST binding missing (avatar_url/file_name)");
         }
         snapshotService.saveSnapshotFromDb(req.getConversationId(), activeBranchId, 800);
-        UserModelOverride userModelOverride = resolveUserModelOverride(userId);
+        UserModelOverride userModelOverride = resolveUserModelOverride(
+                userId, req.getChatModelSource(), req.getChatModelName());
         String userName = displayNameForSt(user, userId, binding);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
         List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
@@ -566,7 +570,9 @@ public class AppChatService {
                 worldNames,
                 userModelOverride,
                 tailSystemPrompt,
-                runtimePresetBundle
+                runtimePresetBundle,
+                AiCapability.CHAT,
+                req.getChatRouteKey()
         );
         if (tryFrontendBridge(
                 stReq,
@@ -614,7 +620,8 @@ public class AppChatService {
         if (binding == null || !StringUtils.hasText(binding.getStAvatarUrl()) || !StringUtils.hasText(binding.getStChatFileName())) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "ST binding missing (avatar_url/file_name)");
         }
-        UserModelOverride userModelOverride = resolveUserModelOverride(userId);
+        UserModelOverride userModelOverride = resolveUserModelOverride(
+                userId, req.getChatModelSource(), req.getChatModelName());
         String userName = displayNameForSt(user, userId, binding);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
         List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
@@ -646,7 +653,9 @@ public class AppChatService {
                 worldNames,
                 userModelOverride,
                 tailSystemPrompt,
-                runtimePresetBundle
+                runtimePresetBundle,
+                AiCapability.CHAT,
+                req.getChatRouteKey()
         );
         if (tryFrontendBridge(
                 stReq,
@@ -1627,6 +1636,38 @@ public class AppChatService {
 
     private UserModelOverride resolveUserModelOverride(long userId) {
         return userAiProviderService == null ? null : userAiProviderService.resolveActiveOverrideForUser(userId);
+    }
+
+    private UserModelOverride resolveUserModelOverride(long userId, String source, String selectedModelName) {
+        String normalizedSource = nz(source).trim().toUpperCase(java.util.Locale.ROOT);
+        if ("SYSTEM".equals(normalizedSource)) {
+            return null;
+        }
+        UserModelOverride base = resolveUserModelOverride(userId);
+        if (!"BYOK".equals(normalizedSource)) {
+            return base;
+        }
+        if (base == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "自定义 API 配置不可用");
+        }
+        String model = nz(selectedModelName).trim();
+        if (model.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请选择自己的聊天模型");
+        }
+        return new UserModelOverride(
+                base.providerSource(), model, base.visionModelName(), base.audioModelName(),
+                base.sttModelName(), base.ttsModelName(), base.ttsVoiceName(),
+                base.ttsProviderSource(), base.ttsApiKey(), base.ttsCustomUrl(),
+                base.imageModelName(), base.imageProviderSource(), base.imageApiKey(), base.imageCustomUrl(),
+                base.apiKey(), base.customUrl()
+        );
+    }
+
+    private boolean isCustomModeSelected(long userId, String source) {
+        String normalizedSource = nz(source).trim().toUpperCase(java.util.Locale.ROOT);
+        if ("SYSTEM".equals(normalizedSource)) return false;
+        if ("BYOK".equals(normalizedSource)) return true;
+        return userAiProviderService != null && userAiProviderService.isCustomModeSelectedForUser(userId);
     }
 
     private void triggerMemoryRefreshAfterCommit(long conversationId) {
@@ -2618,6 +2659,9 @@ public class AppChatService {
     }
 
     private void assertRoleplayCharacterVisibleToUser(AppCharacter character, long userId) {
+        if (character == null || character.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "character not found");
+        }
         Long ownerId = character.getOwnerUserId();
         if (ownerId != null || Boolean.TRUE.equals(character.getPrivateCard())) {
             if (ownerId == null || ownerId.longValue() != userId) {
@@ -2625,8 +2669,7 @@ public class AppChatService {
             }
             return;
         }
-        if (character.getDeletedAt() != null
-                || Boolean.FALSE.equals(character.getClientVisible())
+        if (Boolean.FALSE.equals(character.getClientVisible())
                 || !CharacterReviewStatus.APPROVED.equals(CharacterReviewStatus.normalize(character.getReviewStatus()))) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "character not found");
         }

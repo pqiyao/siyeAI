@@ -104,7 +104,29 @@ class GenerationObservabilityMigrationTest {
                         + "WHERE table_name = 'app_character_system_promotion'",
                 Integer.class
         ));
-        assertEquals("102", jdbc.queryForObject(
+        assertEquals(6, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                        + "WHERE table_name IN ("
+                        + "'app_ai_chat_model_settings', "
+                        + "'app_ai_chat_offering', "
+                        + "'app_ai_chat_offering_price', "
+                        + "'app_h5_user_ai_chat_model', "
+                        + "'app_chat_model_preference', "
+                        + "'app_chat_generation_context')",
+                Integer.class
+        ));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.table_constraints "
+                        + "WHERE LOWER(table_name) = 'app_character' "
+                        + "AND LOWER(constraint_name) = 'ck_character_owner_private'",
+                Integer.class
+        ));
+        assertEquals(4, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history "
+                        + "WHERE success = TRUE AND version IN ('106', '107', '108', '109')",
+                Integer.class
+        ));
+        assertEquals("109", jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class
         ));

@@ -26,8 +26,34 @@ public record ChatGenerateRequest(
         UserModelOverride userModelOverride,
         String tailSystemPrompt,
         String runtimePresetBundle,
-        AiCapability routingCapability
+        AiCapability routingCapability,
+        String routingRouteKey
 ) {
+
+    public ChatGenerateRequest(
+            Long conversationId,
+            String userMessage,
+            List<ChatMessage> messages,
+            String clientMessageId,
+            boolean stream,
+            String mode,
+            Set<String> allowedFeatures,
+            String userName,
+            String charName,
+            List<String> groupNames,
+            String stAvatarUrl,
+            String stChatFileName,
+            String stMessageRef,
+            List<String> stWorldNames,
+            UserModelOverride userModelOverride,
+            String tailSystemPrompt,
+            String runtimePresetBundle,
+            AiCapability routingCapability
+    ) {
+        this(conversationId, userMessage, messages, clientMessageId, stream, mode, allowedFeatures,
+                userName, charName, groupNames, stAvatarUrl, stChatFileName, stMessageRef, stWorldNames,
+                userModelOverride, tailSystemPrompt, runtimePresetBundle, routingCapability, null);
+    }
 
     public ChatGenerateRequest(
             Long conversationId,
@@ -50,7 +76,7 @@ public record ChatGenerateRequest(
     ) {
         this(conversationId, userMessage, messages, clientMessageId, stream, mode, allowedFeatures,
                 userName, charName, groupNames, stAvatarUrl, stChatFileName, stMessageRef, stWorldNames,
-                userModelOverride, tailSystemPrompt, runtimePresetBundle, AiCapability.CHAT);
+                userModelOverride, tailSystemPrompt, runtimePresetBundle, AiCapability.CHAT, null);
     }
 
     public ChatGenerateRequest(
@@ -88,7 +114,8 @@ public record ChatGenerateRequest(
                 userModelOverride,
                 null,
                 null,
-                AiCapability.CHAT
+                AiCapability.CHAT,
+                null
         );
     }
 
@@ -128,12 +155,17 @@ public record ChatGenerateRequest(
                 userModelOverride,
                 tailSystemPrompt,
                 null,
-                AiCapability.CHAT
+                AiCapability.CHAT,
+                null
         );
     }
 
     public AiCapability routingCapabilityOrChat() {
         return routingCapability == null ? AiCapability.CHAT : routingCapability;
+    }
+
+    public String routingRouteKeyOrEmpty() {
+        return routingRouteKey == null ? "" : routingRouteKey.trim();
     }
 
     public boolean hasImageInput() {

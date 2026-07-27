@@ -74,6 +74,30 @@
             status = #{status}, last_error = #{lastError}, updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id} AND user_id = #{userId} AND deleted_at IS NULL
     </update>
+    <update id="completeProvisioning" parameterType="com.example.sillyspringboot.ops.entity.AppUserTtsVoice">
+        UPDATE app_user_tts_voice
+        SET model_name = #{modelName}, config_fingerprint = #{configFingerprint}, voice_uri = #{voiceUri},
+            status = 'READY', last_error = '', updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND user_id = #{userId} AND deleted_at IS NULL
+          AND status = 'PROVISIONING'
+    </update>
+    <update id="failStaleProvisioningByUserId">
+        UPDATE app_user_tts_voice
+        SET status = 'FAILED', voice_uri = '', last_error = #{lastError}, updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId} AND deleted_at IS NULL
+          AND status IN ('PENDING', 'PROVISIONING') AND updated_at &lt; #{cutoff}
+    </update>
+    <update id="failAllStaleProvisioning">
+        UPDATE app_user_tts_voice
+        SET status = 'FAILED', voice_uri = '', last_error = #{lastError}, updated_at = CURRENT_TIMESTAMP
+        WHERE deleted_at IS NULL
+          AND status IN ('PENDING', 'PROVISIONING') AND updated_at &lt; #{cutoff}
+    </update>
+    <update id="failProvisioningById">
+        UPDATE app_user_tts_voice
+        SET status = 'FAILED', voice_uri = '', last_error = #{lastError}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND deleted_at IS NULL AND status IN ('PENDING', 'PROVISIONING')
+    </update>
     <update id="updateDisplayName">
         UPDATE app_user_tts_voice SET display_name = #{displayName}, updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id} AND user_id = #{userId} AND deleted_at IS NULL

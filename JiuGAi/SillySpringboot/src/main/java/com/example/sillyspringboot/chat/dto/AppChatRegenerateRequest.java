@@ -28,6 +28,10 @@ public class AppChatRegenerateRequest {
 
     private String replySplitMode;
 
+    private String chatModelSource;
+    private String chatRouteKey;
+    private String chatModelName;
+
     public Long getConversationId() {
         return conversationId;
     }
@@ -75,5 +79,12 @@ public class AppChatRegenerateRequest {
     public void setReplySplitMode(String replySplitMode) {
         this.replySplitMode = replySplitMode;
     }
+
+    public String getChatModelSource() { return chatModelSource; }
+    public void setChatModelSource(String chatModelSource) { this.chatModelSource = chatModelSource; }
+    public String getChatRouteKey() { return chatRouteKey; }
+    public void setChatRouteKey(String chatRouteKey) { this.chatRouteKey = chatRouteKey; }
+    public String getChatModelName() { return chatModelName; }
+    public void setChatModelName(String chatModelName) { this.chatModelName = chatModelName; }
 }
 

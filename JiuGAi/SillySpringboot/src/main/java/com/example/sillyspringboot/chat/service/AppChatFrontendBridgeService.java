@@ -341,6 +341,7 @@ public class AppChatFrontendBridgeService {
                     request.userName(),
                     request.charName(),
                     request.stWorldNames() == null ? List.of() : List.copyOf(request.stWorldNames()),
+                    request.runtimePresetBundle(),
                     System.currentTimeMillis()
             );
             return new BridgeJob(id, payload, new CompletableFuture<>(), new AtomicBoolean(false), System.currentTimeMillis() + timeoutMillis);
@@ -370,6 +371,7 @@ public class AppChatFrontendBridgeService {
             String userName,
             String charName,
             List<String> worldNames,
+            String runtimePresetBundle,
             long createdAtMillis
     ) {
     }

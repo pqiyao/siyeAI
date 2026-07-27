@@ -15,10 +15,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,7 +40,6 @@ class ChatPresetServiceTest {
                 "prompts":[{"identifier":"main","content":"hidden"}]}}
                 """);
         when(fixture.presetMapper.findEnabledPublicById(1L)).thenReturn(source);
-        when(fixture.presetMapper.listPrivateByOwner(USER_ID)).thenReturn(List.of());
 
         fixture.service.copyPlatformPreset(USER_ID, 1L, "我的平衡");
 
@@ -55,6 +56,23 @@ class ChatPresetServiceTest {
         assertThat(generation.path("openai_max_tokens").asInt()).isEqualTo(700);
         assertThat(generation.path("openai_max_context").asInt()).isEqualTo(16000);
         assertThat(stored.getBundleJson()).doesNotContain("custom", "reverse_proxy", "hidden", "prompts");
+        verify(fixture.presetMapper).lockOwnerUser(USER_ID);
+        verify(fixture.presetMapper).countPrivateByOwner(USER_ID);
+    }
+
+    @Test
+    void copyCannotCreatePresetForDeletedUser() {
+        Fixture fixture = fixture();
+        AppChatPreset source = preset(1L, null, "PUBLIC", true);
+        when(fixture.presetMapper.findEnabledPublicById(1L)).thenReturn(source);
+        when(fixture.presetMapper.lockOwnerUser(USER_ID)).thenReturn(null);
+
+        assertThatThrownBy(() -> fixture.service.copyPlatformPreset(USER_ID, 1L, "orphan"))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.NOT_FOUND));
+
+        verify(fixture.presetMapper, never()).insertPrivate(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -103,6 +121,91 @@ class ChatPresetServiceTest {
         verify(fixture.bindingMapper).clearChatPresetId(5L);
     }
 
+    @Test
+    void syncMirrorsSourceAvailabilityAndReportsMalformedEntries() throws Exception {
+        Fixture fixture = fixture();
+        JsonNode envelope = new ObjectMapper().readTree("""
+                {"openai_setting_names":["Balanced","Broken","Trailing"],
+                 "openai_settings":["{\\\"temperature\\\":0.7}","not-json"]}
+                """);
+        when(fixture.stClient.readStSettingsEnvelope()).thenReturn(envelope);
+        when(fixture.presetMapper.listUnavailablePlatformPresetIds("openai")).thenReturn(List.of(9L));
+
+        Map<String, Object> result = fixture.service.syncOpenAiPlatformPresetsFromSt();
+
+        assertThat(result.get("imported")).isEqualTo(1);
+        assertThat(result.get("skipped")).isEqualTo(2);
+        assertThat(result.get("unavailable")).isEqualTo(1);
+        verify(fixture.presetMapper).markAllPlatformPresetsSourceUnavailable("openai");
+        ArgumentCaptor<AppChatPreset> presetCaptor = ArgumentCaptor.forClass(AppChatPreset.class);
+        verify(fixture.presetMapper).upsertPlatformPreset(presetCaptor.capture());
+        assertThat(presetCaptor.getValue().getSourceAvailable()).isTrue();
+        verify(fixture.bindingMapper).clearChatPresetId(9L);
+    }
+
+    @Test
+    void syncReportsSettingsJsonThatIsNotAnObject() throws Exception {
+        Fixture fixture = fixture();
+        JsonNode envelope = new ObjectMapper().readTree("""
+                {"openai_setting_names":["NotObject"],"openai_settings":["[]"]}
+                """);
+        when(fixture.stClient.readStSettingsEnvelope()).thenReturn(envelope);
+        when(fixture.presetMapper.listUnavailablePlatformPresetIds("openai")).thenReturn(List.of());
+
+        Map<String, Object> result = fixture.service.syncOpenAiPlatformPresetsFromSt();
+
+        assertThat(result.get("imported")).isEqualTo(0);
+        assertThat(result.get("skipped")).isEqualTo(1);
+        assertThat((List<?>) result.get("warnings"))
+                .anySatisfy(value -> assertThat(value).asString().contains("NotObject").contains("JSON object"));
+    }
+
+    @Test
+    void disablingPublicPresetClearsExistingConversationBindings() {
+        Fixture fixture = fixture();
+        AppChatPreset preset = preset(7L, null, "PUBLIC", true);
+        when(fixture.presetMapper.findPublicById(7L)).thenReturn(preset);
+        when(fixture.presetMapper.updateStatus(7L, false)).thenReturn(1);
+
+        assertThat(fixture.service.updateStatus(7L, false)).isTrue();
+
+        verify(fixture.bindingMapper).clearChatPresetId(7L);
+    }
+
+    @Test
+    void enablingSourceUnavailablePublicPresetIsRejected() {
+        Fixture fixture = fixture();
+        AppChatPreset preset = preset(7L, null, "PUBLIC", false);
+        preset.setSourceAvailable(false);
+        when(fixture.presetMapper.findPublicById(7L)).thenReturn(preset);
+
+        assertThatThrownBy(() -> fixture.service.updateStatus(7L, true))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.VALIDATION_FAILED));
+    }
+
+    @Test
+    void deletingPublicPresetClearsBindingsBeforeDeletingRecord() {
+        Fixture fixture = fixture();
+        AppChatPreset preset = preset(8L, null, "PUBLIC", true);
+        when(fixture.presetMapper.findPublicById(8L)).thenReturn(preset);
+        when(fixture.presetMapper.deleteById(8L)).thenReturn(1);
+
+        assertThat(fixture.service.delete(8L)).isTrue();
+
+        verify(fixture.bindingMapper).clearChatPresetId(8L);
+        verify(fixture.presetMapper).deleteById(8L);
+    }
+
+    @Test
+    void adminDetailCannotReadPrivatePresetById() {
+        Fixture fixture = fixture();
+        when(fixture.presetMapper.findPublicById(5L)).thenReturn(null);
+
+        assertThat(fixture.service.adminDetail(5L)).isEmpty();
+    }
+
     private static AppChatPreset preset(long id, Long ownerUserId, String scope, boolean enabled) {
         AppChatPreset preset = new AppChatPreset();
         preset.setId(id);
@@ -115,6 +218,7 @@ class ChatPresetServiceTest {
         preset.setDescription("");
         preset.setBundleJson("{\"generation\":{\"temperature\":1,\"top_p\":1,\"openai_max_tokens\":512,\"openai_max_context\":8192}}");
         preset.setEnabled(enabled);
+        preset.setSourceAvailable(true);
         preset.setSortOrder(100);
         return preset;
     }
@@ -123,15 +227,18 @@ class ChatPresetServiceTest {
         AppChatPresetMapper presetMapper = mock(AppChatPresetMapper.class);
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
         AppConversationStBindingMapper bindingMapper = mock(AppConversationStBindingMapper.class);
-        ChatPresetService service = new ChatPresetService(presetMapper, conversationMapper, bindingMapper, mock(StClient.class));
-        return new Fixture(service, presetMapper, conversationMapper, bindingMapper);
+        StClient stClient = mock(StClient.class);
+        when(presetMapper.lockOwnerUser(USER_ID)).thenReturn(USER_ID);
+        ChatPresetService service = new ChatPresetService(presetMapper, conversationMapper, bindingMapper, stClient);
+        return new Fixture(service, presetMapper, conversationMapper, bindingMapper, stClient);
     }
 
     private record Fixture(
             ChatPresetService service,
             AppChatPresetMapper presetMapper,
             AppConversationMapper conversationMapper,
-            AppConversationStBindingMapper bindingMapper
+            AppConversationStBindingMapper bindingMapper,
+            StClient stClient
     ) {
     }
 }

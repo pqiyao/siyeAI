@@ -3,16 +3,25 @@ package com.example.sillyspringboot.character.service;
 import com.example.sillyspringboot.character.entity.AppCharacterMember;
 import com.example.sillyspringboot.character.mapper.AppLorebookEntryMapper;
 import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
+import com.example.sillyspringboot.compat.h5.entity.H5MyCharacter;
+import com.example.sillyspringboot.compat.h5.mapper.H5MyCharacterMapper;
 import com.example.sillyspringboot.compat.h5.web.dto.H5MyCharacterSaveRequest;
 import com.example.sillyspringboot.ops.entity.AppUserTtsVoiceBinding;
+import com.example.sillyspringboot.ops.dto.AppFeatureSettings;
 import com.example.sillyspringboot.ops.mapper.AppUserTtsVoiceBindingMapper;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
+import com.example.sillyspringboot.ops.service.UserTtsVoiceService;
+import com.example.sillyspringboot.shared.error.BusinessException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -23,8 +32,36 @@ class CharacterStudioServiceTest {
     private final CharacterStudioMapper studioMapper = mock(CharacterStudioMapper.class);
     private final AppLorebookEntryMapper lorebookMapper = mock(AppLorebookEntryMapper.class);
     private final AppUserTtsVoiceBindingMapper voiceBindingMapper = mock(AppUserTtsVoiceBindingMapper.class);
+    private final UserTtsVoiceService userTtsVoiceService = mock(UserTtsVoiceService.class);
+    private final AppFeatureSettingsService featureSettingsService = mock(AppFeatureSettingsService.class);
+    private final H5MyCharacterMapper myCharacterMapper = mock(H5MyCharacterMapper.class);
     private final CharacterStudioService service =
-            new CharacterStudioService(studioMapper, lorebookMapper, voiceBindingMapper);
+            new CharacterStudioService(
+                    studioMapper, lorebookMapper, voiceBindingMapper,
+                    userTtsVoiceService, featureSettingsService, myCharacterMapper);
+
+    @BeforeEach
+    void allowOwnedCharacter() {
+        when(myCharacterMapper.findEditor(99L, 7L)).thenReturn(new H5MyCharacter());
+    }
+
+    @Test
+    void crossUserStudioReplacementIsRejectedBeforeAnyMutation() {
+        H5MyCharacterSaveRequest request = request("SINGLE", List.of(input(11L, "primary", "主角")));
+
+        assertThrows(BusinessException.class, () -> service.replaceStudio(8L, 99L, request));
+
+        verify(studioMapper, never()).findCardType(anyLong());
+        verify(studioMapper, never()).updateCardType(anyLong(), org.mockito.ArgumentMatchers.anyString());
+        verify(studioMapper, never()).deleteMembersByCharacterId(anyLong());
+    }
+
+    @Test
+    void crossUserVoiceBindingDeletionIsRejectedBeforeMutation() {
+        assertThrows(BusinessException.class, () -> service.deleteVoiceBindings(8L, 99L));
+
+        verify(voiceBindingMapper, never()).deleteCharacterScopes(anyLong(), anyLong());
+    }
 
     @Test
     void editingMembersKeepsExistingIdsAndCleansRemovedMemberBinding() {
@@ -60,7 +97,8 @@ class CharacterStudioServiceTest {
         AppCharacterMember primary = member(11L, "主角");
         AppCharacterMember second = member(12L, "成员二");
         when(studioMapper.findCardType(99L)).thenReturn("SINGLE");
-        when(studioMapper.listMembers(99L)).thenReturn(List.of(primary), List.of(primary, second));
+        when(studioMapper.listMembers(99L)).thenReturn(
+                List.of(primary), List.of(primary), List.of(primary, second));
         when(studioMapper.updateMember(any())).thenReturn(1);
         when(studioMapper.insertMember(any())).thenAnswer(invocation -> {
             AppCharacterMember row = invocation.getArgument(0);
@@ -94,7 +132,8 @@ class CharacterStudioServiceTest {
         AppCharacterMember primary = member(11L, "主角");
         AppCharacterMember second = member(12L, "成员二");
         when(studioMapper.findCardType(99L)).thenReturn("ENSEMBLE");
-        when(studioMapper.listMembers(99L)).thenReturn(List.of(primary, second), List.of(primary));
+        when(studioMapper.listMembers(99L)).thenReturn(
+                List.of(primary, second), List.of(primary, second), List.of(primary));
         when(studioMapper.updateMember(any())).thenReturn(1);
         AppUserTtsVoiceBinding existing = new AppUserTtsVoiceBinding();
         existing.setVoiceId(55L);
@@ -117,6 +156,111 @@ class CharacterStudioServiceTest {
         verify(voiceBindingMapper).deleteMemberScopes(7L, 99L);
     }
 
+    @Test
+    void memberOnlyRenameDoesNotDeleteOpeningsOrWorldbookScopes() {
+        AppCharacterMember primary = member(11L, "原主角");
+        when(studioMapper.findCardType(99L)).thenReturn("SINGLE");
+        when(studioMapper.listMembers(99L)).thenReturn(List.of(primary));
+        when(studioMapper.updateMember(any())).thenReturn(1);
+
+        H5MyCharacterSaveRequest request = new H5MyCharacterSaveRequest();
+        request.setCardType("SINGLE");
+        request.setMembers(List.of(input(11L, "primary", "更新后的主角")));
+
+        service.replaceStudio(7L, 99L, request);
+
+        verify(studioMapper, never()).deleteOpeningSegmentsByCharacterId(99L);
+        verify(studioMapper, never()).deleteOpeningsByCharacterId(99L);
+        verify(studioMapper, never()).clearLorebookMemberScopes(99L);
+    }
+
+    @Test
+    void requestedPrivateVoiceBindingIsSavedInsideStudioTransaction() {
+        AppCharacterMember primary = member(11L, "主角");
+        when(studioMapper.findCardType(99L)).thenReturn("SINGLE");
+        when(studioMapper.listMembers(99L)).thenReturn(List.of(primary));
+        when(studioMapper.updateMember(any())).thenReturn(1);
+        H5MyCharacterSaveRequest.MemberInput input = input(11L, "primary", "主角");
+        input.setVoiceBindingChanged(true);
+        input.setUserTtsVoiceId(55L);
+        H5MyCharacterSaveRequest request = request("SINGLE", List.of(input));
+
+        service.replaceStudio(7L, 99L, request);
+
+        verify(featureSettingsService).ensureVoiceFeatureEnabled();
+        verify(userTtsVoiceService).saveBinding(7L, "CHARACTER", 99L, 0L, 55L);
+    }
+
+    @Test
+    void memberDeletionWithoutCompleteStudioPayloadIsRejectedBeforeMutation() {
+        AppCharacterMember primary = member(11L, "主角");
+        AppCharacterMember second = member(12L, "成员二");
+        when(studioMapper.findCardType(99L)).thenReturn("ENSEMBLE");
+        when(studioMapper.listMembers(99L)).thenReturn(List.of(primary, second));
+        H5MyCharacterSaveRequest request = new H5MyCharacterSaveRequest();
+        request.setCardType("SINGLE");
+        request.setMembers(List.of(input(11L, "primary", "主角")));
+
+        assertThrows(RuntimeException.class, () -> service.replaceStudio(7L, 99L, request));
+
+        verify(studioMapper, never()).deleteMemberById(anyLong(), anyLong());
+    }
+
+    @Test
+    void invalidOpeningSpeakerIsRejectedInsteadOfUsingArbitraryMember() {
+        AppCharacterMember primary = member(11L, "主角");
+        when(studioMapper.findCardType(99L)).thenReturn("SINGLE");
+        when(studioMapper.listMembers(99L)).thenReturn(List.of(primary));
+        H5MyCharacterSaveRequest.OpeningSegmentInput segment = new H5MyCharacterSaveRequest.OpeningSegmentInput();
+        segment.setSpeakerType("CHARACTER");
+        segment.setSpeakerClientKey("missing-member");
+        segment.setContent("你好");
+        H5MyCharacterSaveRequest.OpeningInput opening = new H5MyCharacterSaveRequest.OpeningInput();
+        opening.setSegments(List.of(segment));
+        H5MyCharacterSaveRequest request = new H5MyCharacterSaveRequest();
+        request.setOpenings(List.of(opening));
+
+        assertThrows(RuntimeException.class, () -> service.replaceStudio(7L, 99L, request));
+    }
+
+    @Test
+    void duplicateMemberClientKeysAreRejected() {
+        when(studioMapper.findCardType(99L)).thenReturn("ENSEMBLE");
+        when(studioMapper.listMembers(99L)).thenReturn(List.of());
+        when(studioMapper.insertMember(any())).thenAnswer(invocation -> {
+            AppCharacterMember row = invocation.getArgument(0);
+            row.setId(31L);
+            return 1;
+        });
+        H5MyCharacterSaveRequest request = request("ENSEMBLE", List.of(
+                input(null, "duplicate", "主角"),
+                input(null, "duplicate", "成员二")
+        ));
+
+        assertThrows(RuntimeException.class, () -> service.replaceStudio(7L, 99L, request));
+    }
+
+    @Test
+    void disabledVoiceFeaturePreservesStoredMemberVoiceConfig() {
+        AppCharacterMember primary = member(11L, "主角");
+        primary.setVoiceConfigJson("{\"ttsVoiceName\":\"old\"}");
+        AppFeatureSettings settings = new AppFeatureSettings();
+        settings.setVoiceFeatureEnabled(false);
+        when(featureSettingsService.getSettings()).thenReturn(settings);
+        when(studioMapper.findCardType(99L)).thenReturn("SINGLE");
+        when(studioMapper.listMembers(99L)).thenReturn(List.of(primary));
+        when(studioMapper.updateMember(any())).thenReturn(1);
+        H5MyCharacterSaveRequest.MemberInput input = input(11L, "primary", "主角");
+        input.setVoiceConfigJson("{\"ttsVoiceName\":\"new\"}");
+        H5MyCharacterSaveRequest request = request("SINGLE", List.of(input));
+
+        service.replaceStudio(7L, 99L, request);
+
+        ArgumentCaptor<AppCharacterMember> updated = ArgumentCaptor.forClass(AppCharacterMember.class);
+        verify(studioMapper).updateMember(updated.capture());
+        assertEquals("{\"ttsVoiceName\":\"old\"}", updated.getValue().getVoiceConfigJson());
+    }
+
     private static H5MyCharacterSaveRequest request(
             String cardType,
             List<H5MyCharacterSaveRequest.MemberInput> members
@@ -124,6 +268,8 @@ class CharacterStudioServiceTest {
         H5MyCharacterSaveRequest request = new H5MyCharacterSaveRequest();
         request.setCardType(cardType);
         request.setMembers(members);
+        request.setOpenings(List.of());
+        request.setLorebookEntries(List.of());
         return request;
     }
 

@@ -105,7 +105,7 @@ public class ChatAudioSpeechService {
     }
 
     public AudioSpeechResult synthesizeForUser(long userId, String text) {
-        return synthesizeForUser(userId, text, "", "", "", null);
+        return synthesizeForUser(userId, text, "", "", "", null, "");
     }
 
     public AudioSpeechResult synthesizeForUser(
@@ -117,7 +117,7 @@ public class ChatAudioSpeechService {
     ) {
         return synthesizeForUser(
                 userId, text, ttsModelNameOverride, ttsVoiceNameOverride,
-                ttsVoiceTemplateCodeOverride, null);
+                ttsVoiceTemplateCodeOverride, null, "");
     }
 
     public AudioSpeechResult synthesizeForUser(
@@ -127,6 +127,20 @@ public class ChatAudioSpeechService {
             String ttsVoiceNameOverride,
             String ttsVoiceTemplateCodeOverride,
             Long ttsUserVoiceId
+    ) {
+        return synthesizeForUser(
+                userId, text, ttsModelNameOverride, ttsVoiceNameOverride,
+                ttsVoiceTemplateCodeOverride, ttsUserVoiceId, "");
+    }
+
+    public AudioSpeechResult synthesizeForUser(
+            long userId,
+            String text,
+            String ttsModelNameOverride,
+            String ttsVoiceNameOverride,
+            String ttsVoiceTemplateCodeOverride,
+            Long ttsUserVoiceId,
+            String ttsOverrideProviderSource
     ) {
         String safeText = normalizeSpeechText(text);
         if (!StringUtils.hasText(safeText)) {
@@ -142,12 +156,14 @@ public class ChatAudioSpeechService {
             attemptNo++;
             AiMediaAttemptTelemetry.Attempt attempt = startTelemetry(telemetryRequestId, runtime, attemptNo);
             try {
+                boolean applyScopedOverride = providerScopeMatchesRuntime(
+                        ttsOverrideProviderSource, runtime.providerSource());
                 AudioSpeechResult result = synthesizeAttempt(
                         userId,
                         safeText,
-                        ttsModelNameOverride,
-                        ttsVoiceNameOverride,
-                        ttsVoiceTemplateCodeOverride,
+                        applyScopedOverride ? ttsModelNameOverride : "",
+                        applyScopedOverride ? ttsVoiceNameOverride : "",
+                        applyScopedOverride ? ttsVoiceTemplateCodeOverride : "",
                         ttsUserVoiceId,
                         runtime
                 );
@@ -347,6 +363,12 @@ public class ChatAudioSpeechService {
                 firstNonBlank(modelOverride, runtimeModel),
                 firstNonBlank(voiceOverride, runtimeVoice),
                 firstNonBlank(templateOverride, runtimeTemplate));
+    }
+
+    static boolean providerScopeMatchesRuntime(String overrideProviderSource, String runtimeProviderSource) {
+        if (!StringUtils.hasText(overrideProviderSource)) return true;
+        return StringUtils.hasText(runtimeProviderSource)
+                && overrideProviderSource.trim().equalsIgnoreCase(runtimeProviderSource.trim());
     }
 
     private RestClient buildRestClient(

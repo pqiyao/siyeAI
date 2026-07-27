@@ -8,6 +8,8 @@ import com.example.sillyspringboot.chat.service.ChatAuditService;
 import com.example.sillyspringboot.chat.service.ChatGenerationDispatcher;
 import com.example.sillyspringboot.chat.service.MediaConcurrencyGate;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.compat.h5.service.H5VisitorTrialGuardService;
@@ -24,11 +26,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -52,6 +58,7 @@ class ApiV1TavernChatControllerTtsBillingTest {
     @Mock H5UserAiProviderService userAiProviderService;
     @Mock StModelRoutingService modelRoutingService;
     @Mock UserTtsVoiceService userTtsVoiceService;
+    @Mock CharacterStudioMapper characterStudioMapper;
 
     private ApiV1TavernChatController controller;
 
@@ -75,6 +82,62 @@ class ApiV1TavernChatControllerTtsBillingTest {
                 modelRoutingService,
                 userTtsVoiceService
         );
+        ReflectionTestUtils.setField(controller, "characterStudioMapper", characterStudioMapper);
+    }
+
+    @Test
+    void inaccessibleMemberVoiceCharacterIsRejectedBeforeBillingOrMemberRead() {
+        H5ChatPayload payload = new H5ChatPayload();
+        payload.setClientUid("client-1");
+        payload.setContent("hello");
+        payload.setCharacterId(99L);
+        payload.setSpeakerMemberId(11L);
+        when(h5Auth.requireAuthenticatedTokenForClientUid("client-1")).thenReturn("token-1");
+        when(chatService.resolveUserId("token-1")).thenReturn(7L);
+        doThrow(new BusinessException(ErrorCode.NOT_FOUND, "character not found"))
+                .when(entitlementService).requireCharacterVisibleToUser(99L, 7L);
+
+        assertThatThrownBy(() -> controller.synthesizeSpeech(payload))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("character not found");
+
+        verify(characterStudioMapper, never()).listMembers(99L);
+        verify(entitlementService, never()).guardTts("client-1");
+        verify(entitlementService, never()).recordSuccessfulTts(org.mockito.ArgumentMatchers.any());
+        verify(chatAudioSpeechService, never()).synthesizeForUser(
+                7L, "hello", "", "", "", null, ""
+        );
+    }
+
+    @Test
+    void visibleMemberVoiceCharacterStillUsesMemberVoiceNormally() {
+        H5ChatPayload payload = new H5ChatPayload();
+        payload.setClientUid("client-1");
+        payload.setContent("hello");
+        payload.setCharacterId(99L);
+        payload.setSpeakerMemberId(11L);
+        AppCharacterMember member = new AppCharacterMember();
+        member.setId(11L);
+        member.setVoiceConfigJson(
+                "{\"ttsProviderSource\":\"siliconflow\",\"ttsVoiceName\":\"member-voice\"}");
+        when(h5Auth.requireAuthenticatedTokenForClientUid("client-1")).thenReturn("token-1");
+        when(chatService.resolveUserId("token-1")).thenReturn(7L);
+        when(userAiProviderService.isCustomModeSelectedForUser(7L)).thenReturn(true);
+        when(userAiProviderService.resolveActiveTtsSettingsForUser(7L)).thenReturn(
+                new H5UserAiProviderService.UserTtsSettings(
+                        "siliconflow", "tts-model", "", "", "key", "https://tts.example"));
+        when(characterStudioMapper.listMembers(99L)).thenReturn(List.of(member));
+        when(chatAudioSpeechService.synthesizeForUser(
+                7L, "hello", "", "member-voice", "", null, "siliconflow"))
+                .thenReturn(new ChatAudioSpeechService.AudioSpeechResult(
+                        new byte[]{1}, "audio/mpeg", "tts-model", "member-voice"));
+
+        assertThat(controller.synthesizeSpeech(payload).data())
+                .containsEntry("voiceName", "member-voice");
+
+        verify(entitlementService).requireCharacterVisibleToUser(99L, 7L);
+        verify(characterStudioMapper).listMembers(99L);
+        verify(entitlementService, never()).guardTts("client-1");
     }
 
     @Test
@@ -94,7 +157,7 @@ class ApiV1TavernChatControllerTtsBillingTest {
         verify(entitlementService, never()).recordSuccessfulTts(org.mockito.ArgumentMatchers.any());
         verify(entitlementService, never()).refundWalletConsume(org.mockito.ArgumentMatchers.any());
         verify(chatAudioSpeechService, never()).synthesizeForUser(
-                7L, "hello", "", "", "", null
+                7L, "hello", "", "", "", null, ""
         );
     }
 
@@ -106,7 +169,7 @@ class ApiV1TavernChatControllerTtsBillingTest {
         when(h5Auth.requireAuthenticatedTokenForClientUid("client-1")).thenReturn("token-1");
         when(chatService.resolveUserId("token-1")).thenReturn(7L);
         when(userAiProviderService.isCustomModeSelectedForUser(7L)).thenReturn(true);
-        when(chatAudioSpeechService.synthesizeForUser(7L, "hello", "", "", "", null))
+        when(chatAudioSpeechService.synthesizeForUser(7L, "hello", "", "", "", null, ""))
                 .thenReturn(new ChatAudioSpeechService.AudioSpeechResult(
                         new byte[]{1}, "audio/mpeg", "tts-model", "private-voice"));
 
@@ -125,9 +188,9 @@ class ApiV1TavernChatControllerTtsBillingTest {
         when(entitlementService.guardTts("client-1", "tts_db_44_12345678")).thenReturn(ticket);
         when(entitlementService.recordSuccessfulTts(ticket)).thenReturn(true, false);
         when(chatService.resolveUserId("token-1")).thenReturn(7L);
-        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("first"), eq(""), eq(""), eq(""), eq(null)))
+        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("first"), eq(""), eq(""), eq(""), eq(null), eq("")))
                 .thenReturn(new ChatAudioSpeechService.AudioSpeechResult(new byte[]{1}, "audio/mpeg", "tts-model", "alloy"));
-        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("second"), eq(""), eq(""), eq(""), eq(null)))
+        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("second"), eq(""), eq(""), eq(""), eq(null), eq("")))
                 .thenThrow(new BusinessException(ErrorCode.UPSTREAM_ERROR, "upstream failed"));
 
         H5ChatPayload first = segmentPayload("first", 0, 2);
@@ -147,7 +210,7 @@ class ApiV1TavernChatControllerTtsBillingTest {
         when(entitlementService.guardTts("client-1", "tts_db_44_12345678")).thenReturn(ticket);
         when(entitlementService.recordSuccessfulTts(ticket)).thenReturn(true);
         when(chatService.resolveUserId("token-1")).thenReturn(7L);
-        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("first"), eq(""), eq(""), eq(""), eq(null)))
+        when(chatAudioSpeechService.synthesizeForUser(eq(7L), eq("first"), eq(""), eq(""), eq(""), eq(null), eq("")))
                 .thenThrow(new BusinessException(ErrorCode.UPSTREAM_ERROR, "upstream failed"));
 
         assertThatThrownBy(() -> controller.synthesizeSpeech(segmentPayload("first", 0, 2)))
@@ -169,6 +232,34 @@ class ApiV1TavernChatControllerTtsBillingTest {
         assertThat(ApiV1TavernChatController.shouldUseGlobalPrivateVoice(null, "", "", "", ""))
                 .isTrue();
         assertThat(ApiV1TavernChatController.shouldUseGlobalPrivateVoice(81L, "", "", "", ""))
+                .isFalse();
+    }
+
+    @Test
+    void explicitChatPublicVoiceOverridesStoredPrivateBindingLookup() {
+        assertThat(ApiV1TavernChatController.shouldResolveSpecificPrivateVoice(null, "bella", ""))
+                .isFalse();
+        assertThat(ApiV1TavernChatController.shouldResolveSpecificPrivateVoice(null, "", "template-a"))
+                .isFalse();
+        assertThat(ApiV1TavernChatController.shouldResolveSpecificPrivateVoice(null, "", ""))
+                .isTrue();
+    }
+
+    @Test
+    void roleOverrideOnlyAppliesToTheByokProviderThatSavedIt() {
+        H5UserAiProviderService.UserTtsSettings settings =
+                new H5UserAiProviderService.UserTtsSettings(
+                        "siliconflow", "tts-model", "", "", "key", "https://api.siliconflow.cn/v1");
+
+        assertThat(ApiV1TavernChatController.ttsOverrideScopeMatchesProvider("siliconflow", settings))
+                .isTrue();
+        assertThat(ApiV1TavernChatController.ttsOverrideScopeMatchesProvider("SILICONFLOW", settings))
+                .isTrue();
+        assertThat(ApiV1TavernChatController.ttsOverrideScopeMatchesProvider("openai", settings))
+                .isFalse();
+        assertThat(ApiV1TavernChatController.ttsOverrideScopeMatchesProvider("", settings))
+                .isFalse();
+        assertThat(ApiV1TavernChatController.ttsOverrideScopeMatchesProvider("siliconflow", null))
                 .isFalse();
     }
 

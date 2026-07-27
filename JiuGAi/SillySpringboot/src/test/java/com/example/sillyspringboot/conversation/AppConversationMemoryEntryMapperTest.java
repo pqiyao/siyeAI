@@ -187,6 +187,51 @@ public class AppConversationMemoryEntryMapperTest {
                 });
     }
 
+    @Test
+    void historyInvalidationDeletesOnlyGeneratedEntriesAndPreservesManualOrPinnedEntries() {
+        long conversationId = 1001L;
+
+        AppConversationMemoryEntry generated = entry(conversationId, "generated_fact", "event",
+                "Generated", "Generated from chat history.", "[]", 100);
+        generated.setSourceMessageFromId(10L);
+        generated.setSourceMessageToId(20L);
+        entryMapper.upsert(generated);
+
+        AppConversationMemoryEntry manual = entry(conversationId, "manual_user_fact", "identity",
+                "Manual", "User-created memory.", "[]", 200);
+        manual.setManualPinned(false);
+        entryMapper.insertManual(manual);
+
+        AppConversationMemoryEntry pinned = entry(conversationId, "generated_but_pinned", "relationship",
+                "Pinned", "Pinned generated memory.", "[]", 180);
+        pinned.setSourceMessageFromId(11L);
+        pinned.setSourceMessageToId(21L);
+        entryMapper.upsert(pinned);
+        AppConversationMemoryEntry storedPinned = entryMapper.listAllByConversationId(conversationId).stream()
+                .filter(row -> "generated_but_pinned".equals(row.getEntryKey()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(entryMapper.setManualEnabledById(
+                storedPinned.getId(), conversationId, 0L, true, false
+        )).isEqualTo(1);
+
+        assertThat(entryMapper.softDeleteGeneratedByConversationBranchId(conversationId, 0L)).isEqualTo(1);
+
+        assertThat(entryMapper.listEnabledByConversationId(conversationId))
+                .extracting(AppConversationMemoryEntry::getEntryKey)
+                .containsExactlyInAnyOrder("manual_user_fact", "generated_but_pinned");
+        assertThat(entryMapper.findByIdForConversationBranch(manual.getId(), conversationId, 0L))
+                .satisfies(row -> {
+                    assertThat(row.getDeletedAt()).isNull();
+                    assertThat(row.getRetiredReason()).isNull();
+                });
+        assertThat(entryMapper.findByIdForConversationBranch(storedPinned.getId(), conversationId, 0L))
+                .satisfies(row -> {
+                    assertThat(row.isManualPinned()).isTrue();
+                    assertThat(row.getDeletedAt()).isNull();
+                });
+    }
+
     private AppConversationMemoryEntry entry(
             long conversationId,
             String entryKey,

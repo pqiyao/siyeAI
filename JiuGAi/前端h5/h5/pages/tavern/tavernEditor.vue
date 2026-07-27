@@ -776,6 +776,10 @@ export default {
 					member.voiceConfigJson = '';
 				}
 				delete member.settingsOpen;
+				member.voiceBindingChanged = !!member.ttsUserVoiceBindingDirty;
+				member.userTtsVoiceId = member.voiceBindingChanged
+					? Math.max(0, Math.floor(Number(member.ttsUserVoiceId) || 0))
+					: null;
 				delete member.ttsUserVoiceId;
 				delete member.ttsUserVoiceBindingLoaded;
 				delete member.ttsUserVoiceBindingDirty;
@@ -839,32 +843,6 @@ export default {
 				.filter(Boolean)
 				.join('\n\n');
 		},
-		collectVoiceBindingChanges() {
-			return (this.form.members || []).map((member, index) => ({
-				index,
-				voiceId: Math.max(0, Math.floor(Number(member && member.ttsUserVoiceId) || 0)),
-				dirty: !!(member && member.ttsUserVoiceBindingDirty)
-			})).filter(item => item.dirty);
-		},
-		syncPrivateVoiceBindings(savedForm, changes) {
-			if (!Array.isArray(changes) || !changes.length) return Promise.resolve();
-			const tavernApi = require('@/common/tavernApi.js');
-			const characterId = Math.max(0, Math.floor(Number(savedForm && savedForm.id) || Number(this.id) || 0));
-			const members = Array.isArray(savedForm && savedForm.members) ? savedForm.members : [];
-			if (!characterId) return Promise.reject(new Error('角色已保存，但没有返回可用的角色 ID'));
-			return Promise.all(changes.map(change => {
-				const member = members[change.index] || {};
-				const memberId = Math.max(0, Math.floor(Number(member.id) || 0));
-				const ensemble = String(savedForm && savedForm.cardType || this.form.cardType).toUpperCase() === 'ENSEMBLE';
-				if (ensemble && !memberId) return Promise.reject(new Error('角色已保存，但没有返回成员 ID'));
-				return tavernApi.putUserTtsVoiceBinding(tavernApi.getClientUid(), {
-					scopeType: ensemble ? 'MEMBER' : 'CHARACTER',
-					characterId,
-					memberId: ensemble ? memberId : 0,
-					voiceId: change.voiceId > 0 ? change.voiceId : null
-				});
-			}));
-		},
 		submit() {
 			if (this.loading || this.saving || this.deleting) {
 				return;
@@ -890,7 +868,6 @@ export default {
 				return;
 			}
 			const tavernApi = require('@/common/tavernApi.js');
-			const voiceBindingChanges = this.collectVoiceBindingChanges();
 			this.saving = true;
 			tavernApi
 				.saveMyCharacter(payload)
@@ -898,10 +875,6 @@ export default {
 					const savedForm = data || {};
 					this.form = this.normalizeStudioForm(savedForm);
 					this.id = savedForm && savedForm.id != null ? String(savedForm.id) : (this.form.id ? String(this.form.id) : this.id);
-					return this.syncPrivateVoiceBindings(savedForm, voiceBindingChanges).catch(error => {
-						error.characterSaved = true;
-						throw error;
-					});
 				})
 				.then(() => {
 					uni.showToast({ title: this.texts.saveSuccess, icon: 'none' });
@@ -912,9 +885,7 @@ export default {
 				.catch((e) => {
 					const tavernErrors = require('@/common/tavernErrors.js');
 					uni.showToast({
-						title: e && e.characterSaved
-							? '角色卡已保存，但音色绑定失败：' + String(e.message || '请重试')
-							: tavernErrors.getTavernErrorMessage(e, this.texts.saveFail),
+					title: tavernErrors.getTavernErrorMessage(e, this.texts.saveFail),
 						icon: 'none',
 						duration: 2800
 					});

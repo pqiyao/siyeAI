@@ -11,6 +11,8 @@ public class H5ChatPayload {
     private List<String> avoidExpressionHints;
     private Double temperature;
     private String model;
+    /** 角色级 TTS 覆盖保存时的 BYOK 供应商作用域，用于阻止旧设备配置跨供应商误用。 */
+    private String ttsProviderSource;
     private String ttsModelName;
     private String ttsVoiceName;
     private String ttsVoiceTemplateCode;
@@ -26,6 +28,14 @@ public class H5ChatPayload {
     private String attachmentHint;
     private String replySplitMode;
     private String visionRequestId;
+    /** 客户端生成并在同一次网络重试中复用的稳定请求 ID。 */
+    private String generationRequestId;
+    /** 仅允许 SYSTEM 或 BYOK；后端仍会重新校验归属和可用性。 */
+    private String chatModelSource;
+    /** SYSTEM 时为公开方案编码，BYOK 时为当前用户模型 ID。 */
+    private String chatModelRef;
+    /** 平台模型目录中的报价/配置版本；旧客户端可不传。 */
+    private Long chatModelSelectionVersion;
 
     /**
      * 可选：续写/重生时锚定的 AI 消息（H5 传 {@code db_123} 或 {@code 123}）。
@@ -107,6 +117,14 @@ public class H5ChatPayload {
 
     public String getTtsModelName() {
         return ttsModelName;
+    }
+
+    public String getTtsProviderSource() {
+        return ttsProviderSource;
+    }
+
+    public void setTtsProviderSource(String ttsProviderSource) {
+        this.ttsProviderSource = ttsProviderSource;
     }
 
     public void setTtsModelName(String ttsModelName) {
@@ -210,6 +228,17 @@ public class H5ChatPayload {
 
     public void setVisionRequestId(String visionRequestId) {
         this.visionRequestId = visionRequestId;
+    }
+
+    public String getGenerationRequestId() { return generationRequestId; }
+    public void setGenerationRequestId(String generationRequestId) { this.generationRequestId = generationRequestId; }
+    public String getChatModelSource() { return chatModelSource; }
+    public void setChatModelSource(String chatModelSource) { this.chatModelSource = chatModelSource; }
+    public String getChatModelRef() { return chatModelRef; }
+    public void setChatModelRef(String chatModelRef) { this.chatModelRef = chatModelRef; }
+    public Long getChatModelSelectionVersion() { return chatModelSelectionVersion; }
+    public void setChatModelSelectionVersion(Long chatModelSelectionVersion) {
+        this.chatModelSelectionVersion = chatModelSelectionVersion;
     }
 }
 

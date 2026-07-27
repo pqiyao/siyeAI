@@ -9,7 +9,7 @@ import java.util.List;
 @Mapper
 public interface AppChatPresetMapper {
 
-    AppChatPreset findById(@Param("id") long id);
+    AppChatPreset findPublicById(@Param("id") long id);
 
     AppChatPreset findEnabledPublicById(@Param("id") long id);
 
@@ -20,6 +20,10 @@ public interface AppChatPresetMapper {
     List<AppChatPreset> listPublicEnabled();
 
     List<AppChatPreset> listPrivateByOwner(@Param("userId") long userId);
+
+    Long lockOwnerUser(@Param("userId") long userId);
+
+    long countPrivateByOwner(@Param("userId") long userId);
 
     void insertPrivate(AppChatPreset preset);
 
@@ -47,6 +51,10 @@ public interface AppChatPresetMapper {
     );
 
     void upsertPlatformPreset(AppChatPreset preset);
+
+    int markAllPlatformPresetsSourceUnavailable(@Param("apiType") String apiType);
+
+    List<Long> listUnavailablePlatformPresetIds(@Param("apiType") String apiType);
 
     int updateStatus(@Param("id") long id, @Param("enabled") boolean enabled);
 

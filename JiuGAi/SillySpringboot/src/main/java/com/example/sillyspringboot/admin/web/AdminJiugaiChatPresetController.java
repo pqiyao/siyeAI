@@ -3,6 +3,8 @@ package com.example.sillyspringboot.admin.web;
 import com.example.sillyspringboot.admin.security.AdminPermitted;
 import com.example.sillyspringboot.admin.web.support.AdminAjaxResult;
 import com.example.sillyspringboot.ops.service.ChatPresetService;
+import com.example.sillyspringboot.shared.error.BusinessException;
+import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -59,7 +61,7 @@ public class AdminJiugaiChatPresetController {
     @PutMapping("/{id}/status")
     @AdminPermitted("content:chat-preset:edit")
     public Map<String, Object> status(@PathVariable long id, @RequestBody(required = false) Map<String, Object> body) {
-        boolean enabled = body != null && Boolean.parseBoolean(String.valueOf(body.get("enabled")));
+        boolean enabled = requiredBoolean(body, "enabled");
         if (!chatPresetService.updateStatus(id, enabled)) {
             return AdminAjaxResult.error("\u9884\u8bbe\u4e0d\u5b58\u5728");
         }
@@ -94,5 +96,13 @@ public class AdminJiugaiChatPresetController {
         } catch (Exception ignored) {
             return fallback;
         }
+    }
+
+    private static boolean requiredBoolean(Map<String, Object> body, String field) {
+        Object value = body == null ? null : body.get(field);
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        throw new BusinessException(ErrorCode.VALIDATION_FAILED, field + " must be a boolean");
     }
 }

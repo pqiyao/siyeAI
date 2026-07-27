@@ -24,14 +24,14 @@ assert.ok(pages.includes('"path": "pages/user/myVoices"'));
 // Creation is presented as BYOK-only and sends one bounded multipart request.
 assert.ok(voices.includes('只使用你的 API Key'));
 assert.ok(voices.includes('官方平台模式不提供自建音色服务'));
-assert.ok(voices.includes('8 * 1024 * 1024'));
+assert.ok(voices.includes('15 * 1024 * 1024'));
 assert.ok(api.includes('function createUserTtsVoice'));
 assert.ok(api.includes('/api/v1/tavern/user-voices'));
 assert.ok(api.includes('uni.uploadFile'));
 assert.ok(api.includes('new FormData()'));
 
 // Recording is temporary, duration-bounded, converted to mono WAV on H5, and discarded on unload.
-assert.ok(voices.includes('duration: 20000'));
+assert.ok(voices.includes('duration: 60000'));
 assert.ok(voices.includes('duration < 5000'));
 assert.ok(voices.includes('view.setUint16(22, 1, true)'));
 assert.ok(voices.includes('discardRecordingResult = true'));
@@ -39,6 +39,8 @@ assert.ok(voices.includes('if (!this.pageActive)'));
 assert.ok(voices.includes('stream.getTracks()'));
 assert.ok(voices.includes('this.pageActive = false;'));
 assert.ok(voices.includes('this.releaseRecording();'));
+assert.ok(voices.includes('fetchAppRuntimeConfig(true)'));
+assert.ok(voices.includes('voiceFeatureEnabled === false'));
 
 // Binding is scoped and reversible. The server resolves the private voice for the TTS-only endpoint.
 assert.ok(voices.includes('scopeType: this.scopeType'));

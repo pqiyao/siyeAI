@@ -5,7 +5,7 @@
       type="info"
       :closable="false"
       show-icon
-      title="这里管理从 ST OpenAI Settings 同步来的官方聊天预设。H5 用户只能选择已启用的官方预设；本页不会写 ST 全局 settings。"
+      title="这里管理从 ST OpenAI Settings 同步来的官方聊天预设。ST 中消失或损坏的预设会标记为来源失效并停止用户会话使用；本页不会写 ST 全局 settings。"
     />
 
     <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
@@ -72,6 +72,13 @@
           <el-tag effect="plain">{{ apiTypeText(row.apiType) }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="ST 来源" width="120" align="center">
+        <template #default="{ row }">
+          <el-tag :type="row.sourceAvailable === false ? 'danger' : 'success'" effect="plain">
+            {{ row.sourceAvailable === false ? '已失效' : '正常' }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="参数摘要" min-width="300">
         <template #default="{ row }">
           <div class="summary-line">
@@ -92,6 +99,7 @@
             v-hasPermi="['content:chat-preset:edit']"
             v-model="row.enabled"
             :loading="row._statusSaving"
+            :disabled="row.sourceAvailable === false"
             @change="(val) => handleStatusChange(row, val)"
           />
           <el-tag v-if="!hasEditPermission" :type="row.enabled ? 'success' : 'info'">
@@ -237,7 +245,17 @@ function handleSyncSt() {
   syncStChatPresets()
     .then((res) => {
       const data = res.data || {}
-      proxy.$modal.msgSuccess(`同步完成：导入 ${data.imported || 0} 个，跳过 ${data.skipped || 0} 个`)
+      proxy.$modal.msgSuccess(`同步完成：导入 ${data.imported || 0} 个，跳过 ${data.skipped || 0} 个，来源失效 ${data.unavailable || 0} 个`)
+      const warnings = Array.isArray(data.warnings)
+        ? data.warnings.filter((item) => typeof item === 'string' && item.trim()).map((item) => item.trim())
+        : []
+      if (warnings.length > 0) {
+        const visibleWarnings = warnings.slice(0, 5)
+        const remainingText = warnings.length > visibleWarnings.length
+          ? `\n另有 ${warnings.length - visibleWarnings.length} 条警告，请检查 ST 预设配置。`
+          : ''
+        proxy.$modal.msgWarning(`同步警告：\n${visibleWarnings.join('\n')}${remainingText}`)
+      }
       getList()
     })
     .catch((e) => {

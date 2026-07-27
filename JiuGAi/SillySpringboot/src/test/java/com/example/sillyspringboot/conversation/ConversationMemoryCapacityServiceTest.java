@@ -339,7 +339,7 @@ class ConversationMemoryCapacityServiceTest {
     }
 
     @Test
-    void historyChange_shouldInvalidatePinnedGeneratedEntryAndAllowReExtraction() {
+    void historyChange_shouldPreservePinnedEntryAndStillAllowReExtraction() {
         AppConversationMemoryEntry entry = insert(BRANCH_ID, "history_fact", "identity", 200, true, 50L);
         properties.setMaxEnabledEntries(1);
         AppConversationMemoryEntry archived = insert(
@@ -369,12 +369,12 @@ class ConversationMemoryCapacityServiceTest {
                     assertThat(preserved.isManualPinned()).isTrue();
                 });
 
-        assertThat(entryMapper.softDeleteGeneratedByConversationBranchId(CONVERSATION_ID, BRANCH_ID)).isEqualTo(2);
+        assertThat(entryMapper.softDeleteGeneratedByConversationBranchId(CONVERSATION_ID, BRANCH_ID)).isEqualTo(1);
         assertThat(findById(entry.getId()))
-                .satisfies(invalidated -> {
-                    assertThat(invalidated.isManualPinned()).isFalse();
-                    assertThat(invalidated.getRetiredReason()).isEqualTo("HISTORY_CHANGED");
-                    assertThat(invalidated.getDeletedAt()).isNotNull();
+                .satisfies(preserved -> {
+                    assertThat(preserved.isManualPinned()).isTrue();
+                    assertThat(preserved.getRetiredReason()).isNull();
+                    assertThat(preserved.getDeletedAt()).isNull();
                 });
         assertThat(findById(archived.getId()))
                 .satisfies(invalidated -> {
@@ -382,7 +382,9 @@ class ConversationMemoryCapacityServiceTest {
                     assertThat(invalidated.getRetiredAt()).isNotNull();
                     assertThat(invalidated.getDeletedAt()).isNotNull();
                 });
-        assertThat(entryMapper.listPanelByConversationBranchId(CONVERSATION_ID, BRANCH_ID)).isEmpty();
+        assertThat(entryMapper.listPanelByConversationBranchId(CONVERSATION_ID, BRANCH_ID))
+                .extracting(AppConversationMemoryEntry::getEntryKey)
+                .containsExactly("history_fact");
 
         AppConversationMemoryEntry refreshed = memoryEntry(
                 BRANCH_ID,
@@ -398,7 +400,8 @@ class ConversationMemoryCapacityServiceTest {
         assertThat(findById(entry.getId()))
                 .satisfies(restored -> {
                     assertThat(restored.isEnabled()).isTrue();
-                    assertThat(restored.isManualPinned()).isFalse();
+                    assertThat(restored.isManualPinned()).isTrue();
+                    assertThat(restored.getContent()).isEqualTo("重新整理后确认的身份事实。");
                     assertThat(restored.getRetiredReason()).isNull();
                     assertThat(restored.getRetiredAt()).isNull();
                     assertThat(restored.getDeletedAt()).isNull();

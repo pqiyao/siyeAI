@@ -219,6 +219,9 @@
         WHERE id = #{id}
     </update>
     <delete id="deleteRoute">DELETE FROM app_ai_route WHERE id = #{id}</delete>
+    <select id="countChatOfferingsForRoute" resultType="int">
+        SELECT COUNT(*) FROM app_ai_chat_offering WHERE route_key = #{routeKey}
+    </select>
     <select id="listRouteMembers" resultType="com.example.sillyspringboot.ai.entity.AiRouteMember">
         SELECT id, route_id, deployment_id, sort_order FROM app_ai_route_member
         WHERE route_id = #{routeId} ORDER BY sort_order ASC

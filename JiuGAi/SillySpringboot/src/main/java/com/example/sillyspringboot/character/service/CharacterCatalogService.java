@@ -17,9 +17,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -135,7 +132,7 @@ public class CharacterCatalogService {
             if (av.isBlank()) {
                 continue;
             }
-            upsertByAvatarUrl(av, s.name(), s.description(), s.dateAddedMs());
+            refreshExistingSystemByAvatarUrl(av, s.name(), s.description());
             cap++;
         }
     }
@@ -160,8 +157,8 @@ public class CharacterCatalogService {
     }
 
     @Transactional
-    public AppCharacter ensureCharacter(long characterId) {
-        AppCharacter c = mapper.findById(characterId);
+    public AppCharacter ensurePublicCharacter(long characterId) {
+        AppCharacter c = mapper.findPublicVisibleById(characterId);
         if (c == null) {
             return null;
         }
@@ -181,112 +178,45 @@ public class CharacterCatalogService {
         return c;
     }
 
-    public AppCharacter upsertByAvatarUrl(String avatarUrl, String name, String description) {
-        return upsertByAvatarUrl(avatarUrl, name, description, null);
-    }
-
-    public AppCharacter upsertByAvatarUrl(String avatarUrl, String name, String description, Long stDateAddedMs) {
+    private AppCharacter refreshExistingSystemByAvatarUrl(String avatarUrl, String name, String description) {
         String safeAvatar = normalizeStAvatarUrl(avatarUrl);
         if (safeAvatar.isBlank()) {
             return null;
         }
-        if (isPrivateImportAvatar(safeAvatar)) {
-            AppCharacter existedPrivate = mapper.findActivePrivateByStAvatarUrl(safeAvatar);
-            return existedPrivate != null ? existedPrivate : mapper.findDeletedPrivateByStAvatarUrl(safeAvatar);
-        }
-        AppCharacter existed = mapper.findSystemByStAvatarUrlAny(safeAvatar);
         AppCharacter activePrivate = mapper.findActivePrivateByStAvatarUrl(safeAvatar);
         if (activePrivate != null) {
-            AppCharacter syncShadow = mapper.findSyncShadowPublicByStAvatarUrl(safeAvatar);
-            if (syncShadow != null && syncShadow.getId() != null) {
-                mapper.softDeleteById(syncShadow.getId());
-            }
+            log.warn("Skip ST catalog refresh for avatar shared with an active private character: {}", safeAvatar);
             return activePrivate;
         }
-        AppCharacter deletedPrivate = mapper.findDeletedPrivateByStAvatarUrl(safeAvatar);
-        if (shouldKeepPrivateFileOutOfPublicFeed(deletedPrivate, existed, stDateAddedMs)) {
-            if (existed != null && existed.getDeletedAt() == null && existed.getId() != null) {
-                mapper.softDeleteById(existed.getId());
-            }
-            return deletedPrivate;
+        AppCharacter existed = mapper.findActiveSystemByStAvatarUrl(safeAvatar);
+        if (existed == null) {
+            log.debug("Skip unknown ST character during catalog refresh: {}", safeAvatar);
+            return null;
         }
-        if (existed != null) {
-            if (existed.getDeletedAt() != null) {
-                existed.setDeletedAt(null);
-                existed.setPrivateCard(Boolean.FALSE);
-                existed.setReviewStatus(CharacterReviewStatus.APPROVED);
-            }
-            if (name != null && !name.isBlank()) {
-                existed.setName(clip(name, MAX_NAME));
-            }
-            if (description != null) {
-                existed.setDescription(description);
-            }
-            applyPublicProfile(existed);
-            mapper.updateById(existed);
-            return existed;
+        if (name != null && !name.isBlank()) {
+            existed.setName(clip(name, MAX_NAME));
         }
-        AppCharacter c = new AppCharacter();
-        c.setStAvatarUrl(clip(safeAvatar, MAX_ST_AVATAR_URL));
-        c.setName(clip(name == null || name.isBlank() ? safeAvatar : name, MAX_NAME));
-        c.setDescription(description);
-        applyPublicProfile(c);
-        mapper.insert(c);
-        AppCharacter created = mapper.findById(c.getId());
-        syncEmbeddedLorebookFromSt(created, safeAvatar);
-        return created;
-    }
-
-    private boolean syncEmbeddedLorebookFromSt(AppCharacter row, String avatarUrl) {
-        if (row == null || row.getId() == null || row.getId() <= 0) {
-            return false;
+        if (description != null) {
+            existed.setDescription(description);
         }
-        String safeAvatar = normalizeStAvatarUrl(avatarUrl);
-        if (safeAvatar.isBlank()) {
-            return false;
-        }
-        try {
-            StCharacterDetail detail = stAdapter.getCharacter(new StCharacterGetRequest(safeAvatar));
-            syncEmbeddedLorebookFromDetail(row, detail);
-            return true;
-        } catch (StUnavailableException ex) {
-            log.debug("sync embedded lorebook skipped, ST unavailable for {}: {}", safeAvatar, ex.getMessage());
-            return false;
-        } catch (Exception ex) {
-            log.warn("sync embedded lorebook failed for {}: {}", safeAvatar, ex.toString());
-            return false;
-        }
-    }
-
-    private int syncEmbeddedLorebookFromDetail(AppCharacter row, StCharacterDetail detail) {
-        if (row == null || row.getId() == null || row.getId() <= 0 || detail == null) {
-            return 0;
-        }
-        String embeddedCharacterBookJson = trimToEmpty(detail.embeddedCharacterBookJson());
-        if (embeddedCharacterBookJson.isBlank()) {
-            return 0;
-        }
-        int imported = embeddedLorebookSyncService.replaceEmbeddedLorebook(row.getId(), embeddedCharacterBookJson);
-        if (isBlank(row.getStExtraJson())) {
-            row.setStExtraJson(prepareImportedExtraJson(detail.rawJson(), embeddedCharacterBookJson));
-            mapper.updateById(row);
-        }
-        return imported;
+        applyPublicProfile(existed);
+        mapper.updateById(existed);
+        return existed;
     }
 
     @Transactional
-    public AppCharacter upsertImportedCharacter(String avatarUrl, StCharacterDetail detail) {
+    public ImportedSystemCharacter createImportedSystemCharacter(String avatarUrl, StCharacterDetail detail) {
         String safeAvatar = normalizeStAvatarUrl(avatarUrl);
         if (safeAvatar.isBlank()) {
             return null;
         }
-        AppCharacter row = mapper.findSystemByStAvatarUrlAny(safeAvatar);
-        if (row != null && row.getId() != null) {
-            embeddedLorebookSyncService.deleteAllForCharacter(row.getId());
-            mapper.softDeleteById(row.getId());
+        if (mapper.findPrivateByStAvatarUrlAny(safeAvatar) != null
+                || mapper.findSystemByStAvatarUrlAny(safeAvatar) != null) {
+            throw new IllegalStateException("ST 角色文件名已被现有角色占用，系统导入已中止");
         }
-        row = new AppCharacter();
+        AppCharacter row = new AppCharacter();
         row.setStAvatarUrl(safeAvatar);
+        row.setOwnerUserId(null);
         row.setPrivateCard(Boolean.FALSE);
         row.setReviewStatus(CharacterReviewStatus.APPROVED);
         row.setVipOnly(Boolean.FALSE);
@@ -299,7 +229,10 @@ public class CharacterCatalogService {
         boolean isNew = true;
         applyImportedDetail(row, safeAvatar, detail, isNew);
         mapper.insertFull(row);
-        return mapper.findById(row.getId());
+        AppCharacter saved = mapper.findById(row.getId());
+        int importedLorebookEntries = embeddedLorebookSyncService.replaceEmbeddedLorebook(
+                row.getId(), detail == null ? null : detail.embeddedCharacterBookJson());
+        return new ImportedSystemCharacter(saved, importedLorebookEntries);
     }
 
     private void applyImportedDetail(AppCharacter row, String avatarUrl, StCharacterDetail detail, boolean isNew) {
@@ -465,40 +398,7 @@ public class CharacterCatalogService {
         return value == null || value.isBlank();
     }
 
-    private static boolean isPrivateImportAvatar(String avatarUrl) {
-        return avatarUrl != null && avatarUrl.matches("h5_u\\d+_[0-9a-fA-F]{32}\\.png");
-    }
-
-    private static boolean isSyncShadow(AppCharacter row) {
-        return row != null
-                && isBlank(row.getAvatarUrl())
-                && isBlank(row.getCoverUrl())
-                && isBlank(row.getCreatorName())
-                && isBlank(row.getCreatorHandle())
-                && (isBlank(row.getTagsJson()) || "[]".equals(row.getTagsJson().trim()));
-    }
-
-    private static boolean shouldKeepPrivateFileOutOfPublicFeed(
-            AppCharacter privateRow,
-            AppCharacter publicRow,
-            Long stDateAddedMs
-    ) {
-        if (privateRow == null || !isSyncShadowOrMissing(publicRow)) {
-            return false;
-        }
-        LocalDateTime boundary = privateRow.getDeletedAt() != null
-                ? privateRow.getDeletedAt()
-                : privateRow.getCreatedAt();
-        if (boundary == null || stDateAddedMs == null || stDateAddedMs <= 0L) {
-            return false;
-        }
-        LocalDateTime stFileTime =
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(stDateAddedMs), ZoneId.systemDefault());
-        return !stFileTime.isAfter(boundary.plusSeconds(2));
-    }
-
-    private static boolean isSyncShadowOrMissing(AppCharacter publicRow) {
-        return publicRow == null || isSyncShadow(publicRow);
+    public record ImportedSystemCharacter(AppCharacter character, int importedLorebookEntries) {
     }
 
 }

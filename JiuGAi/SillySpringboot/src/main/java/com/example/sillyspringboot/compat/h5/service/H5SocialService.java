@@ -70,7 +70,7 @@ public class H5SocialService {
             if (id == null) {
                 continue;
             }
-            AppCharacter character = characterMapper.findById(id);
+            AppCharacter character = characterMapper.findPublicVisibleById(id);
             if (character != null) {
                 out.add(character);
             }
@@ -156,7 +156,7 @@ public class H5SocialService {
             if (ownerId == null || !ownerId.equals(userId)) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "角色不存在");
             }
-        } else if (Boolean.FALSE.equals(character.getClientVisible())) {
+        } else if (characterMapper.findPublicVisibleById(characterId) == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "角色不存在");
         }
 

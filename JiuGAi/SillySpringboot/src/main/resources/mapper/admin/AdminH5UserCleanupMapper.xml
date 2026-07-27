@@ -4,6 +4,13 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.sillyspringboot.admin.mapper.AdminH5UserCleanupMapper">
 
+    <select id="lockAppUser" resultType="java.lang.Long">
+        SELECT id
+        FROM app_user
+        WHERE id = #{userId}
+        FOR UPDATE
+    </select>
+
     <select id="listConversationStRefs" resultType="map">
         SELECT
             COALESCE(st_avatar_url, '') AS stAvatarUrl,
@@ -75,6 +82,11 @@
         WHERE user_id = #{userId}
     </delete>
 
+    <delete id="deleteUserInboxAdReads">
+        DELETE FROM app_user_inbox_ad_read
+        WHERE user_id = #{userId}
+    </delete>
+
     <delete id="deleteCharacterFavorites">
         DELETE FROM app_character_favorite
         WHERE user_id = #{userId}
@@ -114,6 +126,21 @@
 
     <delete id="deletePaymentOrders">
         DELETE FROM app_payment_order
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteChatGenerationContextsByUser">
+        DELETE FROM app_chat_generation_context
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteChatModelPreferencesByUser">
+        DELETE FROM app_chat_model_preference
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteH5UserAiChatModelsByUser">
+        DELETE FROM app_h5_user_ai_chat_model
         WHERE user_id = #{userId}
     </delete>
 
@@ -288,6 +315,26 @@
         WHERE user_id = #{userId}
     </delete>
 
+    <delete id="deleteUserTtsVoiceBindings">
+        DELETE FROM app_user_tts_voice_binding
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteUserTtsVoices">
+        DELETE FROM app_user_tts_voice
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteUserTtsVoiceInstances">
+        DELETE FROM app_user_tts_voice_instance
+        WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteCheckinClaimsByUser">
+        DELETE FROM app_checkin_claim
+        WHERE user_id = #{userId}
+    </delete>
+
     <delete id="deleteEntitlementAuditLogsByUser">
         DELETE FROM app_entitlement_audit_log
         WHERE target_user_id = #{userId}
@@ -313,6 +360,11 @@
     <delete id="deleteOwnedUploadAssetsByUser">
         DELETE FROM app_h5_upload_asset
         WHERE owner_user_id = #{userId}
+    </delete>
+
+    <delete id="deleteIllustrationWorksBySubmitter">
+        DELETE FROM app_illustration_work
+        WHERE submitter_user_id = #{userId}
     </delete>
 
     <delete id="deleteCharacterReviewLogsByOwner">
@@ -342,6 +394,24 @@
         DELETE FROM app_user_chat_preference
         WHERE user_id = #{userId}
            OR character_id IN (
+                SELECT id FROM (
+                    SELECT id
+                    FROM app_character
+                    WHERE owner_user_id = #{userId}
+                ) c
+           )
+    </delete>
+
+    <delete id="deletePrivateChatPresetsByUser">
+        DELETE FROM app_chat_preset
+        WHERE scope = 'PRIVATE'
+          AND owner_user_id = #{userId}
+    </delete>
+
+    <delete id="deleteCharacterPromotionsBySourceUser">
+        DELETE FROM app_character_system_promotion
+        WHERE source_user_id = #{userId}
+           OR source_character_id IN (
                 SELECT id FROM (
                     SELECT id
                     FROM app_character

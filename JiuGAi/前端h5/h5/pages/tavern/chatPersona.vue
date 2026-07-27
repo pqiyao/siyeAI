@@ -50,17 +50,17 @@
 					</view>
 				</view>
 
-				<view v-if="conversationId" class="section preset-section">
+				<view v-if="conversationId && presetFeatureConfigReady && showPresetSection" class="section preset-section">
 					<view class="section-head">
 						<view><text class="section-title section-title--inline">生成预设</text><text class="section-sub">当前：{{ selectedPresetName }}</text></view>
 						<view v-if="presetSaving || presetLoading" class="loading-mark"><u-icon name="reload" color="#3f8f9f" size="23" class="spin"></u-icon></view>
 					</view>
-					<view class="segment">
+					<view v-if="showSystemPresets && showUserPresets" class="segment">
 						<view class="segment-item" :class="{ 'segment-item--active': presetTab === 'official' }" @tap="presetTab = 'official'">官方预设</view>
 						<view class="segment-item" :class="{ 'segment-item--active': presetTab === 'mine' }" @tap="presetTab = 'mine'">我的预设 <text v-if="myPresets.length">{{ myPresets.length }}</text></view>
 					</view>
 
-					<view v-if="presetTab === 'official'" class="preset-pane">
+					<view v-if="showSystemPresets && presetTab === 'official'" class="preset-pane">
 						<picker mode="selector" :range="officialPickerOptions" range-key="name" :value="officialPickerIndex" @change="handleOfficialPickerChange">
 							<view class="selector-row">
 								<view class="selector-copy"><text class="selector-label">会话使用</text><text class="selector-value">{{ officialPickerName }}</text></view>
@@ -68,12 +68,12 @@
 							</view>
 						</picker>
 						<text v-if="selectedOfficialSummary" class="preset-summary">{{ selectedOfficialSummary }}</text>
-						<view class="copy-button" :class="{ 'copy-button--disabled': !selectedOfficial || presetSaving }" @tap="copyOfficialPreset">
-							<u-icon name="file-text" color="#236f82" size="24"></u-icon><text>复制到我的预设</text>
+						<view v-if="showUserPresets" class="copy-button" :class="{ 'copy-button--disabled': !selectedOfficial || presetSaving }" @tap="copyOfficialPreset">
+							<u-icon name="file-text" color="#236f82" size="24"></u-icon><text>复制生成参数到我的预设</text>
 						</view>
 					</view>
 
-					<view v-else class="preset-pane">
+					<view v-else-if="showUserPresets" class="preset-pane">
 						<view v-if="!myPresets.length" class="preset-empty"><text>暂无我的预设</text></view>
 						<view v-for="item in myPresets" :key="'my_preset_' + item.id" class="preset-row" :class="{ 'preset-row--selected': Number(currentPresetId) === Number(item.id), 'preset-row--disabled': !item.enabled }" @tap="selectMyPreset(item)">
 							<view class="preset-row-main"><text class="preset-row-name">{{ item.name }}</text><text class="preset-row-meta">{{ presetSummaryText(item) }}</text></view>
@@ -93,7 +93,7 @@
 			</view>
 		</scroll-view>
 
-		<view v-if="presetEditor.visible" class="editor-mask" @tap="closePresetEditor">
+		<view v-if="showUserPresets && presetEditor.visible" class="editor-mask" @tap="closePresetEditor">
 			<view class="editor-sheet" @tap.stop>
 				<view class="editor-head"><text class="editor-title">编辑我的预设</text><view class="icon-button" @tap="closePresetEditor"><u-icon name="close" color="#637786" size="26"></u-icon></view></view>
 				<text class="lab">名称</text>
@@ -125,19 +125,28 @@
 			return {
 				cid: '', conversationId: null, displayName: '', stDisplayName: '', stDisplayNameOverride: '', effectiveStDisplayName: '', persona: '', saving: false,
 				characterName: '', backgroundPreview: '', presetLoading: false, presetSaving: false, currentPresetId: null, platformPresets: [], myPresets: [],
-				presetTab: 'official', officialDraftId: null, presetEditor: emptyPresetEditor()
+				presetTab: 'official', officialDraftId: null, presetEditor: emptyPresetEditor(), presetFeatureConfigReady: false,
+				systemChatPresetEntryVisible: true, userChatPresetEntryVisible: true
 			};
 		},
 		onLoad(query) {
 			this.cid = query && query.id ? String(query.id) : '';
-			this.loadProfile();
+			this.loadPresetFeatureConfig().finally(() => this.loadProfile());
 			this.loadCharacterPreview();
 		},
 		computed: {
 			effectiveIdentityName() { return (this.stDisplayNameOverride || this.stDisplayName || this.displayName || '未设置称呼').trim(); },
+			showSystemPresets() { return this.systemChatPresetEntryVisible !== false; },
+			showUserPresets() { return this.userChatPresetEntryVisible !== false; },
+			showPresetSection() { return this.showSystemPresets || this.showUserPresets; },
 			allPresets() { return (this.platformPresets || []).concat(this.myPresets || []); },
 			selectedPreset() { return this.allPresets.find((item) => Number(item.id) === Number(this.currentPresetId)) || null; },
-			selectedPresetName() { return this.selectedPreset ? this.selectedPreset.name : '系统默认'; },
+			selectedPresetName() {
+				if (!this.selectedPreset) return '系统默认';
+				if (this.selectedPreset.scope === 'PUBLIC' && !this.showSystemPresets) return '系统预设已隐藏';
+				if (this.selectedPreset.scope === 'PRIVATE' && !this.showUserPresets) return '我的预设已隐藏';
+				return this.selectedPreset.name;
+			},
 			officialPickerOptions() { return [{ id: null, name: '系统默认' }].concat(this.platformPresets || []); },
 			officialPickerIndex() {
 				const id = Number(this.officialDraftId || 0);
@@ -150,6 +159,15 @@
 		},
 		methods: {
 			goBack() { uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/tavern/tavern' }) }); },
+			loadPresetFeatureConfig() {
+				const api = require('@/common/tavernApi.js');
+				return api.fetchAppRuntimeConfig(true).then((config) => {
+					this.systemChatPresetEntryVisible = !config || config.systemChatPresetEntryVisible !== false;
+					this.userChatPresetEntryVisible = !config || config.userChatPresetEntryVisible !== false;
+					if (!this.systemChatPresetEntryVisible && this.userChatPresetEntryVisible) this.presetTab = 'mine';
+					if (this.systemChatPresetEntryVisible && !this.userChatPresetEntryVisible) this.presetTab = 'official';
+				}).finally(() => { this.presetFeatureConfigReady = true; });
+			},
 			loadProfile() {
 				const api = require('@/common/tavernApi.js');
 				if (!api.jgEnabled()) return uni.showToast({ title: '请先配置酒馆后端', icon: 'none' });
@@ -157,7 +175,7 @@
 					if (!data) return;
 					this.displayName = data.display_name || ''; this.stDisplayName = data.st_display_name || ''; this.stDisplayNameOverride = data.st_display_name_override || '';
 					this.effectiveStDisplayName = data.effective_st_display_name || ''; this.persona = data.persona || ''; this.conversationId = data.conversation_id || null;
-					this.loadChatPresets();
+					if (this.showPresetSection) this.loadChatPresets();
 				}).catch((error) => this.showError(error, '加载聊天设定失败'));
 			},
 			loadCharacterPreview() {
@@ -170,7 +188,7 @@
 			},
 			previewBackground() { if (this.backgroundPreview) uni.previewImage({ current: this.backgroundPreview, urls: [this.backgroundPreview] }); },
 			loadChatPresets() {
-				if (!this.conversationId || this.presetLoading) return Promise.resolve(false);
+				if (!this.showPresetSection || !this.conversationId || this.presetLoading) return Promise.resolve(false);
 				const api = require('@/common/tavernApi.js'); this.presetLoading = true;
 				return api.fetchTavernChatPresets(api.getClientUid(), this.conversationId).then((data) => {
 					this.currentPresetId = data && data.currentPresetId ? Number(data.currentPresetId) : null;
@@ -182,8 +200,13 @@
 				}).catch((error) => { this.showError(error, '加载聊天预设失败'); return false; }).finally(() => { this.presetLoading = false; });
 			},
 			handleOfficialPickerChange(event) {
+				if (!this.showSystemPresets || this.presetSaving) return;
 				const option = this.officialPickerOptions[Number(event && event.detail && event.detail.value) || 0]; if (!option) return;
-				this.officialDraftId = option.id == null ? null : Number(option.id); this.saveConversationPreset(this.officialDraftId);
+				const previousOfficialId = this.officialDraftId;
+				this.officialDraftId = option.id == null ? null : Number(option.id);
+				this.saveConversationPreset(this.officialDraftId).then((saved) => {
+					if (!saved) this.officialDraftId = previousOfficialId;
+				});
 			},
 			saveConversationPreset(presetId) {
 				if (!this.conversationId || this.presetSaving) return Promise.resolve(false);
@@ -193,13 +216,20 @@
 				}).catch((error) => { this.showError(error, '切换聊天预设失败'); return false; }).finally(() => { this.presetSaving = false; });
 			},
 			copyOfficialPreset() {
-				if (!this.selectedOfficial || this.presetSaving) return;
+				if (!this.showSystemPresets || !this.showUserPresets || !this.selectedOfficial || this.presetSaving) return;
 				const api = require('@/common/tavernApi.js'); this.presetSaving = true;
 				api.postTavernChatPresetCopy(api.getClientUid(), this.selectedOfficial.id, this.selectedOfficial.name + ' 副本').then((row) => {
 					return this.loadChatPresets().then(() => { this.presetTab = 'mine'; const item = this.myPresets.find((entry) => Number(entry.id) === Number(row && row.id)); if (item) this.openPresetEditor(item); });
 				}).catch((error) => this.showError(error, '复制预设失败')).finally(() => { this.presetSaving = false; });
 			},
-			selectMyPreset(item) { if (!item || !item.enabled || this.presetSaving) return; this.saveConversationPreset(Number(item.id)); },
+			selectMyPreset(item) {
+				if (!this.showUserPresets || !item || !item.enabled || this.presetSaving) return;
+				const previousOfficialId = this.officialDraftId;
+				this.officialDraftId = null;
+				this.saveConversationPreset(Number(item.id)).then((saved) => {
+					if (!saved) this.officialDraftId = previousOfficialId;
+				});
+			},
 			presetSummaryText(item) {
 				const s = item && item.summary || {}; const parts = [];
 				if (s.temperature !== '' && s.temperature != null) parts.push('随机度 ' + s.temperature);
@@ -209,25 +239,35 @@
 				return parts.join(' · ') || '使用系统默认参数';
 			},
 			openPresetEditor(item) {
+				if (!this.showUserPresets) return;
+				const form = require('@/common/chatPresetForm.js');
 				const s = item && item.summary || {};
-				this.presetEditor = { visible: true, id: Number(item.id), name: item.name || '', temperature: String(s.temperature || 1), topP: String(s.topP || 1), maxTokens: String(s.maxTokens || 512), maxContext: String(s.maxContext || 8192), enabled: item.enabled !== false, saving: false, error: '' };
+				this.presetEditor = { visible: true, id: Number(item.id), name: item.name || '', temperature: form.fieldText(s.temperature, 1), topP: form.fieldText(s.topP, 1), maxTokens: form.fieldText(s.maxTokens, 512), maxContext: form.fieldText(s.maxContext, 8192), enabled: item.enabled !== false, saving: false, error: '' };
 			},
 			closePresetEditor() { if (!this.presetEditor.saving) this.presetEditor = emptyPresetEditor(); },
 			savePresetEditor() {
-				const e = this.presetEditor; if (!e.visible || e.saving) return;
-				const payload = { name: String(e.name || '').trim(), temperature: Number(e.temperature), topP: Number(e.topP), maxTokens: Number(e.maxTokens), maxContext: Number(e.maxContext), enabled: e.enabled === true };
+				const e = this.presetEditor; if (!this.showUserPresets || !e.visible || e.saving) return;
+				const form = require('@/common/chatPresetForm.js');
+				const temperature = form.requiredNumber(e.temperature); const topP = form.requiredNumber(e.topP); const maxTokens = form.requiredNumber(e.maxTokens); const maxContext = form.requiredNumber(e.maxContext);
+				const payload = { name: String(e.name || '').trim(), temperature: temperature.value, topP: topP.value, maxTokens: maxTokens.value, maxContext: maxContext.value, enabled: e.enabled === true };
 				if (!payload.name) return this.$set(this.presetEditor, 'error', '请输入预设名称');
-				if (!isFinite(payload.temperature) || payload.temperature < 0 || payload.temperature > 2) return this.$set(this.presetEditor, 'error', '随机度范围为 0–2');
-				if (!isFinite(payload.topP) || payload.topP < 0.01 || payload.topP > 1) return this.$set(this.presetEditor, 'error', 'Top P 范围为 0.01–1');
+				if (!temperature.valid) return this.$set(this.presetEditor, 'error', '请输入随机度');
+				if (payload.temperature < 0 || payload.temperature > 2) return this.$set(this.presetEditor, 'error', '随机度范围为 0–2');
+				if (!topP.valid) return this.$set(this.presetEditor, 'error', '请输入 Top P');
+				if (payload.topP < 0.01 || payload.topP > 1) return this.$set(this.presetEditor, 'error', 'Top P 范围为 0.01–1');
+				if (!maxTokens.valid) return this.$set(this.presetEditor, 'error', '请输入回复长度');
 				if (!Number.isInteger(payload.maxTokens) || payload.maxTokens < 64 || payload.maxTokens > 8192) return this.$set(this.presetEditor, 'error', '回复长度范围为 64–8192');
+				if (!maxContext.valid) return this.$set(this.presetEditor, 'error', '请输入上下文长度');
 				if (!Number.isInteger(payload.maxContext) || payload.maxContext < 2048 || payload.maxContext > 131072 || payload.maxContext < payload.maxTokens + 512) return this.$set(this.presetEditor, 'error', '上下文长度无效');
 				const api = require('@/common/tavernApi.js'); this.$set(this.presetEditor, 'saving', true); this.$set(this.presetEditor, 'error', '');
 				api.putTavernPrivateChatPreset(api.getClientUid(), e.id, payload).then(() => this.loadChatPresets()).then(() => { this.presetEditor = emptyPresetEditor(); uni.showToast({ title: '预设已保存', icon: 'none' }); }).catch((error) => this.$set(this.presetEditor, 'error', this.errorText(error, '保存预设失败'))).finally(() => { if (this.presetEditor.visible) this.$set(this.presetEditor, 'saving', false); });
 			},
 			confirmDeletePreset(item) {
+				if (!this.showUserPresets) return;
 				uni.showModal({ title: '删除我的预设？', content: '使用此预设的会话将恢复系统默认。', confirmText: '删除', confirmColor: '#9f2d28', success: (result) => { if (result.confirm) this.deletePreset(item); } });
 			},
 			deletePreset(item) {
+				if (!this.showUserPresets) return;
 				const api = require('@/common/tavernApi.js'); this.presetSaving = true;
 				api.deleteTavernPrivateChatPreset(api.getClientUid(), item.id).then(() => this.loadChatPresets()).then(() => uni.showToast({ title: '预设已删除', icon: 'none' })).catch((error) => this.showError(error, '删除预设失败')).finally(() => { this.presetSaving = false; });
 			},

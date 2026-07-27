@@ -15,6 +15,7 @@
         <result column="description" property="description"/>
         <result column="bundle_json" property="bundleJson"/>
         <result column="enabled" property="enabled"/>
+        <result column="source_available" property="sourceAvailable"/>
         <result column="sort_order" property="sortOrder"/>
         <result column="last_synced_at" property="lastSyncedAt"/>
         <result column="created_at" property="createdAt"/>
@@ -23,13 +24,15 @@
 
     <sql id="BaseColumns">
         id, owner_user_id, scope, source_type, api_type, source_name, name, description,
-        bundle_json, enabled, sort_order, last_synced_at, created_at, updated_at
+        bundle_json, enabled, source_available, sort_order, last_synced_at, created_at, updated_at
     </sql>
 
-    <select id="findById" resultMap="AppChatPresetResultMap">
+    <select id="findPublicById" resultMap="AppChatPresetResultMap">
         SELECT <include refid="BaseColumns"/>
         FROM app_chat_preset
         WHERE id = #{id}
+          AND scope = 'PUBLIC'
+          AND owner_user_id IS NULL
         LIMIT 1
     </select>
 
@@ -39,6 +42,7 @@
         WHERE id = #{id}
           AND scope = 'PUBLIC'
           AND enabled = 1
+          AND source_available = 1
         LIMIT 1
     </select>
 
@@ -48,7 +52,7 @@
         WHERE id = #{id}
           AND enabled = 1
           AND (
-              (scope = 'PUBLIC' AND owner_user_id IS NULL)
+              (scope = 'PUBLIC' AND owner_user_id IS NULL AND source_available = 1)
               OR (scope = 'PRIVATE' AND owner_user_id = #{userId})
           )
         LIMIT 1
@@ -68,6 +72,7 @@
         FROM app_chat_preset
         WHERE scope = 'PUBLIC'
           AND enabled = 1
+          AND source_available = 1
         ORDER BY sort_order ASC, id ASC
     </select>
 
@@ -77,6 +82,20 @@
         WHERE scope = 'PRIVATE'
           AND owner_user_id = #{userId}
         ORDER BY updated_at DESC, id DESC
+    </select>
+
+    <select id="lockOwnerUser" resultType="java.lang.Long">
+        SELECT id
+        FROM app_user
+        WHERE id = #{userId}
+        FOR UPDATE
+    </select>
+
+    <select id="countPrivateByOwner" resultType="long">
+        SELECT COUNT(*)
+        FROM app_chat_preset
+        WHERE scope = 'PRIVATE'
+          AND owner_user_id = #{userId}
     </select>
 
     <insert id="insertPrivate" parameterType="com.example.sillyspringboot.ops.entity.AppChatPreset"
@@ -144,18 +163,41 @@
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO app_chat_preset (
             owner_user_id, scope, source_type, api_type, source_name, name, description,
-            bundle_json, enabled, sort_order, last_synced_at
+            bundle_json, enabled, source_available, sort_order, last_synced_at
         ) VALUES (
             #{ownerUserId}, #{scope}, #{sourceType}, #{apiType}, #{sourceName}, #{name}, #{description},
-            #{bundleJson}, #{enabled}, #{sortOrder}, #{lastSyncedAt}
+            #{bundleJson}, #{enabled}, #{sourceAvailable}, #{sortOrder}, #{lastSyncedAt}
         )
         ON DUPLICATE KEY UPDATE
             name = VALUES(name),
             description = VALUES(description),
             bundle_json = VALUES(bundle_json),
+            source_available = VALUES(source_available),
             last_synced_at = VALUES(last_synced_at),
             updated_at = CURRENT_TIMESTAMP
     </insert>
+
+    <update id="markAllPlatformPresetsSourceUnavailable">
+        UPDATE app_chat_preset
+        SET source_available = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE scope = 'PUBLIC'
+          AND owner_user_id IS NULL
+          AND source_type = 'ST_PLATFORM'
+          AND api_type = #{apiType}
+          AND source_available = 1
+    </update>
+
+    <select id="listUnavailablePlatformPresetIds" resultType="java.lang.Long">
+        SELECT id
+        FROM app_chat_preset
+        WHERE scope = 'PUBLIC'
+          AND owner_user_id IS NULL
+          AND source_type = 'ST_PLATFORM'
+          AND api_type = #{apiType}
+          AND source_available = 0
+        ORDER BY id ASC
+    </select>
 
     <update id="updateStatus">
         UPDATE app_chat_preset

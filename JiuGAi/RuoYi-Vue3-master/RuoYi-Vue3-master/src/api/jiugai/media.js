@@ -43,3 +43,10 @@ export function updateUserTtsVoiceDisabled(voiceId, disabled) {
     data: { disabled: disabled === true }
   })
 }
+
+export function finishUserTtsVoiceProvisioning(voiceId) {
+  return request({
+    url: `/admin/jiugai/user-tts-voice/${voiceId}/finish-provisioning`,
+    method: 'put'
+  })
+}

@@ -62,6 +62,7 @@ public interface AiRoutingMapper {
     int insertRoute(AiRoute row);
     int updateRoute(AiRoute row);
     int deleteRoute(@Param("id") Long id);
+    int countChatOfferingsForRoute(@Param("routeKey") String routeKey);
     List<AiRouteMember> listRouteMembers(@Param("routeId") Long routeId);
     int deleteRouteMembers(@Param("routeId") Long routeId);
     int insertRouteMember(AiRouteMember row);

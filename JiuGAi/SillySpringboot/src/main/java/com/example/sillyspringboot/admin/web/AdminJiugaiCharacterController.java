@@ -10,13 +10,15 @@ import com.example.sillyspringboot.admin.web.support.AdminAjaxResult;
 import com.example.sillyspringboot.character.entity.AppCharacter;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.character.service.CharacterCatalogService;
-import com.example.sillyspringboot.character.service.EmbeddedLorebookSyncService;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
+import com.example.sillyspringboot.integration.sillytavern.StCharacterFileNamePolicy;
 import com.example.sillyspringboot.integration.sillytavern.StUnavailableException;
 import com.example.sillyspringboot.integration.sillytavern.StWorldbookCatalogService;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterDetail;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterGetRequest;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterImportRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,11 +39,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/admin/jiugai/character")
 @AdminPermitted("content:character:view")
 public class AdminJiugaiCharacterController {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminJiugaiCharacterController.class);
 
     private final AdminJiugaiCharacterService adminCharacterService;
     private final CharacterSystemPromotionService promotionService;
@@ -49,7 +54,6 @@ public class AdminJiugaiCharacterController {
     private final StAdapter stAdapter;
     private final CharacterCatalogService catalogService;
     private final StWorldbookCatalogService worldbookCatalogService;
-    private final EmbeddedLorebookSyncService embeddedLorebookSyncService;
 
     public AdminJiugaiCharacterController(
             AdminJiugaiCharacterService adminCharacterService,
@@ -57,8 +61,7 @@ public class AdminJiugaiCharacterController {
             AppCharacterMapper characterMapper,
             StAdapter stAdapter,
             CharacterCatalogService catalogService,
-            StWorldbookCatalogService worldbookCatalogService,
-            EmbeddedLorebookSyncService embeddedLorebookSyncService
+            StWorldbookCatalogService worldbookCatalogService
     ) {
         this.adminCharacterService = adminCharacterService;
         this.promotionService = promotionService;
@@ -66,7 +69,6 @@ public class AdminJiugaiCharacterController {
         this.stAdapter = stAdapter;
         this.catalogService = catalogService;
         this.worldbookCatalogService = worldbookCatalogService;
-        this.embeddedLorebookSyncService = embeddedLorebookSyncService;
     }
 
     @GetMapping("/list")
@@ -255,6 +257,9 @@ public class AdminJiugaiCharacterController {
     @PostMapping(value = "/import-sillytavern-png", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @AdminPermitted("content:character:edit")
     public Map<String, Object> importPng(@RequestPart("file") MultipartFile file) {
+        String importedAvatarUrl = "";
+        boolean cleanupOwnedImport = false;
+        boolean persisted = false;
         try {
             if (file == null || file.isEmpty()) {
                 return AdminAjaxResult.error("文件不能为空");
@@ -263,27 +268,32 @@ public class AdminJiugaiCharacterController {
             if (originalFilename == null || !originalFilename.toLowerCase(Locale.ROOT).endsWith(".png")) {
                 return AdminAjaxResult.error("当前仅支持 ST 导出的角色卡 PNG，不支持普通立绘图片或其他格式");
             }
+            String preferredStem = "system_import_" + UUID.randomUUID();
             Object raw = stAdapter.importCharacterPng(
                     file.getBytes(),
                     originalFilename,
-                    new StCharacterImportRequest("png", null)
+                    new StCharacterImportRequest("png", preferredStem + ".png")
             );
             String importError = extractImportError(raw);
             if (!importError.isBlank()) {
                 return AdminAjaxResult.error(importError);
             }
-            String avatarUrl = extractImportedAvatarUrl(raw);
-            if (avatarUrl.isBlank()) {
-                return AdminAjaxResult.error("PNG 导入失败：SillyTavern 没有返回角色文件名，请确认这是一张可导入的 ST 角色卡 PNG");
+            importedAvatarUrl = StCharacterFileNamePolicy.normalize(extractImportedAvatarUrl(raw));
+            if (!StCharacterFileNamePolicy.isExpectedImportResult(importedAvatarUrl, preferredStem + ".png")) {
+                return AdminAjaxResult.error("PNG 导入失败：SillyTavern 未生成独立的系统角色文件");
             }
-            StCharacterDetail detail = stAdapter.getCharacter(new StCharacterGetRequest(avatarUrl));
+            cleanupOwnedImport = true;
+            StCharacterDetail detail = stAdapter.getCharacter(new StCharacterGetRequest(importedAvatarUrl));
             if (detail == null || detail.name() == null || detail.name().isBlank()) {
                 return AdminAjaxResult.error("PNG 导入成功，但读取 ST 角色详情失败，请刷新后查看是否已在 ST 角色列表中生成");
             }
-            AppCharacter row = catalogService.upsertImportedCharacter(avatarUrl, detail);
-            int importedLorebookEntries = row == null || row.getId() == null
-                    ? 0
-                    : embeddedLorebookSyncService.replaceEmbeddedLorebook(row.getId(), detail.embeddedCharacterBookJson());
+            CharacterCatalogService.ImportedSystemCharacter imported =
+                    catalogService.createImportedSystemCharacter(importedAvatarUrl, detail);
+            if (imported == null || imported.character() == null) {
+                throw new IllegalStateException("系统角色数据库写入失败");
+            }
+            persisted = true;
+            AppCharacter row = imported.character();
             Map<String, Object> result = AdminAjaxResult.ok(buildImportSuccessMessage(detail));
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("id", row.getId());
@@ -291,13 +301,21 @@ public class AdminJiugaiCharacterController {
             data.put("stAvatarUrl", row.getStAvatarUrl());
             data.put("importedTags", detail.tags());
             data.put("importedWorldNames", detail.worldNames());
-            data.put("importedLorebookEntries", importedLorebookEntries);
+            data.put("importedLorebookEntries", imported.importedLorebookEntries());
             result.put("data", data);
             return result;
         } catch (StUnavailableException e) {
             return AdminAjaxResult.error(resolveImportErrorMessage(e));
         } catch (Exception e) {
             return AdminAjaxResult.error(resolveImportErrorMessage(e));
+        } finally {
+            if (cleanupOwnedImport && !persisted && !importedAvatarUrl.isBlank()) {
+                try {
+                    stAdapter.deleteCharacter(importedAvatarUrl, true);
+                } catch (Exception cleanupError) {
+                    log.error("Failed to clean incomplete admin ST import: {}", importedAvatarUrl, cleanupError);
+                }
+            }
         }
     }
 

@@ -50,7 +50,7 @@ public class ApiV1TavernChatPresetController {
     ) {
         String clientUid = body == null ? "" : String.valueOf(body.getOrDefault("clientUid", ""));
         long userId = userIdOf(clientUid);
-        Long presetId = longOrNull(body == null ? null : body.get("presetId"));
+        Long presetId = optionalPositiveLong(body, "presetId");
         return ApiV1Result.ok(chatPresetService.bindConversationPreset(userId, conversationId, presetId));
     }
 
@@ -98,20 +98,18 @@ public class ApiV1TavernChatPresetController {
         return user.getId();
     }
 
-    private static Long longOrNull(Object value) {
-        if (value == null) {
+    private static Long optionalPositiveLong(Map<String, Object> body, String field) {
+        if (body == null || !body.containsKey(field)) {
+            throw validation(field + " missing");
+        }
+        if (body.get(field) == null) {
             return null;
         }
-        if (value instanceof Number number) {
-            long n = number.longValue();
-            return n > 0 ? n : null;
+        Long value = wholeLong(body.get(field));
+        if (value == null || value <= 0) {
+            throw validation(field + " invalid");
         }
-        try {
-            long n = Long.parseLong(String.valueOf(value).trim());
-            return n > 0 ? n : null;
-        } catch (Exception ignored) {
-            return null;
-        }
+        return value;
     }
 
     private static String requiredText(Map<String, Object> body, String field) {

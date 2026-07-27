@@ -85,7 +85,7 @@ public class SupportTicketService {
         LocalDateTime now = LocalDateTime.now();
 
         AppPaymentOrder order = validateOrderIfNeeded(userId, normalized.orderNo());
-        AppCharacter character = validateCharacterIfNeeded(normalized.characterId(), normalized.ticketType());
+        AppCharacter character = validateCharacterIfNeeded(userId, normalized.characterId(), normalized.ticketType());
         String characterName = normalized.characterName();
         if ((characterName == null || characterName.isBlank()) && character != null) {
             characterName = character.getName();
@@ -132,6 +132,9 @@ public class SupportTicketService {
         AppSupportTicket ticket = requireUserTicket(userId, ticketNo);
         AppPaymentOrder order = ticket.getOrderNo() == null ? null : paymentOrderMapper.findByOrderNo(ticket.getOrderNo());
         AppCharacter character = ticket.getCharacterId() == null ? null : characterMapper.findById(ticket.getCharacterId());
+        if (!isCharacterAccessibleToUser(character, userId)) {
+            character = null;
+        }
         return buildTicketEnvelope(ticket, order, character, true);
     }
 
@@ -339,7 +342,7 @@ public class SupportTicketService {
         return order;
     }
 
-    private AppCharacter validateCharacterIfNeeded(Long characterId, String ticketType) {
+    private AppCharacter validateCharacterIfNeeded(long userId, Long characterId, String ticketType) {
         if (characterId == null) {
             if (TYPE_REPORT.equals(ticketType)) {
                 throw new BusinessException(ErrorCode.VALIDATION_FAILED, "举报工单需要关联角色");
@@ -350,7 +353,21 @@ public class SupportTicketService {
         if (character == null || character.getDeletedAt() != null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "关联角色不存在");
         }
+        if (!isCharacterAccessibleToUser(character, userId)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "关联角色不存在");
+        }
         return character;
+    }
+
+    private boolean isCharacterAccessibleToUser(AppCharacter character, long userId) {
+        if (character == null || character.getDeletedAt() != null) {
+            return false;
+        }
+        Long ownerId = character.getOwnerUserId();
+        if (ownerId != null || Boolean.TRUE.equals(character.getPrivateCard())) {
+            return ownerId != null && ownerId.longValue() == userId && Boolean.TRUE.equals(character.getPrivateCard());
+        }
+        return character.getId() != null && characterMapper.findPublicVisibleById(character.getId()) != null;
     }
 
     private Map<String, Object> buildTicketEnvelope(

@@ -218,14 +218,14 @@
         </section>
       </el-tab-pane>
 
-      <el-tab-pane name="userVoices">
+      <el-tab-pane v-if="canViewUserVoices" name="userVoices">
         <template #label><span class="tab-label"><el-icon><UserFilled /></el-icon>用户自建音色</span></template>
         <section class="control-section template-section">
           <header class="section-header section-header--table">
             <div><h2>用户私有音色运行状态</h2><p>这里只提供风控停用与恢复；私有 voice URI 和用户 API Key 不会返回后台页面。</p></div>
             <div class="table-tools">
               <el-input v-model="userVoiceQuery.keyword" clearable placeholder="用户 ID 或音色名称" @keyup.enter="loadUserVoices"><template #prefix><el-icon><Search /></el-icon></template></el-input>
-              <el-select v-model="userVoiceQuery.status" clearable placeholder="全部状态" style="width: 130px" @change="loadUserVoices"><el-option label="可用" value="READY" /><el-option label="创建失败" value="FAILED" /><el-option label="创建中" value="PROVISIONING" /></el-select>
+              <el-select v-model="userVoiceQuery.status" clearable placeholder="全部状态" style="width: 130px" @change="loadUserVoices"><el-option label="可用" value="READY" /><el-option label="创建失败" value="FAILED" /><el-option label="创建中" value="PROVISIONING" /><el-option label="等待中" value="PENDING" /></el-select>
               <el-button :icon="Refresh" @click="loadUserVoices">刷新</el-button>
             </div>
           </header>
@@ -237,7 +237,12 @@
             <el-table-column label="状态" width="110"><template #default="scope"><el-tag :type="userVoiceStatusType(scope.row)">{{ userVoiceStatusText(scope.row) }}</el-tag></template></el-table-column>
             <el-table-column prop="lastError" label="最近错误" min-width="230" show-overflow-tooltip />
             <el-table-column prop="createdAt" label="创建时间" width="170" />
-            <el-table-column label="操作" width="120" fixed="right"><template #default="scope"><el-button v-hasPermi="['ops:media:user-voice:manage']" link :type="scope.row.disabled ? 'success' : 'danger'" @click="toggleUserVoice(scope.row)">{{ scope.row.disabled ? '恢复' : '停用' }}</el-button></template></el-table-column>
+            <el-table-column v-if="canManageUserVoices" label="操作" width="150" fixed="right">
+              <template #default="scope">
+                <el-button v-if="isUserVoiceProvisioning(scope.row)" link type="warning" @click="finishUserVoiceProvisioning(scope.row)">结束异常任务</el-button>
+                <el-button v-else link :type="scope.row.disabled ? 'success' : 'danger'" @click="toggleUserVoice(scope.row)">{{ scope.row.disabled ? '恢复' : '停用' }}</el-button>
+              </template>
+            </el-table-column>
           </el-table>
           <pagination v-show="userVoiceTotal > 0" :total="userVoiceTotal" v-model:page="userVoiceQuery.pageNum" v-model:limit="userVoiceQuery.pageSize" @pagination="loadUserVoices" />
         </section>
@@ -288,6 +293,7 @@ import {
   getCharacterImagePolicy,
   getMediaImagePolicy,
   getMediaVoicePolicy,
+  finishUserTtsVoiceProvisioning,
   listUserTtsVoices,
   listCharacterImagePolicies,
   updateCharacterImagePolicy,
@@ -323,6 +329,13 @@ const uploadHeaders = { Authorization: 'Bearer ' + getToken() }
 const audioUploadAction = baseApi + '/admin/jiugai/tts-voice-template/upload/audio'
 const imageUploadAction = baseApi + '/admin/jiugai/tts-voice-template/upload/image'
 const activeTab = ref('image')
+const canViewUserVoices = computed(() => hasMediaPermission('ops:media:user-voice:view'))
+const canManageUserVoices = computed(() => hasMediaPermission('ops:media:user-voice:manage'))
+
+function hasMediaPermission(permission) {
+  if (proxy?.$auth?.hasPermiOr) return proxy.$auth.hasPermiOr([permission])
+  return !!proxy?.$auth?.hasPermi?.(permission)
+}
 
 const modeOptions = ref([
   { value: 'free', label: '自由文生图', description: '只使用用户输入，保留原来的纯文生图体验。' },
@@ -552,6 +565,11 @@ const userVoiceRows = ref([])
 const userVoiceTotal = ref(0)
 const userVoiceQuery = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '' })
 async function loadUserVoices() {
+  if (!canViewUserVoices.value) {
+    userVoiceRows.value = []
+    userVoiceTotal.value = 0
+    return
+  }
   userVoiceLoading.value = true
   try { const res = await listUserTtsVoices({ ...userVoiceQuery }); userVoiceRows.value = Array.isArray(res.rows) ? res.rows : []; userVoiceTotal.value = Number(res.total || 0) }
   catch (error) { proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '加载用户音色失败')) }
@@ -559,13 +577,38 @@ async function loadUserVoices() {
 }
 function userVoiceStatusType(row) { if (row && row.disabled) return 'info'; return row && row.status === 'READY' ? 'success' : row && row.status === 'FAILED' ? 'danger' : 'warning' }
 function userVoiceStatusText(row) { if (row && row.disabled) return '已停用'; return ({ READY: '可用', FAILED: '失败', PROVISIONING: '创建中', PENDING: '等待中' })[row && row.status] || '未知' }
+function isUserVoiceProvisioning(row) { return ['PENDING', 'PROVISIONING'].includes(String(row && row.status || '').toUpperCase()) }
+async function finishUserVoiceProvisioning(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认结束音色“${row && row.displayName ? row.displayName : row.id}”的异常创建任务吗？结束后会释放用户名额。`,
+      '结束异常任务',
+      { type: 'warning', confirmButtonText: '确认结束', cancelButtonText: '取消' }
+    )
+  } catch (error) {
+    return
+  }
+  try {
+    await finishUserTtsVoiceProvisioning(row.id)
+    proxy.$modal.msgSuccess('异常创建任务已结束，用户名额已释放')
+    await loadUserVoices()
+  } catch (error) {
+    proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '结束任务失败'))
+  }
+}
 async function toggleUserVoice(row) {
   const next = !(row && row.disabled)
   try { await updateUserTtsVoiceDisabled(row.id, next); proxy.$modal.msgSuccess(next ? '音色已停用' : '音色已恢复'); await loadUserVoices() }
   catch (error) { proxy.$modal.msgError(jiugaiRequestErrorMessage(error, next ? '停用失败' : '恢复失败')) }
 }
 
-onMounted(() => { loadImagePolicy(); loadCharacters(); loadVoicePolicy(); loadTemplates(); loadUserVoices() })
+onMounted(() => {
+  loadImagePolicy()
+  loadCharacters()
+  loadVoicePolicy()
+  loadTemplates()
+  if (canViewUserVoices.value) loadUserVoices()
+})
 </script>
 
 <style scoped>

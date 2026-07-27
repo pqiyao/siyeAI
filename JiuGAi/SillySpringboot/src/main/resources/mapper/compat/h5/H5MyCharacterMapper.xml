@@ -64,6 +64,7 @@
         SELECT <include refid="BaseColumns"/>
         FROM app_character
         WHERE owner_user_id = #{userId}
+          AND private_card = 1
           AND deleted_at IS NULL
         <choose>
             <when test="sort != null and sort == 'name'">
@@ -80,6 +81,8 @@
         SELECT <include refid="BaseColumns"/>
         FROM app_character
         WHERE id = #{id}
+          AND private_card = 1
+          AND owner_user_id IS NOT NULL
           AND deleted_at IS NULL
         LIMIT 1
     </select>
@@ -89,6 +92,7 @@
         FROM app_character
         WHERE id = #{id}
           AND owner_user_id = #{userId}
+          AND private_card = 1
           AND deleted_at IS NULL
         LIMIT 1
     </select>
@@ -98,6 +102,7 @@
         FROM app_character
         WHERE st_avatar_url = #{stAvatarUrl}
           AND owner_user_id = #{userId}
+          AND private_card = 1
           AND deleted_at IS NULL
         LIMIT 1
     </select>
@@ -107,6 +112,7 @@
         FROM app_character
         WHERE st_avatar_url = #{stAvatarUrl}
           AND owner_user_id = #{userId}
+          AND private_card = 1
         LIMIT 1
     </select>
 
@@ -177,6 +183,7 @@
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
           AND owner_user_id = #{ownerUserId}
+          AND private_card = 1
     </update>
 
     <update id="softDelete">
@@ -184,6 +191,7 @@
         SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
           AND owner_user_id = #{userId}
+          AND private_card = 1
           AND deleted_at IS NULL
     </update>
 
@@ -215,16 +223,25 @@
             updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
           AND owner_user_id = #{userId}
+          AND private_card = 1
           AND deleted_at IS NOT NULL
           AND st_avatar_url IS NOT NULL
           AND st_avatar_url != ''
           AND st_avatar_url NOT LIKE '__deleted_private__/%'
     </update>
 
+    <select id="lockOwnerUser" resultType="java.lang.Long">
+        SELECT id
+        FROM app_user
+        WHERE id = #{userId}
+        FOR UPDATE
+    </select>
+
     <select id="countMineActive" resultType="int">
         SELECT COUNT(*)
         FROM app_character
         WHERE owner_user_id = #{userId}
+          AND private_card = 1
           AND deleted_at IS NULL
     </select>
 

@@ -718,6 +718,61 @@ class StClientFallbackTelemetryTest {
         verify(v2, never()).recordFailure(eq(101L), any());
     }
 
+    @Test
+    void selectedPlatformModelFallsBackOnlyInsideItsDedicatedRoute() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        startRuntimeServer(exchange -> {
+            if (attempts.incrementAndGet() == 1) {
+                respond(exchange, 503, "selected route primary unavailable");
+                return;
+            }
+            respond(exchange, 200,
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"selected-route-ok\"}}]}\n\ndata: [DONE]\n\n");
+        });
+        StModelRoutingService legacy = mock(StModelRoutingService.class);
+        AiRoutingService v2 = mock(AiRoutingService.class);
+        when(v2.isCapabilityEnabled(AiCapability.CHAT)).thenReturn(true);
+        when(v2.resolveRoute("chat.offer.story", AiCapability.CHAT)).thenReturn(List.of(
+                v2Provider(101L, "story-primary", "story-model-a"),
+                v2Provider(102L, "story-fallback", "story-model-b")
+        ));
+        List<ChatGenerateChunk> chunks = new ArrayList<>();
+
+        client(legacy, null, v2).streamRuntimeChatGenerate(
+                requestForRoute("chat.offer.story"), chunks::add, new StStreamControl());
+
+        assertEquals(2, attempts.get());
+        assertTrue(chunks.stream().anyMatch(chunk -> "selected-route-ok".equals(chunk.delta())));
+        verify(v2).resolveRoute("chat.offer.story", AiCapability.CHAT);
+        verify(v2, never()).resolve(AiCapability.CHAT);
+        verify(legacy, never()).resolveForScene(any());
+    }
+
+    @Test
+    void failedSelectedPlatformRouteNeverFallsBackToDefaultOrLegacyRoutes() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        startRuntimeServer(exchange -> {
+            attempts.incrementAndGet();
+            respond(exchange, 503, "selected route unavailable");
+        });
+        StModelRoutingService legacy = mock(StModelRoutingService.class);
+        AiRoutingService v2 = mock(AiRoutingService.class);
+        when(v2.isCapabilityEnabled(AiCapability.CHAT)).thenReturn(true);
+        when(v2.resolveRoute("chat.offer.story", AiCapability.CHAT)).thenReturn(List.of(
+                v2Provider(101L, "story-primary", "story-model-a"),
+                v2Provider(102L, "story-fallback", "story-model-b")
+        ));
+
+        assertThrows(StUnavailableException.class,
+                () -> client(legacy, null, v2).streamRuntimeChatGenerate(
+                        requestForRoute("chat.offer.story"), ignored -> {}, new StStreamControl()));
+
+        assertEquals(2, attempts.get());
+        verify(v2).resolveRoute("chat.offer.story", AiCapability.CHAT);
+        verify(v2, never()).resolve(AiCapability.CHAT);
+        verify(legacy, never()).resolveForScene(any());
+    }
+
     private StClient client(
             StModelRoutingService legacy,
             GenerationTelemetryService telemetry,
@@ -827,6 +882,30 @@ class StClientFallbackTelemetryTest {
                 "root:client-message-1",
                 List.of(),
                 override
+        );
+    }
+
+    private static ChatGenerateRequest requestForRoute(String routeKey) {
+        return new ChatGenerateRequest(
+                77L,
+                "hello",
+                List.of(),
+                "client-message-1",
+                true,
+                "normal",
+                Set.of(),
+                "User",
+                "Character",
+                List.of(),
+                "character.png",
+                "chat-file",
+                "root:client-message-1",
+                List.of(),
+                null,
+                null,
+                null,
+                AiCapability.CHAT,
+                routeKey
         );
     }
 

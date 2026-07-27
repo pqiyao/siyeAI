@@ -11,7 +11,9 @@ import com.example.sillyspringboot.character.entity.CharacterReviewStatus;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.character.mapper.AppLorebookEntryMapper;
 import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
+import com.example.sillyspringboot.compat.h5.web.H5UploadService;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
+import com.example.sillyspringboot.integration.sillytavern.StCharacterFileNamePolicy;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterImportRequest;
 import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import org.slf4j.Logger;
@@ -22,7 +24,10 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -35,6 +40,8 @@ public class CharacterSystemPromotionService {
     private final AppLorebookEntryMapper lorebookMapper;
     private final AppCharacterSystemPromotionMapper promotionMapper;
     private final StAdapter stAdapter;
+    private final H5UploadService uploadService;
+    private final ExternalCleanupTaskService cleanupTaskService;
 
     public CharacterSystemPromotionService(
             AppFeatureSettingsService featureSettingsService,
@@ -42,7 +49,9 @@ public class CharacterSystemPromotionService {
             CharacterStudioMapper studioMapper,
             AppLorebookEntryMapper lorebookMapper,
             AppCharacterSystemPromotionMapper promotionMapper,
-            StAdapter stAdapter
+            StAdapter stAdapter,
+            H5UploadService uploadService,
+            ExternalCleanupTaskService cleanupTaskService
     ) {
         this.featureSettingsService = featureSettingsService;
         this.characterMapper = characterMapper;
@@ -50,6 +59,8 @@ public class CharacterSystemPromotionService {
         this.lorebookMapper = lorebookMapper;
         this.promotionMapper = promotionMapper;
         this.stAdapter = stAdapter;
+        this.uploadService = uploadService;
+        this.cleanupTaskService = cleanupTaskService;
     }
 
     @Transactional
@@ -84,16 +95,29 @@ public class CharacterSystemPromotionService {
                 sourceStAvatar,
                 new StCharacterImportRequest("png", preferredStAvatar)
         );
-        String copiedStAvatar = importedAvatarUrl(importResult);
-        if (copiedStAvatar.isBlank()) {
-            throw new IllegalStateException("ST 未返回新角色文件名，复制已中止");
+        String copiedStAvatar = StCharacterFileNamePolicy.normalize(importedAvatarUrl(importResult));
+        if (!StCharacterFileNamePolicy.isExpectedImportResult(copiedStAvatar, preferredStAvatar)) {
+            throw new IllegalStateException("ST 返回了非本次复制的角色文件名，复制已中止");
         }
-        boolean cleanupRegistered = registerRollbackCleanup(copiedStAvatar);
+        if (copiedStAvatar.equalsIgnoreCase(sourceStAvatar)) {
+            throw new IllegalStateException("ST 未生成独立角色文件，复制已中止");
+        }
+        if (characterMapper.findPrivateByStAvatarUrlAny(copiedStAvatar) != null
+                || characterMapper.findSystemByStAvatarUrlAny(copiedStAvatar) != null) {
+            throw new IllegalStateException("ST 返回的角色文件已被占用，复制已中止");
+        }
+        MediaCopySession mediaCopies = new MediaCopySession(uploadService);
+        boolean cleanupRegistered = false;
 
         try {
-            AppCharacter target = copyBaseCharacter(source, copiedStAvatar, keepCreatorAttribution);
+            cleanupRegistered = registerRollbackCleanup(
+                    source.getOwnerUserId(), copiedStAvatar, mediaCopies.copiedUrls()
+            );
+            AppCharacter target = copyBaseCharacter(
+                    source, copiedStAvatar, keepCreatorAttribution, mediaCopies
+            );
             characterMapper.insertFull(target);
-            copyStudio(sourceCharacterId, target.getId());
+            copyStudio(sourceCharacterId, target.getId(), mediaCopies);
 
             AppCharacterSystemPromotion audit = new AppCharacterSystemPromotion();
             audit.setSourceCharacterId(sourceCharacterId);
@@ -105,13 +129,13 @@ public class CharacterSystemPromotionService {
             return new PromotionResult(target.getId(), copiedStAvatar);
         } catch (RuntimeException ex) {
             if (!cleanupRegistered) {
-                deleteCopiedStFileQuietly(copiedStAvatar);
+                cleanupPromotionArtifacts(source.getOwnerUserId(), copiedStAvatar, mediaCopies.copiedUrls());
             }
             throw ex;
         }
     }
 
-    private void copyStudio(long sourceCharacterId, long targetCharacterId) {
+    private void copyStudio(long sourceCharacterId, long targetCharacterId, MediaCopySession mediaCopies) {
         String cardType = studioMapper.findCardType(sourceCharacterId);
         studioMapper.updateCardType(targetCharacterId, "ENSEMBLE".equalsIgnoreCase(cardType) ? "ENSEMBLE" : "SINGLE");
 
@@ -122,9 +146,9 @@ public class CharacterSystemPromotionService {
             target.setName(source.getName());
             target.setTagline(source.getTagline());
             target.setPersona(source.getPersona());
-            target.setAvatarUrl(source.getAvatarUrl());
+            target.setAvatarUrl(mediaCopies.copy(source.getAvatarUrl()));
             target.setVoiceConfigJson(null);
-            target.setImageReferenceUrl(source.getImageReferenceUrl());
+            target.setImageReferenceUrl(mediaCopies.copy(source.getImageReferenceUrl()));
             target.setPrimaryMember(source.getPrimaryMember());
             target.setSortOrder(source.getSortOrder());
             target.setEnabled(source.getEnabled());
@@ -183,13 +207,15 @@ public class CharacterSystemPromotionService {
     private static AppCharacter copyBaseCharacter(
             AppCharacter source,
             String copiedStAvatar,
-            boolean keepCreatorAttribution
+            boolean keepCreatorAttribution,
+            MediaCopySession mediaCopies
     ) {
         AppCharacter target = new AppCharacter();
         target.setStAvatarUrl(copiedStAvatar);
-        target.setAvatarUrl(source.getAvatarUrl());
-        target.setCoverUrl(source.getCoverUrl());
-        target.setChatBackgroundUrl(source.getChatBackgroundUrl());
+        target.setAvatarUrl(mediaCopies.copy(source.getAvatarUrl(), source.getStAvatarUrl(), copiedStAvatar));
+        target.setCoverUrl(mediaCopies.copy(source.getCoverUrl(), source.getStAvatarUrl(), copiedStAvatar));
+        target.setChatBackgroundUrl(mediaCopies.copy(
+                source.getChatBackgroundUrl(), source.getStAvatarUrl(), copiedStAvatar));
         target.setStWorldNamesJson(source.getStWorldNamesJson());
         target.setOwnerUserId(null);
         target.setName(source.getName());
@@ -232,7 +258,11 @@ public class CharacterSystemPromotionService {
         return target;
     }
 
-    private boolean registerRollbackCleanup(String stAvatarUrl) {
+    private boolean registerRollbackCleanup(
+            long sourceUserId,
+            String stAvatarUrl,
+            Set<String> copiedMediaUrls
+    ) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             return false;
         }
@@ -240,16 +270,41 @@ public class CharacterSystemPromotionService {
             @Override
             public void afterCompletion(int status) {
                 if (status != TransactionSynchronization.STATUS_COMMITTED) {
-                    deleteCopiedStFileQuietly(stAvatarUrl);
+                    cleanupPromotionArtifacts(sourceUserId, stAvatarUrl, copiedMediaUrls);
                 }
             }
         });
         return true;
     }
 
+    private void cleanupPromotionArtifacts(
+            long sourceUserId,
+            String stAvatarUrl,
+            Set<String> copiedMediaUrls
+    ) {
+        try {
+            List<String> taskIds = cleanupTaskService.enqueueArtifactRollbackTasks(
+                    sourceUserId, stAvatarUrl, copiedMediaUrls
+            );
+            cleanupTaskService.processImmediately(taskIds);
+            return;
+        } catch (Exception durableCleanupError) {
+            log.error("Failed to schedule durable character promotion cleanup", durableCleanupError);
+        }
+
+        deleteCopiedStFileQuietly(stAvatarUrl);
+        for (String mediaUrl : copiedMediaUrls) {
+            try {
+                uploadService.deleteUnownedUploadIfExists(mediaUrl);
+            } catch (Exception cleanupError) {
+                log.error("Failed to clean copied system media after promotion rollback: {}", mediaUrl, cleanupError);
+            }
+        }
+    }
+
     private void deleteCopiedStFileQuietly(String stAvatarUrl) {
         try {
-            stAdapter.deleteCharacter(stAvatarUrl, false);
+            stAdapter.deleteCharacter(stAvatarUrl, true);
         } catch (Exception cleanupError) {
             log.error("Failed to clean copied ST character after promotion rollback: {}", stAvatarUrl, cleanupError);
         }
@@ -277,6 +332,71 @@ public class CharacterSystemPromotionService {
 
     private static String trimToEmpty(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static final class MediaCopySession {
+        private static final String MANAGED_UPLOAD_PREFIX = "/uploads/h5/";
+
+        private final H5UploadService uploadService;
+        private final Map<String, String> copiedBySource = new HashMap<>();
+        private final Set<String> copiedUrls = new LinkedHashSet<>();
+
+        private MediaCopySession(H5UploadService uploadService) {
+            this.uploadService = uploadService;
+        }
+
+        private String copy(String sourceUrl) {
+            return copy(sourceUrl, null, null);
+        }
+
+        private String copy(String sourceUrl, String sourceStAvatar, String copiedStAvatar) {
+            String value = trimToEmpty(sourceUrl);
+            if (value.startsWith(MANAGED_UPLOAD_PREFIX)) {
+                String copied = copiedBySource.get(value);
+                if (copied != null) {
+                    return copied;
+                }
+                copied = uploadService.copyUnownedImageAndGetUrl(value);
+                copiedBySource.put(value, copied);
+                copiedUrls.add(copied);
+                return copied;
+            }
+            if (referencesStCharacter(value, sourceStAvatar)) {
+                return trimToEmpty(copiedStAvatar);
+            }
+            return sourceUrl;
+        }
+
+        private static boolean referencesStCharacter(String value, String stAvatar) {
+            String source = stripUrlSuffix(trimToEmpty(stAvatar));
+            String candidate = stripUrlSuffix(trimToEmpty(value));
+            if (source.isBlank() || candidate.isBlank()) {
+                return false;
+            }
+            if (candidate.equalsIgnoreCase(source)) {
+                return true;
+            }
+            String normalized = candidate.replace('\\', '/');
+            return normalized.regionMatches(
+                    true,
+                    Math.max(0, normalized.length() - source.length()),
+                    source,
+                    0,
+                    source.length()
+            ) && normalized.length() > source.length()
+                    && normalized.charAt(normalized.length() - source.length() - 1) == '/';
+        }
+
+        private static String stripUrlSuffix(String value) {
+            int query = value.indexOf('?');
+            int fragment = value.indexOf('#');
+            int cutoff = query < 0 ? fragment : fragment < 0 ? query : Math.min(query, fragment);
+            return cutoff < 0 ? value : value.substring(0, cutoff);
+        }
+
+        private Set<String> copiedUrls() {
+            return copiedUrls;
+        }
     }
 
     public record PromotionResult(long targetCharacterId, String stAvatarUrl) {

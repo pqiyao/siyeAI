@@ -7,9 +7,13 @@ import com.example.sillyspringboot.character.entity.AppLorebookEntry;
 import com.example.sillyspringboot.character.mapper.AppLorebookEntryMapper;
 import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.entity.H5MyCharacter;
+import com.example.sillyspringboot.compat.h5.mapper.H5MyCharacterMapper;
 import com.example.sillyspringboot.compat.h5.web.dto.H5MyCharacterSaveRequest;
 import com.example.sillyspringboot.ops.entity.AppUserTtsVoiceBinding;
+import com.example.sillyspringboot.ops.dto.AppFeatureSettings;
 import com.example.sillyspringboot.ops.mapper.AppUserTtsVoiceBindingMapper;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
+import com.example.sillyspringboot.ops.service.UserTtsVoiceService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.dao.DuplicateKeyException;
@@ -35,33 +39,57 @@ public class CharacterStudioService {
     private final CharacterStudioMapper studioMapper;
     private final AppLorebookEntryMapper lorebookMapper;
     private final AppUserTtsVoiceBindingMapper voiceBindingMapper;
+    private final UserTtsVoiceService userTtsVoiceService;
+    private final AppFeatureSettingsService featureSettingsService;
+    private final H5MyCharacterMapper myCharacterMapper;
 
     public CharacterStudioService(
             CharacterStudioMapper studioMapper,
             AppLorebookEntryMapper lorebookMapper,
-            AppUserTtsVoiceBindingMapper voiceBindingMapper
+            AppUserTtsVoiceBindingMapper voiceBindingMapper,
+            UserTtsVoiceService userTtsVoiceService,
+            AppFeatureSettingsService featureSettingsService,
+            H5MyCharacterMapper myCharacterMapper
     ) {
         this.studioMapper = studioMapper;
         this.lorebookMapper = lorebookMapper;
         this.voiceBindingMapper = voiceBindingMapper;
+        this.userTtsVoiceService = userTtsVoiceService;
+        this.featureSettingsService = featureSettingsService;
+        this.myCharacterMapper = myCharacterMapper;
     }
 
     @Transactional
     public void replaceStudio(long userId, long characterId, H5MyCharacterSaveRequest request) {
+        requireOwnedPrivateCharacter(userId, characterId);
         String previousCardType = normalizeCardType(studioMapper.findCardType(characterId));
-        String cardType = normalizeCardType(request.getCardType());
+        String cardType = request.getCardType() == null
+                ? previousCardType
+                : normalizeCardType(request.getCardType());
         if (request.getCardType() != null) {
             studioMapper.updateCardType(characterId, cardType);
         }
 
-        Map<String, Long> memberIds = new HashMap<>();
+        Map<String, Long> memberIds = new LinkedHashMap<>();
         if (request.getMembers() != null) {
-            memberIds = replaceMembers(userId, characterId, cardType, request.getMembers());
+            AppFeatureSettings featureSettings = featureSettingsService.getSettings();
+            boolean voiceFeatureEnabled = featureSettings == null || featureSettings.isVoiceFeatureEnabled();
+            validateMemberReplacementShape(characterId, request);
+            if (request.getOpenings() != null) {
+                studioMapper.deleteOpeningSegmentsByCharacterId(characterId);
+                studioMapper.deleteOpeningsByCharacterId(characterId);
+            }
+            if (request.getLorebookEntries() != null) {
+                studioMapper.clearLorebookMemberScopes(characterId);
+            }
+            memberIds = replaceMembers(
+                    userId, characterId, cardType, request.getMembers(), voiceFeatureEnabled);
         } else {
             indexExistingMembers(studioMapper.listMembers(characterId), memberIds);
         }
 
         migrateVoiceBindingScope(userId, characterId, previousCardType, cardType);
+        applyRequestedVoiceBindings(userId, characterId, cardType, request.getMembers(), memberIds);
 
         if (request.getOpenings() != null) {
             replaceOpenings(characterId, request.getOpenings(), memberIds);
@@ -73,7 +101,14 @@ public class CharacterStudioService {
 
     @Transactional
     public void deleteVoiceBindings(long userId, long characterId) {
+        requireOwnedPrivateCharacter(userId, characterId);
         voiceBindingMapper.deleteCharacterScopes(userId, characterId);
+    }
+
+    private void requireOwnedPrivateCharacter(long userId, long characterId) {
+        if (myCharacterMapper.findEditor(characterId, userId) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "角色不存在");
+        }
     }
 
     public Map<String, Object> loadStudio(H5MyCharacter character) {
@@ -102,7 +137,8 @@ public class CharacterStudioService {
             long userId,
             long characterId,
             String cardType,
-            List<H5MyCharacterSaveRequest.MemberInput> inputs
+            List<H5MyCharacterSaveRequest.MemberInput> inputs,
+            boolean voiceFeatureEnabled
     ) {
         List<H5MyCharacterSaveRequest.MemberInput> usable = inputs.stream()
                 .filter(input -> input != null && hasText(input.getName()))
@@ -112,26 +148,27 @@ public class CharacterStudioService {
             throw validation("Member count must be between " + minimum + " and " + MAX_MEMBERS + ".");
         }
 
-        studioMapper.deleteOpeningSegmentsByCharacterId(characterId);
-        studioMapper.deleteOpeningsByCharacterId(characterId);
-        studioMapper.clearLorebookMemberScopes(characterId);
         List<AppCharacterMember> existingMembers = studioMapper.listMembers(characterId);
         Map<Long, AppCharacterMember> existingById = new HashMap<>();
         for (AppCharacterMember existing : existingMembers) {
             if (existing != null && existing.getId() != null) existingById.put(existing.getId(), existing);
         }
-        Map<String, Long> ids = new HashMap<>();
+        Map<String, Long> ids = new LinkedHashMap<>();
+        Set<String> clientKeys = new HashSet<>();
         Set<Long> retainedIds = new HashSet<>();
         boolean primaryAssigned = false;
         for (int i = 0; i < usable.size(); i++) {
             H5MyCharacterSaveRequest.MemberInput input = usable.get(i);
+            String clientKey = memberKey(input.getClientKey(), i);
+            if (!clientKeys.add(clientKey)) {
+                throw validation("Character member clientKey must be unique.");
+            }
             AppCharacterMember member = new AppCharacterMember();
             member.setCharacterId(characterId);
             member.setName(clip(input.getName(), 64));
             member.setTagline(clip(input.getTagline(), 255));
             member.setPersona(clip(input.getPersona(), 12000));
             member.setAvatarUrl(clip(input.getAvatarUrl(), 512));
-            member.setVoiceConfigJson(clip(input.getVoiceConfigJson(), 12000));
             member.setImageReferenceUrl(clip(input.getImageReferenceUrl(), 512));
             boolean primary = !primaryAssigned && (Boolean.TRUE.equals(input.getPrimaryMember()) || i == 0);
             member.setPrimaryMember(primary);
@@ -139,17 +176,24 @@ public class CharacterStudioService {
             member.setEnabled(true);
             Long requestedId = input.getId();
             if (requestedId != null && requestedId > 0 && existingById.containsKey(requestedId)) {
+                if (retainedIds.contains(requestedId)) {
+                    throw validation("Character member id must be unique.");
+                }
                 member.setId(requestedId);
+                member.setVoiceConfigJson(voiceFeatureEnabled
+                        ? clip(input.getVoiceConfigJson(), 12000)
+                        : nullToEmpty(existingById.get(requestedId).getVoiceConfigJson()));
                 if (studioMapper.updateMember(member) != 1) {
                     throw new IllegalStateException("failed to update character member " + requestedId);
                 }
                 retainedIds.add(requestedId);
             } else {
+                member.setVoiceConfigJson(voiceFeatureEnabled ? clip(input.getVoiceConfigJson(), 12000) : "");
                 studioMapper.insertMember(member);
                 retainedIds.add(member.getId());
             }
             primaryAssigned = primaryAssigned || primary;
-            ids.put(memberKey(input.getClientKey(), i), member.getId());
+            ids.put(clientKey, member.getId());
         }
         for (AppCharacterMember existing : existingMembers) {
             if (existing != null && existing.getId() != null && !retainedIds.contains(existing.getId())) {
@@ -158,6 +202,46 @@ public class CharacterStudioService {
             }
         }
         return ids;
+    }
+
+    private void validateMemberReplacementShape(long characterId, H5MyCharacterSaveRequest request) {
+        List<AppCharacterMember> existing = studioMapper.listMembers(characterId);
+        if (existing == null || existing.isEmpty()) return;
+        Set<Long> requestedIds = request.getMembers().stream()
+                .filter(input -> input != null && input.getId() != null && input.getId() > 0)
+                .map(H5MyCharacterSaveRequest.MemberInput::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        boolean removesExistingMember = existing.stream()
+                .anyMatch(member -> member != null && member.getId() != null && !requestedIds.contains(member.getId()));
+        if (removesExistingMember && (request.getOpenings() == null || request.getLorebookEntries() == null)) {
+            throw validation("Deleting character members requires complete openings and worldbook data.");
+        }
+    }
+
+    private void applyRequestedVoiceBindings(
+            long userId,
+            long characterId,
+            String cardType,
+            List<H5MyCharacterSaveRequest.MemberInput> inputs,
+            Map<String, Long> memberIds
+    ) {
+        if (inputs == null || inputs.stream().noneMatch(input -> input != null
+                && Boolean.TRUE.equals(input.getVoiceBindingChanged()))) return;
+        featureSettingsService.ensureVoiceFeatureEnabled();
+        for (int i = 0; i < inputs.size(); i++) {
+            H5MyCharacterSaveRequest.MemberInput input = inputs.get(i);
+            if (input == null || !Boolean.TRUE.equals(input.getVoiceBindingChanged())) continue;
+            Long voiceId = input.getUserTtsVoiceId();
+            if ("ENSEMBLE".equals(cardType)) {
+                Long memberId = memberIds.get(memberKey(input.getClientKey(), i));
+                if (memberId == null || memberId <= 0) {
+                    throw validation("Voice binding references a missing character member.");
+                }
+                userTtsVoiceService.saveBinding(userId, "MEMBER", characterId, memberId, voiceId);
+            } else if (i == 0) {
+                userTtsVoiceService.saveBinding(userId, "CHARACTER", characterId, 0, voiceId);
+            }
+        }
     }
 
     private void migrateVoiceBindingScope(
@@ -220,9 +304,6 @@ public class CharacterStudioService {
         if (inputs.size() > MAX_OPENINGS) {
             throw validation("Up to " + MAX_OPENINGS + " opening scenes are allowed.");
         }
-        studioMapper.deleteOpeningSegmentsByCharacterId(characterId);
-        studioMapper.deleteOpeningsByCharacterId(characterId);
-
         boolean defaultAssigned = false;
         for (int i = 0; i < inputs.size(); i++) {
             H5MyCharacterSaveRequest.OpeningInput input = inputs.get(i);
@@ -400,8 +481,10 @@ public class CharacterStudioService {
     }
 
     private static Long resolveMemberId(String clientKey, Map<String, Long> memberIds) {
-        if (hasText(clientKey) && memberIds.containsKey(clientKey.trim())) return memberIds.get(clientKey.trim());
-        return memberIds.values().stream().findFirst().orElse(null);
+        if (!hasText(clientKey)) return memberIds.values().stream().findFirst().orElse(null);
+        Long resolved = memberIds.get(clientKey.trim());
+        if (resolved == null) throw validation("Opening segment references a missing character member.");
+        return resolved;
     }
 
     private static Long resolveOptionalMemberId(String clientKey, Map<String, Long> memberIds) {

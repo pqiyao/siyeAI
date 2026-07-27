@@ -57,6 +57,18 @@ class OfficialAudioRoutingIsolationTest {
     }
 
     @Test
+    void providerScopedOverrideIsIgnoredAfterRuntimeProviderChanges() {
+        assertThat(ChatAudioSpeechService.providerScopeMatchesRuntime("siliconflow", "siliconflow"))
+                .isTrue();
+        assertThat(ChatAudioSpeechService.providerScopeMatchesRuntime("SILICONFLOW", "siliconflow"))
+                .isTrue();
+        assertThat(ChatAudioSpeechService.providerScopeMatchesRuntime("siliconflow", "openai"))
+                .isFalse();
+        assertThat(ChatAudioSpeechService.providerScopeMatchesRuntime("", "openai"))
+                .isTrue();
+    }
+
+    @Test
     void invalidCustomTtsNeverFallsBackToOfficialRoute() {
         H5UserAiProviderService byok = mock(H5UserAiProviderService.class);
         AiRoutingService routing = mock(AiRoutingService.class);

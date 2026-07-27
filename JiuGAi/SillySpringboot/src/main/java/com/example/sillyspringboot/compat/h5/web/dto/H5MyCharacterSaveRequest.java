@@ -261,6 +261,8 @@ public class H5MyCharacterSaveRequest {
         private String voiceConfigJson;
         private String imageReferenceUrl;
         private Boolean primaryMember;
+        private Boolean voiceBindingChanged;
+        private Long userTtsVoiceId;
 
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
@@ -280,6 +282,10 @@ public class H5MyCharacterSaveRequest {
         public void setImageReferenceUrl(String imageReferenceUrl) { this.imageReferenceUrl = imageReferenceUrl; }
         public Boolean getPrimaryMember() { return primaryMember; }
         public void setPrimaryMember(Boolean primaryMember) { this.primaryMember = primaryMember; }
+        public Boolean getVoiceBindingChanged() { return voiceBindingChanged; }
+        public void setVoiceBindingChanged(Boolean voiceBindingChanged) { this.voiceBindingChanged = voiceBindingChanged; }
+        public Long getUserTtsVoiceId() { return userTtsVoiceId; }
+        public void setUserTtsVoiceId(Long userTtsVoiceId) { this.userTtsVoiceId = userTtsVoiceId; }
     }
 
     public static class OpeningInput {

@@ -85,6 +85,9 @@ public class AdminH5UserLifecycleService {
     }
 
     private List<String> deleteDatabaseRecords(long userId) {
+        if (cleanupMapper.lockAppUser(userId) == null) {
+            throw new IllegalArgumentException("user not found: " + userId);
+        }
         List<Map<String, Object>> stChats = cleanupMapper.listConversationStRefs(userId);
         List<Map<String, Object>> ownedCharacters = cleanupMapper.listOwnedCharacterCleanupRows(userId);
         List<String> ownedUploadPaths = cleanupMapper.listOwnedUploadRelativePaths(userId);
@@ -100,12 +103,16 @@ public class AdminH5UserLifecycleService {
         cleanupMapper.deleteUserMessages(userId);
         cleanupMapper.deleteUserNoticeReads(userId);
         cleanupMapper.deleteUserNoticeReadState(userId);
+        cleanupMapper.deleteUserInboxAdReads(userId);
         cleanupMapper.deleteCharacterFavorites(userId);
         cleanupMapper.deleteCharacterFavoritesForOwnedCharacters(userId);
         cleanupMapper.deleteCharacterVotes(userId);
         cleanupMapper.deleteCharacterVotesForOwnedCharacters(userId);
         cleanupMapper.deleteWalletLedger(userId);
         cleanupMapper.deletePaymentOrders(userId);
+        cleanupMapper.deleteChatGenerationContextsByUser(userId);
+        cleanupMapper.deleteChatModelPreferencesByUser(userId);
+        cleanupMapper.deleteH5UserAiChatModelsByUser(userId);
         cleanupMapper.deleteGenerationTasksByUser(userId);
         cleanupMapper.deleteMessagesByUser(userId);
         cleanupMapper.deleteConversationBindingsByUser(userId);
@@ -117,6 +124,10 @@ public class AdminH5UserLifecycleService {
         cleanupMapper.deleteConversationsByUser(userId);
         cleanupMapper.deletePasswordResetTokensByUser(userId);
         cleanupMapper.deleteUserSessions(userId);
+        cleanupMapper.deleteUserTtsVoiceBindings(userId);
+        cleanupMapper.deleteUserTtsVoices(userId);
+        cleanupMapper.deleteUserTtsVoiceInstances(userId);
+        cleanupMapper.deleteCheckinClaimsByUser(userId);
         cleanupMapper.deleteH5UserAiProvider(userId);
         cleanupMapper.deleteEntitlementAuditLogsByUser(userId);
         cleanupMapper.anonymizeH5SecurityEventsByUser(userId);
@@ -125,10 +136,13 @@ public class AdminH5UserLifecycleService {
         cleanupMapper.deleteUserIdentities(userId);
         cleanupMapper.deleteH5Profile(userId);
         cleanupMapper.deleteH5ProfileExt(userId);
+        cleanupMapper.deleteIllustrationWorksBySubmitter(userId);
         cleanupMapper.deleteOwnedUploadAssetsByUser(userId);
         cleanupMapper.deleteCharacterReviewLogsByOwner(userId);
         cleanupMapper.deleteLorebookEntriesForOwnedCharacters(userId);
         cleanupMapper.deleteChatPreferencesRelatedToUser(userId);
+        cleanupMapper.deletePrivateChatPresetsByUser(userId);
+        cleanupMapper.deleteCharacterPromotionsBySourceUser(userId);
         cleanupMapper.deleteOwnedCharacters(userId);
         cleanupMapper.deleteAppUser(userId);
         return cleanupTaskIds == null ? List.of() : List.copyOf(cleanupTaskIds);

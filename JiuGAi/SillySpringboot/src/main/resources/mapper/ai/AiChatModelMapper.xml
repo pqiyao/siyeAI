@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ai.mapper.AiChatModelMapper">
+
+    <resultMap id="SettingsMap" type="com.example.sillyspringboot.ai.entity.AiChatModelSettings">
+        <id column="id" property="id"/>
+        <result column="enabled" property="enabled"/>
+        <result column="shadow_enabled" property="shadowEnabled"/>
+        <result column="canary_percent" property="canaryPercent"/>
+    </resultMap>
+
+    <resultMap id="OfferingMap" type="com.example.sillyspringboot.ai.entity.AiChatOffering">
+        <id column="id" property="id"/>
+        <result column="offering_code" property="offeringCode"/>
+        <result column="display_name" property="displayName"/>
+        <result column="short_description" property="shortDescription"/>
+        <result column="description" property="description"/>
+        <result column="tags" property="tags"/>
+        <result column="badge" property="badge"/>
+        <result column="context_label" property="contextLabel"/>
+        <result column="speed_level" property="speedLevel"/>
+        <result column="quality_level" property="qualityLevel"/>
+        <result column="route_key" property="routeKey"/>
+        <result column="vip_min_level" property="vipMinLevel"/>
+        <result column="recommended" property="recommended"/>
+        <result column="default_offering" property="defaultOffering"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="enabled" property="enabled"/>
+        <result column="maintenance" property="maintenance"/>
+        <result column="version_no" property="versionNo"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="PriceMap" type="com.example.sillyspringboot.ai.entity.AiChatOfferingPrice">
+        <id column="id" property="id"/>
+        <result column="offering_id" property="offeringId"/>
+        <result column="vip_level" property="vipLevel"/>
+        <result column="billing_mode" property="billingMode"/>
+        <result column="quota_units" property="quotaUnits"/>
+        <result column="diamond_cost" property="diamondCost"/>
+        <result column="gold_cost" property="goldCost"/>
+    </resultMap>
+
+    <resultMap id="UserModelMap" type="com.example.sillyspringboot.ai.entity.UserAiChatModel">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="model_name" property="modelName"/>
+        <result column="display_name" property="displayName"/>
+        <result column="sort_order" property="sortOrder"/>
+        <result column="default_model" property="defaultModel"/>
+        <result column="enabled" property="enabled"/>
+        <result column="last_test_status" property="lastTestStatus"/>
+        <result column="last_tested_at" property="lastTestedAt"/>
+    </resultMap>
+
+    <resultMap id="PreferenceMap" type="com.example.sillyspringboot.ai.entity.ChatModelPreference">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="conversation_id" property="conversationId"/>
+        <result column="branch_id" property="branchId"/>
+        <result column="source_type" property="sourceType"/>
+        <result column="offering_id" property="offeringId"/>
+        <result column="user_model_id" property="userModelId"/>
+        <result column="version_no" property="versionNo"/>
+    </resultMap>
+
+    <resultMap id="GenerationContextMap" type="com.example.sillyspringboot.ai.entity.ChatGenerationContext">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="conversation_id" property="conversationId"/>
+        <result column="generation_request_id" property="generationRequestId"/>
+        <result column="action_type" property="actionType"/>
+        <result column="source_type" property="sourceType"/>
+        <result column="offering_id" property="offeringId"/>
+        <result column="offering_code" property="offeringCode"/>
+        <result column="offering_name" property="offeringName"/>
+        <result column="user_model_id" property="userModelId"/>
+        <result column="model_name_snapshot" property="modelNameSnapshot"/>
+        <result column="route_key" property="routeKey"/>
+        <result column="billing_mode" property="billingMode"/>
+        <result column="quota_units" property="quotaUnits"/>
+        <result column="diamond_cost" property="diamondCost"/>
+        <result column="gold_cost" property="goldCost"/>
+        <result column="charge_status" property="chargeStatus"/>
+        <result column="consume_biz_ref" property="consumeBizRef"/>
+        <result column="first_content_emitted" property="firstContentEmitted"/>
+    </resultMap>
+
+    <select id="findSettings" resultMap="SettingsMap">
+        SELECT id, enabled, shadow_enabled, canary_percent
+        FROM app_ai_chat_model_settings WHERE id = 1
+    </select>
+
+    <update id="updateSettings">
+        UPDATE app_ai_chat_model_settings
+        SET enabled = #{enabled}, shadow_enabled = #{shadowEnabled},
+            canary_percent = #{canaryPercent}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+    </update>
+
+    <select id="listOfferings" resultMap="OfferingMap">
+        SELECT * FROM app_ai_chat_offering ORDER BY sort_order ASC, id ASC
+    </select>
+
+    <select id="listPublishedOfferings" resultMap="OfferingMap">
+        SELECT * FROM app_ai_chat_offering
+        WHERE enabled = 1
+        ORDER BY recommended DESC, sort_order ASC, id ASC
+    </select>
+
+    <select id="findOfferingById" resultMap="OfferingMap">
+        SELECT * FROM app_ai_chat_offering WHERE id = #{id}
+    </select>
+
+    <select id="findOfferingByCode" resultMap="OfferingMap">
+        SELECT * FROM app_ai_chat_offering WHERE offering_code = #{offeringCode}
+    </select>
+
+    <select id="findDefaultOffering" resultMap="OfferingMap">
+        SELECT * FROM app_ai_chat_offering
+        WHERE enabled = 1 AND maintenance = 0 AND default_offering = 1
+        ORDER BY sort_order ASC, id ASC LIMIT 1
+    </select>
+
+    <insert id="insertOffering" parameterType="com.example.sillyspringboot.ai.entity.AiChatOffering"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_ai_chat_offering (
+            offering_code, display_name, short_description, description, tags, badge, context_label,
+            speed_level, quality_level, route_key, vip_min_level, recommended, default_offering,
+            sort_order, enabled, maintenance, version_no, created_at, updated_at
+        ) VALUES (
+            #{offeringCode}, #{displayName}, #{shortDescription}, #{description}, #{tags}, #{badge}, #{contextLabel},
+            #{speedLevel}, #{qualityLevel}, #{routeKey}, #{vipMinLevel}, #{recommended}, #{defaultOffering},
+            #{sortOrder}, #{enabled}, #{maintenance}, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="updateOffering">
+        UPDATE app_ai_chat_offering
+        SET display_name = #{displayName}, short_description = #{shortDescription}, description = #{description},
+            tags = #{tags}, badge = #{badge}, context_label = #{contextLabel}, speed_level = #{speedLevel},
+            quality_level = #{qualityLevel}, route_key = #{routeKey}, vip_min_level = #{vipMinLevel},
+            recommended = #{recommended}, default_offering = #{defaultOffering}, sort_order = #{sortOrder},
+            enabled = #{enabled}, maintenance = #{maintenance}, version_no = version_no + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND version_no = #{versionNo}
+    </update>
+
+    <update id="clearDefaultOffering">
+        UPDATE app_ai_chat_offering SET default_offering = 0, updated_at = CURRENT_TIMESTAMP
+        WHERE default_offering = 1
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </update>
+
+    <delete id="deleteOffering">DELETE FROM app_ai_chat_offering WHERE id = #{id}</delete>
+
+    <select id="listPrices" resultMap="PriceMap">
+        SELECT * FROM app_ai_chat_offering_price WHERE offering_id = #{offeringId} ORDER BY vip_level ASC
+    </select>
+    <delete id="deletePrices">DELETE FROM app_ai_chat_offering_price WHERE offering_id = #{offeringId}</delete>
+    <insert id="insertPrice" parameterType="com.example.sillyspringboot.ai.entity.AiChatOfferingPrice" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_ai_chat_offering_price (
+            offering_id, vip_level, billing_mode, quota_units, diamond_cost, gold_cost, created_at, updated_at
+        ) VALUES (
+            #{offeringId}, #{vipLevel}, #{billingMode}, #{quotaUnits}, #{diamondCost}, #{goldCost},
+            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <select id="listUserModels" resultMap="UserModelMap">
+        SELECT * FROM app_h5_user_ai_chat_model
+        WHERE user_id = #{userId} ORDER BY sort_order ASC, id ASC
+    </select>
+    <select id="findUserModel" resultMap="UserModelMap">
+        SELECT * FROM app_h5_user_ai_chat_model WHERE user_id = #{userId} AND id = #{id}
+    </select>
+    <select id="findUserModelByName" resultMap="UserModelMap">
+        SELECT * FROM app_h5_user_ai_chat_model WHERE user_id = #{userId} AND model_name = #{modelName}
+    </select>
+    <select id="findDefaultUserModel" resultMap="UserModelMap">
+        SELECT * FROM app_h5_user_ai_chat_model
+        WHERE user_id = #{userId} AND enabled = 1
+        ORDER BY default_model DESC, sort_order ASC, id ASC LIMIT 1
+    </select>
+    <insert id="insertUserModel" parameterType="com.example.sillyspringboot.ai.entity.UserAiChatModel" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_h5_user_ai_chat_model (
+            user_id, model_name, display_name, sort_order, default_model, enabled,
+            last_test_status, last_tested_at, created_at, updated_at
+        ) VALUES (
+            #{userId}, #{modelName}, #{displayName}, #{sortOrder}, #{defaultModel}, #{enabled},
+            #{lastTestStatus}, #{lastTestedAt}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+    <update id="updateUserModel">
+        UPDATE app_h5_user_ai_chat_model
+        SET model_name = #{modelName}, display_name = #{displayName}, sort_order = #{sortOrder},
+            default_model = #{defaultModel}, enabled = #{enabled}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND user_id = #{userId}
+    </update>
+    <update id="clearDefaultUserModel">
+        UPDATE app_h5_user_ai_chat_model SET default_model = 0, updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = #{userId} AND default_model = 1
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </update>
+    <delete id="deleteUserModelsNotIn">
+        DELETE FROM app_h5_user_ai_chat_model WHERE user_id = #{userId} AND id NOT IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+    <delete id="deleteAllUserModels">DELETE FROM app_h5_user_ai_chat_model WHERE user_id = #{userId}</delete>
+
+    <select id="findPreference" resultMap="PreferenceMap">
+        SELECT * FROM app_chat_model_preference
+        WHERE user_id = #{userId} AND conversation_id = #{conversationId} AND branch_id = #{branchId}
+    </select>
+    <insert id="insertPreference" parameterType="com.example.sillyspringboot.ai.entity.ChatModelPreference" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_chat_model_preference (
+            user_id, conversation_id, branch_id, source_type, offering_id, user_model_id,
+            version_no, created_at, updated_at
+        ) VALUES (
+            #{userId}, #{conversationId}, #{branchId}, #{sourceType}, #{offeringId}, #{userModelId},
+            0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+    <update id="updatePreference">
+        UPDATE app_chat_model_preference
+        SET source_type = #{sourceType}, offering_id = #{offeringId}, user_model_id = #{userModelId},
+            version_no = version_no + 1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND version_no = #{versionNo}
+    </update>
+
+    <select id="findGenerationContext" resultMap="GenerationContextMap">
+        SELECT * FROM app_chat_generation_context
+        WHERE user_id = #{userId} AND generation_request_id = #{generationRequestId} AND action_type = #{actionType}
+    </select>
+    <insert id="insertGenerationContext" parameterType="com.example.sillyspringboot.ai.entity.ChatGenerationContext" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_chat_generation_context (
+            user_id, conversation_id, generation_request_id, action_type, source_type,
+            offering_id, offering_code, offering_name, user_model_id, model_name_snapshot, route_key,
+            billing_mode, quota_units, diamond_cost, gold_cost, charge_status, consume_biz_ref,
+            first_content_emitted, created_at, updated_at
+        ) VALUES (
+            #{userId}, #{conversationId}, #{generationRequestId}, #{actionType}, #{sourceType},
+            #{offeringId}, #{offeringCode}, #{offeringName}, #{userModelId}, #{modelNameSnapshot}, #{routeKey},
+            #{billingMode}, #{quotaUnits}, #{diamondCost}, #{goldCost}, #{chargeStatus}, #{consumeBizRef},
+            0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+    </insert>
+    <update id="updateGenerationChargeStatus">
+        UPDATE app_chat_generation_context
+        SET charge_status = #{chargeStatus}, consume_biz_ref = #{consumeBizRef}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+    <update id="claimGenerationRefund">
+        UPDATE app_chat_generation_context
+        SET charge_status = 'REFUNDING', updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND charge_status = 'RESERVED' AND first_content_emitted = 0
+    </update>
+    <update id="claimStaleGenerationRefund">
+        UPDATE app_chat_generation_context
+        SET updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND charge_status = 'REFUNDING' AND updated_at &lt; #{cutoff}
+    </update>
+    <update id="completeGenerationReservation">
+        UPDATE app_chat_generation_context
+        SET charge_status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND charge_status = 'RESERVED'
+    </update>
+    <update id="completeGenerationIfContentEmitted">
+        UPDATE app_chat_generation_context
+        SET charge_status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND charge_status = 'RESERVED' AND first_content_emitted = 1
+    </update>
+    <update id="markFirstContentEmitted">
+        UPDATE app_chat_generation_context
+        SET first_content_emitted = 1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND charge_status = 'RESERVED' AND first_content_emitted = 0
+    </update>
+    <select id="listStaleChargeContexts" resultMap="GenerationContextMap">
+        SELECT * FROM app_chat_generation_context
+        WHERE charge_status IN ('RESERVED', 'REFUNDING')
+          AND updated_at &lt; #{cutoff}
+        ORDER BY updated_at ASC, id ASC
+        LIMIT #{limit}
+    </select>
+    <delete id="deleteTerminalGenerationContexts">
+        DELETE FROM app_chat_generation_context
+        WHERE charge_status IN ('FREE', 'COMPLETED', 'REFUNDED')
+          AND updated_at &lt; #{cutoff}
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </delete>
+</mapper>

@@ -5,23 +5,24 @@
 
 		<view class="body">
 			<view class="hero-card">
-				<view class="hero-top">
-					<text class="hero-kicker">{{ copy.kicker }}</text>
-					<view v-if="apiKeyMaskText" class="hero-badge">{{ apiKeyMaskText }}</view>
+				<view class="hero-mark">
+					<u-icon name="setting-fill" color="#ffffff" size="30"></u-icon>
 				</view>
-				<text class="hero-title">{{ copy.heroTitle }}</text>
-				<text class="hero-subtitle">{{ heroSummaryText }}</text>
+				<view class="hero-copy">
+					<text class="hero-title">{{ copy.heroTitle }}</text>
+					<text class="hero-subtitle">{{ heroSummaryText }}</text>
+				</view>
+				<view v-if="apiKeyMaskText" class="hero-badge">{{ apiKeyMaskText }}</view>
 			</view>
 
 			<view class="sheet">
-				<view class="mode-row">
+				<view class="mode-row mode-row--primary">
 					<view
 						class="mode-chip"
 						:class="{ 'mode-chip--active': form.mode === 'system' }"
 						@tap="selectSystemMode"
 					>
 						<text class="mode-title">{{ copy.systemMode }}</text>
-						<text class="mode-desc">{{ copy.systemModeDesc }}</text>
 					</view>
 					<view
 						class="mode-chip"
@@ -29,52 +30,80 @@
 						@tap="enableCustomMode"
 					>
 						<text class="mode-title">{{ copy.customMode }}</text>
-						<text class="mode-desc">{{ copy.customModeDesc }}</text>
 					</view>
-				</view>
-
-				<view class="feature-status-list">
-					<view class="feature-status-item" :class="{ 'feature-status-item--off': !voiceFeatureAvailable }">
-						<view class="feature-status-icon">音</view>
-						<view class="feature-status-copy">
-							<text class="feature-status-title">语音功能</text>
-							<text class="feature-status-desc">{{ voiceFeatureStatusText }}</text>
-						</view>
-						<text class="feature-status-tag">{{ voiceFeatureStatusTag }}</text>
-					</view>
-					<view class="feature-status-item" :class="{ 'feature-status-item--off': !imageFeatureAvailable }">
-						<view class="feature-status-icon feature-status-icon--image">图</view>
-						<view class="feature-status-copy">
-							<text class="feature-status-title">聊天生图</text>
-							<text class="feature-status-desc">{{ imageFeatureStatusText }}</text>
-						</view>
-						<text class="feature-status-tag">{{ imageFeatureStatusTag }}</text>
-					</view>
-					<view class="feature-status-item" :class="{ 'feature-status-item--off': !visionFeatureAvailable }">
-						<view class="feature-status-icon">识</view>
-						<view class="feature-status-copy">
-							<text class="feature-status-title">图片识别</text>
-							<text class="feature-status-desc">{{ visionFeatureStatusText }}</text>
-						</view>
-						<text class="feature-status-tag">{{ visionFeatureStatusTag }}</text>
-					</view>
-				</view>
-
-				<view v-if="canShowUserVoiceEntry" class="user-voice-entry" @tap="openMyVoices">
-					<view class="user-voice-entry__icon">声</view>
-					<view class="user-voice-entry__copy">
-						<text class="user-voice-entry__title">我的自建音色</text>
-						<text class="user-voice-entry__desc">使用你自己的硅基流动 API Key 即时克隆，可绑定全局或角色。</text>
-					</view>
-					<u-icon name="arrow-right" color="#5d7f95" size="24"></u-icon>
 				</view>
 
 				<view v-if="form.mode === 'system'" class="official-card">
 					<text class="official-title">{{ copy.officialTitle }}</text>
-					<text class="official-desc">{{ copy.officialDesc }}</text>
+					<text class="official-desc">平台负责 API、模型路由和费用；你仍可选择自己喜欢的全局音色。</text>
+				</view>
+				<view v-if="form.mode === 'system' && showVoiceConfig" class="official-voice-library">
+					<view class="official-voice-library__head">
+						<view>
+							<text class="official-voice-library__title">全局语音音色</text>
+							<text class="official-voice-library__desc">角色没有单独设置时，将使用这里的选择</text>
+						</view>
+						<text class="official-voice-library__model">平台托管</text>
+					</view>
+					<view
+						class="official-default-voice"
+						:class="{ 'official-default-voice--active': !form.ttsVoiceName && !form.ttsVoiceTemplateCode }"
+						@tap="clearOfficialTtsVoiceSelection"
+					>
+						<view class="official-default-voice__icon">
+							<u-icon name="volume-fill" color="#3e8dab" size="28"></u-icon>
+						</view>
+						<view class="official-default-voice__copy">
+							<text class="official-default-voice__title">跟随平台默认</text>
+							<text class="official-default-voice__desc">线路调整时自动使用当前可用的默认音色</text>
+						</view>
+						<u-icon v-if="!form.ttsVoiceName && !form.ttsVoiceTemplateCode" name="checkmark-circle-fill" color="#4f93a3" size="30"></u-icon>
+					</view>
+					<view v-if="ttsVoicePresets.length" class="preset-box preset-box--tight official-voice-presets">
+						<text class="settings-label">当前模型内置音色</text>
+						<view class="preset-list">
+							<text
+								v-for="voice in ttsVoicePresets"
+								:key="'official_voice_' + voice"
+								class="preset-chip"
+								:class="{ 'preset-chip--active': form.ttsVoiceName === voice && !form.ttsVoiceTemplateCode }"
+								@tap="selectOfficialTtsVoicePreset(voice)"
+							>{{ voice }}</text>
+						</view>
+					</view>
+					<view v-if="officialTtsVoiceTemplates.length" class="voice-template-list official-voice-template-list">
+						<view
+							v-for="item in officialTtsVoiceTemplates"
+							:key="'official-voice-template-' + item.code"
+							class="voice-template-card"
+							:class="{ 'voice-template-card--active': form.ttsVoiceTemplateCode === item.code }"
+							@tap="selectTtsVoiceTemplate(item)"
+						>
+							<image v-if="ttsVoiceTemplateAssetUrl(item.coverImageUrl)" class="voice-template-card__cover" :src="ttsVoiceTemplateAssetUrl(item.coverImageUrl)" mode="aspectFill" />
+							<view v-else class="voice-template-card__cover voice-template-card__cover--placeholder">
+								<u-icon name="mic" color="#4f93a3" size="28"></u-icon>
+							</view>
+							<view class="voice-template-card__body">
+								<text class="voice-template-card__title">{{ item.displayName || item.code }}</text>
+								<text class="voice-template-card__desc">{{ item.description || item.statusText }}</text>
+							</view>
+							<text v-if="form.ttsVoiceTemplateCode === item.code" class="voice-template-card__check">已选</text>
+						</view>
+					</view>
+					<text v-if="!ttsVoicePresets.length && !officialTtsVoiceTemplates.length" class="official-voice-library__empty">当前官方线路暂无可选音色，聊天会继续使用平台默认音色。</text>
 				</view>
 
-				<view v-else>
+				<view v-else class="custom-settings">
+					<view class="settings-section settings-section--connection">
+						<view class="section-heading">
+							<view class="section-heading__mark">
+								<u-icon name="server-fill" color="#3e8dab" size="25"></u-icon>
+							</view>
+							<view class="section-heading__copy">
+								<text class="section-heading__title">连接配置</text>
+								<text class="section-heading__desc">选择平台并填写凭证</text>
+							</view>
+						</view>
 					<view class="field">
 						<view class="field-head">
 							<text class="field-label">{{ copy.providerSource }}</text>
@@ -89,7 +118,52 @@
 						<text v-if="providerHelpText" class="field-tip">{{ providerHelpText }}</text>
 					</view>
 
+					<view v-if="form.providerSource === 'custom'" class="field">
+						<text class="field-label">{{ copy.customUrl }}</text>
+						<u-input
+							v-model="form.customUrl"
+							:border="true"
+							:placeholder="copy.customUrlPlaceholder"
+						/>
+						<text class="field-tip">{{ copy.customUrlTip }}</text>
+					</view>
+
 					<view class="field">
+						<view class="field-head">
+							<text class="field-label">{{ copy.apiKey }}</text>
+							<view class="field-actions">
+								<text v-if="savedKeyAppliesToCurrentProvider" class="field-meta field-meta--safe">{{ copy.saved }}</text>
+								<view
+									v-if="savedKeyAppliesToCurrentProvider"
+									class="model-load-btn model-load-btn--warn"
+									:class="{ 'model-load-btn--active': form.clearStoredKey }"
+									@tap="toggleClearStoredKey"
+								>
+									{{ clearSavedKeyText }}
+								</view>
+							</view>
+						</view>
+						<u-input
+							v-model="form.apiKey"
+							:border="true"
+							type="password"
+							:placeholder="apiKeyPlaceholderText"
+						/>
+						<text class="field-tip">{{ compactApiKeyTipText }}</text>
+					</view>
+					</view>
+
+					<view class="settings-section settings-section--chat">
+						<view class="section-heading">
+							<view class="section-heading__mark">
+								<u-icon name="chat-fill" color="#3e8dab" size="25"></u-icon>
+							</view>
+							<view class="section-heading__copy">
+								<text class="section-heading__title">聊天模型</text>
+								<text class="section-heading__desc">当前对话使用的主模型</text>
+							</view>
+						</view>
+					<view class="field field--model-picker">
 						<view class="field-head">
 							<text class="field-label">{{ copy.modelName }}</text>
 							<view class="field-actions">
@@ -114,7 +188,11 @@
 							:border="true"
 							:placeholder="modelPlaceholderText"
 						/>
-						<view v-if="modelPresets.length" class="preset-box">
+						<view
+							v-if="modelPresets.length"
+							class="preset-box"
+							:class="{ 'preset-box--expanded': isPresetExpanded('model') }"
+						>
 							<view class="preset-head">
 								<text class="preset-label">{{ modelListLabelText }}</text>
 								<text
@@ -140,54 +218,90 @@
 						<text v-if="modelListMessage" class="field-tip">{{ modelListMessage }}</text>
 					</view>
 
-					<view class="field chat-model-library">
-						<view class="field-head">
+					<view class="field chat-model-library" :class="{ 'chat-model-library--open': chatModelsOpen }">
+						<view class="chat-model-library__top" @tap="toggleChatModelsOpen">
 							<view class="chat-model-library__heading">
-								<text class="field-label">聊天模型库</text>
-								<text class="field-tip">同一个平台和 API Key 可保存多个模型，聊天时直接切换。</text>
+								<view class="chat-model-library__title-row">
+									<text class="field-label">已保存模型</text>
+									<text class="chat-model-library__count">{{ chatModelCollection.length }}/50</text>
+								</view>
+								<text class="field-tip">{{ chatModelLibrarySummaryText }}</text>
 							</view>
+							<view class="chat-model-library__toggle">
+								<text>{{ chatModelsOpen ? '收起' : '管理' }}</text>
+								<u-icon :name="chatModelsOpen ? 'arrow-up' : 'arrow-down'" color="#52606d" size="22"></u-icon>
+							</view>
+						</view>
+						<view v-show="chatModelsOpen" class="chat-model-library__content">
+							<view class="chat-model-library__toolbar">
 							<view
 								class="model-load-btn model-load-btn--primary"
 								:class="{ 'model-load-btn--disabled': !String(form.modelName || '').trim() || chatModelCollection.length >= 50 }"
 								@tap="addCurrentChatModel"
 							>加入当前模型</view>
-						</view>
+							<input
+								v-if="chatModelCollection.length > 4"
+								v-model="chatModelQuery"
+								class="chat-model-library__search"
+								placeholder="搜索已保存模型"
+							/>
+							</view>
 						<view v-if="chatModelCollection.length" class="chat-model-library__list">
 							<view
-								v-for="(item, index) in chatModelCollection"
-								:key="item.localKey"
+								v-for="row in filteredChatModelRows"
+								:key="row.item.localKey"
 								class="chat-model-library__item"
-								:class="{ 'chat-model-library__item--default': item.defaultModel }"
+								:class="{ 'chat-model-library__item--default': row.item.defaultModel }"
 							>
-								<view class="chat-model-library__default" @tap="setDefaultChatModel(index)">
-									<u-icon :name="item.defaultModel ? 'checkmark-circle-fill' : 'radio-button-off'" :color="item.defaultModel ? '#d76e44' : '#78909c'" size="30"></u-icon>
-									<text>{{ item.defaultModel ? '默认' : '设为默认' }}</text>
+								<view class="chat-model-library__default" @tap="setDefaultChatModel(row.index)">
+									<u-icon :name="row.item.defaultModel ? 'checkmark-circle-fill' : 'radio-button-off'" :color="row.item.defaultModel ? '#207a70' : '#87939c'" size="30"></u-icon>
+									<text>{{ row.item.defaultModel ? '默认模型' : '设为默认' }}</text>
 								</view>
 								<view class="chat-model-library__copy">
-									<input v-model="item.displayName" maxlength="128" :placeholder="chatModelDisplayName(item)" />
-									<text>{{ item.modelName }}</text>
+									<input v-model="row.item.displayName" maxlength="128" placeholder="显示名称（可选）" />
+									<text>{{ row.item.modelName }}</text>
 								</view>
 								<view class="chat-model-library__actions">
-									<view :class="{ 'chat-model-library__action--disabled': index === 0 }" @tap="moveChatModel(index, -1)"><u-icon name="arrow-up" size="28" color="#486777"></u-icon></view>
-									<view :class="{ 'chat-model-library__action--disabled': index === chatModelCollection.length - 1 }" @tap="moveChatModel(index, 1)"><u-icon name="arrow-down" size="28" color="#486777"></u-icon></view>
-									<view @tap="removeChatModel(index)"><u-icon name="trash" size="28" color="#b65449"></u-icon></view>
+									<view :class="{ 'chat-model-library__action--disabled': row.index === 0 }" @tap="moveChatModel(row.index, -1)"><u-icon name="arrow-up" size="26" color="#52606d"></u-icon></view>
+									<view :class="{ 'chat-model-library__action--disabled': row.index === chatModelCollection.length - 1 }" @tap="moveChatModel(row.index, 1)"><u-icon name="arrow-down" size="26" color="#52606d"></u-icon></view>
+									<view @tap="removeChatModel(row.index)"><u-icon name="trash" size="26" color="#b65449"></u-icon></view>
 								</view>
 							</view>
 						</view>
 						<view v-else class="chat-model-library__empty">
 							<text>获取或输入模型 ID 后，点“加入当前模型”。</text>
 						</view>
-						<text class="field-tip">默认模型用于旧版聊天入口；模型选择功能开放后，可在聊天页切换这里保存的其他模型。</text>
+						<view v-if="chatModelCollection.length && !filteredChatModelRows.length" class="chat-model-library__empty">
+							<text>没有匹配的模型</text>
+						</view>
+						</view>
+					</view>
 					</view>
 
-					<view class="field">
-						<view class="field-head">
-							<text class="field-label">{{ auxModelsTitleText }}</text>
+					<view class="settings-section settings-section--advanced">
+						<view class="section-heading">
+							<view class="section-heading__mark">
+								<u-icon name="grid-fill" color="#b65f83" size="25"></u-icon>
+							</view>
+							<view class="section-heading__copy">
+								<text class="section-heading__title">扩展能力</text>
+								<text class="section-heading__desc">按需配置视觉、语音和生图</text>
+							</view>
 							<text class="field-meta">{{ auxModelsMetaText }}</text>
 						</view>
-						<text class="field-tip">{{ compactAuxModelsTipText }}</text>
+						<view class="capability-tabs">
+							<view class="capability-tab" :class="{ 'capability-tab--active': advancedSection === 'vision' }" @tap="advancedSection = 'vision'">
+								<text>图片识别</text>
+							</view>
+							<view v-if="showVoiceConfig" class="capability-tab" :class="{ 'capability-tab--active': advancedSection === 'voice' }" @tap="advancedSection = 'voice'">
+								<text>语音</text>
+							</view>
+							<view v-if="showImageConfig" class="capability-tab" :class="{ 'capability-tab--active': advancedSection === 'image' }" @tap="advancedSection = 'image'">
+								<text>聊天生图</text>
+							</view>
+						</view>
 						<view class="aux-grid">
-							<view class="aux-card">
+							<view v-show="advancedSection === 'vision'" class="aux-card">
 								<text class="aux-card__label">{{ visionModelLabelText }}</text>
 								<u-input
 									v-model="form.visionModelName"
@@ -217,7 +331,7 @@
 								</view>
 							</view>
 
-							<view v-if="showVoiceConfig" class="aux-card">
+							<view v-if="showVoiceConfig" v-show="advancedSection === 'voice'" class="aux-card">
 								<text class="aux-card__label">{{ sttModelLabelText }}</text>
 								<u-input
 									v-model="form.sttModelName"
@@ -248,7 +362,7 @@
 								<text v-if="sttModelHintText" class="field-tip field-tip--warning">{{ sttModelHintText }}</text>
 							</view>
 
-							<view v-if="showVoiceConfig" class="aux-card aux-card--tts-config">
+							<view v-if="showVoiceConfig" v-show="advancedSection === 'voice'" class="aux-card aux-card--tts-config">
 								<view class="field-head">
 									<text class="aux-card__label">{{ ttsProviderSectionTitleText }}</text>
 									<view class="field-actions">
@@ -329,7 +443,7 @@
 								</view>
 							</view>
 
-							<view v-if="showVoiceConfig" class="aux-card">
+							<view v-if="showVoiceConfig" v-show="advancedSection === 'voice'" class="aux-card">
 								<text class="aux-card__label">{{ ttsModelLabelText }}</text>
 								<u-input
 									v-model="form.ttsModelName"
@@ -382,7 +496,7 @@
 								<text v-if="effectiveTtsModelHintText" class="field-tip field-tip--warning">{{ effectiveTtsModelHintText }}</text>
 							</view>
 
-							<view v-if="showVoiceConfig" class="aux-card aux-card--voice-library">
+							<view v-if="showVoiceConfig" v-show="advancedSection === 'voice'" class="aux-card aux-card--voice-library">
 								<text class="aux-card__label">{{ ttsVoiceLabelText }}</text>
 								<text class="section-caption">{{ ttsVoiceTemplateIntroText }}</text>
 								<scroll-view
@@ -405,7 +519,9 @@
 												:src="ttsVoiceTemplateAssetUrl(item.coverImageUrl)"
 												mode="aspectFill"
 											/>
-											<view v-else class="voice-template-card__cover voice-template-card__cover--placeholder">音</view>
+											<view v-else class="voice-template-card__cover voice-template-card__cover--placeholder">
+												<u-icon name="mic" color="#4f93a3" size="28"></u-icon>
+											</view>
 											<view class="voice-template-card__body">
 												<view class="voice-template-card__head">
 													<text class="voice-template-card__title">{{ item.displayName || item.code }}</text>
@@ -466,7 +582,7 @@
 								</view>
 							</view>
 
-							<view v-if="showImageConfig" class="aux-card aux-card--tts-config">
+							<view v-if="showImageConfig" v-show="advancedSection === 'image'" class="aux-card aux-card--tts-config">
 								<view class="field-head">
 									<text class="aux-card__label">{{ imageProviderSectionTitleText }}</text>
 									<view class="field-actions">
@@ -547,7 +663,7 @@
 								</view>
 							</view>
 
-							<view v-if="showImageConfig" class="aux-card">
+							<view v-if="showImageConfig" v-show="advancedSection === 'image'" class="aux-card">
 								<text class="aux-card__label">{{ imageModelLabelText }}</text>
 								<u-input
 									v-model="form.imageModelName"
@@ -598,7 +714,7 @@
 									</view>
 								</view>
 							</view>
-							<view v-if="false && showImageConfig" class="aux-card aux-card--image-consistency">
+							<view v-if="false && showImageConfig" v-show="advancedSection === 'image'" class="aux-card aux-card--image-consistency">
 								<view class="strategy-card-head">
 									<view class="strategy-title-wrap">
 										<text class="aux-card__label">{{ imageConsistencySectionTitleText }}</text>
@@ -657,40 +773,6 @@
 							</view>
 						</view>
 					</view>
-
-					<view v-if="form.providerSource === 'custom'" class="field">
-						<text class="field-label">{{ copy.customUrl }}</text>
-						<u-input
-							v-model="form.customUrl"
-							:border="true"
-							:placeholder="copy.customUrlPlaceholder"
-						/>
-						<text class="field-tip">{{ copy.customUrlTip }}</text>
-					</view>
-
-					<view class="field">
-						<view class="field-head">
-							<text class="field-label">{{ copy.apiKey }}</text>
-							<view class="field-actions">
-								<text v-if="savedKeyAppliesToCurrentProvider" class="field-meta field-meta--safe">{{ copy.saved }}</text>
-								<view
-									v-if="savedKeyAppliesToCurrentProvider"
-									class="model-load-btn model-load-btn--warn"
-									:class="{ 'model-load-btn--active': form.clearStoredKey }"
-									@tap="toggleClearStoredKey"
-								>
-									{{ clearSavedKeyText }}
-								</view>
-							</view>
-						</view>
-						<u-input
-							v-model="form.apiKey"
-							:border="true"
-							type="password"
-							:placeholder="apiKeyPlaceholderText"
-						/>
-						<text class="field-tip">{{ compactApiKeyTipText }}</text>
-					</view>
 				</view>
 			</view>
 
@@ -742,10 +824,10 @@
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 const tavernApi = require('@/common/tavernApi.js');
 const { getLanguageCode } = require('@/common/tavernUiI18n.js');
+const { sameProviderCredentialTarget } = require('@/common/userAiCredentialRules.js');
 
 const CLEAN_COPY_ZH = Object.freeze({
 	title: 'AI \u8bbe\u7f6e',
-	kicker: 'AI',
 	heroTitle: '\u804a\u5929\u4e0e\u6a21\u578b\u914d\u7f6e',
 	heroSubtitle: '\u9009\u62e9\u5e73\u53f0\u3001\u6a21\u578b\u4ee5\u53ca TTS/\u751f\u56fe\u72ec\u7acb\u914d\u7f6e\u3002',
 	systemMode: '\u7cfb\u7edf\u9ed8\u8ba4',
@@ -761,6 +843,11 @@ const CLEAN_COPY_ZH = Object.freeze({
 	loadModels: '\u83b7\u53d6\u6a21\u578b',
 	loadingModels: '\u52a0\u8f7d\u4e2d...',
 	smartFill: '\u667a\u80fd\u586b\u5145',
+	smartFillNeedCustom: '\u8bf7\u5148\u5207\u6362\u5230\u81ea\u5b9a\u4e49\u6a21\u5f0f',
+	smartFillLoading: '\u6b63\u5728\u83b7\u53d6\u6a21\u578b\uff0c\u8bf7\u7a0d\u5019',
+	smartFillSuccess: '\u667a\u80fd\u586b\u5145\u5b8c\u6210',
+	smartFillNoChange: '\u5f53\u524d\u7a7a\u9879\u5df2\u7ecf\u586b\u597d',
+	smartFillUnavailable: '\u6ca1\u6709\u8bc6\u522b\u5230\u53ef\u586b\u5145\u7684\u5bf9\u5e94\u6a21\u578b',
 	recommendedModels: '\u63a8\u8350\u6a21\u578b',
 	providerModels: '\u5e73\u53f0\u8fd4\u56de\u5217\u8868',
 	providerReturnedModels: '\u8fd4\u56de\u6a21\u578b',
@@ -806,16 +893,25 @@ const CLEAN_COPY_ZH = Object.freeze({
 	imageDetectedModels: '\u5df2\u8bc6\u522b\u7684\u751f\u56fe\u6a21\u578b',
 	apiKey: 'API Key',
 	apiKeyHintPrefix: '\u5f53\u524d\u5e73\u53f0',
-	apiKeyTip: '\u4ec5\u5728\u4fdd\u5b58\u65f6\u5199\u5165\u3002\u7559\u7a7a\u53ef\u4ee5\u7ee7\u7eed\u4f7f\u7528\u5df2\u4fdd\u5b58\u7684 Key\u3002',
+	apiKeyTip: '\u4fdd\u5b58\u540e\u4f1a\u52a0\u5bc6\u5199\u5165\u4f60\u7684\u8d26\u53f7\u914d\u7f6e\uff0c\u5237\u65b0\u65e0\u9700\u91cd\u586b\u3002\u7559\u7a7a\u8868\u793a\u7ee7\u7eed\u4f7f\u7528\u5df2\u4fdd\u5b58\u7684 Key\u3002',
 	customUrl: '\u81ea\u5b9a\u4e49\u63a5\u53e3',
 	customUrlPlaceholder: 'https://your-api.example.com/v1',
 	customUrlTip: '\u4ec5\u5728\u81ea\u5b9a\u4e49\u5e73\u53f0\u65f6\u9700\u8981\u586b\u5199\u3002',
 	audioModelLabel: '\u97f3\u9891\u6a21\u578b',
 	audioModelPlaceholder: '输入音频模型 ID，例如 Omni、Audio、TTS 或 ASR',
-	needProvider: '\u8bf7\u5148\u9009\u62e9\u5e73\u53f0',
-	needModel: '\u8bf7\u5148\u586b\u5199\u6a21\u578b',
-	needCustomUrl: '\u8bf7\u5148\u586b\u5199\u81ea\u5b9a\u4e49\u63a5\u53e3\u5730\u5740',
-	needApiKey: '\u8bf7\u5148\u586b\u5199 API Key',
+	needChatProvider: '\u8bf7\u5148\u9009\u62e9\u804a\u5929\u5e73\u53f0',
+	needChatModel: '\u8bf7\u5148\u586b\u5199\u804a\u5929\u6a21\u578b',
+	needChatCustomUrl: '\u8bf7\u5148\u586b\u5199\u804a\u5929\u81ea\u5b9a\u4e49\u63a5\u53e3\u5730\u5740',
+	needChatApiKey: '\u8bf7\u5148\u586b\u5199\u804a\u5929 API Key',
+	needTtsProvider: '\u8bf7\u5148\u9009\u62e9 TTS \u5e73\u53f0',
+	needTtsCustomUrl: '\u8bf7\u5148\u586b\u5199 TTS \u81ea\u5b9a\u4e49\u63a5\u53e3\u5730\u5740',
+	needTtsApiKey: '\u8bf7\u5148\u586b\u5199 TTS API Key',
+	needImageProvider: '\u8bf7\u5148\u9009\u62e9\u751f\u56fe\u5e73\u53f0',
+	needImageCustomUrl: '\u8bf7\u5148\u586b\u5199\u751f\u56fe\u81ea\u5b9a\u4e49\u63a5\u53e3\u5730\u5740',
+	needImageApiKey: '\u8bf7\u5148\u586b\u5199\u751f\u56fe API Key',
+	incompleteSeparateTitle: '\u72ec\u7acb\u914d\u7f6e\u8fd8\u6ca1\u586b\u5b8c',
+	incompleteSeparateSuffix: '\u662f\u5426\u6682\u65f6\u6539\u4e3a\u8ddf\u968f\u4e3b\u914d\u7f6e\uff0c\u5148\u4fdd\u5b58\u804a\u5929 API Key \u548c\u6a21\u578b\uff1f',
+	followMainAndSave: '\u8ddf\u968f\u5e76\u4fdd\u5b58',
 	testConnection: '\u6d4b\u8bd5\u8fde\u63a5',
 	testing: '\u6d4b\u8bd5\u4e2d...',
 	testSuccessTitle: '\u8fde\u63a5\u6210\u529f',
@@ -1072,6 +1168,7 @@ function emptyState() {
 		ttsVoiceName: '',
 		ttsVoiceTemplateCode: '',
 		ttsVoiceTemplateLabel: '',
+		ttsVoicePresets: [],
 		ttsUseSeparateConfig: false,
 		ttsProviderSource: '',
 		ttsApiKeyConfigured: false,
@@ -1162,6 +1259,9 @@ export default {
 			presetExpanded: {},
 			chatModelCollection: [],
 			chatModelLocalSequence: 0,
+			chatModelsOpen: false,
+			chatModelQuery: '',
+			advancedSection: 'vision',
 			form: {
 				mode: 'system',
 				providerSource: 'siliconflow',
@@ -1193,6 +1293,23 @@ export default {
 	computed: {
 		localeCode() {
 			return getLanguageCode();
+		},
+		chatModelLibrarySummaryText() {
+			if (!this.chatModelCollection.length) {
+				return '还没有保存其他聊天模型';
+			}
+			const selected = this.chatModelCollection.find((item) => item.defaultModel) || this.chatModelCollection[0];
+			const label = String(selected.displayName || selected.modelName || '').trim();
+			return this.chatModelCollection.length + ' 个模型 · 默认 ' + label;
+		},
+		filteredChatModelRows() {
+			const keyword = String(this.chatModelQuery || '').trim().toLowerCase();
+			return this.chatModelCollection
+				.map((item, index) => ({ item, index }))
+				.filter((row) => {
+					if (!keyword) return true;
+					return (String(row.item.displayName || '') + '\n' + String(row.item.modelName || '')).toLowerCase().includes(keyword);
+				});
 		},
 		copy() {
 			return CLEAN_COPY[this.localeCode] || CLEAN_COPY['zh-cn'];
@@ -1339,7 +1456,8 @@ export default {
 		},
 		visionFeatureAvailable() {
 			if (this.form.mode === 'custom') {
-				return this.viewState.canUse === true && this.viewState.apiKeyConfigured === true
+				return this.viewState.canUse === true
+					&& !!(String(this.form.apiKey || '').trim() || this.effectiveSavedKeyAvailable)
 					&& (!!String(this.form.visionModelName || '').trim() || this.looksLikeVisionModelName(this.form.modelName));
 			}
 			return this.viewState.visionOfficialEnabled === true && this.viewState.visionOfficialReady === true;
@@ -1412,13 +1530,12 @@ export default {
 			if (!this.form.ttsUseSeparateConfig || !this.viewState.ttsUseSeparateConfig || !this.viewState.ttsApiKeyConfigured) {
 				return false;
 			}
-			if (String(this.form.ttsProviderSource || '').trim() !== String(this.viewState.ttsProviderSource || '').trim()) {
-				return false;
-			}
-			if (this.form.ttsProviderSource === 'custom') {
-				return String(this.form.ttsCustomUrl || '').trim() === String(this.viewState.ttsCustomUrl || '').trim();
-			}
-			return true;
+			return sameProviderCredentialTarget(
+				this.form.ttsProviderSource,
+				this.form.ttsCustomUrl,
+				this.viewState.ttsProviderSource,
+				this.viewState.ttsCustomUrl
+			);
 		},
 		effectiveSavedTtsKeyAvailable() {
 			return this.savedTtsKeyAppliesToCurrentProvider && !this.form.clearStoredTtsKey;
@@ -1430,13 +1547,12 @@ export default {
 			if (!this.form.imageUseSeparateConfig || !this.viewState.imageUseSeparateConfig || !this.viewState.imageApiKeyConfigured) {
 				return false;
 			}
-			if (String(this.form.imageProviderSource || '').trim() !== String(this.viewState.imageProviderSource || '').trim()) {
-				return false;
-			}
-			if (this.form.imageProviderSource === 'custom') {
-				return String(this.form.imageCustomUrl || '').trim() === String(this.viewState.imageCustomUrl || '').trim();
-			}
-			return true;
+			return sameProviderCredentialTarget(
+				this.form.imageProviderSource,
+				this.form.imageCustomUrl,
+				this.viewState.imageProviderSource,
+				this.viewState.imageCustomUrl
+			);
 		},
 		effectiveSavedImageKeyAvailable() {
 			return this.savedImageKeyAppliesToCurrentProvider && !this.form.clearStoredImageKey;
@@ -1485,6 +1601,12 @@ export default {
 			if (!this.showVoiceConfig) {
 				return [];
 			}
+			const serverPresets = Array.isArray(this.viewState.ttsVoicePresets)
+				? uniqueStrings(this.viewState.ttsVoicePresets.map((voice) => String(voice || '').trim().toLowerCase()))
+				: [];
+			if (serverPresets.length) {
+				return serverPresets;
+			}
 			if (this.supportsOpenAiVoicePresets(this.form.ttsModelName)) {
 				return OPENAI_TTS_VOICE_PRESETS.slice();
 			}
@@ -1499,6 +1621,9 @@ export default {
 			}
 			const source = Array.isArray(this.viewState.ttsVoiceTemplates) ? this.viewState.ttsVoiceTemplates : [];
 			return source.map((item) => normalizeVoiceTemplateItem(item)).filter((item) => item.code);
+		},
+		officialTtsVoiceTemplates() {
+			return this.ttsVoiceTemplates.filter((item) => this.isTtsVoiceTemplateSelectable(item));
 		},
 		selectedTtsVoiceTemplate() {
 			const currentCode = String(this.form.ttsVoiceTemplateCode || '').trim();
@@ -1542,13 +1667,12 @@ export default {
 			if (!this.viewState.apiKeyConfigured) {
 				return false;
 			}
-			if (String(this.form.providerSource || '').trim() !== String(this.viewState.providerSource || '').trim()) {
-				return false;
-			}
-			if (this.form.providerSource === 'custom') {
-				return String(this.form.customUrl || '').trim() === String(this.viewState.customUrl || '').trim();
-			}
-			return true;
+			return sameProviderCredentialTarget(
+				this.form.providerSource,
+				this.form.customUrl,
+				this.viewState.providerSource,
+				this.viewState.customUrl
+			);
 		},
 		canLoadModels() {
 			if (this.form.mode !== 'custom' || !this.viewState.canUse || !String(this.form.providerSource || '').trim()) {
@@ -1596,9 +1720,13 @@ export default {
 			return !!(String(this.form.imageApiKey || '').trim() || this.effectiveSavedImageKeyAvailable);
 		},
 		canSmartFillModels() {
+			if (this.form.mode !== 'custom') {
+				return false;
+			}
 			const voiceAvailable = this.showVoiceConfig && (this.sttModelPresets.length || this.ttsModelPresets.length);
 			const imageAvailable = this.showImageConfig && this.imageModelPresets.length;
 			return !!(
+				this.canLoadModels ||
 				this.modelPresets.length ||
 				this.visionModelPresets.length ||
 				voiceAvailable ||
@@ -2119,13 +2247,7 @@ export default {
 		canRunCustomAction() {
 			return this.form.mode === 'custom' && this.viewState.canUse;
 		},
-		canShowUserVoiceEntry() {
-			if (!this.voiceFeatureAvailable || this.viewState.userVoiceCreationEnabled !== true || this.form.mode !== 'custom') return false;
-			const source = this.form.ttsUseSeparateConfig
-				? String(this.form.ttsProviderSource || '').trim()
-				: String(this.form.providerSource || '').trim();
-			return source.toLowerCase() === 'siliconflow';
-		}
+
 	},
 	watch: {
 		'form.mode': 'resetTestState',
@@ -2190,8 +2312,8 @@ export default {
 		return false;
 	},
 	methods: {
-		openMyVoices() {
-			uni.navigateTo({ url: '/pages/user/myVoices' });
+		toggleChatModelsOpen() {
+			this.chatModelsOpen = !this.chatModelsOpen;
 		},
 		looksLikeVisionModelName(modelName) {
 			return /(vision|visual|multimodal|qwen[^/]*vl|llava|pixtral|gpt-4o|gpt-4\.1|gemini|claude|grok[^/]*vision)/i.test(String(modelName || ''));
@@ -2448,6 +2570,7 @@ export default {
 				enabled: true,
 				sortOrder: this.chatModelCollection.length
 			}, this.chatModelCollection.length));
+			this.chatModelsOpen = true;
 		},
 		setDefaultChatModel(index) {
 			const target = this.chatModelCollection[index];
@@ -2588,14 +2711,27 @@ export default {
 			return tavernApi.resolveJgAssetUrl(url);
 		},
 		selectTtsVoiceTemplate(item) {
-			if (!this.showVoiceConfig || this.form.mode !== 'custom' || !item || !item.code) {
+			if (!this.showVoiceConfig || !item || !item.code || !this.isTtsVoiceTemplateSelectable(item)) {
 				return;
 			}
 			this.form.ttsVoiceTemplateCode = item.code;
 			this.form.ttsVoiceName = '';
-			if (!String(this.form.ttsModelName || '').trim() && String(item.recommendedModelName || '').trim()) {
+			if (this.form.mode === 'custom' && !String(this.form.ttsModelName || '').trim() && String(item.recommendedModelName || '').trim()) {
 				this.form.ttsModelName = String(item.recommendedModelName || '').trim();
 			}
+		},
+		selectOfficialTtsVoicePreset(voice) {
+			if (!this.showVoiceConfig || this.form.mode !== 'system') return;
+			this.form.ttsVoiceName = String(voice || '').trim().toLowerCase();
+			this.form.ttsVoiceTemplateCode = '';
+		},
+		clearOfficialTtsVoiceSelection() {
+			this.form.ttsVoiceName = '';
+			this.form.ttsVoiceTemplateCode = '';
+		},
+		isTtsVoiceTemplateSelectable(item) {
+			const status = String(item && item.statusCode || '').trim().toLowerCase();
+			return !!(item && item.code) && status.indexOf('requires_') !== 0 && status !== 'failed';
 		},
 		clearTtsVoiceTemplateSelection() {
 			this.form.ttsVoiceTemplateCode = '';
@@ -2879,50 +3015,101 @@ export default {
 		},
 		smartFillModels() {
 			if (this.form.mode !== 'custom') {
+				uni.showToast({ title: this.copy.smartFillNeedCustom, icon: 'none' });
 				return;
 			}
+			if (this.loadingModels) {
+				uni.showToast({ title: this.copy.smartFillLoading, icon: 'none' });
+				return;
+			}
+			const before = this.smartFillFieldSnapshot();
 			if (!this.providerModels.length && this.canLoadModels) {
 				this.loadProviderModels(false).finally(() => {
-					this.applySmartFillFromAvailableModels();
+					this.finishSmartFillModels(before);
 				});
 				return;
 			}
+			this.finishSmartFillModels(before);
+		},
+		smartFillFieldSnapshot() {
+			return {
+				modelName: String(this.form.modelName || '').trim(),
+				visionModelName: String(this.form.visionModelName || '').trim(),
+				sttModelName: String(this.form.sttModelName || '').trim(),
+				ttsModelName: String(this.form.ttsModelName || '').trim(),
+				imageModelName: String(this.form.imageModelName || '').trim()
+			};
+		},
+		finishSmartFillModels(before) {
 			this.applySmartFillFromAvailableModels();
+			const previous = before || {};
+			const current = this.smartFillFieldSnapshot();
+			const fieldLabels = {
+				modelName: '\u4e3b\u6a21\u578b',
+				visionModelName: '\u89c6\u89c9\u6a21\u578b',
+				sttModelName: '\u8bc6\u97f3\u6a21\u578b',
+				ttsModelName: 'TTS \u6a21\u578b',
+				imageModelName: '\u751f\u56fe\u6a21\u578b'
+			};
+			const filled = Object.keys(fieldLabels).filter((field) => !previous[field] && !!current[field]).map((field) => fieldLabels[field]);
+			if (filled.length) {
+				this.modelListMessage = this.copy.smartFillSuccess + '\uff1a' + filled.join('\u3001');
+				uni.showToast({ title: this.copy.smartFillSuccess + ' ' + filled.length + ' \u9879', icon: 'success' });
+				return;
+			}
+			const hasCandidates = this.canSmartFillModels;
+			this.modelListMessage = hasCandidates ? this.copy.smartFillNoChange : this.copy.smartFillUnavailable;
+			uni.showToast({ title: this.modelListMessage, icon: 'none' });
 		},
 		applySmartFillFromAvailableModels() {
+			const filled = [];
 			if (!String(this.form.modelName || '').trim()) {
 				if (this.modelPresets.length) {
 					this.form.modelName = this.modelPresets[0];
+					filled.push('\u4e3b\u6a21\u578b');
 				} else if (String(this.currentProviderOption.defaultModel || '').trim()) {
 					this.form.modelName = String(this.currentProviderOption.defaultModel || '').trim();
+					filled.push('\u4e3b\u6a21\u578b');
 				}
 			}
 			if (!String(this.form.visionModelName || '').trim() && this.visionModelPresets.length) {
 				this.form.visionModelName = this.visionModelPresets[0];
+				filled.push('\u89c6\u89c9\u6a21\u578b');
 			}
 			if (this.showVoiceConfig && !String(this.form.sttModelName || '').trim() && this.sttModelPresets.length) {
 				this.form.sttModelName = this.sttModelPresets[0];
+				filled.push('\u8bc6\u97f3\u6a21\u578b');
 			}
 			if (this.showVoiceConfig && !String(this.form.ttsModelName || '').trim() && this.ttsModelPresets.length) {
 				this.form.ttsModelName = this.ttsModelPresets[0];
+				filled.push('TTS \u6a21\u578b');
 			} else if (this.showVoiceConfig && !String(this.form.ttsModelName || '').trim()) {
 				const option = this.form.ttsUseSeparateConfig ? this.currentTtsProviderOption : this.currentProviderOption;
-				if (String(option.defaultModel || '').trim()) {
-					this.form.ttsModelName = String(option.defaultModel || '').trim();
-				} else if (this.selectedTtsVoiceTemplate && String(this.selectedTtsVoiceTemplate.recommendedModelName || '').trim()) {
-					this.form.ttsModelName = String(this.selectedTtsVoiceTemplate.recommendedModelName || '').trim();
+				const optionDefault = String(option.defaultModel || '').trim();
+				const templateDefault = this.selectedTtsVoiceTemplate
+					? String(this.selectedTtsVoiceTemplate.recommendedModelName || '').trim()
+					: '';
+				const nextTtsModel = this.matchCapabilityModel(optionDefault, 'tts')
+					? optionDefault
+					: (this.matchCapabilityModel(templateDefault, 'tts') ? templateDefault : '');
+				if (nextTtsModel) {
+					this.form.ttsModelName = nextTtsModel;
+					filled.push('TTS \u6a21\u578b');
 				}
 			}
 			if (this.showImageConfig && !String(this.form.imageModelName || '').trim() && this.imageModelPresets.length) {
 				this.form.imageModelName = this.imageModelPresets[0];
+				filled.push('\u751f\u56fe\u6a21\u578b');
 			} else if (this.showImageConfig && !String(this.form.imageModelName || '').trim()) {
 				const option = this.form.imageUseSeparateConfig ? this.currentImageProviderOption : this.currentProviderOption;
 				const dynamicModels = this.form.imageUseSeparateConfig ? this.imageProviderModels : this.providerModels;
 				const nextDefault = this.resolveCapabilityDefaultModel('image', option, dynamicModels);
 				if (nextDefault) {
 					this.form.imageModelName = nextDefault;
+					filled.push('\u751f\u56fe\u6a21\u578b');
 				}
 			}
+			return filled;
 		},
 		toggleClearStoredKey() {
 			if (!this.savedKeyAppliesToCurrentProvider) {
@@ -2947,9 +3134,7 @@ export default {
 				return Promise.resolve([]);
 			}
 			if (!this.canLoadModels) {
-				const message = this.form.providerSource === 'custom' && !String(this.form.customUrl || '').trim()
-					? this.copy.needCustomUrl
-					: this.copy.needApiKey;
+				const message = this.mainConnectionValidationMessage(false) || this.copy.needChatApiKey;
 				this.modelListMessage = message;
 				if (showToast) {
 					uni.showToast({ title: message, icon: 'none' });
@@ -3008,10 +3193,7 @@ export default {
 				return Promise.resolve([]);
 			}
 			if (!this.canLoadTtsModels) {
-				const needCustom = this.form.ttsUseSeparateConfig
-					&& this.form.ttsProviderSource === 'custom'
-					&& !String(this.form.ttsCustomUrl || '').trim();
-				const message = needCustom ? this.copy.needCustomUrl : this.copy.needApiKey;
+				const message = this.ttsConnectionValidationMessage() || this.copy.needTtsApiKey;
 				this.ttsModelListMessage = message;
 				if (showToast) {
 					uni.showToast({ title: message, icon: 'none' });
@@ -3095,10 +3277,7 @@ export default {
 				return Promise.resolve([]);
 			}
 			if (!this.canLoadImageModels) {
-				const needCustom = this.form.imageUseSeparateConfig
-					&& this.form.imageProviderSource === 'custom'
-					&& !String(this.form.imageCustomUrl || '').trim();
-				const message = needCustom ? this.copy.needCustomUrl : this.copy.needApiKey;
+				const message = this.imageConnectionValidationMessage() || this.copy.needImageApiKey;
 				this.imageModelListMessage = message;
 				if (showToast) {
 					uni.showToast({ title: message, icon: 'none' });
@@ -3306,10 +3485,16 @@ export default {
 			return payload;
 		},
 		shouldRunImageConnectionTest() {
-			return this.showImageConfig && this.form.mode === 'custom' && !!String(this.form.imageModelName || '').trim();
+			return this.showImageConfig
+				&& this.form.mode === 'custom'
+				&& this.form.imageUseSeparateConfig
+				&& !!String(this.form.imageModelName || '').trim();
 		},
 		shouldRunTtsConnectionTest() {
-			return this.showVoiceConfig && this.form.mode === 'custom' && !!String(this.form.ttsModelName || '').trim();
+			return this.showVoiceConfig
+				&& this.form.mode === 'custom'
+				&& this.form.ttsUseSeparateConfig
+				&& !!String(this.form.ttsModelName || '').trim();
 		},
 		normalizeConnectionScopeLabel(label, scope) {
 			const text = String(label || '').trim();
@@ -3401,36 +3586,65 @@ export default {
 				latencyMs
 			};
 		},
-		validateCustomForm(showToast) {
+		mainConnectionValidationMessage(requireModel) {
+			if (!this.viewState.canUse) {
+				return this.viewState.denyReason || this.copy.unavailableTitle;
+			}
+			if (!String(this.form.providerSource || '').trim()) {
+				return this.copy.needChatProvider;
+			}
+			if (requireModel && !String(this.form.modelName || '').trim()) {
+				return this.copy.needChatModel;
+			}
+			if (this.form.providerSource === 'custom' && !String(this.form.customUrl || '').trim()) {
+				return this.copy.needChatCustomUrl;
+			}
+			if (!String(this.form.apiKey || '').trim() && !this.effectiveSavedKeyAvailable) {
+				return this.copy.needChatApiKey;
+			}
+			return '';
+		},
+		ttsConnectionValidationMessage() {
+			if (!this.form.ttsUseSeparateConfig) {
+				return this.mainConnectionValidationMessage(false);
+			}
+			if (!String(this.form.ttsProviderSource || '').trim()) {
+				return this.copy.needTtsProvider;
+			}
+			if (this.form.ttsProviderSource === 'custom' && !String(this.form.ttsCustomUrl || '').trim()) {
+				return this.copy.needTtsCustomUrl;
+			}
+			if (!String(this.form.ttsApiKey || '').trim() && !this.effectiveSavedTtsKeyAvailable) {
+				return this.copy.needTtsApiKey;
+			}
+			return '';
+		},
+		imageConnectionValidationMessage() {
+			if (!this.form.imageUseSeparateConfig) {
+				return this.mainConnectionValidationMessage(false);
+			}
+			if (!String(this.form.imageProviderSource || '').trim()) {
+				return this.copy.needImageProvider;
+			}
+			if (this.form.imageProviderSource === 'custom' && !String(this.form.imageCustomUrl || '').trim()) {
+				return this.copy.needImageCustomUrl;
+			}
+			if (!String(this.form.imageApiKey || '').trim() && !this.effectiveSavedImageKeyAvailable) {
+				return this.copy.needImageApiKey;
+			}
+			return '';
+		},
+		validateCustomForm(showToast, includeSeparate) {
 			if (this.form.mode !== 'custom') {
 				return true;
 			}
-			let message = '';
-			if (!this.viewState.canUse) {
-				message = this.viewState.denyReason || this.copy.unavailableTitle;
-			} else if (!String(this.form.providerSource || '').trim()) {
-				message = this.copy.needProvider;
-			} else if (!String(this.form.modelName || '').trim()) {
-				message = this.copy.needModel;
-			} else if (this.form.providerSource === 'custom' && !String(this.form.customUrl || '').trim()) {
-				message = this.copy.needCustomUrl;
-			} else if (!String(this.form.apiKey || '').trim() && !this.effectiveSavedKeyAvailable) {
-				message = this.copy.needApiKey;
-			} else if (this.showVoiceConfig && this.form.ttsUseSeparateConfig && !String(this.form.ttsProviderSource || '').trim()) {
-				message = this.copy.needProvider || '请先选择平台';
-			} else if (this.showVoiceConfig && this.form.ttsUseSeparateConfig && this.form.ttsProviderSource === 'custom' && !String(this.form.ttsCustomUrl || '').trim()) {
-				message = this.copy.needCustomUrl;
-			} else if (this.showVoiceConfig && this.form.ttsUseSeparateConfig && !String(this.form.ttsApiKey || '').trim() && !this.effectiveSavedTtsKeyAvailable) {
-				message = this.copy.needApiKey || '请先填写 API Key';
+			let message = this.mainConnectionValidationMessage(true);
+			const validateSeparate = includeSeparate !== false;
+			if (validateSeparate && !message && this.showVoiceConfig && this.form.ttsUseSeparateConfig) {
+				message = this.ttsConnectionValidationMessage();
 			}
-			if (!message && this.showImageConfig && this.form.imageUseSeparateConfig && !String(this.form.imageProviderSource || '').trim()) {
-				message = this.copy.needProvider || '请先选择平台';
-			}
-			if (!message && this.showImageConfig && this.form.imageUseSeparateConfig && this.form.imageProviderSource === 'custom' && !String(this.form.imageCustomUrl || '').trim()) {
-				message = this.copy.needCustomUrl;
-			}
-			if (!message && this.showImageConfig && this.form.imageUseSeparateConfig && !String(this.form.imageApiKey || '').trim() && !this.effectiveSavedImageKeyAvailable) {
-				message = this.copy.needApiKey || '请先填写 API Key';
+			if (validateSeparate && !message && this.showImageConfig && this.form.imageUseSeparateConfig) {
+				message = this.imageConnectionValidationMessage();
 			}
 			if (message) {
 				if (showToast) {
@@ -3444,7 +3658,18 @@ export default {
 			if (!this.canRunCustomAction || this.testing) {
 				return;
 			}
-			if (!this.validateCustomForm(true)) {
+			if (!this.validateCustomForm(true, false)) {
+				return;
+			}
+			let separateMessage = '';
+			if (this.shouldRunTtsConnectionTest()) {
+				separateMessage = this.ttsConnectionValidationMessage();
+			}
+			if (!separateMessage && this.shouldRunImageConnectionTest()) {
+				separateMessage = this.imageConnectionValidationMessage();
+			}
+			if (separateMessage) {
+				uni.showToast({ title: separateMessage, icon: 'none' });
 				return;
 			}
 			this.testing = true;
@@ -3477,9 +3702,39 @@ export default {
 			if (this.saving) {
 				return;
 			}
-			if (!this.validateCustomForm(true)) {
+			if (!this.validateCustomForm(true, false)) {
 				return;
 			}
+			const incompleteScopes = [];
+			if (this.form.mode === 'custom' && this.showVoiceConfig && this.form.ttsUseSeparateConfig) {
+				const message = this.ttsConnectionValidationMessage();
+				if (message) incompleteScopes.push({ scope: 'tts', message });
+			}
+			if (this.form.mode === 'custom' && this.showImageConfig && this.form.imageUseSeparateConfig) {
+				const message = this.imageConnectionValidationMessage();
+				if (message) incompleteScopes.push({ scope: 'image', message });
+			}
+			if (incompleteScopes.length) {
+				uni.showModal({
+					title: this.copy.incompleteSeparateTitle,
+					content: incompleteScopes.map((item) => item.message).join('\n') + '\n\n' + this.copy.incompleteSeparateSuffix,
+					confirmText: this.copy.followMainAndSave,
+					success: (res) => {
+						if (!res || !res.confirm) return;
+						if (incompleteScopes.some((item) => item.scope === 'tts')) {
+							this.form.ttsUseSeparateConfig = false;
+						}
+						if (incompleteScopes.some((item) => item.scope === 'image')) {
+							this.form.imageUseSeparateConfig = false;
+						}
+						this.submitSave();
+					}
+				});
+				return;
+			}
+			this.continueSave();
+		},
+		continueSave() {
 			if (this.form.mode === 'custom' && this.lastOkTestSignature !== this.currentTestSignature()) {
 				uni.showModal({
 					title: this.copy.untestedTitle,
@@ -3648,85 +3903,6 @@ export default {
 	margin: 16rpx 0 0;
 }
 
-.feature-status-list {
-	display: flex;
-	flex-direction: column;
-	gap: 12rpx;
-	margin: -6rpx 0 24rpx;
-}
-
-.feature-status-item {
-	display: flex;
-	align-items: center;
-	gap: 16rpx;
-	min-width: 0;
-	padding: 16rpx 18rpx;
-	border-radius: 16rpx;
-	background: rgba(238, 248, 249, 0.76);
-	border: 1rpx solid rgba(79, 147, 163, 0.14);
-}
-
-.feature-status-item--off {
-	background: rgba(246, 247, 248, 0.76);
-	border-color: rgba(100, 116, 139, 0.12);
-}
-
-.feature-status-icon {
-	flex: 0 0 48rpx;
-	width: 48rpx;
-	height: 48rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 50%;
-	background: #4f93a3;
-	color: #fff;
-	font-size: 22rpx;
-	font-weight: 700;
-}
-
-.feature-status-icon--image {
-	background: #d9799d;
-}
-
-.feature-status-item--off .feature-status-icon {
-	background: #94a3b8;
-}
-
-.feature-status-copy {
-	flex: 1;
-	min-width: 0;
-}
-
-.feature-status-title,
-.feature-status-desc {
-	display: block;
-}
-
-.feature-status-title {
-	color: #29485a;
-	font-size: 25rpx;
-	font-weight: 700;
-}
-
-.feature-status-desc {
-	margin-top: 3rpx;
-	color: #6b7f8d;
-	font-size: 21rpx;
-	line-height: 1.45;
-}
-
-.feature-status-tag {
-	flex-shrink: 0;
-	color: #2f7f96;
-	font-size: 21rpx;
-	font-weight: 700;
-}
-
-.feature-status-item--off .feature-status-tag {
-	color: #7c8995;
-}
-
 .mode-chip--mini {
 	min-height: 96rpx;
 	padding: 12rpx 10rpx;
@@ -3752,6 +3928,86 @@ export default {
 	font-size: 24rpx;
 	line-height: 1.7;
 	color: #5f7280;
+}
+
+.official-voice-library__head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 18rpx;
+	margin-bottom: 18rpx;
+}
+
+.official-voice-library__title,
+.official-voice-library__desc {
+	display: block;
+}
+
+.official-voice-library__title {
+	font-size: 29rpx;
+	font-weight: 800;
+}
+
+.official-voice-library__desc,
+.official-voice-library__empty {
+	margin-top: 6rpx;
+	font-size: 23rpx;
+	line-height: 1.55;
+}
+
+.official-voice-library__model {
+	max-width: 240rpx;
+	padding: 7rpx 12rpx;
+	font-size: 20rpx;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.official-default-voice {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	min-height: 92rpx;
+	padding: 14rpx 16rpx;
+	box-sizing: border-box;
+	border: 1rpx solid transparent;
+}
+
+.official-default-voice__icon {
+	width: 56rpx;
+	height: 56rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 24rpx;
+	font-weight: 800;
+	color: #2f7569;
+}
+
+.official-default-voice__copy {
+	min-width: 0;
+	flex: 1;
+}
+
+.official-default-voice__title,
+.official-default-voice__desc {
+	display: block;
+}
+
+.official-default-voice__title {
+	font-size: 25rpx;
+	font-weight: 750;
+}
+
+.official-default-voice__desc {
+	margin-top: 4rpx;
+	font-size: 21rpx;
+	line-height: 1.45;
+}
+
+.official-voice-template-list {
+	margin-top: 14rpx;
 }
 
 .field {
@@ -4582,5 +4838,732 @@ export default {
 
 .action-button--disabled {
 	opacity: 0.55;
+}
+
+/* Refined settings layout: structure changes only, all form bindings stay intact. */
+.page {
+	--settings-ink: #203846;
+	--settings-muted: #647b8b;
+	--settings-line: rgba(103, 157, 178, 0.2);
+	--settings-paper: rgba(255, 255, 255, 0.42);
+	--settings-soft: rgba(232, 246, 251, 0.7);
+	--settings-accent: #4f93a3;
+	--settings-accent-strong: #3e8dab;
+	--settings-accent-soft: rgba(213, 239, 247, 0.72);
+	--settings-pink: #b65f83;
+	--settings-danger: #b85f72;
+	color: var(--settings-ink);
+}
+
+.body {
+	width: 100%;
+	max-width: 920rpx;
+	margin: 0 auto;
+	padding: 20rpx 24rpx calc(48rpx + env(safe-area-inset-bottom));
+	box-sizing: border-box;
+}
+
+.hero-card,
+.status-card {
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.hero-card {
+	display: flex;
+	align-items: center;
+	gap: 20rpx;
+	min-height: 104rpx;
+	margin-bottom: 18rpx;
+	padding: 20rpx 22rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.76);
+	border-radius: 30rpx;
+	background: rgba(255, 255, 255, 0.42);
+	box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.72);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.hero-mark {
+	flex: 0 0 64rpx;
+	width: 64rpx;
+	height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1rpx solid rgba(255, 255, 255, 0.5);
+	border-radius: 20rpx;
+	background: var(--settings-accent);
+	color: #ffffff;
+	box-shadow: 0 10rpx 22rpx rgba(48, 103, 117, 0.18);
+}
+
+.hero-copy {
+	min-width: 0;
+	flex: 1;
+}
+
+.hero-title {
+	font-size: 30rpx;
+	line-height: 1.3;
+	font-weight: 800;
+	color: var(--settings-ink);
+}
+
+.hero-subtitle {
+	margin-top: 6rpx;
+	font-size: 21rpx;
+	line-height: 1.45;
+	color: var(--settings-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.hero-badge {
+	flex-shrink: 0;
+	max-width: 190rpx;
+	padding: 7rpx 12rpx;
+	border: 1rpx solid rgba(79, 147, 163, 0.2);
+	border-radius: 999rpx;
+	background: var(--settings-accent-soft);
+	color: #357c91;
+	font-size: 19rpx;
+	font-weight: 700;
+}
+
+.sheet {
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
+.mode-row--primary {
+	gap: 6rpx;
+	margin-bottom: 16rpx;
+	padding: 6rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.82);
+	border-radius: 24rpx;
+	background: rgba(255, 255, 255, 0.28);
+	box-shadow: 0 8rpx 20rpx rgba(36, 70, 88, 0.07), inset 0 1rpx 0 rgba(255, 255, 255, 0.7);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.mode-row--primary .mode-chip {
+	min-height: 76rpx;
+	border: 0;
+	border-radius: 18rpx;
+	background: transparent;
+	box-shadow: none;
+}
+
+.mode-row--primary .mode-chip--active {
+	background: rgba(255, 255, 255, 0.82);
+	color: #31788f;
+	box-shadow: 0 10rpx 24rpx rgba(36, 70, 88, 0.12);
+}
+
+.mode-row--primary .mode-title {
+	font-size: 25rpx;
+}
+
+.official-card,
+.official-voice-library,
+.settings-section {
+	border: 1rpx solid rgba(255, 255, 255, 0.5);
+	border-radius: 30rpx;
+	background: rgba(255, 255, 255, 0.42);
+	box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.68);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.official-card {
+	padding: 26rpx;
+}
+
+.official-voice-library {
+	margin-top: 16rpx;
+	padding: 24rpx;
+}
+
+.official-title,
+.official-voice-library__title,
+.official-default-voice__title {
+	color: var(--settings-ink);
+}
+
+.official-desc,
+.official-voice-library__desc,
+.official-voice-library__empty,
+.official-default-voice__desc {
+	color: var(--settings-muted);
+}
+
+.official-voice-library__model {
+	border-radius: 999rpx;
+	background: var(--settings-accent-soft);
+	color: #357c91;
+}
+
+.official-default-voice {
+	border-color: var(--settings-line);
+	border-radius: 22rpx;
+	background: rgba(255, 255, 255, 0.54);
+	box-shadow: 0 7rpx 18rpx rgba(36, 70, 88, 0.05);
+}
+
+.official-default-voice--active {
+	border-color: rgba(79, 147, 163, 0.38);
+	background: var(--settings-accent-soft);
+}
+
+.official-default-voice__icon {
+	border: 1rpx solid rgba(79, 147, 163, 0.14);
+	border-radius: 18rpx;
+	background: rgba(255, 255, 255, 0.58);
+}
+
+.custom-settings {
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+}
+
+.settings-section {
+	padding: 24rpx;
+	box-sizing: border-box;
+}
+
+.section-heading {
+	display: flex;
+	align-items: center;
+	gap: 14rpx;
+	margin-bottom: 24rpx;
+}
+
+.section-heading__mark {
+	flex: 0 0 44rpx;
+	width: 44rpx;
+	height: 44rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1rpx solid rgba(79, 147, 163, 0.16);
+	border-radius: 16rpx;
+	background: var(--settings-accent-soft);
+	box-shadow: 0 6rpx 14rpx rgba(36, 70, 88, 0.06);
+}
+
+.settings-section--advanced .section-heading__mark {
+	border-color: rgba(182, 95, 131, 0.14);
+	background: rgba(255, 230, 238, 0.66);
+}
+
+.section-heading__copy {
+	min-width: 0;
+	flex: 1;
+}
+
+.section-heading__title,
+.section-heading__desc {
+	display: block;
+}
+
+.section-heading__title {
+	font-size: 28rpx;
+	font-weight: 800;
+	line-height: 1.25;
+	color: var(--settings-ink);
+}
+
+.section-heading__desc {
+	margin-top: 4rpx;
+	font-size: 20rpx;
+	line-height: 1.4;
+	color: var(--settings-muted);
+}
+
+.field {
+	margin-bottom: 24rpx;
+}
+
+.field:last-child {
+	margin-bottom: 0;
+}
+
+.field-head {
+	margin-bottom: 10rpx;
+}
+
+.field-label {
+	font-size: 24rpx;
+	color: var(--settings-ink);
+}
+
+.field-meta,
+.field-tip,
+.section-caption {
+	color: var(--settings-muted);
+}
+
+.field-tip {
+	font-size: 20rpx;
+	line-height: 1.55;
+}
+
+.picker-shell {
+	min-height: 80rpx;
+	padding: 0 20rpx;
+	border: 1rpx solid var(--settings-line);
+	border-radius: 20rpx;
+	background: rgba(255, 255, 255, 0.58);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.7), 0 6rpx 16rpx rgba(36, 70, 88, 0.04);
+}
+
+.picker-value {
+	font-size: 25rpx;
+	color: var(--settings-ink);
+}
+
+.model-load-btn {
+	min-height: 48rpx;
+	padding: 0 14rpx;
+	border-color: rgba(79, 147, 163, 0.2);
+	border-radius: 16rpx;
+	background: var(--settings-accent-soft);
+	color: var(--settings-accent);
+	box-shadow: none;
+}
+
+.model-load-btn--primary {
+	background: var(--settings-accent);
+	border-color: var(--settings-accent);
+	color: #ffffff;
+	text-shadow: 0 1rpx 2rpx rgba(31, 77, 91, 0.18);
+	box-shadow: 0 10rpx 22rpx rgba(48, 103, 117, 0.18);
+}
+
+.model-load-btn--ghost {
+	background: rgba(255, 255, 255, 0.66);
+	border-color: var(--settings-line);
+	color: #456477;
+}
+
+.model-load-btn--warn {
+	background: #fff5f3;
+	border-color: #efd4cf;
+	color: var(--settings-danger);
+}
+
+.model-load-btn--active {
+	background: #f7deda;
+	border-color: #dda9a1;
+	color: #963e36;
+}
+
+.preset-box {
+	margin-top: 12rpx;
+	padding: 14rpx;
+	border: 1rpx solid #e2e8e7;
+	border-radius: 20rpx;
+	background: rgba(255, 255, 255, 0.28);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.72);
+}
+
+.preset-chip {
+	padding: 9rpx 14rpx;
+	border-color: #d8e0df;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.9);
+	color: #46535e;
+	font-size: 20rpx;
+}
+
+.preset-chip--active {
+	border-color: var(--settings-accent);
+	background: var(--settings-accent);
+	color: #ffffff;
+	box-shadow: none;
+}
+
+.preset-toggle {
+	color: var(--settings-accent);
+}
+
+.preset-box--expanded .preset-list {
+	max-height: 360rpx;
+	overflow-y: auto;
+	padding-right: 4rpx;
+}
+
+.chat-model-library {
+	margin: 4rpx 0 0;
+	padding: 0;
+	border: 1rpx solid var(--settings-line);
+	border-radius: 24rpx;
+	background: rgba(255, 255, 255, 0.34);
+	box-shadow: 0 10rpx 24rpx rgba(36, 70, 88, 0.07);
+	overflow: hidden;
+}
+
+.chat-model-library__top {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	min-height: 96rpx;
+	padding: 16rpx 18rpx;
+	box-sizing: border-box;
+}
+
+.chat-model-library__heading {
+	min-width: 0;
+	flex: 1;
+}
+
+.chat-model-library__title-row {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+}
+
+.chat-model-library__count {
+	padding: 3rpx 8rpx;
+	border-radius: 8rpx;
+	background: var(--settings-soft);
+	color: var(--settings-muted);
+	font-size: 18rpx;
+	font-weight: 700;
+}
+
+.chat-model-library__heading .field-tip {
+	margin-top: 4rpx;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.chat-model-library__toggle {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: 6rpx;
+	min-height: 52rpx;
+	padding: 0 12rpx;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.54);
+	color: #456477;
+	font-size: 20rpx;
+	font-weight: 700;
+}
+
+.chat-model-library__content {
+	padding: 16rpx 18rpx 18rpx;
+	border-top: 1rpx solid var(--settings-line);
+}
+
+.chat-model-library__toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12rpx;
+}
+
+.chat-model-library__search {
+	min-width: 0;
+	flex: 1;
+	height: 56rpx;
+	padding: 0 14rpx;
+	border: 1rpx solid var(--settings-line);
+	border-radius: 16rpx;
+	background: rgba(255, 255, 255, 0.5);
+	box-sizing: border-box;
+	color: var(--settings-ink);
+	font-size: 21rpx;
+}
+
+.chat-model-library__list {
+	max-height: 660rpx;
+	overflow-y: auto;
+	gap: 10rpx;
+	margin: 14rpx 0 0;
+}
+
+.chat-model-library__item {
+	display: grid;
+	grid-template-columns: 126rpx minmax(0, 1fr) 168rpx;
+	gap: 12rpx;
+	padding: 14rpx;
+	border: 1rpx solid var(--settings-line);
+	border-radius: 18rpx;
+	background: rgba(255, 255, 255, 0.52);
+	box-shadow: 0 7rpx 18rpx rgba(36, 70, 88, 0.055);
+}
+
+.chat-model-library__item--default {
+	border-color: rgba(79, 147, 163, 0.42);
+	box-shadow: inset 5rpx 0 0 var(--settings-accent);
+}
+
+.chat-model-library__default {
+	font-size: 20rpx;
+	color: #56636d;
+}
+
+.chat-model-library__copy input {
+	height: 54rpx;
+	border-color: var(--settings-line);
+	border-radius: 12rpx;
+	background: #ffffff;
+	color: var(--settings-ink);
+	font-size: 22rpx;
+}
+
+.chat-model-library__copy > text {
+	color: var(--settings-muted);
+	font-size: 18rpx;
+}
+
+.chat-model-library__actions {
+	grid-template-columns: repeat(3, 52rpx);
+	gap: 6rpx;
+}
+
+.chat-model-library__actions > view {
+	width: 52rpx;
+	height: 52rpx;
+	border-color: var(--settings-line);
+	border-radius: 12rpx;
+	background: #ffffff;
+}
+
+.chat-model-library__empty {
+	min-height: 88rpx;
+	margin: 14rpx 0 0;
+	border-color: var(--settings-line);
+	border-radius: 16rpx;
+	color: var(--settings-muted);
+}
+
+.capability-tabs {
+	display: flex;
+	gap: 6rpx;
+	margin-bottom: 6rpx;
+	padding: 6rpx;
+	border-radius: 20rpx;
+	background: rgba(255, 255, 255, 0.28);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.64), 0 6rpx 16rpx rgba(36, 70, 88, 0.05);
+}
+
+.capability-tab {
+	flex: 1;
+	min-width: 0;
+	min-height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0 10rpx;
+	border-radius: 15rpx;
+	color: #61798a;
+	font-size: 21rpx;
+	font-weight: 700;
+	text-align: center;
+}
+
+.capability-tab--active {
+	background: rgba(255, 255, 255, 0.94);
+	color: #31788f;
+	box-shadow: 0 8rpx 18rpx rgba(36, 70, 88, 0.1);
+}
+
+.aux-grid {
+	gap: 0;
+	margin-top: 8rpx;
+}
+
+.aux-card,
+.aux-card--tts-config,
+.aux-card--voice-library,
+.aux-card--image-consistency {
+	padding: 22rpx 0;
+	border: 0;
+	border-bottom: 1rpx solid var(--settings-line);
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
+.aux-grid > .aux-card:last-child {
+	border-bottom: 0;
+	padding-bottom: 0;
+}
+
+.aux-card__label {
+	font-size: 23rpx;
+	color: var(--settings-ink);
+}
+
+.mode-row--inner {
+	gap: 8rpx;
+	margin: 14rpx 0 0;
+}
+
+.mode-chip--mini {
+	min-height: 78rpx;
+	padding: 10rpx 12rpx;
+	border: 1rpx solid var(--settings-line);
+	border-radius: 18rpx;
+	background: rgba(255, 255, 255, 0.48);
+	color: #5a7182;
+}
+
+.mode-row--inner .mode-chip--active {
+	border-color: rgba(79, 147, 163, 0.38);
+	background: var(--settings-accent-soft);
+	color: #31788f;
+	box-shadow: 0 7rpx 16rpx rgba(36, 70, 88, 0.06);
+}
+
+.mode-row--inner .mode-title {
+	font-size: 22rpx;
+}
+
+.mode-row--inner .mode-desc {
+	font-size: 18rpx;
+}
+
+.voice-template-card,
+.voice-template-active-bar,
+.voice-template-empty {
+	border-color: var(--settings-line);
+	border-radius: 22rpx;
+	background: rgba(255, 255, 255, 0.5);
+	box-shadow: 0 8rpx 20rpx rgba(36, 70, 88, 0.06);
+}
+
+.voice-template-card--active {
+	border-color: rgba(79, 147, 163, 0.4);
+	background: var(--settings-accent-soft);
+	box-shadow: 0 9rpx 20rpx rgba(36, 70, 88, 0.07);
+}
+
+.voice-template-card__check {
+	border-radius: 999rpx;
+	background: var(--settings-accent);
+}
+
+.status-card {
+	margin-top: 16rpx;
+	padding: 20rpx;
+	border-radius: 24rpx;
+	box-shadow: 0 14rpx 30rpx rgba(36, 70, 88, 0.09);
+}
+
+.status-line {
+	border-radius: 16rpx;
+}
+
+.action-row {
+	position: sticky;
+	bottom: 0;
+	z-index: 5;
+	gap: 12rpx;
+	margin-top: 18rpx;
+	padding: 12rpx 0 calc(4rpx + env(safe-area-inset-bottom));
+	background: rgba(236, 247, 250, 0.76);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.action-button {
+	min-height: 82rpx;
+	border-radius: 999rpx;
+	font-size: 25rpx;
+}
+
+.action-button--secondary {
+	border-color: rgba(79, 147, 163, 0.22);
+	background: rgba(255, 255, 255, 0.72);
+	color: #456477;
+}
+
+.action-button--primary {
+	background: var(--settings-accent);
+	color: #ffffff;
+	text-shadow: 0 1rpx 2rpx rgba(31, 77, 91, 0.18);
+	box-shadow: 0 12rpx 26rpx rgba(48, 103, 117, 0.2);
+}
+
+@media (hover: hover) {
+	.settings-section,
+	.hero-card,
+	.chat-model-library__item,
+	.voice-template-card,
+	.model-load-btn,
+	.action-button {
+		transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+	}
+
+	.settings-section:hover,
+	.hero-card:hover,
+	.official-voice-library:hover {
+		transform: translateY(-2rpx);
+		box-shadow: 0 20rpx 44rpx rgba(36, 70, 88, 0.14), inset 0 1rpx 0 rgba(255, 255, 255, 0.78);
+	}
+
+	.chat-model-library__item:hover,
+	.voice-template-card:hover {
+		transform: translateY(-1rpx);
+		box-shadow: 0 12rpx 26rpx rgba(36, 70, 88, 0.09);
+	}
+
+	.model-load-btn:hover,
+	.action-button:hover {
+		transform: translateY(-1rpx);
+	}
+}
+
+@media (max-width: 420px) {
+	.hero-badge {
+		display: none;
+	}
+
+	.field-head {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 10rpx;
+	}
+
+	.field-actions {
+		width: 100%;
+	}
+	.chat-model-library__toolbar {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.chat-model-library__search {
+		flex: none;
+		width: 100%;
+	}
+
+	.chat-model-library__item {
+		grid-template-columns: minmax(0, 1fr) 168rpx;
+	}
+
+	.chat-model-library__default {
+		grid-column: 1 / -1;
+	}
+
+	.section-heading {
+		align-items: flex-start;
+	}
+
+	.section-heading > .field-meta {
+		display: none;
+	}
 }
 </style>

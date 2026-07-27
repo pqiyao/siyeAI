@@ -16,7 +16,7 @@
 					<view class="upload-card upload-card--avatar" @tap="pickImage('avatarUrl')">
 						<image v-if="avatarPreview" class="upload-img" :src="avatarPreview" mode="aspectFill"></image>
 						<view v-else class="upload-empty">
-							<text class="upload-empty-ico">+</text>
+							<view class="upload-empty-ico"><u-icon name="camera-fill" color="#4f7f8e" size="38"></u-icon></view>
 							<text class="upload-empty-txt">{{ texts.uploadAvatar }}</text>
 						</view>
 						<view class="upload-mask">
@@ -28,7 +28,7 @@
 					<view class="upload-card upload-card--cover" @tap="pickImage('coverUrl')">
 						<image v-if="coverPreview" class="upload-img" :src="coverPreview" mode="aspectFill"></image>
 						<view v-else class="upload-empty">
-							<text class="upload-empty-ico">+</text>
+							<view class="upload-empty-ico"><u-icon name="photo-fill" color="#4f7f8e" size="38"></u-icon></view>
 							<text class="upload-empty-txt">{{ texts.uploadCover }}</text>
 						</view>
 						<view class="upload-mask">
@@ -995,7 +995,7 @@ export default {
 .scroll {
 	flex: 1;
 	height: 0;
-	padding: 20rpx 22rpx calc(32rpx + env(safe-area-inset-bottom));
+	padding: 24rpx 24rpx calc(36rpx + env(safe-area-inset-bottom));
 	box-sizing: border-box;
 }
 
@@ -1008,7 +1008,7 @@ export default {
 }
 
 .hero-card {
-	padding: 20rpx;
+	padding: 28rpx;
 }
 
 .hero-title {
@@ -1047,7 +1047,7 @@ export default {
 .upload-card {
 	position: relative;
 	overflow: hidden;
-	border-radius: 22rpx;
+	border-radius: 28rpx;
 	background: rgba(255, 255, 255, 0.05);
 	border: 1rpx dashed rgba(255, 255, 255, 0.14);
 }
@@ -1078,9 +1078,14 @@ export default {
 }
 
 .upload-empty-ico {
-	font-size: 48rpx;
-	line-height: 1;
-	color: $tavern-text-on-dark;
+	width: 72rpx;
+	height: 72rpx;
+	border-radius: 24rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(224, 243, 247, 0.84);
+	border: 1rpx solid rgba(79, 147, 163, 0.14);
 }
 
 .upload-empty-txt {
@@ -1143,7 +1148,7 @@ export default {
 }
 
 .panel {
-	padding: 20rpx;
+	padding: 28rpx;
 }
 
 .panel-note {
@@ -1221,7 +1226,7 @@ export default {
 	box-sizing: border-box;
 	margin-top: 14rpx;
 	padding: 18rpx 20rpx;
-	border-radius: 18rpx;
+	border-radius: 22rpx;
 	background: rgba(255, 255, 255, 0.05);
 	border: 1rpx solid rgba(255, 255, 255, 0.07);
 	font-size: 26rpx;
@@ -1281,7 +1286,7 @@ export default {
 	line-height: 76rpx;
 	margin-bottom: 14rpx;
 	text-align: center;
-	border-radius: 18rpx;
+	border-radius: 999rpx;
 	font-size: 26rpx;
 	font-weight: 700;
 	color: #fecaca;
@@ -1298,7 +1303,7 @@ export default {
 	height: 84rpx;
 	line-height: 84rpx;
 	text-align: center;
-	border-radius: 20rpx;
+	border-radius: 999rpx;
 	font-size: 28rpx;
 	font-weight: 700;
 	color: #fff;
@@ -1364,13 +1369,16 @@ export default {
 	border-color: rgba(244, 166, 196, 0.28);
 }
 
-/* Character Studio v2: restrained creation workspace. */
+/* Character Studio: soft glass creation workspace. */
 .tab-row {
-	gap: 0;
-	padding: 6rpx;
-	border-radius: 8rpx;
-	background: rgba(225, 238, 244, 0.72);
-	border: 1rpx solid rgba(72, 111, 132, 0.12);
+	gap: 6rpx;
+	padding: 7rpx;
+	border-radius: 26rpx;
+	background: rgba(225, 240, 246, 0.66);
+	border: 1rpx solid rgba(255, 255, 255, 0.74);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.84), 0 12rpx 28rpx rgba(55, 101, 126, 0.08);
+	backdrop-filter: blur(16rpx);
+	-webkit-backdrop-filter: blur(16rpx);
 }
 
 .tab-pill {
@@ -1378,7 +1386,7 @@ export default {
 	min-height: 60rpx;
 	line-height: 60rpx;
 	border: 0;
-	border-radius: 6rpx;
+	border-radius: 19rpx;
 	background: transparent;
 	color: #607b89;
 }
@@ -1387,23 +1395,26 @@ export default {
 .tab-pill--on.tab-pill--soft {
 	background: rgba(255, 255, 255, 0.9);
 	color: #173f52;
-	box-shadow: 0 4rpx 12rpx rgba(45, 89, 111, 0.1);
+	box-shadow: 0 8rpx 20rpx rgba(45, 89, 111, 0.12);
 }
 
 .panel,
 .hero-card {
-	border-radius: 8rpx;
+	border-radius: 32rpx;
+	border-color: rgba(255, 255, 255, 0.76);
+	background: linear-gradient(145deg, rgba(255, 255, 255, 0.78) 0%, rgba(246, 252, 254, 0.6) 100%);
+	box-shadow: 0 24rpx 56rpx rgba(52, 94, 118, 0.13), inset 0 1rpx 0 rgba(255, 255, 255, 0.88);
 }
 
 .type-switch {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 0;
+	gap: 7rpx;
 	margin-top: 14rpx;
-	padding: 5rpx;
-	border-radius: 8rpx;
-	background: rgba(225, 238, 244, 0.75);
-	border: 1rpx solid rgba(72, 111, 132, 0.14);
+	padding: 7rpx;
+	border-radius: 26rpx;
+	background: rgba(225, 240, 246, 0.68);
+	border: 1rpx solid rgba(255, 255, 255, 0.72);
 }
 
 .type-option {
@@ -1412,14 +1423,14 @@ export default {
 	justify-content: center;
 	gap: 12rpx;
 	min-height: 76rpx;
-	border-radius: 6rpx;
+	border-radius: 19rpx;
 	color: #708692;
 }
 
 .type-option--on {
 	background: rgba(255, 255, 255, 0.92);
 	color: #173f52;
-	box-shadow: 0 4rpx 12rpx rgba(45, 89, 111, 0.1);
+	box-shadow: 0 8rpx 20rpx rgba(45, 89, 111, 0.11);
 }
 
 .type-title,
@@ -1439,8 +1450,29 @@ export default {
 }
 
 .world-scenario {
-	padding-bottom: 22rpx;
-	margin-bottom: 8rpx;
-	border-bottom: 1rpx solid rgba(72, 111, 132, 0.16);
+	padding: 0 0 26rpx;
+	margin-bottom: 20rpx;
+	border-bottom: 1rpx solid rgba(79, 147, 163, 0.14);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.upload-card,
+	.type-option,
+	.tab-pill,
+	.submit-btn,
+	.danger-btn {
+		transition: transform 180ms ease, box-shadow 180ms ease;
+	}
+
+	.upload-card:hover,
+	.type-option:hover,
+	.tab-pill:hover {
+		transform: translateY(-2rpx);
+	}
+
+	.submit-btn:hover,
+	.danger-btn:hover {
+		transform: translateY(-2rpx);
+	}
 }
 </style>

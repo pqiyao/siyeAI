@@ -332,7 +332,10 @@
             filterable
             allow-create
             default-first-option
+            :filter-method="filterModelOptions"
+            :no-data-text="modelNoDataText"
             placeholder="获取模型或直接填写模型 ID"
+            @visible-change="handleModelDropdownVisible"
           >
             <el-option
               v-for="model in filteredModels"
@@ -346,7 +349,7 @@
               </div>
             </el-option>
           </el-select>
-          <div v-if="modelSummary" class="model-summary">{{ modelSummary }}</div>
+          <div v-if="modelSummaryText" class="model-summary">{{ modelSummaryText }}</div>
         </div>
 
         <div class="form-grid three-col compact-grid">
@@ -687,6 +690,7 @@ import {
   saveAiRoute
 } from '@/api/jiugai/openrouterGeneration'
 import { jiugaiRequestErrorMessage } from '@/utils/jiugaiRequestError'
+import { filterDiscoveredModels } from './modelFilter'
 
 const { proxy } = getCurrentInstance()
 const pageRoute = useRoute()
@@ -723,6 +727,7 @@ const savingRuntime = ref(false)
 const accountChoice = ref(null)
 const modelOptions = ref([])
 const matchedOnly = ref(true)
+const modelSearch = ref('')
 const modelSummary = ref('')
 const routeDraft = ref([])
 const routeCandidateId = ref(null)
@@ -768,7 +773,25 @@ const selectedAccount = computed(() => accounts.value.find((item) => item.id ===
 const selectedVendor = computed(() => catalog.value.find((item) => item.value === providerForm.vendor))
 const availableVendors = computed(() => catalog.value.filter((item) => item.capabilities?.includes(providerForm.capability)))
 const normalizedBaseUrl = computed(() => normalizeBaseUrl(providerForm.baseUrl || selectedVendor.value?.defaultBaseUrl || ''))
-const filteredModels = computed(() => matchedOnly.value ? modelOptions.value.filter((item) => item.capabilityMatch) : modelOptions.value)
+const filteredModels = computed(() => filterDiscoveredModels(modelOptions.value, {
+  matchedOnly: matchedOnly.value,
+  query: modelSearch.value
+}))
+const modelSummaryText = computed(() => {
+  if (!modelSummary.value) return ''
+  const suffix = modelSearch.value.trim()
+    ? `，搜索结果 ${filteredModels.value.length} 个`
+    : `，当前显示 ${filteredModels.value.length} 个`
+  return `${modelSummary.value}${suffix}`
+})
+const modelNoDataText = computed(() => {
+  if (!modelOptions.value.length) return '请先获取模型，或直接填写完整模型 ID'
+  if (matchedOnly.value && !modelOptions.value.some((item) => item.capabilityMatch === true)) {
+    return '未识别到当前能力模型，请取消“只看能力匹配”后搜索或手填模型 ID'
+  }
+  if (modelSearch.value.trim()) return '没有搜索到模型，可直接填写完整模型 ID'
+  return '没有符合当前筛选条件的模型'
+})
 const routeCandidates = computed(() => capabilityDeployments.value.filter((item) => !routeDraft.value.some((selected) => selected.id === item.id)))
 const sharedAccountDeployments = computed(() => deployments.value.filter((item) => item.accountId === providerForm.accountId))
 const sharedAccountCapabilityText = computed(() => [...new Set(sharedAccountDeployments.value.map((item) => capabilityName(item.capability)))].join('、'))
@@ -1171,7 +1194,7 @@ function applyVendorDefaults(vendor) {
   const definition = catalog.value.find((item) => item.value === vendor)
   providerForm.baseUrl = definition?.defaultBaseUrl || ''
   if (!providerForm.displayName) providerForm.displayName = definition?.label || ''
-  if (!providerForm.providerKey || /^\w+_(chat|image|tts|stt)$/.test(providerForm.providerKey)) {
+  if (!providerForm.providerKey || /^\w+_(chat|vision|image|tts|stt)$/.test(providerForm.providerKey)) {
     providerForm.providerKey = `${vendor}_${providerForm.capability.toLowerCase()}`
   }
   clearModels()
@@ -1179,7 +1202,16 @@ function applyVendorDefaults(vendor) {
 
 function clearModels() {
   modelOptions.value = []
+  modelSearch.value = ''
   modelSummary.value = ''
+}
+
+function filterModelOptions(query) {
+  modelSearch.value = String(query || '')
+}
+
+function handleModelDropdownVisible(visible) {
+  if (!visible) modelSearch.value = ''
 }
 
 function handleKeyAction(action) {
@@ -1204,7 +1236,8 @@ function discoverModels() {
     .then((res) => {
       const data = res?.data || {}
       modelOptions.value = data.models || []
-      matchedOnly.value = Number(data.matchedCount || 0) > 0
+      matchedOnly.value = true
+      modelSearch.value = ''
       modelSummary.value = `上游 ${data.totalCount || 0} 个，当前能力匹配 ${data.matchedCount || 0} 个`
       if (!providerForm.modelName && filteredModels.value.length) providerForm.modelName = filteredModels.value[0].id
     })

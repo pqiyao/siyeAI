@@ -20,21 +20,66 @@ import static org.mockito.Mockito.when;
 class OfficialAudioRoutingIsolationTest {
 
     @Test
-    void officialTtsUsesDeploymentSettingsAndRejectsClientOverrides() {
+    void officialTtsUsesDeploymentModelAndAcceptsAllowedBuiltInVoiceAndCatalogTemplate() {
         ChatAudioSpeechService.SpeechSelection selected = ChatAudioSpeechService.selectSpeechSettings(
                 false,
-                "official-model",
-                "official-voice",
+                "FunAudioLLM/CosyVoice2-0.5B",
+                "alex",
                 "",
                 "client-model",
-                "client-voice",
+                "bella",
                 "client-template"
         );
 
-        assertThat(selected.modelName()).isEqualTo("official-model");
-        assertThat(selected.voiceName()).isEqualTo("official-voice");
-        assertThat(selected.voiceTemplateCode()).isEmpty();
+        assertThat(selected.modelName()).isEqualTo("FunAudioLLM/CosyVoice2-0.5B");
+        assertThat(selected.voiceName()).isEqualTo("bella");
+        assertThat(selected.voiceTemplateCode()).isEqualTo("client-template");
         assertThat(ChatAudioSpeechService.privateVoiceIdForRuntime(false, 91L)).isNull();
+    }
+
+    @Test
+    void roleBuiltInVoiceOverridesStoredGlobalTemplate() {
+        ChatAudioSpeechService.SpeechSelection official = ChatAudioSpeechService.selectSpeechSettings(
+                false, "FunAudioLLM/CosyVoice2-0.5B", "alex", "global-template",
+                "", "bella", "");
+        ChatAudioSpeechService.SpeechSelection custom = ChatAudioSpeechService.selectSpeechSettings(
+                true, "FunAudioLLM/CosyVoice2-0.5B", "alex", "global-template",
+                "", "bella", "");
+
+        assertThat(official.voiceName()).isEqualTo("bella");
+        assertThat(official.voiceTemplateCode()).isEmpty();
+        assertThat(custom.voiceName()).isEqualTo("bella");
+        assertThat(custom.voiceTemplateCode()).isEmpty();
+    }
+
+    @Test
+    void officialTtsRejectsArbitraryAndProviderQualifiedVoiceIds() {
+        assertThat(ChatAudioSpeechService.isOfficialBuiltInVoiceAllowed(
+                "FunAudioLLM/CosyVoice2-0.5B", "anna")).isTrue();
+        assertThat(ChatAudioSpeechService.isOfficialBuiltInVoiceAllowed(
+                "FunAudioLLM/CosyVoice2-0.5B", "speech:private-id")).isFalse();
+        assertThat(ChatAudioSpeechService.isOfficialBuiltInVoiceAllowed(
+                "FunAudioLLM/CosyVoice2-0.5B", "FunAudioLLM/CosyVoice2-0.5B:anna")).isFalse();
+        assertThat(ChatAudioSpeechService.isOfficialBuiltInVoiceAllowed(
+                "FunAudioLLM/CosyVoice2-0.5B", "arbitrary-voice")).isFalse();
+
+        ChatAudioSpeechService.SpeechSelection selected = ChatAudioSpeechService.selectSpeechSettings(
+                false,
+                "FunAudioLLM/CosyVoice2-0.5B",
+                "alex",
+                "",
+                "client-model",
+                "speech:private-id",
+                ""
+        );
+        assertThat(selected.modelName()).isEqualTo("FunAudioLLM/CosyVoice2-0.5B");
+        assertThat(selected.voiceName()).isEqualTo("alex");
+    }
+
+    @Test
+    void officialOpenAiVoiceCatalogDoesNotAcceptSiliconFlowNames() {
+        assertThat(ChatAudioSpeechService.isOfficialBuiltInVoiceAllowed("gpt-4o-mini-tts", "nova")).isTrue();
+        assertThat(ChatAudioSpeechService.isOfficialBuiltInVoiceAllowed("gpt-4o-mini-tts", "anna")).isFalse();
     }
 
     @Test

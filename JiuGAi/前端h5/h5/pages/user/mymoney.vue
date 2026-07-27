@@ -5,18 +5,18 @@
 
 		<scroll-view scroll-y class="scroll" :show-scrollbar="false">
 			<view class="hero-card">
-				<text class="hero-tag">{{ copy.walletTag }}</text>
+				<view class="hero-tag"><u-icon name="red-packet-fill" color="#4f93a3" size="22"></u-icon><text>{{ copy.walletTag }}</text></view>
 				<text class="hero-title">{{ copy.heroTitle }}</text>
 				<text class="hero-subtitle">{{ copy.heroSubtitle }}</text>
 			</view>
 
 			<view class="balance-card">
-				<view class="balance-item">
-					<text class="balance-label">{{ copy.diamondBalance }}</text>
+				<view class="balance-item balance-item--diamond">
+					<view class="balance-head"><view class="balance-icon"><u-icon name="integral-fill" color="#4f93a3" size="25"></u-icon></view><text class="balance-label">{{ copy.diamondBalance }}</text></view>
 					<text class="balance-value">{{ Number(profile.score || 0) }}</text>
 				</view>
-				<view class="balance-item">
-					<text class="balance-label">{{ copy.coinBalance }}</text>
+				<view class="balance-item balance-item--coin">
+					<view class="balance-head"><view class="balance-icon"><u-icon name="rmb-circle-fill" color="#ad7a24" size="25"></u-icon></view><text class="balance-label">{{ copy.coinBalance }}</text></view>
 					<text class="balance-value">{{ Number(profile.goldCoin || 0) }}</text>
 				</view>
 			</view>
@@ -50,7 +50,7 @@
 								v-if="rechargeEntryReady && rechargeEntryVisible"
 								class="buy-btn"
 								@tap="goPay(item.code)"
-							>{{ copy.buyNow }}</view>
+							><text>{{ copy.buyNow }}</text><u-icon name="arrow-right" color="#ffffff" size="20"></u-icon></view>
 						</view>
 					</view>
 					<view v-if="!coinProducts.length" class="empty-box">
@@ -65,7 +65,7 @@
 						<text class="section-title">{{ copy.orderTitle }}</text>
 						<text class="section-subtitle">{{ copy.orderSubtitle }}</text>
 					</view>
-					<view class="refresh-btn" @tap="loadPage">{{ copy.refresh }}</view>
+					<view class="refresh-btn" @tap="loadPage"><u-icon name="reload" color="#4f7f8e" size="20"></u-icon><text>{{ copy.refresh }}</text></view>
 				</view>
 				<view v-if="orderList.length" class="order-list">
 					<view v-for="item in orderList" :key="item.orderNo" class="order-item">
@@ -566,5 +566,356 @@ export default {
 
 .empty-box {
 	padding: 18rpx 0 4rpx;
+}
+
+/* Wallet recharge: light glass visual system. */
+.page {
+	position: relative;
+	background: transparent;
+	overflow: hidden;
+	color: #203846;
+}
+
+.scroll {
+	height: calc(100vh - 88rpx);
+	padding: 28rpx 24rpx calc(48rpx + env(safe-area-inset-bottom));
+}
+
+.hero-card,
+.balance-card,
+.section-card,
+.note-card {
+	margin-bottom: 22rpx;
+	padding: 30rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.84);
+	border-radius: 32rpx;
+	background: linear-gradient(145deg, rgba(255, 255, 255, 0.76) 0%, rgba(245, 251, 253, 0.56) 100%);
+	box-shadow: 0 22rpx 52rpx rgba(44, 83, 103, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.9);
+	backdrop-filter: blur(22rpx);
+	-webkit-backdrop-filter: blur(22rpx);
+	box-sizing: border-box;
+}
+
+.hero-card {
+	padding: 34rpx 32rpx;
+	border-radius: 36rpx;
+	background: linear-gradient(135deg, rgba(255, 255, 255, 0.82) 0%, rgba(226, 245, 249, 0.64) 62%, rgba(255, 238, 246, 0.52) 100%);
+}
+
+.hero-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 8rpx;
+	padding: 9rpx 15rpx;
+	border: 1rpx solid rgba(79, 147, 163, 0.16);
+	border-radius: 999rpx;
+	font-size: 21rpx;
+	font-weight: 700;
+	color: #4f7f8e;
+	background: rgba(255, 255, 255, 0.54);
+}
+
+.hero-title,
+.section-title,
+.balance-value,
+.product-name,
+.product-price,
+.order-name,
+.order-price,
+.note-title {
+	color: #203846;
+}
+
+.hero-title {
+	margin-top: 18rpx;
+	font-size: 36rpx;
+	line-height: 1.38;
+	font-weight: 800;
+}
+
+.hero-subtitle,
+.section-subtitle,
+.balance-label,
+.product-desc,
+.product-bonus,
+.order-meta,
+.note-text,
+.empty-box text {
+	color: #647b8b;
+}
+
+.hero-subtitle {
+	margin-top: 12rpx;
+	font-size: 24rpx;
+	line-height: 1.75;
+}
+
+.balance-card {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16rpx;
+	padding: 18rpx;
+	background: rgba(255, 255, 255, 0.5);
+}
+
+.balance-item {
+	min-width: 0;
+	padding: 24rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.84);
+	border-radius: 26rpx;
+	background: rgba(255, 255, 255, 0.62);
+	box-shadow: 0 14rpx 32rpx rgba(44, 83, 103, 0.08), inset 0 1rpx 0 rgba(255, 255, 255, 0.88);
+	box-sizing: border-box;
+}
+
+.balance-item--diamond {
+	background: linear-gradient(145deg, rgba(236, 249, 252, 0.86) 0%, rgba(255, 255, 255, 0.62) 100%);
+}
+
+.balance-item--coin {
+	background: linear-gradient(145deg, rgba(255, 249, 231, 0.82) 0%, rgba(255, 255, 255, 0.62) 100%);
+}
+
+.balance-head {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+}
+
+.balance-icon {
+	width: 46rpx;
+	height: 46rpx;
+	border-radius: 15rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(255, 255, 255, 0.66);
+}
+
+.balance-label {
+	display: block;
+	min-width: 0;
+	font-size: 22rpx;
+	line-height: 1.35;
+}
+
+.balance-value {
+	margin-top: 14rpx;
+	font-size: 38rpx;
+	line-height: 1.2;
+	font-weight: 800;
+}
+
+.quota-hint {
+	margin: -2rpx 0 24rpx;
+	padding: 0 8rpx;
+}
+
+.quota-hint-text {
+	font-size: 22rpx;
+	line-height: 1.75;
+	color: #607786;
+}
+
+.section-card {
+	padding: 30rpx;
+}
+
+.section-head {
+	align-items: flex-start;
+}
+
+.section-title {
+	font-size: 30rpx;
+	line-height: 1.3;
+	font-weight: 800;
+}
+
+.section-subtitle {
+	margin-top: 8rpx;
+	font-size: 23rpx;
+	line-height: 1.55;
+}
+
+.product-list,
+.order-list {
+	margin-top: 18rpx;
+}
+
+.product-item,
+.order-item {
+	gap: 20rpx;
+	padding: 24rpx 0;
+	border-bottom: 1rpx solid rgba(79, 147, 163, 0.12);
+}
+
+.product-item:first-child,
+.order-item:first-child {
+	padding-top: 8rpx;
+}
+
+.product-item:last-child,
+.order-item:last-child {
+	padding-bottom: 4rpx;
+	border-bottom: 0;
+}
+
+.product-head {
+	flex-wrap: wrap;
+	gap: 10rpx;
+}
+
+.product-name {
+	font-size: 29rpx;
+	line-height: 1.35;
+	font-weight: 800;
+}
+
+.tag-label {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 6rpx 12rpx;
+	border-radius: 999rpx;
+	font-size: 19rpx;
+	font-weight: 700;
+	color: #a24f72;
+	background: rgba(255, 235, 244, 0.9);
+	border: 1rpx solid rgba(182, 95, 131, 0.14);
+}
+
+.product-desc,
+.product-bonus {
+	margin-top: 8rpx;
+	font-size: 23rpx;
+	line-height: 1.55;
+}
+
+.product-bonus {
+	color: #4f7f8e;
+	font-weight: 600;
+}
+
+.product-side,
+.order-side {
+	gap: 12rpx;
+}
+
+.product-price,
+.order-price {
+	font-size: 32rpx;
+	line-height: 1.2;
+	font-weight: 800;
+}
+
+.buy-btn {
+	min-width: 142rpx;
+	height: 66rpx;
+	padding: 0 22rpx;
+	gap: 7rpx;
+	border-radius: 999rpx;
+	font-size: 23rpx;
+	font-weight: 800;
+	color: #fff;
+	background: linear-gradient(135deg, #4f93a3 0%, #72bdc8 100%);
+	box-shadow: 0 14rpx 28rpx rgba(79, 147, 163, 0.22);
+}
+
+.refresh-btn {
+	flex-shrink: 0;
+	gap: 7rpx;
+	padding: 9rpx 16rpx;
+	font-size: 21rpx;
+	font-weight: 700;
+	color: #4f7f8e;
+	background: rgba(255, 255, 255, 0.58);
+	border: 1rpx solid rgba(79, 147, 163, 0.15);
+}
+
+.order-name {
+	font-size: 27rpx;
+	line-height: 1.4;
+	font-weight: 800;
+}
+
+.order-meta {
+	margin-top: 7rpx;
+	font-size: 21rpx;
+	line-height: 1.5;
+	word-break: break-all;
+}
+
+.order-status {
+	font-size: 20rpx;
+	font-weight: 700;
+	padding: 7rpx 13rpx;
+}
+
+.order-status.paid {
+	color: #28705f;
+	background: rgba(218, 243, 235, 0.9);
+}
+
+.order-status.pending {
+	color: #9a6b18;
+	background: rgba(255, 245, 213, 0.94);
+}
+
+.note-card {
+	padding: 24rpx 26rpx;
+	background: linear-gradient(145deg, rgba(236, 249, 252, 0.68) 0%, rgba(255, 241, 247, 0.58) 100%);
+}
+
+.note-title {
+	font-size: 25rpx;
+	font-weight: 800;
+}
+
+.note-text {
+	margin-top: 10rpx;
+	font-size: 22rpx;
+	line-height: 1.7;
+}
+
+.empty-box {
+	padding: 34rpx 18rpx 18rpx;
+	text-align: center;
+}
+
+@media (max-width: 420px) {
+	.hero-title {
+		font-size: 33rpx;
+	}
+
+	.balance-item {
+		padding: 20rpx;
+	}
+
+	.product-item,
+	.order-item {
+		gap: 14rpx;
+	}
+
+	.buy-btn {
+		min-width: 126rpx;
+		padding: 0 18rpx;
+	}
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.hero-card,
+	.balance-item,
+	.section-card,
+	.buy-btn,
+	.refresh-btn {
+		transition: transform 180ms ease, box-shadow 180ms ease;
+	}
+
+	.balance-item:hover,
+	.section-card:hover,
+	.buy-btn:hover,
+	.refresh-btn:hover {
+		transform: translateY(-2rpx);
+	}
 }
 </style>

@@ -16,11 +16,11 @@
 					</view>
 					<view class="brand-actions">
 						<view class="icon-btn" @tap="goSystemMsg">
-							<text class="notice-ico">✉</text>
+							<u-icon name="email-fill" color="#3d5f74" size="32"></u-icon>
 							<view v-if="noticeUnread > 0" class="notice-badge">{{ noticeUnread > 99 ? '99+' : noticeUnread }}</view>
 						</view>
 						<view class="icon-btn" @tap="onMoreMenu">
-							<text class="icon-more">⋯</text>
+							<u-icon name="more-dot-fill" color="#3d5f74" size="34"></u-icon>
 						</view>
 					</view>
 				</view>
@@ -53,7 +53,9 @@
 				<view v-if="noticeBannerVisible" class="notice-banner" @tap="openNoticeBanner">
 					<text class="notice-banner-mark">公告</text>
 					<text class="notice-banner-title">{{ noticeBanner.title }}</text>
-					<text class="notice-banner-close" @tap.stop="dismissNoticeBanner">×</text>
+					<view class="notice-banner-close" @tap.stop="dismissNoticeBanner">
+						<u-icon name="close" color="#628092" size="22"></u-icon>
+					</view>
 				</view>
 
 				<view v-if="isJgDiscover" class="tag-filter-row">
@@ -445,7 +447,9 @@
 		<view v-if="noticePopupVisible" class="notice-popup-mask">
 			<view class="notice-popup-card">
 				<view class="notice-popup-top">
-					<view class="notice-popup-icon">!</view>
+					<view class="notice-popup-icon">
+						<u-icon name="volume-fill" color="#ffffff" size="30"></u-icon>
+					</view>
 					<view class="notice-popup-heading">
 						<text class="notice-popup-mark">重要公告</text>
 						<text class="notice-popup-title">{{ noticePopup.title }}</text>
@@ -2132,44 +2136,57 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 48rpx 36rpx;
-		background: rgba(29, 55, 74, 0.2);
-		backdrop-filter: blur(6px);
-		-webkit-backdrop-filter: blur(6px);
+		padding: 48rpx 32rpx;
+		background: rgba(27, 55, 72, 0.24);
+		backdrop-filter: blur(14rpx);
+		-webkit-backdrop-filter: blur(14rpx);
 		box-sizing: border-box;
 	}
 
 	.notice-popup-card {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
 		width: 100%;
 		max-width: 690rpx;
-		max-height: 78vh;
-		padding: 30rpx 28rpx 28rpx;
-		border-radius: 30rpx;
+		max-height: unquote("min(78vh, 920rpx)");
+		padding: 34rpx 30rpx 30rpx;
+		border-radius: 38rpx;
 		background:
-			linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 252, 255, 0.98) 100%);
-		border: 1rpx solid rgba(255, 255, 255, 0.92);
-		box-shadow: 0 28rpx 72rpx rgba(48, 88, 116, 0.22);
+			linear-gradient(145deg, rgba(255, 255, 255, 0.96) 0%, rgba(238, 249, 253, 0.92) 62%, rgba(255, 241, 247, 0.9) 100%);
+		border: 1rpx solid rgba(255, 255, 255, 0.94);
+		box-shadow: 0 34rpx 88rpx rgba(36, 76, 101, 0.26), inset 0 1rpx 0 rgba(255, 255, 255, 0.9);
 		box-sizing: border-box;
+	}
+
+	.notice-popup-card::before {
+		content: '';
+		position: absolute;
+		left: 30rpx;
+		right: 30rpx;
+		top: 0;
+		height: 5rpx;
+		border-radius: 0 0 999rpx 999rpx;
+		background: linear-gradient(90deg, #4f93a3 0%, #8ccbd4 62%, #d88eae 100%);
 	}
 
 	.notice-popup-top {
 		display: flex;
 		align-items: flex-start;
-		gap: 18rpx;
+		gap: 20rpx;
 	}
 
 	.notice-popup-icon {
 		flex-shrink: 0;
-		width: 54rpx;
-		height: 54rpx;
-		border-radius: 18rpx;
-		background: linear-gradient(135deg, #58aace 0%, #88d3e5 100%);
-		color: #fff;
-		font-size: 32rpx;
-		font-weight: 900;
-		text-align: center;
-		line-height: 54rpx;
-		box-shadow: 0 12rpx 24rpx rgba(87, 169, 206, 0.18);
+		width: 64rpx;
+		height: 64rpx;
+		border-radius: 22rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(145deg, #4f93a3 0%, #75bcc8 100%);
+		box-shadow: 0 14rpx 28rpx rgba(79, 147, 163, 0.25);
 	}
 
 	.notice-popup-heading {
@@ -2180,7 +2197,7 @@
 	.notice-popup-mark {
 		display: block;
 		height: 28rpx;
-		color: #5593ad;
+		color: #4f93a3;
 		font-size: 20rpx;
 		font-weight: 800;
 	}
@@ -2188,52 +2205,55 @@
 	.notice-popup-title {
 		display: block;
 		margin-top: 6rpx;
-		font-size: 32rpx;
+		font-size: 34rpx;
 		font-weight: 900;
 		line-height: 1.34;
-		color: #213f58;
+		color: #203846;
 	}
 
 	.notice-popup-scroll {
+		min-height: 0;
 		max-height: 38vh;
-		margin-top: 24rpx;
-		padding: 20rpx 22rpx;
-		border-radius: 22rpx;
-		background: rgba(239, 249, 253, 0.66);
+		margin-top: 26rpx;
+		padding: 22rpx 24rpx;
+		border-radius: 26rpx;
+		background: rgba(255, 255, 255, 0.56);
+		border: 1rpx solid rgba(79, 147, 163, 0.11);
+		box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
 		box-sizing: border-box;
 	}
 
 	.notice-popup-content {
 		display: block;
 		font-size: 25rpx;
-		line-height: 1.72;
-		color: #5d7488;
+		line-height: 1.78;
+		color: #556e7d;
 		white-space: pre-wrap;
 	}
 
 	.notice-popup-actions {
 		display: flex;
 		align-items: center;
-		gap: 14rpx;
-		margin-top: 24rpx;
+		gap: 16rpx;
+		margin-top: 26rpx;
 	}
 
 	.notice-popup-btn {
 		flex: 1;
-		height: 78rpx;
-		border-radius: 20rpx;
-		background: linear-gradient(135deg, #55a8cd 0%, #86d2e5 100%);
+		height: 82rpx;
+		border-radius: 999rpx;
+		background: linear-gradient(135deg, #4f93a3 0%, #72bdc8 100%);
 		color: #fff;
 		font-size: 25rpx;
 		font-weight: 800;
 		text-align: center;
-		line-height: 78rpx;
-		box-shadow: 0 14rpx 26rpx rgba(87, 169, 206, 0.2);
+		line-height: 82rpx;
+		box-shadow: 0 16rpx 30rpx rgba(79, 147, 163, 0.22);
 	}
 
 	.notice-popup-btn--ghost {
-		background: rgba(255, 255, 255, 0.74);
-		color: #4a839d;
+		background: rgba(255, 255, 255, 0.72);
+		color: #4f7f8e;
 		box-shadow: none;
 		border: 1rpx solid rgba(87, 169, 206, 0.18);
 	}

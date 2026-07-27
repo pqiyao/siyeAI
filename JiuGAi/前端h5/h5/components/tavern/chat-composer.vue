@@ -40,43 +40,62 @@
 				<text class="attach-fab-label">{{ albumActionLabel }}</text>
 			</view>
 		</view>
-		<view v-if="atChatBottom" class="input-pill" :class="{ 'input-pill--with-quote': quoteVisible }">
-			<view v-if="draftRestoredNoticeVisible" class="draft-restore-bar">
-				<text class="draft-restore-text">{{ draftRestoredText }}</text>
-				<text class="draft-restore-action" @tap.stop="emitClearRestoredDraft">{{ clearText }}</text>
-				<text class="draft-restore-close" @tap.stop="emitDismissDraftRestoredNotice">{{ closeIconText }}</text>
-			</view>
-			<view v-if="quoteVisible" class="composer-quote-bar">
-				<view class="composer-quote-copy">
-					<text class="composer-quote-speaker">{{ quoteSpeaker }}</text>
-					<text class="composer-quote-text">{{ quoteText }}</text>
+		<view v-if="atChatBottom" class="composer-stack">
+			<view
+				v-if="showModelSelector"
+				class="model-selector"
+				:class="{
+					'model-selector--byok': modelSource === 'BYOK',
+					'model-selector--disabled': modelSelectorDisabled
+				}"
+				:title="modelSelectorLabel"
+				:aria-label="modelSelectorLabel"
+				@tap.stop="emitOpenModelPicker"
+			>
+				<view class="model-selector__mark">
+					<text>{{ modelSource === 'BYOK' ? 'API' : 'AI' }}</text>
 				</view>
-				<text class="composer-quote-close" @tap="emitClearComposerQuote">{{ closeIconText }}</text>
+				<text class="model-selector__name">{{ modelName }}</text>
+				<u-icon name="arrow-down" size="20" color="#4d7280"></u-icon>
 			</view>
-			<view class="input-main">
-				<textarea
-					class="inp"
-					placeholder-class="chat-composer-inp-ph"
-					:value="value"
-					:placeholder="placeholder"
-					confirm-type="send"
-					auto-height
-					:maxlength="-1"
-					:show-confirm-bar="false"
-					:cursor-spacing="cursorSpacing"
-					:adjust-position="true"
-					:disabled="disabled"
-					@input="emitInput"
-					@focus="emitFocus"
-					@blur="emitBlur"
-					@confirm="emitConfirm"
-				></textarea>
-				<view class="input-actions">
-					<view class="expression-trigger" @tap="emitOpenExpressionPanel">
-						<image class="input-action-icon" :src="inputExpressionIcon" mode="aspectFit"></image>
+			<view class="input-pill" :class="{ 'input-pill--with-quote': quoteVisible }">
+				<view v-if="draftRestoredNoticeVisible" class="draft-restore-bar">
+					<text class="draft-restore-text">{{ draftRestoredText }}</text>
+					<text class="draft-restore-action" @tap.stop="emitClearRestoredDraft">{{ clearText }}</text>
+					<text class="draft-restore-close" @tap.stop="emitDismissDraftRestoredNotice">{{ closeIconText }}</text>
+				</view>
+				<view v-if="quoteVisible" class="composer-quote-bar">
+					<view class="composer-quote-copy">
+						<text class="composer-quote-speaker">{{ quoteSpeaker }}</text>
+						<text class="composer-quote-text">{{ quoteText }}</text>
 					</view>
-					<view class="attach-btn" :class="{ 'attach-btn--active': attachmentMenuVisible }" @tap.stop="emitOpenAttachmentMenu">
-						<image class="input-action-icon" :src="inputPlusIcon" mode="aspectFit"></image>
+					<text class="composer-quote-close" @tap="emitClearComposerQuote">{{ closeIconText }}</text>
+				</view>
+				<view class="input-main">
+					<textarea
+						class="inp"
+						placeholder-class="chat-composer-inp-ph"
+						:value="value"
+						:placeholder="placeholder"
+						confirm-type="send"
+						auto-height
+						:maxlength="-1"
+						:show-confirm-bar="false"
+						:cursor-spacing="cursorSpacing"
+						:adjust-position="true"
+						:disabled="disabled"
+						@input="emitInput"
+						@focus="emitFocus"
+						@blur="emitBlur"
+						@confirm="emitConfirm"
+					></textarea>
+					<view class="input-actions">
+						<view class="expression-trigger" @tap="emitOpenExpressionPanel">
+							<image class="input-action-icon" :src="inputExpressionIcon" mode="aspectFit"></image>
+						</view>
+						<view class="attach-btn" :class="{ 'attach-btn--active': attachmentMenuVisible }" @tap.stop="emitOpenAttachmentMenu">
+							<image class="input-action-icon" :src="inputPlusIcon" mode="aspectFit"></image>
+						</view>
 					</view>
 				</view>
 			</view>
@@ -171,6 +190,26 @@
 				type: Number,
 				default: 18
 			},
+			showModelSelector: {
+				type: Boolean,
+				default: false
+			},
+			modelName: {
+				type: String,
+				default: '选择聊天模型'
+			},
+			modelSource: {
+				type: String,
+				default: 'SYSTEM'
+			},
+			modelSelectorDisabled: {
+				type: Boolean,
+				default: false
+			},
+			modelSelectorLabel: {
+				type: String,
+				default: '切换聊天模型'
+			},
 			disabled: {
 				type: Boolean,
 				default: false
@@ -259,6 +298,10 @@
 			emitOpenAttachmentMenu() {
 				this.$emit('open-attachment-menu');
 			},
+			emitOpenModelPicker() {
+				if (this.modelSelectorDisabled) return;
+				this.$emit('open-model-picker');
+			},
 			emitScrollBottom() {
 				this.$emit('scroll-bottom');
 			},
@@ -288,6 +331,74 @@
 		box-shadow: none !important;
 		backdrop-filter: none !important;
 		-webkit-backdrop-filter: none !important;
+	}
+
+	.chat-composer .composer-stack {
+		flex: 1 1 auto;
+		min-width: 0;
+		max-width: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 8rpx;
+	}
+
+	.chat-composer .model-selector {
+		align-self: flex-start;
+		max-width: unquote("min(72%, 440rpx)");
+		height: 50rpx;
+		min-width: 0;
+		box-sizing: border-box;
+		display: flex;
+		align-items: center;
+		gap: 8rpx;
+		margin-left: 12rpx;
+		padding: 0 14rpx 0 8rpx;
+		border: 1rpx solid rgba(103, 159, 174, 0.2);
+		border-radius: 25rpx;
+		background: rgba(247, 253, 253, 0.88);
+		box-shadow: 0 6rpx 18rpx rgba(38, 77, 91, 0.1);
+		backdrop-filter: blur(10rpx) saturate(120%);
+		-webkit-backdrop-filter: blur(10rpx) saturate(120%);
+	}
+
+	.chat-composer .model-selector--disabled {
+		opacity: 0.58;
+		pointer-events: none;
+	}
+
+	.chat-composer .model-selector__mark {
+		flex: 0 0 34rpx;
+		width: 34rpx;
+		height: 34rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 10rpx;
+		color: #ffffff;
+		background: #4f93a3;
+	}
+
+	.chat-composer .model-selector--byok .model-selector__mark {
+		background: #d9796f;
+	}
+
+	.chat-composer .model-selector__mark text {
+		font-size: 16rpx;
+		font-weight: 800;
+		line-height: 1;
+	}
+
+	.chat-composer .model-selector__name {
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		color: #315665;
+		font-size: 22rpx;
+		font-weight: 650;
+		line-height: 1;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.chat-composer .input-pill {

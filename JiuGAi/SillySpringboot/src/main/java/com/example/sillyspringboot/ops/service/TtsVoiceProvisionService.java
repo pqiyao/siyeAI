@@ -27,8 +27,10 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -38,6 +40,8 @@ public class TtsVoiceProvisionService {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
     private static final int MAX_REFERENCE_AUDIO_BYTES = 8 * 1024 * 1024;
     private static final int MAX_VOICE_API_RESPONSE_BYTES = 2 * 1024 * 1024;
+    private static final long OFFICIAL_TEMPLATE_OWNER_ID = 0L;
+    private static final Object[] TEMPLATE_PROVISION_LOCKS = createProvisionLocks(256);
 
     public record TtsRuntimeContext(
             boolean customModeActive,
@@ -71,6 +75,12 @@ public class TtsVoiceProvisionService {
     public record ProvisionedUserVoice(String voiceUri, String modelName, String configFingerprint) {
     }
 
+    public record ProviderAccount(String balance, String chargeBalance, String totalBalance) {
+    }
+
+    public record ProviderVoice(String voiceUri, String displayName, String modelName, String sampleText) {
+    }
+
     private final TtsVoiceTemplateService templateService;
     private final AppUserTtsVoiceInstanceMapper instanceMapper;
     private final H5UploadService uploadService;
@@ -97,39 +107,77 @@ public class TtsVoiceProvisionService {
         if (template == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "当前选择的音色模板已失效");
         }
-        if (runtimeContext == null || !runtimeContext.customModeActive()) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先开启自定义 API，再使用模板音色");
+        if (runtimeContext == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "当前 TTS 线路尚未就绪");
         }
         if (!runtimeContext.providerMatches(blank(template.getProviderSource()))) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "当前模板仅支持硅基流动 TTS");
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "当前音色与 TTS 线路不兼容");
         }
         if (!runtimeContext.hasApiKey()) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先填写当前 TTS 的 API Key");
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    runtimeContext.customModeActive() ? "请先填写当前 TTS 的 API Key" : "官方 TTS 线路尚未配置可用凭证");
         }
         String templateModelName = blank(template.getTtsModelName());
-        String effectiveModelName = StringUtils.hasText(templateModelName)
+        String runtimeModelName = runtimeContext.effectiveModelName("");
+        if (!runtimeContext.customModeActive()
+                && StringUtils.hasText(templateModelName)
+                && !templateModelName.equalsIgnoreCase(runtimeModelName)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "当前音色与官方 TTS 模型不兼容");
+        }
+        String effectiveModelName = runtimeContext.customModeActive() && StringUtils.hasText(templateModelName)
                 ? templateModelName
-                : runtimeContext.effectiveModelName("");
+                : runtimeModelName;
         if (!StringUtils.hasText(effectiveModelName)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先填写 TTS 模型，或在模板里配置推荐模型");
         }
         String fingerprint = buildConfigFingerprint(template, runtimeContext, effectiveModelName);
-        AppUserTtsVoiceInstance instance = instanceMapper.findByUserIdAndTemplateCode(userId, blank(template.getTemplateCode()));
+        long instanceOwnerId = instanceOwnerIdForRuntime(userId, runtimeContext);
+        String lockKey = instanceOwnerId + ":" + blank(template.getTemplateCode()) + ":" + fingerprint;
+        Object lock = TEMPLATE_PROVISION_LOCKS[Math.floorMod(lockKey.hashCode(), TEMPLATE_PROVISION_LOCKS.length)];
+        synchronized (lock) {
+            return resolveOrProvisionVoice(
+                    instanceOwnerId, template, runtimeContext, effectiveModelName, fingerprint);
+        }
+    }
+
+    static long instanceOwnerIdForRuntime(long userId, TtsRuntimeContext runtimeContext) {
+        return runtimeContext != null && runtimeContext.customModeActive()
+                ? userId
+                : OFFICIAL_TEMPLATE_OWNER_ID;
+    }
+
+    public boolean isTemplateCompatible(String templateCode, TtsRuntimeContext runtimeContext) {
+        AppTtsVoiceTemplate template = templateService.findEnabledTemplate(templateCode);
+        if (template == null || runtimeContext == null
+                || !runtimeContext.providerMatches(blank(template.getProviderSource()))) {
+            return false;
+        }
+        String configuredModel = blank(template.getTtsModelName());
+        return runtimeContext.customModeActive()
+                || !StringUtils.hasText(configuredModel)
+                || configuredModel.equalsIgnoreCase(runtimeContext.effectiveModelName(""));
+    }
+
+    private ResolvedVoice resolveOrProvisionVoice(
+            long instanceOwnerId,
+            AppTtsVoiceTemplate template,
+            TtsRuntimeContext runtimeContext,
+            String effectiveModelName,
+            String fingerprint
+    ) {
+        AppUserTtsVoiceInstance instance = instanceMapper.findByUserIdAndTemplateCode(
+                instanceOwnerId, blank(template.getTemplateCode()));
         if (instance != null
                 && fingerprint.equals(blank(instance.getConfigFingerprint()))
                 && "ready".equalsIgnoreCase(blank(instance.getStatus()))
                 && StringUtils.hasText(instance.getVoiceUri())) {
             return new ResolvedVoice(
-                    blank(instance.getVoiceUri()),
-                    effectiveModelName,
-                    blank(template.getTemplateCode()),
-                    blank(template.getDisplayName())
-            );
+                    blank(instance.getVoiceUri()), effectiveModelName,
+                    blank(template.getTemplateCode()), blank(template.getDisplayName()));
         }
-
         if (instance == null) {
             instance = new AppUserTtsVoiceInstance();
-            instance.setUserId(userId);
+            instance.setUserId(instanceOwnerId);
             instance.setTemplateCode(blank(template.getTemplateCode()));
         }
         instance.setProviderSource(blank(runtimeContext.providerSource()));
@@ -138,7 +186,6 @@ public class TtsVoiceProvisionService {
         instance.setConfigFingerprint(fingerprint);
         instance.setStatus("pending");
         instance.setLastError("");
-
         try {
             ReferenceAudio referenceAudio = loadReferenceAudio(template);
             String voiceUri = uploadDynamicVoice(template, runtimeContext, effectiveModelName, referenceAudio);
@@ -150,11 +197,8 @@ public class TtsVoiceProvisionService {
             instance.setLastError("");
             persistInstance(instance);
             return new ResolvedVoice(
-                    voiceUri,
-                    effectiveModelName,
-                    blank(template.getTemplateCode()),
-                    blank(template.getDisplayName())
-            );
+                    voiceUri, effectiveModelName,
+                    blank(template.getTemplateCode()), blank(template.getDisplayName()));
         } catch (BusinessException ex) {
             instance.setVoiceUri("");
             instance.setStatus("failed");
@@ -200,6 +244,75 @@ public class TtsVoiceProvisionService {
                 modelName,
                 buildRuntimeFingerprint(runtimeContext, modelName)
         );
+    }
+
+    public ProviderAccount getProviderAccount(TtsRuntimeContext runtimeContext) {
+        requireSiliconFlowByok(runtimeContext);
+        JsonNode root = getProviderJson(runtimeContext, "/user/info");
+        JsonNode data = root.path("data").isObject()
+                ? root.path("data")
+                : (root.path("result").isObject() ? root.path("result") : root);
+        return new ProviderAccount(
+                scalarText(data.path("balance")),
+                scalarText(data.path("chargeBalance")),
+                scalarText(data.path("totalBalance"))
+        );
+    }
+
+    public List<ProviderVoice> listProviderVoices(TtsRuntimeContext runtimeContext) {
+        requireSiliconFlowByok(runtimeContext);
+        JsonNode root = getProviderJson(runtimeContext, "/audio/voice/list");
+        JsonNode rows = findProviderVoiceArray(root);
+        if (rows == null || !rows.isArray()) return List.of();
+        List<ProviderVoice> result = new ArrayList<>();
+        for (JsonNode item : rows) {
+            if (result.size() >= 100) break;
+            if (item == null || !item.isObject()) continue;
+            String voiceUri = trim(firstText(item, "uri", "voiceUri", "voice_uri"), 255);
+            if (!StringUtils.hasText(voiceUri)) continue;
+            String displayName = trim(firstText(item, "customName", "name", "displayName"), 64);
+            if (!StringUtils.hasText(displayName)) displayName = providerVoiceFallbackName(voiceUri);
+            result.add(new ProviderVoice(
+                    voiceUri,
+                    displayName,
+                    trim(firstText(item, "model", "modelName", "model_name"), 255),
+                    trim(firstText(item, "text", "sampleText", "sample_text"), 255)
+            ));
+        }
+        return List.copyOf(result);
+    }
+
+    public void deleteProviderVoice(TtsRuntimeContext runtimeContext, String voiceUri) {
+        requireSiliconFlowByok(runtimeContext);
+        String safeVoiceUri = trim(voiceUri, 255);
+        if (!StringUtils.hasText(safeVoiceUri)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "音色标识无效");
+        }
+        RestClient client = buildRestClient(blank(runtimeContext.baseUrl()), blank(runtimeContext.apiKey()));
+        try {
+            client.post()
+                    .uri("/audio/voice/deletions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .body(Map.of("uri", safeVoiceUri))
+                    .exchange((request, response) -> {
+                        byte[] body = BoundedHttpBodyHandlers.readBytes(
+                                response.getBody(), MAX_VOICE_API_RESPONSE_BYTES);
+                        if (response.getStatusCode().value() == 404) return null;
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new BusinessException(ErrorCode.UPSTREAM_ERROR,
+                                    providerErrorMessage(new String(body, StandardCharsets.UTF_8)));
+                        }
+                        requireProviderSuccess(new String(body, StandardCharsets.UTF_8));
+                        return null;
+                    });
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (BoundedHttpBodyHandlers.BodyTooLargeException ex) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "硅基流动返回内容过大");
+        } catch (RestClientException ex) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "硅基流动音色删除服务暂时不可用");
+        }
     }
 
     public static String buildRuntimeFingerprint(TtsRuntimeContext runtimeContext, String modelName) {
@@ -296,6 +409,100 @@ public class TtsVoiceProvisionService {
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .build();
+    }
+
+    private JsonNode getProviderJson(TtsRuntimeContext runtimeContext, String path) {
+        RestClient client = buildRestClient(blank(runtimeContext.baseUrl()), blank(runtimeContext.apiKey()));
+        try {
+            String raw = client.get()
+                    .uri(path)
+                    .accept(MediaType.APPLICATION_JSON)
+                    .exchange((request, response) -> {
+                        byte[] body = BoundedHttpBodyHandlers.readBytes(
+                                response.getBody(), MAX_VOICE_API_RESPONSE_BYTES);
+                        String responseText = new String(body, StandardCharsets.UTF_8);
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, providerErrorMessage(responseText));
+                        }
+                        return responseText;
+                    });
+            JsonNode root = objectMapper.readTree(raw == null ? "" : raw);
+            if (root == null) {
+                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "硅基流动返回内容为空");
+            }
+            requireProviderSuccess(root, raw);
+            return root;
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (BoundedHttpBodyHandlers.BodyTooLargeException ex) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "硅基流动返回内容过大");
+        } catch (RestClientException ex) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "硅基流动账号服务暂时不可用");
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "硅基流动返回了无法识别的数据");
+        }
+    }
+
+    private static JsonNode findProviderVoiceArray(JsonNode root) {
+        if (root == null) return null;
+        if (root.isArray()) return root;
+        for (String key : List.of("result", "data", "voices", "items")) {
+            JsonNode child = root.path(key);
+            if (child.isArray()) return child;
+            if (child.isObject()) {
+                for (String nestedKey : List.of("result", "data", "voices", "items")) {
+                    JsonNode nested = child.path(nestedKey);
+                    if (nested.isArray()) return nested;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String firstText(JsonNode node, String... keys) {
+        if (node == null) return "";
+        for (String key : keys) {
+            String value = scalarText(node.path(key));
+            if (StringUtils.hasText(value)) return value;
+        }
+        return "";
+    }
+
+    private static String scalarText(JsonNode node) {
+        return node != null && node.isValueNode() ? blank(node.asText("")) : "";
+    }
+
+    private static String providerVoiceFallbackName(String voiceUri) {
+        String value = blank(voiceUri);
+        int index = Math.max(value.lastIndexOf(':'), value.lastIndexOf('/'));
+        String suffix = index >= 0 && index + 1 < value.length() ? value.substring(index + 1) : value;
+        suffix = trim(suffix, 48);
+        return StringUtils.hasText(suffix) ? suffix : "硅基流动音色";
+    }
+
+    private void requireProviderSuccess(String raw) {
+        if (!StringUtils.hasText(raw)) return;
+        try {
+            requireProviderSuccess(objectMapper.readTree(raw), raw);
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "硅基流动返回了无法识别的数据");
+        }
+    }
+
+    private void requireProviderSuccess(JsonNode root, String raw) {
+        if (root == null || root.isArray()) return;
+        JsonNode status = root.path("status");
+        if (status.isBoolean() && !status.asBoolean()) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, providerErrorMessage(raw));
+        }
+        JsonNode code = root.path("code");
+        if (!code.isValueNode()) return;
+        String value = code.asText("").trim();
+        if (!value.isBlank() && !"0".equals(value) && !"200".equals(value) && !"20000".equals(value)) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, providerErrorMessage(raw));
+        }
     }
 
     private String extractVoiceUri(String raw) {
@@ -416,6 +623,14 @@ public class TtsVoiceProvisionService {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    private static Object[] createProvisionLocks(int count) {
+        Object[] locks = new Object[Math.max(1, count)];
+        for (int i = 0; i < locks.length; i++) {
+            locks[i] = new Object();
+        }
+        return locks;
     }
 
     private static String trim(String value, int maxLength) {

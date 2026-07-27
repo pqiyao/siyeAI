@@ -339,7 +339,7 @@
 		"批量删除成功": "Deleted {n} chats",
 		"批量删除部分失败": "OK {ok}, failed {fail}",
 		"跳转失败": "Unable to open link",
-		"请在浏览器打开": "Open the link in a browser",
+		"请在浏览器打开": "Link copied. Paste it into your browser to open.",
 		"发私照": "Private photos",
 		"作者": "Author",
 		"读取存档": "Load save",

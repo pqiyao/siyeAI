@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class GenerationObservabilityMigrationTest {
 
     @Test
-    void h2MigrationsIncludeUnifiedAiLogTraceDetailsAndCharacterPromotionAtVersion102() {
+    void h2MigrationsIncludeUnifiedAiLogTraceDetailsCharacterPromotionAndOfficialVoicePreference() {
         JdbcDataSource dataSource = new JdbcDataSource();
         dataSource.setURL(
                 "jdbc:h2:mem:generation_observability_v102;MODE=MySQL;"
@@ -104,6 +104,12 @@ class GenerationObservabilityMigrationTest {
                         + "WHERE table_name = 'app_character_system_promotion'",
                 Integer.class
         ));
+        assertEquals(2, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                        + "WHERE table_name = 'app_h5_user_ai_provider' "
+                        + "AND column_name IN ('official_tts_voice_name', 'official_tts_voice_template_code')",
+                Integer.class
+        ));
         assertEquals(6, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables "
                         + "WHERE table_name IN ("
@@ -121,12 +127,12 @@ class GenerationObservabilityMigrationTest {
                         + "AND LOWER(constraint_name) = 'ck_character_owner_private'",
                 Integer.class
         ));
-        assertEquals(4, jdbc.queryForObject(
+        assertEquals(5, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history "
-                        + "WHERE success = TRUE AND version IN ('106', '107', '108', '109')",
+                        + "WHERE success = TRUE AND version IN ('106', '107', '108', '109', '110')",
                 Integer.class
         ));
-        assertEquals("109", jdbc.queryForObject(
+        assertEquals("110", jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class
         ));

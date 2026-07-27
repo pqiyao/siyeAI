@@ -14,6 +14,8 @@ public class AppH5UserAiProvider {
     private String ttsModelName;
     private String ttsVoiceName;
     private String ttsVoiceTemplateCode;
+    private String officialTtsVoiceName;
+    private String officialTtsVoiceTemplateCode;
     private String ttsProviderSource;
     private String ttsApiKeyCipher;
     private String ttsCustomUrl;
@@ -110,6 +112,22 @@ public class AppH5UserAiProvider {
 
     public void setTtsVoiceTemplateCode(String ttsVoiceTemplateCode) {
         this.ttsVoiceTemplateCode = ttsVoiceTemplateCode;
+    }
+
+    public String getOfficialTtsVoiceName() {
+        return officialTtsVoiceName;
+    }
+
+    public void setOfficialTtsVoiceName(String officialTtsVoiceName) {
+        this.officialTtsVoiceName = officialTtsVoiceName;
+    }
+
+    public String getOfficialTtsVoiceTemplateCode() {
+        return officialTtsVoiceTemplateCode;
+    }
+
+    public void setOfficialTtsVoiceTemplateCode(String officialTtsVoiceTemplateCode) {
+        this.officialTtsVoiceTemplateCode = officialTtsVoiceTemplateCode;
     }
 
     public String getTtsProviderSource() {

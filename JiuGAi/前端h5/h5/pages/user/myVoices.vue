@@ -1,71 +1,188 @@
 <template>
   <view class="page">
     <image class="page-bg" src="/static/login.png" mode="aspectFill" />
-    <tavern-nav-bar title="我的自建音色" mode="dark" @back="goBack" />
+    <tavern-nav-bar title="声线工作室" mode="dark" @back="goBack" />
 
     <scroll-view v-if="featureEnabled" scroll-y class="body">
-      <view class="hero">
-        <text class="eyebrow">PRIVATE VOICES</text>
-        <text class="title">只使用你的 API Key</text>
-        <text class="desc">参考音频仅用于即时克隆请求，不会作为音频文件长期保存在本应用服务器。</text>
-        <text class="scope-label">{{ scopeLabel }}</text>
-        <view class="quota"><text>{{ overview.used || 0 }} / {{ overview.limit || 0 }}</text><text>个音色</text></view>
+      <view class="studio-stage">
+        <view class="stage-main">
+          <view class="sound-disc">
+            <view class="disc-ring disc-ring--outer"></view>
+            <view class="disc-ring disc-ring--inner"></view>
+            <image class="studio-emblem" src="/static/logo.png" mode="aspectFill"></image>
+          </view>
+          <view class="stage-copy">
+            <text class="stage-kicker">VOICE LAB</text>
+            <text class="stage-title">收藏你的专属声线</text>
+            <text class="stage-desc">克隆、试听和管理都只使用你的硅基流动 API。</text>
+          </view>
+        </view>
+        <view class="stage-wave">
+          <view v-for="bar in 18" :key="bar" class="wave-bar" :class="'wave-bar--' + ((bar % 6) + 1)"></view>
+        </view>
+        <view class="account-ribbon">
+          <view class="account-state">
+            <view class="provider-dot" :class="{ online: providerStatus.connected }"></view>
+            <view class="account-copy">
+              <text class="account-title">{{ providerStatusText }}</text>
+              <text class="account-sub">{{ runtimeLabel }}</text>
+            </view>
+          </view>
+          <view class="round-action round-action--light" :class="{ disabled: providerStatusLoading }" aria-label="刷新账号状态" @tap="refreshProviderStatus(true)">
+            <u-icon name="reload" color="#164b55" size="30"></u-icon>
+          </view>
+        </view>
+        <view class="stage-foot">
+          <text>{{ scopeLabel }}</text>
+          <text>{{ overview.used || 0 }} / {{ overview.limit || 0 }} 个音色</text>
+        </view>
       </view>
 
-      <view v-if="overview.denyReason && !overview.canCreate" class="notice">{{ overview.denyReason }}</view>
-
-      <view v-if="overview.canCreate" class="panel">
-        <text class="panel-title">创建新的音色</text>
-        <text class="panel-tip">请上传 5 到 60 秒、清晰无背景音乐的人声，推荐 20 到 30 秒，并填写音频中的准确台词。仅可使用本人声音或已获得明确授权的声音。</text>
-        <input v-model="form.displayName" class="input" maxlength="64" placeholder="音色名称，例如：温柔女声" />
-        <textarea v-model="form.sampleText" class="textarea" maxlength="255" placeholder="参考音频中实际朗读的文字" />
-        <view class="source-actions">
-          <view class="source-action" :class="{ disabled: recording }" @tap="chooseAudio">
-            <u-icon name="attach" color="#167f78" size="32"></u-icon>
-            <text>选择音频</text>
-          </view>
-          <view class="source-action source-action--record" :class="{ recording: recording }" @tap="toggleRecording">
-            <u-icon :name="recording ? 'pause' : 'mic'" :color="recording ? '#fff' : '#a4515d'" size="32"></u-icon>
-            <text>{{ recording ? '停止 ' + recordSeconds + 's' : '录制参考音频' }}</text>
-          </view>
+      <view class="mode-dock">
+        <view v-for="item in studioSections" :key="item.key" class="mode-item" :class="{ active: activeSection === item.key }" @tap="activeSection = item.key">
+          <view class="mode-icon"><u-icon :name="item.icon" :color="activeSection === item.key ? '#315f72' : '#647b8b'" size="30"></u-icon></view>
+          <text>{{ item.label }}</text>
         </view>
-        <view v-if="fileName" class="file-row">
-          <view class="file-copy">
-            <text class="file-name">{{ fileName }}</text>
-            <text class="file-meta">{{ audioDurationText }}</text>
-          </view>
-          <text class="file-action" @tap="clearSelectedAudio">移除</text>
-        </view>
-        <button class="primary" :disabled="creating || recording || !selectedFile" @tap="createVoice">{{ creating ? '创建中…' : '使用我的 Key 创建' }}</button>
-        <text class="small-tip">官方平台模式不提供自建音色服务，也不会使用平台额度创建私有音色。</text>
       </view>
 
-      <view class="panel">
-        <view class="panel-head">
-          <text class="panel-title">我的音色</text>
-          <view class="panel-tools">
-            <text v-if="boundVoiceId" class="unbind" @tap="clearBinding">解除当前绑定</text>
-            <text class="refresh" @tap="load">刷新</text>
+      <view v-if="activeSection === 'voices'" class="workspace workspace--library">
+        <view class="section-heading">
+          <view>
+            <text class="section-kicker">MY COLLECTION</text>
+            <text class="section-title">我的音色</text>
+          </view>
+          <view class="section-tools">
+            <text v-if="boundVoiceId" class="text-action text-action--warm" @tap="clearBinding">解除绑定</text>
+            <view class="round-action" aria-label="刷新我的音色" @tap="load"><u-icon name="reload" color="#286b72" size="28"></u-icon></view>
           </view>
         </view>
-        <view v-if="loading" class="empty">正在加载…</view>
-        <view v-else-if="!voices.length" class="empty">还没有自建音色</view>
-        <view v-else>
-          <view v-for="voice in voices" :key="voice.id" class="voice-row">
+
+        <view class="sync-arc">
+          <view class="sync-icon"><u-icon name="download" color="#ffffff" size="38"></u-icon></view>
+          <view class="sync-copy">
+            <text class="sync-title">硅基流动音色库</text>
+            <text class="sync-desc">把账号里已有的自定义音色同步到这里</text>
+          </view>
+          <button v-if="isSiliconFlowByok" class="sync-button" :disabled="syncingProvider" @tap="syncProviderVoices">{{ syncingProvider ? '同步中' : '同步' }}</button>
+          <button v-else class="sync-button sync-button--setup" @tap="openAiSettings">配置</button>
+        </view>
+
+        <view v-if="providerVoicesVisible" class="provider-drawer">
+          <view v-if="syncingProvider" class="empty-state empty-state--small"><text>正在读取供应商音色…</text></view>
+          <view v-else-if="!providerVoices.length" class="empty-state empty-state--small"><text>当前账号没有可同步音色</text></view>
+          <block v-else>
+            <view v-for="item in providerVoices" :key="item.voiceUri" class="provider-row">
+              <view class="mini-disc"><u-icon name="volume-up" color="#2e7777" size="24"></u-icon></view>
+              <view class="voice-copy">
+                <text class="voice-name">{{ item.displayName }}</text>
+                <text class="voice-meta">{{ item.modelName || '当前 TTS 模型' }}</text>
+              </view>
+              <text v-if="item.imported" class="imported">已收藏</text>
+              <button v-else class="compact-action" :disabled="!overview.canCreate || importingUri === item.voiceUri" @tap="importProviderVoice(item)">{{ importingUri === item.voiceUri ? '导入中' : '收藏' }}</button>
+            </view>
+          </block>
+        </view>
+
+        <view v-if="loading" class="empty-state"><view class="empty-pulse"></view><text>正在整理音色库…</text></view>
+        <view v-else-if="!voices.length" class="empty-state">
+          <view class="empty-record"><u-icon name="volume-up" color="#7f989f" size="42"></u-icon></view>
+          <text class="empty-title">还没有收藏声线</text>
+          <text class="empty-desc">去“创建音色”录下第一段声音，或同步硅基流动已有音色。</text>
+        </view>
+        <view v-else class="voice-orbit-list">
+          <view v-for="(voice, index) in voices" :key="voice.id" class="voice-orbit" :class="{ 'voice-orbit--alt': index % 2 === 1 }">
+            <view class="voice-preview" :class="{ disabled: !voice.available }" aria-label="试听音色" @tap="openPreview(voice)">
+              <view class="voice-groove"></view>
+              <u-icon :name="previewPlaying && previewVoice && Number(previewVoice.id) === Number(voice.id) ? 'pause' : 'play-right'" :color="voice.available ? '#ffffff' : '#bac5c8'" size="27"></u-icon>
+            </view>
             <view class="voice-copy">
               <text class="voice-name">{{ voice.displayName }}</text>
               <text class="voice-meta">{{ voice.statusText }}</text>
             </view>
             <view class="voice-actions">
               <text v-if="voice.available" class="bind" :class="{ active: Number(boundVoiceId) === Number(voice.id) }" @tap="bindVoice(voice)">{{ Number(boundVoiceId) === Number(voice.id) ? scopeBoundText : scopeActionText }}</text>
-              <text class="delete" @tap="removeVoice(voice)">删除</text>
+              <view class="round-action round-action--danger" aria-label="删除音色" @tap="removeVoice(voice)"><u-icon name="trash" color="#b85e6b" size="26"></u-icon></view>
             </view>
           </view>
         </view>
       </view>
+
+      <view v-else-if="activeSection === 'create'" class="workspace workspace--create">
+        <view class="section-heading">
+          <view>
+            <text class="section-kicker">RECORD A VOICE</text>
+            <text class="section-title">创建新音色</text>
+          </view>
+          <view class="create-step">5–60s</view>
+        </view>
+
+        <view v-if="!loading && !overview.canCreate" class="notice-ribbon">
+          <view class="notice-sign"><u-icon name="info-circle" color="#9a5260" size="31"></u-icon></view>
+          <view class="notice-copy"><text>暂时无法创建</text><text>{{ overview.denyReason || '请先完成硅基流动 BYOK 配置，或稍后刷新页面。' }}</text></view>
+          <view v-if="needsAiSetup || !providerState" class="round-action" aria-label="配置我的 API" @tap="openAiSettings"><u-icon name="arrow-right" color="#8d4e5b" size="27"></u-icon></view>
+        </view>
+
+        <view v-if="overview.canCreate" class="creation-flow">
+          <view class="field-group">
+            <text class="field-no">01</text>
+            <view class="field-body"><text class="field-label">给它一个名字</text><input v-model="form.displayName" class="studio-input" maxlength="64" placeholder="例如：温柔女声" /></view>
+          </view>
+          <view class="field-group field-group--wide">
+            <text class="field-no">02</text>
+            <view class="field-body"><text class="field-label">准确写下参考台词</text><textarea v-model="form.sampleText" class="studio-textarea" maxlength="255" placeholder="必须与音频实际朗读内容一致" /></view>
+          </view>
+          <view class="field-group field-group--audio">
+            <text class="field-no">03</text>
+            <view class="field-body">
+              <text class="field-label">加入清晰的人声音频</text>
+              <view class="source-actions">
+                <view class="source-action" :class="{ disabled: recording }" @tap="chooseAudio"><u-icon name="attach" color="#247878" size="31"></u-icon><text>选择音频</text></view>
+                <view class="source-action source-action--record" :class="{ recording: recording }" @tap="toggleRecording"><u-icon :name="recording ? 'pause' : 'mic'" :color="recording ? '#ffffff' : '#a4515d'" size="31"></u-icon><text>{{ recording ? '停止 ' + recordSeconds + 's' : '现在录制' }}</text></view>
+              </view>
+              <view v-if="fileName" class="selected-audio"><view class="selected-wave"><view v-for="bar in 9" :key="bar" class="selected-bar" :class="'selected-bar--' + ((bar % 4) + 1)"></view></view><view class="file-copy"><text class="file-name">{{ fileName }}</text><text class="file-meta">{{ audioDurationText }}</text></view><view class="round-action" aria-label="移除音频" @tap="clearSelectedAudio"><u-icon name="close" color="#667c84" size="25"></u-icon></view></view>
+            </view>
+          </view>
+          <button class="create-button" :disabled="!canSubmitCreation" @tap="createVoice"><u-icon name="mic" color="#ffffff" size="30"></u-icon><text>{{ creating ? '正在创建声线…' : '使用我的 Key 创建' }}</text></button>
+          <text class="creation-note">仅可使用本人声音或已取得明确授权的声音。官方平台模式不提供私有音色克隆。</text>
+        </view>
+      </view>
+
+      <view v-else class="workspace workspace--resources">
+        <view class="section-heading">
+          <view><text class="section-kicker">VOICE RESOURCES</text><text class="section-title">音色资源站</text></view>
+          <view class="resource-spark"><u-icon name="link" color="#ffffff" size="28"></u-icon></view>
+        </view>
+        <text class="resource-intro">寻找参考声音、开源模型和创作工具。打开第三方站点时不会携带你的 API Key。</text>
+        <view class="resource-flow">
+          <view v-for="(item, index) in voiceResourceLinks" :key="item.url" class="resource-island" :class="['resource-island--' + item.tone, { 'resource-island--featured': index === 0 }]" @tap="openExternalVoiceResource(item)">
+            <view class="resource-index">0{{ index + 1 }}</view>
+            <view class="resource-symbol"><u-icon :name="item.icon" color="#4f93a3" size="34"></u-icon></view>
+            <view class="resource-copy"><text class="resource-name">{{ item.name }}</text><text class="resource-desc">{{ item.description }}</text><text class="resource-domain">{{ item.domain }}</text></view>
+            <view class="resource-arrow"><u-icon name="arrow-right" color="#ffffff" size="26"></u-icon></view>
+          </view>
+        </view>
+        <view class="license-wave"><u-icon name="info-circle" color="#6e7f87" size="26"></u-icon><text>使用第三方音色前，请确认已获得授权；公开发布或商业使用时，请遵守对应平台规则。</text></view>
+      </view>
+      <view class="bottom-space"></view>
     </scroll-view>
-    <view v-else-if="featureEnabled === false" class="body">
-      <view class="panel"><text class="panel-title">语音功能暂未开放</text></view>
+
+    <view v-else-if="featureEnabled === false" class="disabled-view">
+      <view class="empty-record empty-record--large"><u-icon name="volume-off" color="#81969d" size="52"></u-icon></view>
+      <text class="empty-title">语音功能暂未开放</text>
+      <text class="empty-desc">当前无法创建、绑定或播放自建音色。</text>
+    </view>
+
+    <view v-if="previewVoice" class="preview-mask" @tap="closePreview">
+      <view class="preview-sheet" @tap.stop>
+        <view class="preview-handle"></view>
+        <view class="preview-head">
+          <view class="preview-record"><u-icon name="volume-up" color="#ffffff" size="31"></u-icon></view>
+          <view class="preview-copy"><text class="preview-title">{{ previewVoice.displayName }}</text><text class="voice-meta">试听使用你的硅基流动额度</text></view>
+          <view class="round-action" aria-label="关闭试听" @tap="closePreview"><u-icon name="close" color="#5f7680" size="30"></u-icon></view>
+        </view>
+        <textarea v-model="previewText" class="studio-textarea preview-textarea" maxlength="160" placeholder="输入一小段试听文字" />
+        <view class="preview-footer"><text class="preview-count">{{ previewText.length }} / 160</text><button class="preview-button" :disabled="previewLoading || !previewText.trim()" @tap="submitPreview">{{ previewLoading ? '生成中…' : (previewPlaying ? '停止播放' : '生成并播放') }}</button></view>
+      </view>
     </view>
   </view>
 </template>
@@ -80,7 +197,28 @@ export default {
     return {
       loading: false,
       creating: false,
+      activeSection: 'voices',
+      studioSections: [
+        { key: 'voices', label: '我的音色', icon: 'volume-up' },
+        { key: 'create', label: '创建音色', icon: 'mic' },
+        { key: 'resources', label: '音色资源', icon: 'grid' }
+      ],
+      voiceResourceLinks: [
+        { name: '共享音色广场', description: 'SiliconFlow 音色管理与共享参考声线', domain: 'voice.gbkgov.cn', url: 'https://voice.gbkgov.cn/', icon: 'volume-up', iconColor: '#ffffff', tone: 'night' },
+        { name: 'AivisHub', description: 'AivisSpeech 音色模型社区', domain: 'hub.aivis-project.com', url: 'https://hub.aivis-project.com/', icon: 'grid', iconColor: '#286b72', tone: 'mint' },
+        { name: 'VOICEVOX', description: '开源日语语音合成项目', domain: 'voicevox.hiroshiba.jp', url: 'https://voicevox.hiroshiba.jp/', icon: 'mic', iconColor: '#9a5260', tone: 'rose' },
+        { name: 'COEIROINK', description: '面向创作的日语语音合成', domain: 'coeiroink.com', url: 'https://coeiroink.com/', icon: 'volume-up', iconColor: '#5e648f', tone: 'lilac' }
+      ],
+      createRequestId: '',
       overview: { used: 0, limit: 0, canCreate: false, denyReason: '', globalVoiceId: 0 },
+      providerState: null,
+      providerStatus: { connected: false, modelName: '' },
+      providerStatusLoading: false,
+      providerVoices: [],
+      providerVoicesVisible: false,
+      syncingProvider: false,
+      importingUri: '',
+      importRequestIds: {},
       voices: [],
       scopeType: 'GLOBAL',
       characterId: 0,
@@ -101,10 +239,65 @@ export default {
       discardRecordingResult: false,
       pageActive: false,
       featureEnabled: null,
-      form: { displayName: '', sampleText: '' }
+      form: { displayName: '', sampleText: '' },
+      previewVoice: null,
+      previewText: '你好，很高兴在四叶酒馆与你见面。',
+      previewLoading: false,
+      previewPlaying: false,
+      previewAudioDataUrl: '',
+      previewGeneratedText: '',
+      previewPlayer: null
     };
   },
   computed: {
+    canSubmitCreation() {
+      return this.overview.canCreate === true
+        && !this.creating
+        && !this.recording
+        && !!this.selectedFile
+        && !!String(this.form.displayName || '').trim()
+        && !!String(this.form.sampleText || '').trim();
+    },
+    needsAiSetup() {
+      if (this.overview.canCreate === true) return false;
+      if (this.overview.featureEnabled === false) return false;
+      const limit = Math.max(0, Number(this.overview.limit) || 0);
+      const used = Math.max(0, Number(this.overview.used) || 0);
+      if (limit <= 0 || used >= limit) return false;
+      if (!this.providerState || typeof this.providerState !== 'object') return false;
+      const state = this.providerState;
+      if (String(state.mode || '').trim() !== 'custom') return true;
+      const source = String(
+        state.effectiveTtsProviderSource || state.ttsProviderSource || state.providerSource || ''
+      ).trim().toLowerCase();
+      if (source !== 'siliconflow') return true;
+      return state.effectiveTtsApiKeyConfigured !== true || !String(state.ttsModelName || '').trim();
+    },
+    isSiliconFlowByok() {
+      if (!this.providerState || typeof this.providerState !== 'object') return false;
+      const state = this.providerState;
+      const source = String(
+        state.effectiveTtsProviderSource || state.ttsProviderSource || state.providerSource || ''
+      ).trim().toLowerCase();
+      return String(state.mode || '').trim() === 'custom'
+        && source === 'siliconflow'
+        && state.effectiveTtsApiKeyConfigured === true
+        && !!String(state.ttsModelName || '').trim();
+    },
+    providerStatusText() {
+      if (this.providerStatusLoading) return '正在连接';
+      if (this.providerStatus.connected) return 'BYOK 已连接';
+      return this.isSiliconFlowByok ? '连接待刷新' : '尚未配置 BYOK';
+    },
+    runtimeLabel() {
+      if (!this.providerState || typeof this.providerState !== 'object') return '当前：正在读取配置';
+      const state = this.providerState;
+      if (String(state.mode || '').trim() !== 'custom') return '当前：官方 API';
+      const source = String(
+        state.effectiveTtsProviderSource || state.ttsProviderSource || state.providerSource || ''
+      ).trim().toLowerCase();
+      return source === 'siliconflow' ? '当前：我的硅基流动 API' : '当前：我的其他 TTS API';
+    },
     scopeActionText() {
       if (this.scopeType === 'MEMBER') return '用于此成员';
       return this.scopeType === 'CHARACTER' ? '用于此角色' : '用于全局';
@@ -122,6 +315,10 @@ export default {
       return seconds > 0 ? seconds + ' 秒 · 推荐 20 到 30 秒' : '将在创建时由平台校验真实时长';
     }
   },
+  watch: {
+    'form.displayName'() { this.resetCreateRequestId(); },
+    'form.sampleText'() { this.resetCreateRequestId(); }
+  },
   onLoad(options) {
     this.pageActive = true;
     const characterId = Math.max(0, Math.floor(Number(options && options.characterId) || 0));
@@ -134,33 +331,133 @@ export default {
   onUnload() {
     this.pageActive = false;
     this.releaseRecording();
+    this.releasePreviewPlayer();
   },
   methods: {
     clientUid() { return tavernApi.getClientUid(); },
     goBack() { uni.navigateBack({ fail: () => uni.switchTab({ url: '/pages/user/user' }) }); },
+    openAiSettings() { uni.navigateTo({ url: '/pages/user/aiSettings' }); },
+    resetCreateRequestId(force) {
+      if (force === true || !this.creating) this.createRequestId = '';
+    },
     checkFeatureAndLoad() {
+      this.providerVoices = [];
+      this.providerVoicesVisible = false;
       tavernApi.fetchAppRuntimeConfig(true).then((config) => {
         this.featureEnabled = !(config && config.voiceFeatureEnabled === false);
         if (this.featureEnabled) this.load();
+      }).catch(() => {
+        this.featureEnabled = true;
+        this.load();
       });
     },
     load() {
-      if (this.featureEnabled === false) return;
+      if (this.featureEnabled === false) return Promise.resolve();
       this.loading = true;
-      tavernApi.getUserTtsVoices(this.clientUid()).then((data) => {
+      return Promise.all([
+        tavernApi.getUserTtsVoices(this.clientUid()),
+        tavernApi.getTavernUserAiProvider(this.clientUid()).catch(() => null)
+      ]).then(([data, providerState]) => {
         const value = data || {};
-        this.overview = Object.assign(this.overview, value);
+        this.overview = Object.assign({}, this.overview, value);
+        this.providerState = providerState && typeof providerState === 'object' ? providerState : null;
         this.voices = Array.isArray(value.voices) ? value.voices : [];
-        return tavernApi.getUserTtsVoiceBinding(this.clientUid(), {
-          scopeType: this.scopeType,
-          characterId: this.characterId,
-          memberId: this.memberId
-        });
-      }).then((binding) => {
+        return Promise.all([
+          tavernApi.getUserTtsVoiceBinding(this.clientUid(), {
+            scopeType: this.scopeType,
+            characterId: this.characterId,
+            memberId: this.memberId
+          }),
+          this.refreshProviderStatus(false)
+        ]);
+      }).then(([binding]) => {
         this.boundVoiceId = Number(binding && binding.voiceId) || 0;
       }).catch((error) => {
         uni.showToast({ title: String(error.message || '加载音色失败'), icon: 'none' });
       }).finally(() => { this.loading = false; });
+    },
+    refreshProviderStatus(showError) {
+      if (!this.isSiliconFlowByok) {
+        this.providerStatus = { connected: false, modelName: '' };
+        if (showError) uni.showToast({ title: '请先在 AI 设置中启用硅基流动 BYOK', icon: 'none' });
+        return Promise.resolve(null);
+      }
+      if (this.providerStatusLoading) return Promise.resolve(this.providerStatus);
+      this.providerStatusLoading = true;
+      return tavernApi.getUserTtsProviderStatus(this.clientUid()).then((status) => {
+        this.providerStatus = Object.assign(
+          { connected: false, modelName: '' },
+          status || {}
+        );
+        return this.providerStatus;
+      }).catch((error) => {
+        this.providerStatus = { connected: false, modelName: '' };
+        if (showError) uni.showToast({ title: String(error.message || '账号状态读取失败'), icon: 'none' });
+        return null;
+      }).finally(() => { this.providerStatusLoading = false; });
+    },
+    syncProviderVoices() {
+      if (!this.isSiliconFlowByok || this.syncingProvider) return;
+      this.providerVoicesVisible = true;
+      this.syncingProvider = true;
+      tavernApi.getUserTtsProviderVoices(this.clientUid()).then((rows) => {
+        this.providerVoices = Array.isArray(rows) ? rows : [];
+      }).catch((error) => {
+        this.providerVoices = [];
+        uni.showToast({ title: String(error.message || '音色同步失败'), icon: 'none' });
+      }).finally(() => { this.syncingProvider = false; });
+    },
+    importProviderVoice(item) {
+      if (!item || item.imported || this.importingUri || !this.overview.canCreate) return;
+      const voiceUri = String(item.voiceUri || '').trim();
+      if (!voiceUri) return;
+      let requestId = this.importRequestIds[voiceUri];
+      if (!requestId) {
+        requestId = 'import-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+        this.$set(this.importRequestIds, voiceUri, requestId);
+      }
+      this.importingUri = voiceUri;
+      tavernApi.importUserTtsProviderVoice(this.clientUid(), { requestId, voiceUri }).then((voice) => {
+        item.imported = true;
+        item.localVoiceId = Number(voice && voice.id) || 0;
+        this.$delete(this.importRequestIds, voiceUri);
+        uni.showToast({ title: '音色已导入', icon: 'none' });
+        return this.load();
+      }).catch((error) => {
+        uni.showToast({ title: String(error.message || '音色导入失败'), icon: 'none' });
+      }).finally(() => { this.importingUri = ''; });
+    },
+    copyVoiceResourceLink(link) {
+      uni.setClipboardData({
+        data: link,
+        success: () => uni.showToast({ title: '链接已复制，请在浏览器打开', icon: 'none' }),
+        fail: () => uni.showToast({ title: '无法打开链接', icon: 'none' })
+      });
+    },
+    openExternalVoiceResource(item) {
+      const link = String(item && item.url || '').trim();
+      const allowed = this.voiceResourceLinks.some((entry) => entry && entry.url === link);
+      if (!allowed || !/^https:\/\//i.test(link)) return;
+      /* #ifdef APP-PLUS */
+      try {
+        if (typeof plus !== 'undefined' && plus.runtime && typeof plus.runtime.openURL === 'function') {
+          plus.runtime.openURL(link, () => this.copyVoiceResourceLink(link));
+          return;
+        }
+      } catch (e) {
+        this.copyVoiceResourceLink(link);
+        return;
+      }
+      /* #endif */
+      /* #ifdef H5 */
+      if (typeof window !== 'undefined' && typeof window.open === 'function') {
+        const opened = window.open(link, '_blank', 'noopener,noreferrer');
+        if (opened) opened.opener = null;
+        else this.copyVoiceResourceLink(link);
+        return;
+      }
+      /* #endif */
+      this.copyVoiceResourceLink(link);
     },
     chooseAudio() {
       if (this.recording) return;
@@ -191,8 +488,8 @@ export default {
     acceptSelectedAudio(source, name, declaredSize) {
       const size = Number(declaredSize || (source && source.size) || 0);
       if (!source) return;
-      if (size > 15 * 1024 * 1024) {
-        uni.showToast({ title: '音频不能超过 15MB', icon: 'none' });
+      if (size > 8 * 1024 * 1024) {
+        uni.showToast({ title: '音频不能超过 8MB', icon: 'none' });
         return;
       }
       this.clearSelectedAudio();
@@ -204,6 +501,7 @@ export default {
       this.selectedFile = '';
       this.fileName = '';
       this.audioDurationMs = 0;
+      this.resetCreateRequestId();
     },
     readAudioDuration(filePath) {
       this.audioDurationMs = 0;
@@ -503,8 +801,11 @@ export default {
         return;
       }
       this.creating = true;
+      if (!this.createRequestId) {
+        this.createRequestId = 'h5-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+      }
       tavernApi.createUserTtsVoice(this.clientUid(), this.selectedFile, {
-        requestId: 'h5-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10),
+        requestId: this.createRequestId,
         displayName: this.form.displayName,
         sampleText: this.form.sampleText,
         durationMs: this.audioDurationMs
@@ -512,6 +813,7 @@ export default {
         uni.showToast({ title: '自建音色已创建', icon: 'none' });
         this.form = { displayName: '', sampleText: '' };
         this.clearSelectedAudio();
+        this.resetCreateRequestId(true);
         this.load();
       }).catch((error) => {
         uni.showToast({ title: String(error.message || '创建失败'), icon: 'none' });
@@ -547,13 +849,90 @@ export default {
         uni.showToast({ title: '已解除当前范围绑定', icon: 'none' });
       }).catch((error) => uni.showToast({ title: String(error.message || '解绑失败'), icon: 'none' }));
     },
+    openPreview(voice) {
+      if (!voice || !voice.available) return;
+      this.releasePreviewPlayer();
+      this.previewVoice = voice;
+      this.previewAudioDataUrl = '';
+      this.previewGeneratedText = '';
+    },
+    closePreview() {
+      this.releasePreviewPlayer();
+      this.previewVoice = null;
+      this.previewAudioDataUrl = '';
+      this.previewGeneratedText = '';
+      this.previewLoading = false;
+    },
+    submitPreview() {
+      if (!this.previewVoice || this.previewLoading) return;
+      const text = String(this.previewText || '').replace(/\s+/g, ' ').trim();
+      if (!text) return;
+      if (this.previewPlaying) {
+        this.releasePreviewPlayer();
+        return;
+      }
+      if (this.previewAudioDataUrl && this.previewGeneratedText === text) {
+        this.playPreviewAudio(this.previewAudioDataUrl);
+        return;
+      }
+      this.previewLoading = true;
+      const requestId = 'preview-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+      tavernApi.previewUserTtsVoice(this.clientUid(), this.previewVoice.id, { requestId, text }).then((result) => {
+        const dataUrl = String(result && result.audioDataUrl || '').trim();
+        if (dataUrl.indexOf('data:audio/') !== 0) throw new Error('试听音频格式无效');
+        this.previewAudioDataUrl = dataUrl;
+        this.previewGeneratedText = text;
+        this.playPreviewAudio(dataUrl);
+      }).catch((error) => {
+        uni.showToast({ title: String(error.message || '试听生成失败'), icon: 'none' });
+      }).finally(() => { this.previewLoading = false; });
+    },
+    playPreviewAudio(dataUrl) {
+      this.releasePreviewPlayer();
+      if (typeof uni.createInnerAudioContext !== 'function') {
+        uni.showToast({ title: '当前设备无法播放试听音频', icon: 'none' });
+        return;
+      }
+      const player = uni.createInnerAudioContext();
+      this.previewPlayer = player;
+      this.previewPlaying = true;
+      player.autoplay = true;
+      player.onEnded(() => this.releasePreviewPlayer());
+      player.onError(() => {
+        this.releasePreviewPlayer();
+        uni.showToast({ title: '试听播放失败', icon: 'none' });
+      });
+      player.src = dataUrl;
+    },
+    releasePreviewPlayer() {
+      const player = this.previewPlayer;
+      this.previewPlayer = null;
+      this.previewPlaying = false;
+      if (!player) return;
+      try { player.stop(); } catch (e) {}
+      try { player.destroy(); } catch (e) {}
+    },
     removeVoice(voice) {
-      uni.showModal({ title: '删除自建音色', content: '删除后会解除本应用内的所有相关绑定并移除记录；硅基流动账号侧资源需由你在供应商平台管理。确定继续吗？', success: (res) => {
-        if (!res.confirm) return;
-        tavernApi.deleteUserTtsVoice(this.clientUid(), voice.id).then(() => {
-          uni.showToast({ title: '已删除', icon: 'none' });
-          this.load();
-        }).catch((error) => uni.showToast({ title: String(error.message || '删除失败'), icon: 'none' }));
+      if (!voice) return;
+      const canDeleteProvider = voice.configMatches === true && voice.disabled !== true
+        && String(voice.status || '').toUpperCase() === 'READY';
+      const itemList = canDeleteProvider
+        ? ['同时删除硅基流动资源', '仅从本应用移除']
+        : ['仅从本应用移除'];
+      uni.showActionSheet({ itemList, success: (choice) => {
+        const deleteProvider = canDeleteProvider && Number(choice.tapIndex) === 0;
+        const content = deleteProvider
+          ? '将先删除硅基流动账号中的音色，再解除本应用内绑定。供应商删除失败时会保留本地记录，确定继续吗？'
+          : '只移除本应用记录并解除相关绑定，硅基流动账号中的音色仍会保留。确定继续吗？';
+        uni.showModal({ title: '删除自建音色', content, success: (res) => {
+          if (!res.confirm) return;
+          tavernApi.deleteUserTtsVoice(this.clientUid(), voice.id, deleteProvider).then(() => {
+            if (this.previewVoice && Number(this.previewVoice.id) === Number(voice.id)) this.closePreview();
+            uni.showToast({ title: deleteProvider ? '平台与本地音色已删除' : '本地记录已删除', icon: 'none' });
+            this.load();
+            if (this.providerVoicesVisible) this.syncProviderVoices();
+          }).catch((error) => uni.showToast({ title: String(error.message || '删除失败'), icon: 'none' }));
+        } });
       } });
     }
   }
@@ -561,52 +940,277 @@ export default {
 </script>
 
 <style scoped lang="scss">
-.page { min-height: 100vh; background: #edf3f5; position: relative; }
-.page-bg { position: fixed; inset: 0; width: 100%; height: 100%; opacity: .18; }
-.body { position: relative; height: calc(100vh - 88rpx); box-sizing: border-box; padding: 24rpx 24rpx 60rpx; }
-.hero, .panel, .notice { position: relative; background: rgba(255,255,255,.9); border: 1rpx solid rgba(110,150,166,.16); border-radius: 18rpx; padding: 28rpx; margin-bottom: 20rpx; box-shadow: 0 18rpx 40rpx rgba(54,89,110,.08); }
-.hero { background: #183b4a; color: #fff; }
-.eyebrow { display: block; font-size: 20rpx; letter-spacing: 3rpx; color: #9dd8d5; }
-.title { display: block; margin-top: 12rpx; font-size: 40rpx; font-weight: 700; }
-.desc { display: block; margin-top: 12rpx; color: rgba(255,255,255,.78); font-size: 24rpx; line-height: 1.6; }
-.scope-label { display: inline-flex; margin-top: 18rpx; padding: 8rpx 14rpx; border: 1rpx solid rgba(185,237,219,.34); border-radius: 8rpx; color: #b9eddb; font-size: 21rpx; }
-.quota { display: flex; gap: 10rpx; align-items: baseline; margin-top: 22rpx; color: #b9eddb; font-size: 26rpx; }
-.quota text:first-child { font-size: 36rpx; font-weight: 700; }
-.notice { color: #a45e21; background: #fff6ea; }
-.panel-title { color: #203f4e; font-size: 30rpx; font-weight: 700; }
-.panel-tip, .small-tip { display: block; color: #718592; font-size: 22rpx; line-height: 1.6; margin: 12rpx 0 18rpx; }
-.input, .textarea { width: 100%; box-sizing: border-box; border: 1rpx solid #dbe6ea; border-radius: 12rpx; background: #f8fbfc; padding: 20rpx; color: #274654; font-size: 26rpx; margin-bottom: 14rpx; }
-.textarea { min-height: 150rpx; }
-.source-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 14rpx; margin-bottom: 14rpx; }
-.source-action { min-height: 86rpx; display: flex; align-items: center; justify-content: center; gap: 10rpx; border: 1rpx solid #b9d4d8; border-radius: 12rpx; background: #f4faf9; color: #315d66; font-size: 24rpx; }
-.source-action--record { border-color: #e4c5ca; background: #fff7f8; color: #8e4450; }
-.source-action--record.recording { border-color: #a4515d; background: #a4515d; color: #fff; }
-.source-action.disabled { opacity: .45; }
-.file-row { display: flex; align-items: center; justify-content: space-between; padding: 20rpx; border: 1rpx dashed #9fc2c8; border-radius: 12rpx; background: #f4faf9; }
-.file-copy { min-width: 0; max-width: 78%; }
-.file-name, .file-meta { display: block; }
-.file-name { color: #52717d; font-size: 23rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-meta { margin-top: 6rpx; color: #84999f; font-size: 19rpx; }
-.file-action, .refresh, .bind, .delete, .unbind { color: #167f78; font-size: 23rpx; }
-.primary { margin-top: 18rpx; background: #177f78; color: #fff; border-radius: 12rpx; font-size: 27rpx; }
-.primary[disabled] { opacity: .5; }
-.small-tip { margin: 14rpx 0 0; font-size: 20rpx; }
-.panel-head, .voice-row { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
-.panel-tools { display: flex; align-items: center; gap: 18rpx; flex-shrink: 0; }
-.unbind { color: #a45e21; }
-.voice-row { padding: 22rpx 0; border-bottom: 1rpx solid #edf1f2; }
-.voice-row:last-child { border-bottom: 0; }
-.voice-copy { min-width: 0; }
+.page {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  color: #203846;
+  background: #eaf4f7;
+}
+
+.page-bg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.32;
+  filter: saturate(0.76) brightness(1.05);
+  pointer-events: none;
+}
+
+.body {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 960px;
+  height: calc(100vh - 88rpx);
+  margin: 0 auto;
+  padding: 24rpx 28rpx 0;
+  box-sizing: border-box;
+}
+
+.studio-stage {
+  position: relative;
+  padding: 30rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.84);
+  border-radius: 32rpx;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(235, 248, 250, 0.62));
+  box-shadow: 0 20rpx 48rpx rgba(44, 83, 103, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(24rpx) saturate(1.08);
+  -webkit-backdrop-filter: blur(24rpx) saturate(1.08);
+}
+
+.stage-main { display: block; }
+.sound-disc, .stage-wave, .stage-kicker, .section-kicker { display: none; }
+.stage-copy { min-width: 0; }
+.stage-title { display: block; color: #203846; font-size: 34rpx; line-height: 1.3; font-weight: 800; }
+.stage-desc { display: block; max-width: 650rpx; margin-top: 9rpx; color: #647b8b; font-size: 22rpx; line-height: 1.65; }
+
+.account-ribbon {
+  min-height: 82rpx;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 24rpx;
+  padding: 13rpx 14rpx 13rpx 18rpx;
+  border: 1rpx solid rgba(79, 147, 163, 0.14);
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.58);
+  box-sizing: border-box;
+}
+
+.account-state { min-width: 0; flex: 1; display: flex; align-items: center; gap: 14rpx; }
+.provider-dot { width: 15rpx; height: 15rpx; flex: 0 0 15rpx; border-radius: 50%; background: #91a2a8; box-shadow: 0 0 0 6rpx rgba(105, 124, 131, 0.1); }
+.provider-dot.online { background: #3a9d7c; box-shadow: 0 0 0 6rpx rgba(58, 157, 124, 0.12); }
+.account-copy { min-width: 0; }
+.account-title, .account-sub { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-title { color: #315866; font-size: 23rpx; font-weight: 800; }
+.account-sub { margin-top: 4rpx; color: #718791; font-size: 18rpx; }
+
+.round-action {
+  width: 58rpx;
+  height: 58rpx;
+  flex: 0 0 58rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid rgba(79, 147, 163, 0.14);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 8rpx 20rpx rgba(44, 83, 103, 0.08);
+  box-sizing: border-box;
+}
+
+.round-action--light { background: rgba(255, 255, 255, 0.76); }
+.round-action--danger { border-color: rgba(182, 95, 131, 0.16); background: rgba(255, 239, 246, 0.78); }
+.round-action.disabled { opacity: 0.45; pointer-events: none; }
+.stage-foot { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; padding: 18rpx 4rpx 0; color: #718791; font-size: 19rpx; }
+
+.mode-dock {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7rpx;
+  margin: 18rpx 0 30rpx;
+  padding: 7rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.78);
+  border-radius: 28rpx;
+  background: rgba(232, 244, 247, 0.68);
+  box-shadow: 0 14rpx 34rpx rgba(44, 83, 103, 0.1), inset 0 1rpx 0 rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(18rpx);
+  -webkit-backdrop-filter: blur(18rpx);
+}
+
+.mode-item { min-width: 0; height: 68rpx; display: flex; align-items: center; justify-content: center; gap: 8rpx; border-radius: 21rpx; color: #647b8b; font-size: 22rpx; font-weight: 700; transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
+.mode-item.active { color: #315f72; background: rgba(255, 255, 255, 0.88); box-shadow: 0 8rpx 20rpx rgba(44, 83, 103, 0.1); }
+.mode-icon { width: 38rpx; height: 38rpx; display: flex; align-items: center; justify-content: center; border-radius: 13rpx; background: rgba(255, 255, 255, 0.52); }
+.mode-item.active .mode-icon { background: rgba(224, 244, 248, 0.9); }
+
+.workspace { position: relative; padding: 0 4rpx 32rpx; background: transparent; border: 0; box-shadow: none; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; padding: 0 6rpx; }
+.section-title { display: block; color: #203846; font-size: 31rpx; line-height: 1.35; font-weight: 800; }
+.section-tools { display: flex; align-items: center; gap: 13rpx; }
+.text-action { color: #4f7f8e; font-size: 21rpx; font-weight: 700; }
+.text-action--warm { color: #a24f72; }
+
+.sync-arc {
+  min-height: 100rpx;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding: 16rpx 18rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.82);
+  border-radius: 26rpx;
+  background: rgba(248, 252, 253, 0.72);
+  box-shadow: 0 14rpx 32rpx rgba(44, 83, 103, 0.09), inset 0 1rpx 0 rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(20rpx);
+  -webkit-backdrop-filter: blur(20rpx);
+  box-sizing: border-box;
+}
+
+.sync-icon { width: 62rpx; height: 62rpx; flex: 0 0 62rpx; display: flex; align-items: center; justify-content: center; border-radius: 19rpx; background: linear-gradient(145deg, #4f93a3, #72bdc8); box-shadow: 0 10rpx 22rpx rgba(79, 147, 163, 0.2); }
+.sync-copy { min-width: 0; flex: 1; }
+.sync-title, .sync-desc { display: block; }
+.sync-title { color: #315866; font-size: 24rpx; font-weight: 800; }
+.sync-desc { margin-top: 5rpx; color: #718791; font-size: 19rpx; line-height: 1.45; }
+.sync-button, .compact-action { flex-shrink: 0; margin: 0; border: 0; }
+.sync-button { min-width: 108rpx; height: 60rpx; line-height: 60rpx; padding: 0 20rpx; border-radius: 999rpx; color: #ffffff; background: #4f93a3; font-size: 21rpx; font-weight: 700; box-shadow: 0 10rpx 22rpx rgba(79, 147, 163, 0.18); }
+.sync-button--setup { background: #b65f83; }
+.sync-button::after, .compact-action::after, .create-button::after, .preview-button::after { border: 0; }
+.sync-button[disabled], .compact-action[disabled], .create-button[disabled], .preview-button[disabled] { opacity: 0.45; }
+
+.provider-drawer { overflow: hidden; margin-top: 14rpx; padding: 6rpx 18rpx; border: 1rpx solid rgba(255, 255, 255, 0.72); border-radius: 24rpx; background: rgba(240, 248, 249, 0.74); }
+.provider-row { min-height: 88rpx; display: flex; align-items: center; gap: 14rpx; border-bottom: 1rpx solid rgba(79, 147, 163, 0.12); }
+.provider-row:last-child { border-bottom: 0; }
+.mini-disc { width: 46rpx; height: 46rpx; flex: 0 0 46rpx; display: flex; align-items: center; justify-content: center; border-radius: 15rpx; background: rgba(222, 242, 245, 0.92); }
+.voice-copy { min-width: 0; flex: 1; }
 .voice-name, .voice-meta { display: block; }
-.voice-name { color: #294a58; font-size: 27rpx; font-weight: 600; }
-.voice-meta { margin-top: 6rpx; color: #82939a; font-size: 21rpx; }
-.voice-actions { display: flex; gap: 18rpx; flex-shrink: 0; }
-.bind.active { color: #16845b; font-weight: 700; }
-.delete { color: #ba6672; }
-.empty { padding: 30rpx 0 10rpx; color: #82939a; font-size: 23rpx; text-align: center; }
+.voice-name { color: #294752; font-size: 25rpx; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-meta { margin-top: 5rpx; color: #748993; font-size: 19rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imported { flex-shrink: 0; color: #318064; font-size: 19rpx; font-weight: 700; }
+.compact-action { min-width: 96rpx; height: 54rpx; line-height: 54rpx; padding: 0 16rpx; border-radius: 999rpx; color: #4f7f8e; background: rgba(255, 255, 255, 0.82); font-size: 20rpx; font-weight: 700; }
+
+.empty-state { min-height: 270rpx; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 34rpx 20rpx; box-sizing: border-box; color: #718791; text-align: center; }
+.empty-state--small { min-height: 104rpx; padding: 18rpx; font-size: 21rpx; }
+.empty-record { width: 98rpx; height: 98rpx; display: flex; align-items: center; justify-content: center; border: 1rpx solid rgba(79, 147, 163, 0.15); border-radius: 28rpx; background: rgba(240, 248, 250, 0.82); box-shadow: 0 12rpx 28rpx rgba(44, 83, 103, 0.08); }
+.empty-title { display: block; margin-top: 18rpx; color: #315866; font-size: 27rpx; font-weight: 800; }
+.empty-desc { display: block; max-width: 520rpx; margin-top: 8rpx; color: #718791; font-size: 21rpx; line-height: 1.6; }
+.empty-pulse { width: 24rpx; height: 24rpx; margin-bottom: 18rpx; border-radius: 50%; background: #4f93a3; animation: pulse 1s ease-in-out infinite alternate; }
+
+.voice-orbit-list { display: grid; gap: 13rpx; margin-top: 20rpx; }
+.voice-orbit { min-height: 104rpx; display: flex; align-items: center; gap: 16rpx; padding: 14rpx 16rpx; border: 1rpx solid rgba(255, 255, 255, 0.82); border-radius: 26rpx; background: rgba(248, 252, 253, 0.74); box-shadow: 0 13rpx 30rpx rgba(44, 83, 103, 0.08), inset 0 1rpx 0 rgba(255, 255, 255, 0.88); backdrop-filter: blur(18rpx); -webkit-backdrop-filter: blur(18rpx); box-sizing: border-box; }
+.voice-orbit--alt { background: rgba(248, 252, 253, 0.74); border-color: rgba(255, 255, 255, 0.82); }
+.voice-preview { position: relative; width: 72rpx; height: 72rpx; flex: 0 0 72rpx; display: flex; align-items: center; justify-content: center; border-radius: 22rpx; background: linear-gradient(145deg, #4f93a3, #72bdc8); overflow: hidden; box-shadow: 0 10rpx 22rpx rgba(79, 147, 163, 0.18); }
+.voice-orbit--alt .voice-preview { background: linear-gradient(145deg, #4f93a3, #72bdc8); }
+.voice-preview.disabled { background: #b9c8cc; box-shadow: none; }
+.voice-groove { position: absolute; inset: 10rpx; border: 1rpx solid rgba(255, 255, 255, 0.26); border-radius: 15rpx; }
+.voice-actions { flex-shrink: 0; display: flex; align-items: center; gap: 12rpx; }
+.bind { padding: 8rpx 12rpx; border-radius: 999rpx; color: #4f7f8e; background: rgba(224, 244, 248, 0.74); font-size: 20rpx; font-weight: 700; }
+.bind.active { color: #28705f; background: rgba(218, 243, 235, 0.88); }
+
+.create-step { min-width: 88rpx; padding: 9rpx 15rpx; border-radius: 999rpx; background: rgba(224, 244, 248, 0.88); color: #4f7f8e; font-size: 20rpx; font-weight: 700; text-align: center; }
+.notice-ribbon { display: flex; align-items: center; gap: 15rpx; margin-top: 20rpx; padding: 18rpx; border: 1rpx solid rgba(182, 95, 131, 0.14); border-radius: 24rpx; background: rgba(255, 238, 245, 0.72); }
+.notice-sign { width: 56rpx; height: 56rpx; flex: 0 0 56rpx; display: flex; align-items: center; justify-content: center; border-radius: 18rpx; background: rgba(255, 255, 255, 0.7); }
+.notice-copy { min-width: 0; flex: 1; }
+.notice-copy text { display: block; }
+.notice-copy text:first-child { color: #944e6c; font-size: 23rpx; font-weight: 800; }
+.notice-copy text:last-child { margin-top: 5rpx; color: #8d6a78; font-size: 20rpx; line-height: 1.5; }
+.creation-flow { margin-top: 14rpx; }
+.field-group { display: flex; align-items: flex-start; gap: 17rpx; padding: 24rpx 4rpx; border-bottom: 1rpx solid rgba(79, 147, 163, 0.13); }
+.field-group--audio { border-bottom: 0; }
+.field-no { width: 50rpx; height: 50rpx; flex: 0 0 50rpx; display: flex; align-items: center; justify-content: center; border-radius: 16rpx; background: rgba(224, 244, 248, 0.9); color: #4f7f8e; font-size: 19rpx; font-weight: 800; }
+.field-body { min-width: 0; flex: 1; }
+.field-label { display: block; margin-bottom: 12rpx; color: #315866; font-size: 23rpx; font-weight: 800; }
+.studio-input, .studio-textarea { width: 100%; box-sizing: border-box; border: 1rpx solid rgba(79, 147, 163, 0.16); border-radius: 22rpx; background: rgba(255, 255, 255, 0.68); box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.88); color: #294752; font-size: 24rpx; }
+.studio-input { height: 78rpx; padding: 0 22rpx; }
+.studio-textarea { min-height: 148rpx; padding: 19rpx 22rpx; line-height: 1.6; }
+.source-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13rpx; }
+.source-action { min-height: 78rpx; display: flex; align-items: center; justify-content: center; gap: 10rpx; border: 1rpx solid rgba(79, 147, 163, 0.17); border-radius: 22rpx; background: rgba(238, 249, 251, 0.74); color: #315f72; font-size: 22rpx; font-weight: 700; }
+.source-action--record { border-color: rgba(182, 95, 131, 0.18); background: rgba(255, 238, 245, 0.72); color: #944e6c; }
+.source-action--record.recording { background: #b65f83; color: #fff; }
+.source-action.disabled { opacity: 0.45; }
+.selected-audio { min-height: 82rpx; display: flex; align-items: center; gap: 14rpx; margin-top: 13rpx; padding: 12rpx 14rpx; border: 1rpx solid rgba(79, 147, 163, 0.13); border-radius: 22rpx; background: rgba(238, 249, 251, 0.72); box-sizing: border-box; }
+.selected-wave { width: 62rpx; height: 50rpx; flex: 0 0 62rpx; display: flex; align-items: center; justify-content: center; gap: 3rpx; }
+.selected-bar { width: 4rpx; border-radius: 3rpx; background: #4f93a3; }
+.selected-bar--1 { height: 12rpx; }.selected-bar--2 { height: 24rpx; }.selected-bar--3 { height: 38rpx; }.selected-bar--4 { height: 19rpx; }
+.file-copy { min-width: 0; flex: 1; }
+.file-name, .file-meta { display: block; }
+.file-name { color: #315866; font-size: 21rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-meta { margin-top: 4rpx; color: #718791; font-size: 18rpx; }
+.create-button { min-height: 84rpx; display: flex; align-items: center; justify-content: center; gap: 11rpx; margin: 22rpx 0 0; border: 0; border-radius: 999rpx; background: linear-gradient(135deg, #4f93a3, #72bdc8); box-shadow: 0 15rpx 30rpx rgba(79, 147, 163, 0.22); color: #fff; font-size: 25rpx; font-weight: 800; }
+.creation-note { display: block; margin-top: 14rpx; color: #718791; font-size: 19rpx; line-height: 1.6; text-align: center; }
+
+.resource-spark { width: 56rpx; height: 56rpx; display: flex; align-items: center; justify-content: center; border-radius: 18rpx; background: #4f93a3; box-shadow: 0 10rpx 22rpx rgba(79, 147, 163, 0.18); }
+.resource-intro { display: block; margin: 14rpx 6rpx 20rpx; color: #647b8b; font-size: 21rpx; line-height: 1.65; }
+.resource-flow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14rpx; }
+.resource-island, .resource-island:nth-child(even), .resource-island--featured { position: relative; min-height: 146rpx; display: flex; align-items: center; gap: 15rpx; overflow: hidden; padding: 20rpx; border: 1rpx solid rgba(255, 255, 255, 0.82); border-radius: 26rpx; background: rgba(248, 252, 253, 0.74); color: #203846; box-shadow: 0 13rpx 30rpx rgba(44, 83, 103, 0.08), inset 0 1rpx 0 rgba(255, 255, 255, 0.88); box-sizing: border-box; }
+.resource-island--featured { grid-column: auto; }
+.resource-index { display: none; }
+.resource-symbol, .resource-island--night .resource-symbol { width: 64rpx; height: 64rpx; flex: 0 0 64rpx; display: flex; align-items: center; justify-content: center; border-radius: 20rpx; background: rgba(225, 244, 248, 0.88); }
+.resource-copy { min-width: 0; flex: 1; }
+.resource-name, .resource-desc, .resource-domain { display: block; }
+.resource-name { color: #315866; font-size: 25rpx; font-weight: 800; }
+.resource-desc { margin-top: 6rpx; color: #647b8b; font-size: 20rpx; line-height: 1.45; }
+.resource-domain { margin-top: 7rpx; color: #82959e; font-size: 17rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resource-arrow, .resource-island--night .resource-arrow, .resource-island--rose .resource-arrow, .resource-island--lilac .resource-arrow { width: 48rpx; height: 48rpx; flex: 0 0 48rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #4f93a3; }
+.license-wave { display: flex; align-items: flex-start; gap: 12rpx; margin-top: 16rpx; padding: 16rpx 18rpx; border-left: 5rpx solid rgba(79, 147, 163, 0.55); border-radius: 0 20rpx 20rpx 0; background: rgba(238, 249, 251, 0.58); color: #647b8b; font-size: 19rpx; line-height: 1.6; }
+
+.bottom-space { height: calc(42rpx + env(safe-area-inset-bottom)); }
+.disabled-view { position: relative; z-index: 1; min-height: 66vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40rpx; text-align: center; }
+.empty-record--large { width: 124rpx; height: 124rpx; }
+
+.preview-mask { position: fixed; z-index: 50; inset: 0; display: flex; align-items: flex-end; padding: 24rpx 24rpx 0; background: rgba(25, 45, 58, 0.34); backdrop-filter: blur(8rpx); -webkit-backdrop-filter: blur(8rpx); box-sizing: border-box; }
+.preview-sheet { width: 100%; max-width: 760px; margin: 0 auto; padding: 15rpx 26rpx calc(26rpx + env(safe-area-inset-bottom)); border: 1rpx solid rgba(255, 255, 255, 0.84); border-bottom: 0; border-radius: 32rpx 32rpx 0 0; background: rgba(248, 252, 253, 0.9); box-shadow: 0 -20rpx 50rpx rgba(31, 70, 84, 0.18); backdrop-filter: blur(24rpx); -webkit-backdrop-filter: blur(24rpx); box-sizing: border-box; }
+.preview-handle { width: 64rpx; height: 6rpx; margin: 0 auto 20rpx; border-radius: 999rpx; background: rgba(79, 147, 163, 0.3); }
+.preview-head { display: flex; align-items: center; gap: 14rpx; }
+.preview-record { width: 62rpx; height: 62rpx; display: flex; align-items: center; justify-content: center; border-radius: 19rpx; background: #4f93a3; }
+.preview-copy { min-width: 0; flex: 1; }
+.preview-title { display: block; color: #294752; font-size: 27rpx; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-textarea { margin-top: 18rpx; min-height: 160rpx; }
+.preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; margin-top: 15rpx; }
+.preview-count { color: #718791; font-size: 19rpx; }
+.preview-button { min-width: 240rpx; height: 70rpx; line-height: 70rpx; margin: 0; padding: 0 22rpx; border: 0; border-radius: 999rpx; background: #4f93a3; color: #fff; font-size: 23rpx; font-weight: 700; }
+
+@keyframes pulse { from { opacity: 0.42; transform: scale(0.84); } to { opacity: 1; transform: scale(1); } }
+
+@media (min-width: 760px) {
+  .voice-orbit-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .body { padding: 18rpx 18rpx 0; }
+  .studio-stage { padding: 25rpx 22rpx; border-radius: 28rpx; }
+  .stage-title { font-size: 31rpx; }
+  .stage-desc { font-size: 20rpx; }
+  .account-ribbon { margin-top: 20rpx; }
+  .mode-dock { margin-bottom: 26rpx; }
+  .mode-item { gap: 5rpx; font-size: 19rpx; }
+  .mode-icon { width: 34rpx; height: 34rpx; }
+  .workspace { padding-left: 0; padding-right: 0; }
+  .sync-arc { flex-wrap: wrap; }
+  .sync-copy { min-width: calc(100% - 82rpx); }
+  .sync-button { width: 100%; }
+  .voice-orbit { flex-wrap: wrap; align-items: flex-start; }
+  .voice-copy { min-width: calc(100% - 92rpx); padding-top: 5rpx; }
+  .voice-actions { width: 100%; justify-content: flex-end; }
+  .source-actions, .resource-flow { grid-template-columns: 1fr; }
+  .resource-island { min-height: 138rpx; }
+  .preview-footer { align-items: stretch; flex-direction: column; }
+  .preview-button { width: 100%; }
+}
+
 @media (max-width: 360px) {
-  .source-actions { grid-template-columns: 1fr; }
-  .panel-head { align-items: flex-start; }
-  .panel-tools { flex-direction: column; align-items: flex-end; gap: 8rpx; }
+  .mode-icon { display: none; }
+  .stage-foot { align-items: flex-start; flex-direction: column; gap: 6rpx; }
+  .resource-arrow { display: none; }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mode-item, .round-action, .sync-button, .compact-action, .voice-orbit, .source-action, .create-button, .resource-island, .preview-button { transition: transform 180ms ease, box-shadow 180ms ease; }
+  .round-action:hover, .sync-button:hover, .compact-action:hover, .voice-orbit:hover, .source-action:hover, .create-button:hover, .resource-island:hover, .preview-button:hover { transform: translateY(-2rpx); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-pulse { animation: none; }
 }
 </style>

@@ -12,6 +12,10 @@
 					<text class="cell-txt">聊天显示与气泡</text>
 					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
 				</view>
+				<view v-if="showUserVoiceEntry" class="cell" @tap="openUserVoices">
+					<text class="cell-txt">{{ pageCopy.userVoices }}</text>
+					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
+				</view>
 				<view class="cell" @tap="util.urlTo('/pages/user/supportCreate')">
 					<text class="cell-txt">{{ pageCopy.support }}</text>
 					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
@@ -55,6 +59,7 @@ const COPY = {
 	'zh-cn': {
 		title: '更多设置',
 		persona: '酒馆 · 我的人设',
+		userVoices: '自建音色',
 		support: '联系客服',
 		tickets: '我的工单',
 		security: '账号与安全',
@@ -66,6 +71,7 @@ const COPY = {
 	'zh-hk': {
 		title: '更多設定',
 		persona: '酒館 · 我的人設',
+		userVoices: '自建音色',
 		support: '聯絡客服',
 		tickets: '我的工單',
 		security: '帳號與安全',
@@ -77,6 +83,7 @@ const COPY = {
 	en: {
 		title: 'More Settings',
 		persona: 'Tavern · My Persona',
+		userVoices: 'Custom Voices',
 		support: 'Contact Support',
 		tickets: 'My Tickets',
 		security: 'Account & Security',
@@ -89,6 +96,14 @@ const COPY = {
 
 export default {
 	components: { TavernNavBar },
+	data() {
+		return {
+			voiceFeatureEnabled: true
+		};
+	},
+	onShow() {
+		this.loadRuntimeSettings();
+	},
 	computed: {
 		pageCopy() {
 			const code = getLanguageCode();
@@ -104,6 +119,9 @@ export default {
 			}
 			const user = stateUser && typeof stateUser === 'object' && stateUser.token ? stateUser : storedUser;
 			return !!(user && user.token);
+		},
+		showUserVoiceEntry() {
+			return this.hasLogin && this.voiceFeatureEnabled !== false;
 		}
 	},
 	methods: {
@@ -124,6 +142,16 @@ export default {
 						}
 					});
 				}
+			});
+		},
+		openUserVoices() {
+			this.util.urlTo('/pages/user/myVoices');
+		},
+		loadRuntimeSettings() {
+			tavernApi.fetchAppRuntimeConfig(true).then((config) => {
+				this.voiceFeatureEnabled = !(config && config.voiceFeatureEnabled === false);
+			}).catch((error) => {
+				console.error('[settings] load runtime settings failed', error);
 			});
 		},
 		outlogin() {

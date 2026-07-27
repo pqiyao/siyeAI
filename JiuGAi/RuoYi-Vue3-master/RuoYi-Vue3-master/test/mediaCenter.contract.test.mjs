@@ -68,6 +68,14 @@ test('VISION 作为第五种独立能力提供供应商池、运行开关和独�
   assert.match(entitlement, /按原规则结算正常聊天/)
 })
 
+test('五类模型共用能力匹配和多字段搜索筛选', () => {
+  assert.match(routing, /:filter-method="filterModelOptions"/)
+  assert.match(routing, /filterDiscoveredModels/)
+  assert.match(routing, /matchedOnly\.value = true/)
+  assert.match(routing, /chat\|vision\|image\|tts\|stt/)
+  assert.match(routing, /未识别到当前能力模型/)
+})
+
 test('钱包流水在原页面分开充值收益与其他资金变动', () => {
   assert.match(walletLedger, /label="充值收益" name="REVENUE"/)
   assert.match(walletLedger, /label="其他资金变动" name="OTHER"/)

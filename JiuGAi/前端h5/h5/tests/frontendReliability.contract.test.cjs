@@ -53,8 +53,8 @@ assert((continueSource.match(/isJgRuntimeRequestCurrent\(runtimeRequestVersion, 
 assert((restartSource.match(/isJgRuntimeRequestCurrent\(runtimeRequestVersion, runtimeIdentitySignature\)/g) || []).length >= 4, 'restart callbacks must reject stale identities');
 assert(/message === 'vip'[\s\S]{0,120}jgIdentityReloading = false/.test(chat), 'VIP gate must release identity reload state');
 assert(chat.includes('finalizeAssistantStreamRequest(streamController)'), 'stream completion must always release its owned reply state');
-assert(/onShow\(\)[\s\S]{0,900}refreshVoiceFeatureGlobalState\(true\)/.test(chat), 'chat onShow must refresh voice and image feature switches from the backend');
-assert(/onShow\(\)[\s\S]{0,900}refreshCharacterImageGlobalSummary\(true, false\)/.test(chat), 'chat onShow must refresh the user image-generation entitlement summary');
+assert(/onShow\(\)[\s\S]{0,1300}refreshVoiceFeatureGlobalState\(true\)/.test(chat), 'chat onShow must refresh voice and image feature switches from the backend');
+assert(/onShow\(\)[\s\S]{0,1300}refreshCharacterImageGlobalSummary\(true, false\)/.test(chat), 'chat onShow must refresh the user image-generation entitlement summary');
 assert(/finalizeAssistantStreamRequest\(controller\)\s*\{\s*if \(!controller \|\| this\.streamAbortController !== controller\) return;[\s\S]*?this\.finishAssistantStreaming\(\);[\s\S]*?this\.finishSendingState\(\);/.test(chat), 'stale stream requests must not clear the state owned by a newer request');
 const outgoingStreamFinally = chat.slice(chat.indexOf('postTavernChatStream('), chat.indexOf('postTavernChatStream(') + 5200);
 assert(!/\.finally\(\(\) => \{\s*if \(!this\.isJgRuntimeRequestCurrent/.test(outgoingStreamFinally), 'stream cleanup must not be skipped by stale-identity guards');

@@ -400,11 +400,15 @@ public class ApiV1TavernChatController {
         H5UserAiProviderService.UserTtsSettings activeTtsSettings = userByokTts
                 ? userAiProviderService.resolveActiveTtsSettingsForUser(userId)
                 : null;
-        boolean roleOverrideActive = ttsOverrideScopeMatchesProvider(
+        boolean roleOverrideActive = userByokTts && ttsOverrideScopeMatchesProvider(
                 payload.getTtsProviderSource(), activeTtsSettings);
-        String roleModelOverride = roleOverrideActive ? payload.getTtsModelName() : "";
-        String roleVoiceOverride = roleOverrideActive ? payload.getTtsVoiceName() : "";
-        String roleTemplateOverride = roleOverrideActive ? payload.getTtsVoiceTemplateCode() : "";
+        String roleModelOverride = roleOverrideActive ? firstVoiceValue(payload.getTtsModelName(), "") : "";
+        String roleVoiceOverride = roleOverrideActive || !userByokTts
+                ? firstVoiceValue(payload.getTtsVoiceName(), "")
+                : "";
+        String roleTemplateOverride = roleOverrideActive || !userByokTts
+                ? firstVoiceValue(payload.getTtsVoiceTemplateCode(), "")
+                : "";
         H5EntitlementService.AccessTicket ttsTicket = null;
         boolean ttsChargeCreated = false;
         if (!userByokTts) {
@@ -420,10 +424,13 @@ public class ApiV1TavernChatController {
                          mediaConcurrencyGate.acquire(MediaConcurrencyGate.Capability.TTS, userId, ttsRequestId)) {
                 MemberVoiceOverride memberVoice = resolveMemberVoiceOverride(
                         payload,
-                        activeTtsSettings == null ? "" : activeTtsSettings.providerSource());
-                Long boundUserVoiceId = payload.getTtsUserVoiceId();
+                        activeTtsSettings == null ? "" : activeTtsSettings.providerSource(),
+                        !userByokTts);
+                Long boundUserVoiceId = userByokTts ? payload.getTtsUserVoiceId() : null;
                 if (shouldResolveSpecificPrivateVoice(
-                        boundUserVoiceId, roleVoiceOverride, roleTemplateOverride)) {
+                        boundUserVoiceId,
+                        firstVoiceValue(memberVoice.voiceName(), roleVoiceOverride),
+                        firstVoiceValue(memberVoice.voiceTemplateCode(), roleTemplateOverride))) {
                     boundUserVoiceId = userTtsVoiceService.resolveSpecificBoundVoiceId(
                             userId,
                             payload.getCharacterId() == null ? 0L : payload.getCharacterId(),
@@ -440,9 +447,15 @@ public class ApiV1TavernChatController {
                 if (boundUserVoiceId != null && boundUserVoiceId <= 0) {
                     boundUserVoiceId = null;
                 }
-                String finalModelOverride = firstVoiceValue(roleModelOverride, memberVoice.modelName());
-                String finalVoiceOverride = firstVoiceValue(roleVoiceOverride, memberVoice.voiceName());
-                String finalTemplateOverride = firstVoiceValue(roleTemplateOverride, memberVoice.voiceTemplateCode());
+                boolean memberVoiceOverrideActive = hasVoiceValue(
+                        memberVoice.voiceName(), memberVoice.voiceTemplateCode());
+                String finalModelOverride = firstVoiceValue(memberVoice.modelName(), roleModelOverride);
+                String finalVoiceOverride = memberVoiceOverrideActive
+                        ? memberVoice.voiceName()
+                        : roleVoiceOverride;
+                String finalTemplateOverride = memberVoiceOverrideActive
+                        ? memberVoice.voiceTemplateCode()
+                        : roleTemplateOverride;
                 String overrideProviderScope = hasVoiceValue(
                         finalModelOverride, finalVoiceOverride, finalTemplateOverride)
                         && activeTtsSettings != null
@@ -472,7 +485,11 @@ public class ApiV1TavernChatController {
         }
     }
 
-    private MemberVoiceOverride resolveMemberVoiceOverride(H5ChatPayload payload, String activeProviderSource) {
+    private MemberVoiceOverride resolveMemberVoiceOverride(
+            H5ChatPayload payload,
+            String activeProviderSource,
+            boolean officialMode
+    ) {
         if (characterStudioMapper == null || payload == null || payload.getCharacterId() == null
                 || payload.getCharacterId() <= 0 || payload.getSpeakerMemberId() == null
                 || payload.getSpeakerMemberId() <= 0) {
@@ -487,6 +504,12 @@ public class ApiV1TavernChatController {
                 }
                 JsonNode root = memberVoiceMapper.readTree(member.getVoiceConfigJson());
                 String providerSource = voiceJsonText(root, "ttsProviderSource", "providerSource");
+                if (officialMode) {
+                    return new MemberVoiceOverride(
+                            "",
+                            voiceJsonText(root, "ttsVoiceName", "voiceName", "voice"),
+                            voiceJsonText(root, "ttsVoiceTemplateCode", "voiceTemplateCode", "templateCode"));
+                }
                 if (!sameProviderSource(providerSource, activeProviderSource)) {
                     return MemberVoiceOverride.EMPTY;
                 }

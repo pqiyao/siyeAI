@@ -54,6 +54,10 @@ public class H5UserAiProviderService {
     private static final Duration TEST_REQUEST_TIMEOUT = Duration.ofSeconds(18);
     private static final long TEST_MIN_INTERVAL_MS = 3000L;
     private static final int MODEL_LIST_LIMIT = 120;
+    private static final List<String> OPENAI_TTS_VOICE_PRESETS = List.of(
+            "alloy", "nova", "shimmer", "echo", "fable", "onyx");
+    private static final List<String> SILICONFLOW_TTS_VOICE_PRESETS = List.of(
+            "alex", "benjamin", "charles", "david", "anna", "bella", "claire", "diana");
     private static final String TEST_REFERENCE_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7ZfQ0AAAAASUVORK5CYII=";
     private static final String TEST_REFERENCE_IMAGE_DATA_URL = "data:image/png;base64," + TEST_REFERENCE_IMAGE_BASE64;
     private static final byte[] TEST_REFERENCE_IMAGE_BYTES = Base64.getDecoder().decode(TEST_REFERENCE_IMAGE_BASE64);
@@ -232,8 +236,12 @@ public class H5UserAiProviderService {
             int vipMinLevel,
             List<String> availableSources,
             List<ProviderOption> providerOptions,
+            List<String> ttsVoicePresets,
             List<Map<String, Object>> ttsVoiceTemplates
     ) {
+    }
+
+    public record OfficialTtsVoicePreference(String voiceName, String templateCode) {
     }
 
     public record UserTtsSettings(
@@ -327,6 +335,8 @@ public class H5UserAiProviderService {
         boolean imageEnabledGlobal = settings.isImageGenerationEnabled();
         boolean voiceEnabledGlobal = settings.isVoiceFeatureEnabled();
         Map<String, Object> visionSummary = aiRoutingService.capabilitySummary(AiCapability.VISION);
+        Map<String, Object> ttsSummary = aiRoutingService.capabilitySummary(AiCapability.TTS);
+        Map<String, Object> officialTtsNode = firstAvailableCapabilityNode(ttsSummary);
         boolean visionOfficialEnabled = Boolean.TRUE.equals(visionSummary.get("runtimeEnabled"));
         boolean visionOfficialReady = Boolean.TRUE.equals(visionSummary.get("ready"));
         EntitlementPolicy entitlementPolicy = entitlementPolicyService.getPolicy();
@@ -351,7 +361,16 @@ public class H5UserAiProviderService {
         String imageApiKeyMask = maskStoredImageKey(row);
         String ttsCustomUrl = ttsUseSeparateConfig ? safe(row == null ? null : row.getTtsCustomUrl()) : "";
         String imageCustomUrl = imageUseSeparateConfig ? safe(row == null ? null : row.getImageCustomUrl()) : "";
-        String effectiveTtsProviderSource = ttsUseSeparateConfig ? ttsProviderSource : providerSource;
+        String officialTtsProviderSource = asString(officialTtsNode.get("vendor")).toLowerCase();
+        String officialTtsModelName = asString(officialTtsNode.get("modelName"));
+        List<String> officialTtsVoicePresets = voicePresetsForModel(officialTtsModelName);
+        String storedOfficialTtsVoiceName = safe(row == null ? null : row.getOfficialTtsVoiceName()).toLowerCase();
+        String officialTtsVoiceName = officialTtsVoicePresets.contains(storedOfficialTtsVoiceName)
+                ? storedOfficialTtsVoiceName
+                : "";
+        String effectiveTtsProviderSource = customMode
+                ? (ttsUseSeparateConfig ? ttsProviderSource : providerSource)
+                : officialTtsProviderSource;
         boolean effectiveTtsApiKeyConfigured = ttsUseSeparateConfig ? ttsApiKeyConfigured : apiKeyConfigured;
         String effectiveTtsApiKeyMask = ttsUseSeparateConfig ? ttsApiKeyMask : apiKeyMask;
         String effectiveTtsCustomUrl = ttsUseSeparateConfig ? ttsCustomUrl : safe(row == null ? null : row.getCustomUrl());
@@ -359,14 +378,23 @@ public class H5UserAiProviderService {
         boolean effectiveImageApiKeyConfigured = imageUseSeparateConfig ? imageApiKeyConfigured : apiKeyConfigured;
         String effectiveImageApiKeyMask = imageUseSeparateConfig ? imageApiKeyMask : apiKeyMask;
         String effectiveImageCustomUrl = imageUseSeparateConfig ? imageCustomUrl : safe(row == null ? null : row.getCustomUrl());
-        String ttsVoiceTemplateCode = safe(row == null ? null : row.getTtsVoiceTemplateCode());
+        String ttsVoiceTemplateCode = customMode
+                ? safe(row == null ? null : row.getTtsVoiceTemplateCode())
+                : safe(row == null ? null : row.getOfficialTtsVoiceTemplateCode());
         String ttsVoiceTemplateLabel = ttsVoiceTemplateService.resolveDisplayName(ttsVoiceTemplateCode);
+        List<String> ttsVoicePresets = officialTtsVoicePresets;
+        if (customMode) {
+            ttsVoicePresets = voicePresetsForModel(audioTtsModel(row));
+        }
         String imageCharacterConsistencyMode = normalizeImageCharacterConsistencyMode(row == null ? null : row.getImageCharacterConsistencyMode());
         String imageReferenceSourceMode = normalizeImageReferenceSourceMode(row == null ? null : row.getImageReferenceSourceMode());
         List<Map<String, Object>> ttsVoiceTemplates = voiceEnabledGlobal
                 ? ttsVoiceTemplateService.listUserOptions(
                         user.getId(),
-                        buildTtsRuntimeContext(row, enabledGlobal, currentVipLevel, settings.getUserByokVipMinLevel()),
+                        customMode
+                                ? buildTtsRuntimeContext(row, enabledGlobal, currentVipLevel, settings.getUserByokVipMinLevel())
+                                : new TtsVoiceProvisionService.TtsRuntimeContext(
+                                        false, officialTtsProviderSource, "", "", officialTtsModelName),
                         ttsVoiceTemplateCode
                 )
                 : List.of();
@@ -380,8 +408,8 @@ public class H5UserAiProviderService {
                 safe(row == null ? null : row.getVisionModelName()),
                 safe(row == null ? null : row.getAudioModelName()),
                 audioSttModel(row),
-                audioTtsModel(row),
-                audioTtsVoice(row),
+                customMode ? audioTtsModel(row) : officialTtsModelName,
+                customMode ? audioTtsVoice(row) : officialTtsVoiceName,
                 ttsVoiceTemplateCode,
                 ttsVoiceTemplateLabel,
                 safe(row == null ? null : row.getImageModelName()),
@@ -423,6 +451,7 @@ public class H5UserAiProviderService {
                 settings.getUserByokVipMinLevel(),
                 AVAILABLE_SOURCES,
                 publicProviderOptions(),
+                ttsVoicePresets,
                 ttsVoiceTemplates
         );
     }
@@ -507,6 +536,14 @@ public class H5UserAiProviderService {
         if (StringUtils.hasText(ttsVoiceTemplateCode) && !ttsVoiceTemplateService.hasEnabledTemplate(ttsVoiceTemplateCode)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "所选模板音色已失效，请重新选择");
         }
+        if ("system".equals(mode) && StringUtils.hasText(ttsVoiceName)) {
+            String officialModelName = asString(firstAvailableCapabilityNode(
+                    aiRoutingService.capabilitySummary(AiCapability.TTS)).get("modelName"));
+            if (!voicePresetsForModel(officialModelName).contains(ttsVoiceName.toLowerCase())) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "所选官方音色不适用于当前语音模型");
+            }
+            ttsVoiceName = ttsVoiceName.toLowerCase();
+        }
 
         row.setProviderMode(mode);
         if (StringUtils.hasText(providerSource)) {
@@ -524,14 +561,35 @@ public class H5UserAiProviderService {
         if (hasSttModelName) {
             row.setSttModelName(sttModelName);
         }
-        if (hasTtsModelName) {
+        if ("custom".equals(mode) && hasTtsModelName) {
             row.setTtsModelName(ttsModelName);
         }
-        if (hasTtsVoiceName) {
-            row.setTtsVoiceName(ttsVoiceName);
-        }
-        if (hasTtsVoiceTemplateCode) {
-            row.setTtsVoiceTemplateCode(ttsVoiceTemplateCode);
+        if ("custom".equals(mode)) {
+            if (hasTtsVoiceName) {
+                row.setTtsVoiceName(ttsVoiceName);
+                if (StringUtils.hasText(ttsVoiceName)) {
+                    row.setTtsVoiceTemplateCode("");
+                }
+            }
+            if (hasTtsVoiceTemplateCode) {
+                row.setTtsVoiceTemplateCode(ttsVoiceTemplateCode);
+                if (StringUtils.hasText(ttsVoiceTemplateCode)) {
+                    row.setTtsVoiceName("");
+                }
+            }
+        } else {
+            if (hasTtsVoiceName) {
+                row.setOfficialTtsVoiceName(ttsVoiceName);
+                if (StringUtils.hasText(ttsVoiceName)) {
+                    row.setOfficialTtsVoiceTemplateCode("");
+                }
+            }
+            if (hasTtsVoiceTemplateCode) {
+                row.setOfficialTtsVoiceTemplateCode(ttsVoiceTemplateCode);
+                if (StringUtils.hasText(ttsVoiceTemplateCode)) {
+                    row.setOfficialTtsVoiceName("");
+                }
+            }
         }
         if (hasImageModelName) {
             row.setImageModelName(imageModelName);
@@ -788,6 +846,27 @@ public class H5UserAiProviderService {
             log.warn("skip invalid user tts override, userId={}, reason={}", userId, ex.getMessage());
             return null;
         }
+    }
+
+    @Transactional(readOnly = true)
+    public String resolveTtsVoiceTemplatePreferenceForUser(long userId) {
+        AppH5UserAiProvider row = mapper.findByUserId(userId);
+        String templateCode = trim(row == null ? null : row.getOfficialTtsVoiceTemplateCode(), 64);
+        return StringUtils.hasText(templateCode) && ttsVoiceTemplateService.hasEnabledTemplate(templateCode)
+                ? templateCode
+                : "";
+    }
+
+    @Transactional(readOnly = true)
+    public OfficialTtsVoicePreference resolveOfficialTtsVoicePreferenceForUser(long userId) {
+        AppH5UserAiProvider row = mapper.findByUserId(userId);
+        String voiceName = trim(row == null ? null : row.getOfficialTtsVoiceName(), 255).toLowerCase();
+        String storedTemplateCode = trim(row == null ? null : row.getOfficialTtsVoiceTemplateCode(), 64);
+        String templateCode = StringUtils.hasText(storedTemplateCode)
+                && ttsVoiceTemplateService.hasEnabledTemplate(storedTemplateCode)
+                ? storedTemplateCode
+                : "";
+        return new OfficialTtsVoicePreference(voiceName, templateCode);
     }
 
     public String resolveProviderBaseUrlForSource(String providerSource, String customUrl) {
@@ -1928,6 +2007,8 @@ public class H5UserAiProviderService {
         row.setTtsModelName("");
         row.setTtsVoiceName("");
         row.setTtsVoiceTemplateCode("");
+        row.setOfficialTtsVoiceName("");
+        row.setOfficialTtsVoiceTemplateCode("");
         row.setTtsProviderSource("");
         row.setTtsApiKeyCipher("");
         row.setTtsCustomUrl("");
@@ -1940,6 +2021,22 @@ public class H5UserAiProviderService {
         row.setApiKeyCipher("");
         row.setCustomUrl("");
         return row;
+    }
+
+    private static List<String> voicePresetsForModel(String modelName) {
+        String normalized = safe(modelName).toLowerCase();
+        if (normalized.contains("gpt-4o-mini-tts")
+                || normalized.contains("tts-1")
+                || normalized.contains("/tts")
+                || normalized.matches(".*openai/.+tts.*")) {
+            return OPENAI_TTS_VOICE_PRESETS;
+        }
+        if (normalized.contains("cosyvoice")
+                || normalized.contains("fish-speech")
+                || normalized.contains("gpt-sovits")) {
+            return SILICONFLOW_TTS_VOICE_PRESETS;
+        }
+        return List.of();
     }
 
     private TtsVoiceProvisionService.TtsRuntimeContext buildTtsRuntimeContext(
@@ -1972,6 +2069,23 @@ public class H5UserAiProviderService {
         } catch (BusinessException ex) {
             return new TtsVoiceProvisionService.TtsRuntimeContext(false, "", "", "", "");
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> firstAvailableCapabilityNode(Map<String, Object> summary) {
+        if (summary == null || !Boolean.TRUE.equals(summary.get("ready"))) {
+            return Map.of();
+        }
+        Object rawNodes = summary.get("nodes");
+        if (!(rawNodes instanceof List<?> nodes)) {
+            return Map.of();
+        }
+        for (Object item : nodes) {
+            if (item instanceof Map<?, ?> node && Boolean.TRUE.equals(node.get("enabled"))) {
+                return (Map<String, Object>) node;
+            }
+        }
+        return Map.of();
     }
 
     private static String audioSttModel(AppH5UserAiProvider row) {

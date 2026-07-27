@@ -4,10 +4,25 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const chat = fs.readFileSync(path.join(root, 'pages/tavern/tavernChat.vue'), 'utf8');
+const composer = fs.readFileSync(path.join(root, 'components/tavern/chat-composer.vue'), 'utf8');
 const settings = fs.readFileSync(path.join(root, 'pages/user/aiSettings.vue'), 'utf8');
 const api = fs.readFileSync(path.join(root, 'common/tavernApi.js'), 'utf8');
 
-assert.match(chat, /<tavern-nav-bar[\s\S]*?class="chat-model-bar"[\s\S]*?class="tool-bar"/);
+assert.doesNotMatch(chat, /class="chat-model-bar"/);
+assert.match(chat, /<chat-composer[\s\S]*?:show-model-selector="jgOn && jgChatLoadState === 'ready' && chatModelCatalog\.enabled"[\s\S]*?:model-name="currentChatModelName"[\s\S]*?@open-model-picker="openChatModelPicker"/);
+assert.match(composer, /class="composer-stack"[\s\S]*?class="model-selector"[\s\S]*?class="input-pill"/);
+assert.match(composer, /emitOpenModelPicker\(\)[\s\S]*?this\.\$emit\('open-model-picker'\)/);
+assert.match(composer, /\.model-selector__name[\s\S]*?text-overflow: ellipsis/);
+assert.match(chat, /class="chat-model-picker__tab-count"/);
+assert.match(chat, /class="chat-model-option__avatar"[\s\S]*?chatModelInitial\(item\)/);
+assert.match(chat, /class="chat-model-option__signals"[\s\S]*?class="chat-model-signal__bar"/);
+assert.match(chat, /chatModelInitial\(item\)[\s\S]*?chatModelLevel\(value\)/);
+assert.match(chat, /class="chat-model-picker__footer"[\s\S]*?费用由你的 API 服务商结算/);
+assert.doesNotMatch(chat, /chatModelLevelText/);
+assert.doesNotMatch(chat, /chat-model-option__mark/);
+assert.match(chat, /\.chat-model-picker \{[\s\S]*?border-radius: 28rpx 28rpx 0 0/);
+assert.match(chat, /padding: unquote\("max\(36rpx, env\(safe-area-inset-top\)\) 24rpx max\(36rpx, env\(safe-area-inset-bottom\)\)"\)/);
+assert.doesNotMatch(chat, /padding: max\(36rpx, env\(safe-area-inset-top\)\)/);
 assert.match(chat, /平台模型[\s\S]*?我的 API/);
 assert.match(chat, /if \(this\.sending\)[\s\S]*?生成结束后再切换模型/);
 assert.match(chat, /fields\.chatModelSource = this\.currentChatModel\.source/);

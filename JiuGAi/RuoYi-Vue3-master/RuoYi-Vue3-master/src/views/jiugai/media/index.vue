@@ -206,7 +206,7 @@
       <el-tab-pane name="templates">
         <template #label><span class="tab-label"><el-icon><Headset /></el-icon>音色模板</span></template>
         <section class="control-section template-section">
-          <header class="section-header"><div><h2>角色音色模板</h2><p>模板保存参考素材；用户选择后使用自己的 Key 创建专属 voice，并在其账号下复用。</p></div><el-button v-hasPermi="['content:voice-template:edit']" type="primary" :icon="Plus" @click="openVoiceTemplate()">新增音色</el-button></header>
+          <header class="section-header"><div><h2>统一音色目录</h2><p>同一套音色可供官方 API 与用户自定义 API 选择。官方线路使用平台凭证并复用平台实例；自定义线路使用用户自己的 Key，实例彼此隔离。</p></div><el-button v-hasPermi="['content:voice-template:edit']" type="primary" :icon="Plus" @click="openVoiceTemplate()">新增音色</el-button></header>
           <el-table v-loading="templateLoading" :data="templateRows" stripe>
             <el-table-column label="音色" min-width="250"><template #default="scope"><div class="template-name"><el-avatar shape="square" :size="44" :src="assetUrl(scope.row.coverImageUrl)"><el-icon><Headset /></el-icon></el-avatar><div><strong>{{ scope.row.displayName }}</strong><span>{{ scope.row.templateCode }}</span></div></div></template></el-table-column>
             <el-table-column prop="ttsModelName" label="推荐模型" min-width="220" />

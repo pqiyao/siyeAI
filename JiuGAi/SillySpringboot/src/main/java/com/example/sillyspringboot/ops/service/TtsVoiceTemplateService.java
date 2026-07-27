@@ -130,7 +130,8 @@ public class TtsVoiceTemplateService {
             String selectedTemplateCode
     ) {
         List<AppTtsVoiceTemplate> templates = templateMapper.listEnabled();
-        Map<String, AppUserTtsVoiceInstance> instanceMap = instanceMapper.listByUserId(userId)
+        long instanceOwnerId = runtimeContext != null && runtimeContext.customModeActive() ? userId : 0L;
+        Map<String, AppUserTtsVoiceInstance> instanceMap = instanceMapper.listByUserId(instanceOwnerId)
                 .stream()
                 .collect(Collectors.toMap(AppUserTtsVoiceInstance::getTemplateCode, item -> item, (left, right) -> right, LinkedHashMap::new));
         List<Map<String, Object>> rows = new ArrayList<>();
@@ -150,12 +151,20 @@ public class TtsVoiceTemplateService {
                     && StringUtils.hasText(instance.getVoiceUri());
             String statusCode;
             String statusText;
-            if (runtimeContext == null || !runtimeContext.customModeActive()) {
-                statusCode = "requires_byok";
-                statusText = "先开启自定义 API 后才能生成专属音色";
+            if (runtimeContext == null || !StringUtils.hasText(runtimeContext.providerSource())) {
+                statusCode = "requires_official_route";
+                statusText = "当前没有兼容的 TTS 线路";
             } else if (!runtimeContext.providerMatches(blank(template.getProviderSource()))) {
                 statusCode = "requires_provider";
-                statusText = "当前模板仅支持硅基流动 TTS";
+                statusText = "当前音色与 TTS 平台不兼容";
+            } else if (!runtimeContext.customModeActive()
+                    && StringUtils.hasText(configuredTemplateModel)
+                    && !configuredTemplateModel.equalsIgnoreCase(runtimeContext.effectiveModelName(""))) {
+                statusCode = "requires_model";
+                statusText = "当前音色与官方 TTS 模型不兼容";
+            } else if (!runtimeContext.customModeActive()) {
+                statusCode = ready ? "ready" : "official_available";
+                statusText = ready ? "官方音色已就绪" : "首次使用由官方 API 自动准备";
             } else if (!runtimeContext.hasApiKey()) {
                 statusCode = "requires_api_key";
                 statusText = "先填写当前 TTS 的 API Key";

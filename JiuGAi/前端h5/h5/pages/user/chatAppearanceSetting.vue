@@ -13,8 +13,10 @@
 			</view>
 			<view class="hero-panel">
 				<view class="hero-head">
-					<view>
-						<text class="hero-kicker">CHAT LOOK</text>
+					<view class="hero-heading">
+						<view class="hero-icon">
+							<u-icon name="eye-fill" color="#ffffff" size="28"></u-icon>
+						</view>
 						<text class="hero-title">{{ ui.livePreview }}</text>
 					</view>
 					<view class="hero-state">
@@ -35,7 +37,7 @@
 				<view class="preview-chat" :class="previewChatClass" :style="previewChatStyle">
 					<template v-if="previewScene === 'text'">
 					<view class="chat-message-row chat-message-row--assistant preview-message-row">
-						<view class="preview-avatar">AI</view>
+						<view class="preview-avatar"><u-icon name="chat-fill" color="#ffffff" size="25"></u-icon></view>
 						<view class="preview-bubble-stack" :class="{ 'preview-bubble-stack--split': form.replySplitMode === 'bubble' }">
 							<message-bubble
 								v-for="(group, groupIndex) in previewBubbleGroups"
@@ -76,7 +78,7 @@
 					</template>
 					<template v-else-if="previewScene === 'media'">
 						<view class="chat-message-row chat-message-row--assistant preview-message-row">
-							<view class="preview-avatar">AI</view>
+							<view class="preview-avatar"><u-icon name="chat-fill" color="#ffffff" size="25"></u-icon></view>
 							<message-bubble :bubble-class="previewBubbleClass(false, true)" :bubble-style="previewImageBubbleStyle(false)">
 								<image class="preview-media-image" src="/static/home/homebg.png" mode="aspectFill"></image>
 							</message-bubble>
@@ -89,7 +91,7 @@
 					</template>
 					<template v-else>
 						<view class="chat-message-row chat-message-row--assistant preview-message-row">
-							<view class="preview-avatar">AI</view>
+							<view class="preview-avatar"><u-icon name="chat-fill" color="#ffffff" size="25"></u-icon></view>
 							<message-bubble :bubble-class="previewBubbleClass(false)" :bubble-style="previewBubbleStyle(false)">
 								<message-content :has-text="true">
 									<!-- #ifdef H5 -->
@@ -111,7 +113,10 @@
 
 			<view class="section section--bubble">
 				<view class="section-head">
-					<text class="section-title">{{ ui.bubbleAppearance }}</text>
+					<view class="section-heading">
+						<view class="section-icon"><u-icon name="chat-fill" color="#3e8dab" size="25"></u-icon></view>
+						<text class="section-title">{{ ui.bubbleAppearance }}</text>
+					</view>
 					<view v-if="scopeMode === 'character'" class="inherit-control" @tap="toggleInheritance('bubble')">{{ inheritBubble ? ui.inheritGlobal : ui.characterSpecific }}</view>
 					<text v-else class="section-value">{{ bubbleModeName }}</text>
 				</view>
@@ -280,9 +285,12 @@
 				</template>
 			</view>
 
-			<view class="section">
+			<view class="section section--reading">
 				<view class="section-head">
-					<text class="section-title">{{ ui.roleplayReading }}</text>
+					<view class="section-heading">
+						<view class="section-icon section-icon--pink"><u-icon name="file-text" color="#b65f83" size="25"></u-icon></view>
+						<text class="section-title">{{ ui.roleplayReading }}</text>
+					</view>
 					<view v-if="scopeMode === 'character'" class="inherit-control" @tap="toggleInheritance('reading')">{{ inheritReading ? ui.inheritGlobal : ui.characterSpecific }}</view>
 					<text v-else class="section-value">{{ currentReadModeName }}</text>
 				</view>
@@ -299,9 +307,12 @@
 				</view>
 			</view>
 
-			<view class="section">
+			<view class="section section--reply">
 				<view class="section-head">
-					<text class="section-title">{{ ui.aiReplyFormat }}</text>
+					<view class="section-heading">
+						<view class="section-icon"><u-icon name="grid-fill" color="#3e8dab" size="25"></u-icon></view>
+						<text class="section-title">{{ ui.aiReplyFormat }}</text>
+					</view>
 					<view v-if="scopeMode === 'character'" class="inherit-control" @tap="toggleInheritance('reply')">{{ inheritReplyFormat ? ui.inheritGlobal : ui.characterSpecific }}</view>
 					<text v-else class="section-value">{{ currentSplitModeName }}</text>
 				</view>
@@ -2161,5 +2172,466 @@ export default {
 .save-state--dirty .save-state-dot {
 	background: #d47b58;
 	box-shadow: 0 0 0 6rpx rgba(212, 123, 88, 0.14);
+}
+
+/* Home-aligned visual refresh. All configuration bindings and actions remain unchanged. */
+.page {
+	--look-ink: #203846;
+	--look-muted: #647b8b;
+	--look-accent: #4f93a3;
+	--look-accent-strong: #3e8dab;
+	--look-accent-soft: rgba(213, 239, 247, 0.72);
+	--look-pink: #b65f83;
+	--look-line: rgba(103, 157, 178, 0.2);
+	color: var(--look-ink);
+}
+
+.body {
+	width: 100%;
+	max-width: 920rpx;
+	margin: 0 auto;
+	padding: 20rpx 24rpx calc(44rpx + env(safe-area-inset-bottom));
+}
+
+.scope-switcher {
+	gap: 6rpx;
+	padding: 6rpx;
+	margin-bottom: 18rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.5);
+	border-radius: 24rpx;
+	background: rgba(255, 255, 255, 0.28);
+	box-shadow: 0 8rpx 20rpx rgba(36, 70, 88, 0.07), inset 0 1rpx 0 rgba(255, 255, 255, 0.7);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.scope-option {
+	min-height: 72rpx;
+	padding: 0 18rpx;
+	border-radius: 18rpx;
+	color: var(--look-muted);
+	line-height: 72rpx;
+}
+
+.scope-option--active {
+	color: #31788f;
+	background: rgba(255, 255, 255, 0.84);
+	box-shadow: 0 10rpx 24rpx rgba(36, 70, 88, 0.12);
+}
+
+.sync-state {
+	margin: 0 0 18rpx;
+	padding: 18rpx 20rpx;
+	border-color: rgba(79, 147, 163, 0.2);
+	border-radius: 22rpx;
+	background: rgba(235, 248, 251, 0.76);
+	box-shadow: 0 8rpx 20rpx rgba(36, 70, 88, 0.06);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.sync-state--conflict {
+	border-color: rgba(182, 95, 131, 0.24);
+	background: rgba(255, 240, 246, 0.82);
+}
+
+.sync-state-text {
+	color: var(--look-muted);
+}
+
+.sync-state-action {
+	color: #31788f;
+}
+
+.hero-panel,
+.section {
+	border: 1rpx solid rgba(255, 255, 255, 0.5);
+	border-radius: 30rpx;
+	background: rgba(255, 255, 255, 0.42);
+	box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.68);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.hero-panel {
+	padding: 24rpx;
+}
+
+.hero-head {
+	align-items: center;
+}
+
+.hero-heading,
+.section-heading {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 14rpx;
+}
+
+.hero-icon {
+	display: flex;
+	flex: 0 0 58rpx;
+	width: 58rpx;
+	height: 58rpx;
+	align-items: center;
+	justify-content: center;
+	border: 1rpx solid rgba(255, 255, 255, 0.48);
+	border-radius: 19rpx;
+	background: var(--look-accent);
+	box-shadow: 0 9rpx 20rpx rgba(48, 103, 117, 0.18);
+}
+
+.hero-title {
+	margin-top: 0;
+	color: var(--look-ink);
+	font-size: 30rpx;
+	font-weight: 800;
+}
+
+.hero-state {
+	max-width: 430rpx;
+}
+
+.hero-state text,
+.section-value,
+.inherit-control {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 40rpx;
+	padding: 0 13rpx;
+	border: 1rpx solid rgba(79, 147, 163, 0.14);
+	border-radius: 999rpx;
+	background: var(--look-accent-soft);
+	color: #357c91;
+	font-size: 20rpx;
+	font-weight: 700;
+}
+
+.preview-scene-tabs {
+	gap: 6rpx;
+	margin-top: 18rpx;
+	padding: 6rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.48);
+	border-radius: 20rpx;
+	background: rgba(255, 255, 255, 0.28);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.58), 0 6rpx 16rpx rgba(36, 70, 88, 0.05);
+}
+
+.preview-scene-tab {
+	min-height: 58rpx;
+	padding: 0 10rpx;
+	border-radius: 15rpx;
+	color: #61798a;
+	font-weight: 700;
+	line-height: 58rpx;
+}
+
+.preview-scene-tab--active {
+	background: rgba(255, 255, 255, 0.9);
+	color: #31788f;
+	box-shadow: 0 8rpx 18rpx rgba(36, 70, 88, 0.1);
+}
+
+.preview-chat {
+	margin-top: 18rpx;
+	padding: 24rpx 16rpx 12rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.42);
+	border-radius: 24rpx;
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.24), 0 12rpx 28rpx rgba(36, 70, 88, 0.09);
+}
+
+.preview-avatar {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1rpx solid rgba(255, 255, 255, 0.5);
+	background: var(--look-accent);
+	box-shadow: 0 7rpx 16rpx rgba(48, 103, 117, 0.18);
+	line-height: normal;
+}
+
+.section {
+	margin-top: 18rpx;
+	padding: 24rpx;
+}
+
+.section-head {
+	margin-bottom: 20rpx;
+}
+
+.section-icon {
+	display: flex;
+	flex: 0 0 46rpx;
+	width: 46rpx;
+	height: 46rpx;
+	align-items: center;
+	justify-content: center;
+	border: 1rpx solid rgba(79, 147, 163, 0.16);
+	border-radius: 16rpx;
+	background: var(--look-accent-soft);
+	box-shadow: 0 6rpx 14rpx rgba(36, 70, 88, 0.06);
+}
+
+.section-icon--pink {
+	border-color: rgba(182, 95, 131, 0.14);
+	background: rgba(255, 230, 238, 0.68);
+}
+
+.section-title {
+	color: var(--look-ink);
+	font-size: 28rpx;
+	font-weight: 800;
+}
+
+.choice-grid {
+	gap: 6rpx;
+	padding: 6rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.48);
+	border-radius: 22rpx;
+	background: rgba(255, 255, 255, 0.28);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.6);
+}
+
+.choice {
+	min-height: 68rpx;
+	padding: 0 16rpx;
+	border: 0;
+	border-radius: 17rpx;
+	background: transparent;
+}
+
+.choice--active {
+	border: 0;
+	background: rgba(255, 255, 255, 0.88);
+	box-shadow: 0 8rpx 18rpx rgba(36, 70, 88, 0.1);
+}
+
+.choice--active .choice-title,
+.choice--active .choice-desc {
+	color: #31788f;
+}
+
+.mode,
+.preset {
+	border-color: var(--look-line);
+	border-radius: 20rpx;
+	background: rgba(255, 255, 255, 0.48);
+	box-shadow: 0 6rpx 16rpx rgba(36, 70, 88, 0.045);
+}
+
+.mode--active,
+.preset--active {
+	border-color: rgba(79, 147, 163, 0.4);
+	background: var(--look-accent-soft);
+	box-shadow: 0 9rpx 20rpx rgba(36, 70, 88, 0.07);
+}
+
+.mode--active .mode-title,
+.mode--active .mode-desc,
+.preset--active .preset-name {
+	color: #31788f;
+}
+
+.preset--active .preset-desc {
+	color: var(--look-muted);
+}
+
+.preset-visual,
+.preset--active .preset-visual {
+	border-radius: 16rpx;
+	background: rgba(255, 255, 255, 0.46);
+}
+
+.choice-title,
+.mode-title,
+.preset-name,
+.group-title,
+.control-label,
+.switch-title {
+	color: var(--look-ink);
+}
+
+.group-title {
+	font-size: 26rpx;
+	font-weight: 800;
+}
+
+.group-subtitle,
+.preset-desc {
+	color: var(--look-muted);
+}
+
+.control-grid {
+	gap: 0;
+}
+
+.control {
+	height: 74rpx;
+	padding: 0 4rpx;
+	border: 0;
+	border-bottom: 1rpx solid var(--look-line);
+	border-radius: 0;
+	background: transparent;
+}
+
+.control .control-label {
+	flex-basis: 168rpx;
+	min-width: 168rpx;
+	color: var(--look-ink);
+}
+
+.control .control-value,
+.control-value {
+	color: #31788f;
+}
+
+.color-grid {
+	gap: 12rpx;
+}
+
+.color-field {
+	width: calc(50% - 6rpx);
+	padding: 18rpx;
+	border: 1rpx solid rgba(255, 255, 255, 0.5);
+	border-radius: 22rpx;
+	background: rgba(255, 255, 255, 0.36);
+	box-shadow: 0 7rpx 18rpx rgba(36, 70, 88, 0.05);
+}
+
+.color-field--overridden {
+	border-color: rgba(79, 147, 163, 0.34);
+	box-shadow: inset 0 0 0 1rpx rgba(79, 147, 163, 0.08), 0 7rpx 18rpx rgba(36, 70, 88, 0.05);
+}
+
+.color-input {
+	height: 60rpx;
+	border-color: var(--look-line);
+	border-radius: 16rpx;
+	background: rgba(255, 255, 255, 0.62);
+	color: var(--look-ink);
+}
+
+.swatch--active {
+	outline-color: rgba(79, 147, 163, 0.28);
+}
+
+.switch-row {
+	border-top-color: var(--look-line);
+}
+
+.switch-row--active {
+	border-color: rgba(79, 147, 163, 0.2);
+	border-radius: 20rpx;
+	background: rgba(213, 239, 247, 0.48);
+}
+
+.switch--on {
+	background: var(--look-accent);
+}
+
+.actions {
+	position: sticky;
+	bottom: 0;
+	z-index: 6;
+	gap: 12rpx;
+	margin-top: 18rpx;
+	padding: 12rpx 0 calc(4rpx + env(safe-area-inset-bottom));
+	background: rgba(236, 247, 250, 0.78);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.btn {
+	height: 84rpx;
+	border-radius: 999rpx;
+	line-height: 84rpx;
+	font-size: 26rpx;
+	font-weight: 800;
+}
+
+.btn--ghost {
+	border-color: rgba(79, 147, 163, 0.22);
+	background: rgba(255, 255, 255, 0.72);
+	color: #456477;
+}
+
+.btn--primary {
+	background: var(--look-accent);
+	color: #ffffff;
+	text-shadow: 0 1rpx 2rpx rgba(31, 77, 91, 0.18);
+	box-shadow: 0 12rpx 26rpx rgba(48, 103, 117, 0.2);
+}
+
+.save-state {
+	color: #53717d;
+}
+
+.save-state-dot {
+	background: var(--look-accent);
+	box-shadow: 0 0 0 6rpx rgba(79, 147, 163, 0.12);
+}
+
+@media (hover: hover) {
+	.hero-panel,
+	.section,
+	.mode,
+	.preset,
+	.color-field,
+	.btn {
+		transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+	}
+
+	.hero-panel:hover,
+	.section:hover {
+		transform: translateY(-2rpx);
+		box-shadow: 0 20rpx 44rpx rgba(36, 70, 88, 0.14), inset 0 1rpx 0 rgba(255, 255, 255, 0.78);
+	}
+
+	.mode:hover,
+	.preset:hover,
+	.color-field:hover,
+	.btn:hover {
+		transform: translateY(-1rpx);
+	}
+}
+
+@media (max-width: 420px) {
+	.body {
+		padding-right: 20rpx;
+		padding-left: 20rpx;
+	}
+
+	.hero-head {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.hero-state {
+		max-width: none;
+		justify-content: flex-start;
+	}
+
+	.section-head {
+		align-items: flex-start;
+		flex-wrap: wrap;
+	}
+
+	.mode-grid--advanced .mode,
+	.mode-grid--tone .mode,
+	.mode-grid--read .mode,
+	.preset {
+		width: calc(50% - 5rpx);
+	}
+
+	.color-field {
+		width: 100%;
+	}
+
+	.control .control-label {
+		flex-basis: 140rpx;
+		min-width: 140rpx;
+	}
 }
 </style>

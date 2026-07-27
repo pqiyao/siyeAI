@@ -196,7 +196,7 @@
           type="info"
           :closable="false"
           show-icon
-          title="仅允许用户使用自己的硅基流动 API Key 创建。关闭后隐藏创建入口并由后端拒绝新建，已有音色仍可管理。"
+          title="仅允许用户使用自己的硅基流动 API Key 创建。关闭后隐藏用户端创建表单并由后端拒绝新建；更多设置中的管理入口保留，已有音色仍可绑定或删除。"
         />
         <el-form-item label="允许自建音色">
           <el-switch v-model="form.userVoiceCreationEnabled" />

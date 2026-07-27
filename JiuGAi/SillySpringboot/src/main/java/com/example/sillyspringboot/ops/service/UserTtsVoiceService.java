@@ -24,6 +24,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -189,6 +190,104 @@ public class UserTtsVoiceService {
                 throw ex;
             }
         }
+    }
+
+    public Map<String, Object> providerStatus(long userId) {
+        H5UserAiProviderService.UserTtsSettings settings = activeSettings(userId);
+        TtsVoiceProvisionService.ProviderAccount account = provisionService.getProviderAccount(runtimeContext(settings));
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("connected", true);
+        data.put("providerSource", "siliconflow");
+        data.put("modelName", safe(settings.modelName()));
+        data.put("balance", safe(account.balance()));
+        data.put("chargeBalance", safe(account.chargeBalance()));
+        data.put("totalBalance", safe(account.totalBalance()));
+        data.put("refreshedAt", LocalDateTime.now());
+        return data;
+    }
+
+    public List<Map<String, Object>> providerVoices(long userId) {
+        H5UserAiProviderService.UserTtsSettings settings = activeSettings(userId);
+        List<TtsVoiceProvisionService.ProviderVoice> providerVoices =
+                provisionService.listProviderVoices(runtimeContext(settings));
+        Map<String, AppUserTtsVoice> importedByUri = new HashMap<>();
+        for (AppUserTtsVoice voice : voiceMapper.listByUserId(userId)) {
+            if (voice != null && StringUtils.hasText(voice.getVoiceUri())) {
+                importedByUri.putIfAbsent(safe(voice.getVoiceUri()), voice);
+            }
+        }
+        return providerVoices.stream().map(item -> {
+            AppUserTtsVoice imported = importedByUri.get(safe(item.voiceUri()));
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("voiceUri", safe(item.voiceUri()));
+            data.put("displayName", safe(item.displayName()));
+            data.put("modelName", safe(item.modelName()));
+            data.put("sampleText", safe(item.sampleText()));
+            data.put("imported", imported != null);
+            data.put("localVoiceId", imported == null || imported.getId() == null ? 0L : imported.getId());
+            return data;
+        }).toList();
+    }
+
+    public Map<String, Object> importProviderVoice(long userId, String requestId, String voiceUri) {
+        String safeRequestId = normalizeRequestId(requestId);
+        String safeVoiceUri = requiredText(voiceUri, 255, "请选择要导入的硅基流动音色");
+        recoverStaleProvisioningForUser(userId);
+        AppUserTtsVoice existingRequest = voiceMapper.findByUserIdAndRequestId(userId, safeRequestId);
+        if (existingRequest != null) {
+            if (existingRequest.getDeletedAt() == null) {
+                return toUserMap(existingRequest, activeSettings(userId), null);
+            }
+            throw new BusinessException(ErrorCode.CONFLICT, "本次导入标识已使用，请刷新后重试");
+        }
+        EntitlementPolicy policy = entitlementPolicyService.getPolicy();
+        if (!policy.isUserVoiceCreationEnabled()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "管理员暂未开放自建音色");
+        }
+        H5UserAiProviderService.UserTtsSettings settings = activeSettings(userId);
+        TtsVoiceProvisionService.TtsRuntimeContext runtime = runtimeContext(settings);
+        try (MediaConcurrencyGate.Lease ignored = mediaGate.acquire(
+                MediaConcurrencyGate.Capability.VOICE_CLONE, userId, safeRequestId)) {
+            TtsVoiceProvisionService.ProviderVoice providerVoice = provisionService.listProviderVoices(runtime).stream()
+                    .filter(item -> safeVoiceUri.equals(safe(item.voiceUri())))
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessException(
+                            ErrorCode.NOT_FOUND, "该音色不在当前硅基流动账号中，请重新同步"));
+
+            AppUserTtsVoice row = new AppUserTtsVoice();
+            row.setUserId(userId);
+            row.setRequestId(safeRequestId);
+            row.setDisplayName(requiredText(providerVoice.displayName(), 64, "硅基流动音色名称无效"));
+            row.setProviderSource("siliconflow");
+            String modelName = StringUtils.hasText(providerVoice.modelName())
+                    ? trim(providerVoice.modelName(), 255)
+                    : safe(settings.modelName());
+            row.setModelName(modelName);
+            row.setConfigFingerprint(TtsVoiceProvisionService.buildRuntimeFingerprint(runtime, modelName));
+            row.setVoiceUri(safeVoiceUri);
+            row.setStatus(STATUS_READY);
+            row.setLastError("");
+            row.setDisabled(false);
+            try {
+                AppUserTtsVoice reserved = reservationService.reserveImported(
+                        userId, limitForUser(policy, userId), row);
+                return toUserMap(reserved, settings, null);
+            } catch (DuplicateKeyException ex) {
+                AppUserTtsVoice duplicate = voiceMapper.findByUserIdAndRequestId(userId, safeRequestId);
+                if (duplicate != null && duplicate.getDeletedAt() == null) {
+                    return toUserMap(duplicate, settings, null);
+                }
+                throw ex;
+            }
+        }
+    }
+
+    public void deleteProviderResource(long userId, long voiceId) {
+        AppUserTtsVoice voice = requireOwned(userId, voiceId);
+        H5UserAiProviderService.UserTtsSettings settings = activeSettings(userId);
+        TtsVoiceProvisionService.TtsRuntimeContext runtime = runtimeContext(settings);
+        RuntimeVoice resolved = resolveForRuntime(userId, voiceId, runtime);
+        provisionService.deleteProviderVoice(runtime, resolved.voiceUri());
     }
 
     public Map<String, Object> rename(long userId, long voiceId, String displayName) {

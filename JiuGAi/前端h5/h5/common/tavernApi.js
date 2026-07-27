@@ -2460,6 +2460,23 @@ function getUserTtsVoices(clientUid) {
 	return requestJson('GET', '/api/v1/tavern/user-voices' + buildUserVoiceQuery(clientUid), null, 20000);
 }
 
+function getUserTtsProviderStatus(clientUid) {
+	return requestJson('GET', '/api/v1/tavern/user-voices/provider/status' + buildUserVoiceQuery(clientUid), null, 20000);
+}
+
+function getUserTtsProviderVoices(clientUid) {
+	return requestJson('GET', '/api/v1/tavern/user-voices/provider/voices' + buildUserVoiceQuery(clientUid), null, 30000);
+}
+
+function importUserTtsProviderVoice(clientUid, payload) {
+	return requestJson(
+		'POST',
+		'/api/v1/tavern/user-voices/provider/import' + buildUserVoiceQuery(clientUid),
+		payload || {},
+		30000
+	);
+}
+
 function createUserTtsVoice(clientUid, filePath, payload) {
 	var data = payload && typeof payload === 'object' ? payload : {};
 	var path = '/api/v1/tavern/user-voices' + buildUserVoiceQuery(clientUid);
@@ -2509,12 +2526,23 @@ function renameUserTtsVoice(clientUid, voiceId, displayName) {
 	);
 }
 
-function deleteUserTtsVoice(clientUid, voiceId) {
+function deleteUserTtsVoice(clientUid, voiceId, deleteProvider) {
 	return requestJson(
 		'DELETE',
-		'/api/v1/tavern/user-voices/' + encodeURIComponent(String(voiceId)) + buildUserVoiceQuery(clientUid),
+		'/api/v1/tavern/user-voices/' + encodeURIComponent(String(voiceId))
+			+ buildUserVoiceQuery(clientUid, { deleteProvider: deleteProvider === true }),
 		null,
-		15000
+		30000
+	);
+}
+
+function previewUserTtsVoice(clientUid, voiceId, payload) {
+	return requestJson(
+		'POST',
+		'/api/v1/tavern/user-voices/' + encodeURIComponent(String(voiceId))
+			+ '/preview' + buildUserVoiceQuery(clientUid),
+		payload || {},
+		120000
 	);
 }
 
@@ -3347,9 +3375,13 @@ module.exports = {
 	putTavernUserAiSettings: putTavernUserAiSettings,
 	pickBrowserAudioFile: pickBrowserAudioFile,
 	getUserTtsVoices: getUserTtsVoices,
+	getUserTtsProviderStatus: getUserTtsProviderStatus,
+	getUserTtsProviderVoices: getUserTtsProviderVoices,
+	importUserTtsProviderVoice: importUserTtsProviderVoice,
 	createUserTtsVoice: createUserTtsVoice,
 	renameUserTtsVoice: renameUserTtsVoice,
 	deleteUserTtsVoice: deleteUserTtsVoice,
+	previewUserTtsVoice: previewUserTtsVoice,
 	getUserTtsVoiceBinding: getUserTtsVoiceBinding,
 	putUserTtsVoiceBinding: putUserTtsVoiceBinding,
 	testTavernUserAiProvider: testTavernUserAiProvider,

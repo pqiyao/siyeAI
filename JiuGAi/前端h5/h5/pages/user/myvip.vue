@@ -5,7 +5,6 @@
 
 		<scroll-view scroll-y class="scroll" :show-scrollbar="false">
 			<view class="hero-card">
-				<text class="hero-tag">VIP</text>
 				<text class="hero-title">{{ profile.vipName || copy.defaultVip }}</text>
 				<text class="hero-subtitle">{{ vipSummary }}</text>
 			</view>
@@ -326,7 +325,6 @@ export default {
 	background: linear-gradient(135deg, rgba(245, 158, 11, 0.24) 0%, rgba(236, 72, 153, 0.18) 100%);
 }
 
-.hero-tag,
 .product-badge {
 	display: inline-flex;
 	align-items: center;
@@ -349,7 +347,7 @@ export default {
 
 .hero-title {
 	display: block;
-	margin-top: 12rpx;
+	margin-top: 0;
 	font-size: 38rpx;
 	font-weight: 700;
 }

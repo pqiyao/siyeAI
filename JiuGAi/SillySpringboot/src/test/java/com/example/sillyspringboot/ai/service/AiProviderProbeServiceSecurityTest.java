@@ -3,6 +3,7 @@ package com.example.sillyspringboot.ai.service;
 import com.example.sillyspringboot.ai.model.AiCapability;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -103,6 +104,46 @@ class AiProviderProbeServiceSecurityTest {
             }
         }
         assertThat(hasAudiblePcm).isTrue();
+    }
+
+    @Test
+    void modelCapabilityMatchingCoversAllFiveCapabilitiesAndRejectsUtilityModels() {
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode empty = mapper.createObjectNode();
+
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "Qwen/Qwen3-32B-Instruct", empty, AiCapability.CHAT)).isTrue();
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "Qwen/Qwen3-VL-32B-Instruct", empty, AiCapability.VISION)).isTrue();
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "black-forest-labs/FLUX.1-schnell", empty, AiCapability.IMAGE)).isTrue();
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "FunAudioLLM/CosyVoice2-0.5B", empty, AiCapability.TTS)).isTrue();
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "FunAudioLLM/SenseVoiceSmall", empty, AiCapability.STT)).isTrue();
+
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "Qwen/Qwen3-Reranker-4B", empty, AiCapability.CHAT)).isFalse();
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "BAAI/bge-m3-embedding", empty, AiCapability.CHAT)).isFalse();
+    }
+
+    @Test
+    void modelCapabilityMatchingUsesProviderMetadataAndDisplayName() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "provider/model-123",
+                mapper.readTree("{\"display_name\":\"Anthropic: Claude 3 Haiku\"}"),
+                AiCapability.VISION)).isTrue();
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "provider/model-456",
+                mapper.readTree("{\"input_modalities\":[\"text\"],\"output_modalities\":[\"image\"]}"),
+                AiCapability.IMAGE)).isTrue();
+        assertThat(AiProviderProbeService.capabilityMatches(
+                "provider/model-789",
+                mapper.readTree("{\"input_modalities\":[\"text\",\"image\"],\"output_modalities\":[\"text\"]}"),
+                AiCapability.VISION)).isTrue();
     }
 
     private static AiRoutingService.DraftCredential draft(AiCapability capability) {

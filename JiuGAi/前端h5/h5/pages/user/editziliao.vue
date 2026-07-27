@@ -7,45 +7,56 @@
 			</template>
 		</tavern-nav-bar>
 		<scroll-view scroll-y class="scroll" :show-scrollbar="false">
-			<view class="intro-card">
-				<view class="intro-copy">
-					<text class="intro-title">{{ pageCopy.title }}</text>
-					<text class="intro-subtitle">{{ pageCopy.subtitle }}</text>
-				</view>
-				<image class="intro-art" :src="displayAvatar" mode="aspectFill"></image>
-			</view>
-
 			<view class="avatar-card" @tap="upload">
-				<text class="section-title">{{ pageCopy.avatarTitle }}</text>
-				<text class="section-tip">{{ pageCopy.avatarTip }}</text>
-				<view class="avatar-shell">
-					<image class="avatar" :src="displayAvatar" mode="aspectFill"></image>
+				<view class="avatar-editor">
+					<view class="avatar-shell">
+						<image class="avatar" :src="displayAvatar" mode="aspectFill"></image>
+						<view class="avatar-camera"><u-icon name="camera-fill" color="#ffffff" size="22"></u-icon></view>
+					</view>
 				</view>
-				<text class="avatar-action">{{ pageCopy.avatarAction }}</text>
+				<view class="avatar-card-copy">
+					<text class="section-title">{{ pageCopy.avatarTitle }}</text>
+					<text class="section-tip">{{ pageCopy.avatarTip }}</text>
+					<view class="avatar-action">
+						<u-icon name="photo-fill" color="#4f93a3" size="22"></u-icon>
+						<text>{{ pageCopy.avatarAction }}</text>
+					</view>
+				</view>
 			</view>
 
-			<view class="field-card">
-				<text class="section-title">{{ allText.我的页.昵称 }}</text>
-				<input class="field-input" v-model="nickname" :placeholder="t.旅人昵称" maxlength="32" />
+			<view class="profile-form">
+				<view class="form-section">
+					<view class="field-heading">
+						<view class="field-heading-icon"><u-icon name="account-fill" color="#4f93a3" size="24"></u-icon></view>
+						<text class="section-title">{{ allText.我的页.昵称 }}</text>
+					</view>
+					<input class="field-input" v-model="nickname" :placeholder="t.旅人昵称" maxlength="32" />
+				</view>
+				<view class="form-divider"></view>
+				<view class="form-section">
+					<view class="field-heading">
+						<view class="field-heading-icon field-heading-icon--pink"><u-icon name="edit-pen-fill" color="#b65f83" size="24"></u-icon></view>
+						<text class="section-title">{{ t.一句话介绍 }}</text>
+					</view>
+					<textarea
+						class="bio"
+						v-model="bio"
+						:placeholder="t.一句话介绍占位"
+						maxlength="200"
+					></textarea>
+				</view>
 			</view>
 
-			<view class="field-card">
-				<text class="section-title">{{ t.一句话介绍 }}</text>
-				<textarea
-					class="bio"
-					v-model="bio"
-					:placeholder="t.一句话介绍占位"
-					maxlength="200"
-				></textarea>
-			</view>
-
-			<view class="tips-card">
-				<text class="tips-title">{{ pageCopy.noteTitle }}</text>
+			<view class="tips-strip">
+				<view class="tips-heading">
+					<u-icon name="info-circle-fill" color="#4f93a3" size="24"></u-icon>
+					<text class="tips-title">{{ pageCopy.noteTitle }}</text>
+				</view>
 				<text class="foot-note">{{ t.Telegram身份说明 || pageCopy.noteBody }}</text>
 			</view>
 
 			<view class="submit-wrap">
-				<button class="submit-btn" type="default" @tap="save">{{ allText.我的页.保存 }}</button>
+				<button class="submit-btn" type="default" @tap="save"><u-icon name="checkmark-circle-fill" color="#ffffff" size="25"></u-icon><text>{{ allText.我的页.保存 }}</text></button>
 			</view>
 			<u-gap height="48"></u-gap>
 		</scroll-view>
@@ -220,7 +231,7 @@ export default {
 	position: relative;
 	z-index: 1;
 	height: calc(100vh - 88rpx);
-	padding: 24rpx 24rpx calc(44rpx + env(safe-area-inset-bottom));
+	padding: 28rpx 24rpx calc(44rpx + env(safe-area-inset-bottom));
 	box-sizing: border-box;
 }
 
@@ -231,35 +242,27 @@ export default {
 	color: #236f82;
 }
 
-.intro-card,
 .avatar-card,
-.field-card,
-.tips-card {
+.profile-form {
 	position: relative;
-	margin-bottom: 20rpx;
-	padding: 28rpx;
-	border-radius: 24rpx;
-	background: rgba(255, 255, 255, 0.78);
-	border: 1rpx solid rgba(255, 255, 255, 0.68);
-	box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.1);
-	backdrop-filter: blur(18rpx);
-	-webkit-backdrop-filter: blur(18rpx);
+	border: 1rpx solid rgba(255, 255, 255, 0.84);
+	background: linear-gradient(145deg, rgba(255, 255, 255, 0.72) 0%, rgba(243, 251, 253, 0.52) 100%);
+	box-shadow: 0 22rpx 52rpx rgba(44, 83, 103, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.88);
+	backdrop-filter: blur(22rpx);
+	-webkit-backdrop-filter: blur(22rpx);
 	box-sizing: border-box;
 }
 
-.intro-card {
+.avatar-card {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 22rpx;
+	gap: 30rpx;
+	margin-bottom: 22rpx;
+	padding: 32rpx;
+	border-radius: 36rpx;
+	background: linear-gradient(135deg, rgba(255, 255, 255, 0.78) 0%, rgba(226, 245, 249, 0.58) 62%, rgba(255, 237, 246, 0.5) 100%);
 }
 
-.intro-copy {
-	flex: 1;
-	min-width: 0;
-}
-
-.intro-title,
 .section-title,
 .tips-title {
 	display: block;
@@ -267,12 +270,6 @@ export default {
 	font-weight: 800;
 }
 
-.intro-title {
-	font-size: 34rpx;
-	line-height: 1.35;
-}
-
-.intro-subtitle,
 .section-tip,
 .foot-note {
 	display: block;
@@ -280,22 +277,8 @@ export default {
 	line-height: 1.7;
 }
 
-.intro-subtitle {
-	margin-top: 12rpx;
-	font-size: 24rpx;
-}
-
-.intro-art {
-	width: 128rpx;
-	height: 128rpx;
-	border-radius: 32rpx;
-	border: 3rpx solid rgba(255, 255, 255, 0.86);
-	box-shadow: 0 16rpx 34rpx rgba(36, 70, 88, 0.12);
-	flex-shrink: 0;
-}
-
 .section-title {
-	font-size: 28rpx;
+	font-size: 29rpx;
 }
 
 .section-tip {
@@ -303,29 +286,93 @@ export default {
 	font-size: 24rpx;
 }
 
-.avatar-card {
-	text-align: center;
+.avatar-card-copy {
+	flex: 1;
+	min-width: 0;
+}
+
+.avatar-editor {
+	flex-shrink: 0;
 }
 
 .avatar-shell {
+	position: relative;
 	display: flex;
 	justify-content: center;
-	margin: 26rpx 0 14rpx;
 }
 
 .avatar {
-	width: 176rpx;
-	height: 176rpx;
+	width: 164rpx;
+	height: 164rpx;
 	border-radius: 50%;
 	border: 5rpx solid rgba(255, 255, 255, 0.92);
-	box-shadow: 0 18rpx 40rpx rgba(36, 70, 88, 0.14);
+	box-shadow: 0 20rpx 46rpx rgba(36, 70, 88, 0.16);
+}
+
+.avatar-camera {
+	position: absolute;
+	right: 2rpx;
+	bottom: 6rpx;
+	width: 48rpx;
+	height: 48rpx;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: #4f93a3;
+	border: 4rpx solid rgba(255, 255, 255, 0.94);
+	box-shadow: 0 10rpx 22rpx rgba(79, 147, 163, 0.24);
 }
 
 .avatar-action {
-	display: block;
-	font-size: 24rpx;
+	display: inline-flex;
+	align-items: center;
+	gap: 7rpx;
+	margin-top: 18rpx;
+	padding: 10rpx 16rpx;
+	border-radius: 999rpx;
+	font-size: 22rpx;
 	font-weight: 700;
-	color: #236f82;
+	color: #4f7f8e;
+	background: rgba(255, 255, 255, 0.54);
+	border: 1rpx solid rgba(79, 147, 163, 0.15);
+}
+
+.profile-form {
+	overflow: hidden;
+	margin-bottom: 20rpx;
+	padding: 6rpx 30rpx;
+	border-radius: 32rpx;
+}
+
+.form-section {
+	padding: 26rpx 0 30rpx;
+}
+
+.form-divider {
+	height: 1rpx;
+	background: linear-gradient(90deg, rgba(79, 147, 163, 0) 0%, rgba(79, 147, 163, 0.2) 18%, rgba(79, 147, 163, 0.2) 82%, rgba(79, 147, 163, 0) 100%);
+}
+
+.field-heading,
+.tips-heading {
+	display: flex;
+	align-items: center;
+	gap: 12rpx;
+}
+
+.field-heading-icon {
+	width: 48rpx;
+	height: 48rpx;
+	border-radius: 16rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(228, 246, 249, 0.9);
+}
+
+.field-heading-icon--pink {
+	background: rgba(255, 237, 246, 0.9);
 }
 
 .field-input,
@@ -333,9 +380,10 @@ export default {
 	width: 100%;
 	margin-top: 16rpx;
 	padding: 0 24rpx;
-	border-radius: 18rpx;
-	background: rgba(255, 255, 255, 0.7);
+	border-radius: 22rpx;
+	background: rgba(255, 255, 255, 0.6);
 	border: 1rpx solid rgba(79, 147, 163, 0.16);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.88);
 	box-sizing: border-box;
 	color: #203846;
 	font-size: 28rpx;
@@ -353,7 +401,15 @@ export default {
 }
 
 .tips-title {
-	font-size: 26rpx;
+	font-size: 24rpx;
+}
+
+.tips-strip {
+	margin-bottom: 20rpx;
+	padding: 20rpx 22rpx;
+	border-left: 6rpx solid rgba(79, 147, 163, 0.62);
+	border-radius: 0 22rpx 22rpx 0;
+	background: rgba(238, 249, 251, 0.52);
 }
 
 .foot-note {
@@ -362,14 +418,18 @@ export default {
 }
 
 .submit-wrap {
-	margin-top: 14rpx;
+	margin-top: 24rpx;
 }
 
 .submit-btn {
 	height: 92rpx;
 	border: none;
 	border-radius: 999rpx;
-	background: #3f8f9f;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10rpx;
+	background: linear-gradient(135deg, #4f93a3 0%, #72bdc8 100%);
 	box-shadow: 0 16rpx 32rpx rgba(48, 103, 117, 0.2);
 	color: #fff;
 	font-size: 30rpx;
@@ -378,5 +438,35 @@ export default {
 
 .submit-btn::after {
 	border: none;
+}
+
+@media (max-width: 420px) {
+	.avatar-card {
+		gap: 22rpx;
+		padding: 28rpx;
+	}
+
+	.avatar {
+		width: 138rpx;
+		height: 138rpx;
+	}
+
+	.section-tip {
+		font-size: 22rpx;
+	}
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.avatar-card,
+	.profile-form,
+	.submit-btn {
+		transition: transform 180ms ease, box-shadow 180ms ease;
+	}
+
+	.avatar-card:hover,
+	.profile-form:hover,
+	.submit-btn:hover {
+		transform: translateY(-2rpx);
+	}
 }
 </style>

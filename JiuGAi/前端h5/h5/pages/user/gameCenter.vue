@@ -6,7 +6,6 @@
 		<scroll-view class="game-scroll" scroll-y :show-scrollbar="false">
 			<view class="game-hero">
 				<view class="game-hero-copy">
-					<text class="game-kicker">GAME CENTER</text>
 					<text class="game-title">小游戏中心</text>
 					<text class="game-subtitle">轻量 HTML 小游戏，随时点开玩一局。</text>
 				</view>
@@ -214,12 +213,6 @@ export default {
 	display: flex;
 	flex-direction: column;
 	gap: 10rpx;
-}
-
-.game-kicker {
-	font-size: 21rpx;
-	font-weight: 900;
-	color: rgba(180, 222, 229, 0.94);
 }
 
 .game-title {

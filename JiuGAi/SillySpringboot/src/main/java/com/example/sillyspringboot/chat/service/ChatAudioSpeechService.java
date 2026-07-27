@@ -147,7 +147,8 @@ public class ChatAudioSpeechService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "语音内容不能为空");
         }
 
-        List<SpeechRuntime> runtimes = resolveRuntimes(userId);
+        List<SpeechRuntime> runtimes = prioritizeTemplateCompatibleRuntimes(
+                resolveRuntimes(userId), ttsVoiceTemplateCodeOverride, ttsOverrideProviderSource);
         BusinessException last = null;
         int attemptNo = 0;
         String telemetryRequestId = attemptTelemetry == null
@@ -187,6 +188,60 @@ public class ChatAudioSpeechService {
                 : last;
     }
 
+    public AudioSpeechResult synthesizePrivateUserVoice(long userId, String text, long userVoiceId) {
+        String safeText = normalizeSpeechText(text);
+        if (!StringUtils.hasText(safeText)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "试听文字不能为空");
+        }
+        if (userVoiceId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请选择要试听的自建音色");
+        }
+        List<SpeechRuntime> runtimes = resolveRuntimes(userId);
+        if (runtimes.size() != 1) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "自建音色试听必须使用你自己的硅基流动 API Key");
+        }
+        SpeechRuntime runtime = runtimes.get(0);
+        if (!runtime.customModeActive()
+                || !"siliconflow".equalsIgnoreCase(safe(runtime.providerSource()))) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "自建音色试听必须使用你自己的硅基流动 API Key");
+        }
+        return synthesizeAttempt(userId, safeText, "", "", "", userVoiceId, runtime);
+    }
+
+    private List<SpeechRuntime> prioritizeTemplateCompatibleRuntimes(
+            List<SpeechRuntime> runtimes,
+            String templateOverride,
+            String overrideProviderSource
+    ) {
+        if (runtimes == null || runtimes.size() < 2) {
+            return runtimes == null ? List.of() : runtimes;
+        }
+        List<SpeechRuntime> compatible = new ArrayList<>();
+        List<SpeechRuntime> fallback = new ArrayList<>();
+        for (SpeechRuntime runtime : runtimes) {
+            if (runtime.customModeActive()) {
+                fallback.add(runtime);
+                continue;
+            }
+            String requestedTemplate = providerScopeMatchesRuntime(overrideProviderSource, runtime.providerSource())
+                    ? firstNonBlank(templateOverride, runtime.voiceTemplateCode())
+                    : runtime.voiceTemplateCode();
+            TtsVoiceProvisionService.TtsRuntimeContext context = new TtsVoiceProvisionService.TtsRuntimeContext(
+                    false, runtime.providerSource(), runtime.baseUrl(), runtime.apiKey(), runtime.modelName());
+            if (StringUtils.hasText(requestedTemplate)
+                    && ttsVoiceProvisionService.isTemplateCompatible(requestedTemplate, context)) {
+                compatible.add(runtime);
+            } else {
+                fallback.add(runtime);
+            }
+        }
+        if (compatible.isEmpty()) {
+            return runtimes;
+        }
+        compatible.addAll(fallback);
+        return List.copyOf(compatible);
+    }
+
     private List<SpeechRuntime> resolveRuntimes(long userId) {
         H5UserAiProviderService.UserTtsSettings settings = userAiProviderService.resolveActiveTtsSettingsForUser(userId);
         if (settings != null) {
@@ -202,11 +257,16 @@ public class ChatAudioSpeechService {
         if (!routingService.isCapabilityEnabled(AiCapability.TTS)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "请先配置可用的自定义 API");
         }
+        H5UserAiProviderService.OfficialTtsVoicePreference preference =
+                userAiProviderService.resolveOfficialTtsVoicePreferenceForUser(userId);
         List<SpeechRuntime> runtimes = new ArrayList<>();
         for (AiRoutingService.ResolvedProvider provider : routingService.resolve(AiCapability.TTS)) {
+            String preferredVoiceName = isOfficialBuiltInVoiceAllowed(provider.modelName(), preference.voiceName())
+                    ? preference.voiceName()
+                    : provider.voiceName();
             runtimes.add(new SpeechRuntime(
                     provider.providerKey(), provider.vendor(), provider.baseUrl(), provider.apiKey(), provider.modelName(),
-                    provider.voiceName(), "", provider.deploymentId(), false,
+                    preferredVoiceName, preference.templateCode(), provider.deploymentId(), false,
                     provider.connectTimeoutSeconds(), provider.requestTimeoutSeconds()
             ));
         }
@@ -248,14 +308,19 @@ public class ChatAudioSpeechService {
             modelName = safe(resolvedVoice.modelName());
             configuredTemplateCode = "";
         } else if (StringUtils.hasText(configuredTemplateCode)) {
-            TtsVoiceProvisionService.ResolvedVoice resolvedVoice = ttsVoiceProvisionService.resolveVoiceForUser(
-                    userId,
-                    configuredTemplateCode,
-                    new TtsVoiceProvisionService.TtsRuntimeContext(
-                            runtime.customModeActive(), runtime.providerSource(), runtime.baseUrl(), runtime.apiKey(), modelName)
-            );
-            configuredVoice = safe(resolvedVoice.voiceUri());
-            modelName = safe(resolvedVoice.modelName());
+            TtsVoiceProvisionService.TtsRuntimeContext runtimeContext = new TtsVoiceProvisionService.TtsRuntimeContext(
+                    runtime.customModeActive(), runtime.providerSource(), runtime.baseUrl(), runtime.apiKey(), modelName);
+            // An official route may change after a user saved a preference. Keep speech available by
+            // falling back to the deployment voice when that old template no longer matches the route.
+            if (runtime.customModeActive()
+                    || ttsVoiceProvisionService.isTemplateCompatible(configuredTemplateCode, runtimeContext)) {
+                TtsVoiceProvisionService.ResolvedVoice resolvedVoice = ttsVoiceProvisionService.resolveVoiceForUser(
+                        userId, configuredTemplateCode, runtimeContext);
+                configuredVoice = safe(resolvedVoice.voiceUri());
+                modelName = safe(resolvedVoice.modelName());
+            } else {
+                configuredTemplateCode = "";
+            }
         }
         if (!StringUtils.hasText(modelName)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先配置语音合成模型");
@@ -357,18 +422,45 @@ public class ChatAudioSpeechService {
             String templateOverride
     ) {
         if (!customModeActive) {
-            return new SpeechSelection(safe(runtimeModel), safe(runtimeVoice), "");
+            boolean allowedVoiceOverride = isOfficialBuiltInVoiceAllowed(runtimeModel, voiceOverride);
+            String selectedVoice = allowedVoiceOverride
+                    ? safe(voiceOverride)
+                    : safe(runtimeVoice);
+            String selectedTemplate = StringUtils.hasText(templateOverride)
+                    ? safe(templateOverride)
+                    : (allowedVoiceOverride ? "" : safe(runtimeTemplate));
+            return new SpeechSelection(
+                    safe(runtimeModel),
+                    selectedVoice,
+                    selectedTemplate);
         }
+        boolean hasVoiceOverride = StringUtils.hasText(voiceOverride);
         return new SpeechSelection(
                 firstNonBlank(modelOverride, runtimeModel),
                 firstNonBlank(voiceOverride, runtimeVoice),
-                firstNonBlank(templateOverride, runtimeTemplate));
+                StringUtils.hasText(templateOverride)
+                        ? safe(templateOverride)
+                        : (hasVoiceOverride ? "" : safe(runtimeTemplate)));
     }
 
     static boolean providerScopeMatchesRuntime(String overrideProviderSource, String runtimeProviderSource) {
         if (!StringUtils.hasText(overrideProviderSource)) return true;
         return StringUtils.hasText(runtimeProviderSource)
                 && overrideProviderSource.trim().equalsIgnoreCase(runtimeProviderSource.trim());
+    }
+
+    static boolean isOfficialBuiltInVoiceAllowed(String modelName, String voiceName) {
+        String normalizedVoice = safe(voiceName).toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(normalizedVoice) || normalizedVoice.contains(":")) {
+            return false;
+        }
+        if (supportsOpenAiVoicePreset(modelName)) {
+            return OPENAI_VOICE_NAMES.contains(normalizedVoice);
+        }
+        if (supportsSiliconFlowVoicePreset(modelName)) {
+            return SILICONFLOW_VOICE_NAMES.contains(normalizedVoice);
+        }
+        return false;
     }
 
     private RestClient buildRestClient(
@@ -452,7 +544,7 @@ public class ChatAudioSpeechService {
         return voiceName;
     }
 
-    private boolean supportsOpenAiVoicePreset(String modelName) {
+    private static boolean supportsOpenAiVoicePreset(String modelName) {
         String text = safe(modelName).toLowerCase(Locale.ROOT);
         if (!StringUtils.hasText(text)) {
             return false;
@@ -463,7 +555,7 @@ public class ChatAudioSpeechService {
                 || text.matches(".*openai/.+tts.*");
     }
 
-    private boolean supportsSiliconFlowVoicePreset(String modelName) {
+    private static boolean supportsSiliconFlowVoicePreset(String modelName) {
         String text = safe(modelName).toLowerCase(Locale.ROOT);
         if (!StringUtils.hasText(text)) {
             return false;

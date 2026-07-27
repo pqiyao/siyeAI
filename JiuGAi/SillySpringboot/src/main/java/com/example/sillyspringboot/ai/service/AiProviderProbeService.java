@@ -461,28 +461,58 @@ public class AiProviderProbeService {
         }
     }
 
-    private static boolean capabilityMatches(String modelId, JsonNode item, AiCapability capability) {
-        StringBuilder haystack = new StringBuilder(modelId.toLowerCase(Locale.ROOT));
-        for (String field : List.of("type", "task", "modality", "architecture")) {
-            JsonNode value = item.path(field);
-            if (!value.isMissingNode()) {
-                haystack.append(' ').append(value.toString().toLowerCase(Locale.ROOT));
-            }
-        }
-        String text = haystack.toString();
-        boolean vision = containsAny(text, "vision", "visual", "multimodal", "qwen-vl", "qwen2-vl", "qwen2.5-vl",
-                "llava", "pixtral", "gpt-4o", "gpt-4.1", "gemini", "claude", "grok-vision");
-        boolean image = containsAny(text, "image-generation", "text-to-image", "dall-e", "flux", "stable-diffusion", "kolors", "sdxl")
-                || (!vision && containsAny(text, "image"));
-        boolean stt = containsAny(text, "whisper", "transcri", "speech-to-text", "speech2text", "stt", "asr", "sensevoice", "paraformer");
-        boolean tts = !stt && containsAny(text, "text-to-speech", "tts", "speech-synth", "cosyvoice", "fish-speech");
+    static boolean capabilityMatches(String modelId, JsonNode item, AiCapability capability) {
+        String text = modelMetadataText(modelId, item,
+                "display_name", "name", "owned_by", "type", "task", "modality", "modalities",
+                "architecture", "capabilities", "features", "tags", "input_modalities", "output_modalities",
+                "inputModalities", "outputModalities");
+        String inputText = modelMetadataText("", item, "input_modalities", "inputModalities", "input", "inputs");
+        String outputText = modelMetadataText("", item, "output_modalities", "outputModalities", "output", "outputs");
+
+        boolean vision = containsAny(inputText, "image", "vision", "visual") || containsAny(text,
+                "vision", "visual", "multimodal", "multi-modal", "qwen-vl", "qwen2-vl", "qwen2.5-vl",
+                "qwen3-vl", "qwen3vl", "qwen2vl", "qwen-omni", "qwen2.5-omni", "qwen3-omni",
+                "llava", "pixtral", "gpt-4o", "gpt-4.1", "gemini", "claude", "grok-vision",
+                "internvl", "minicpm-v", "minicpmv", "glm-4v", "glm4v", "deepseek-vl", "deepseekvl",
+                "llama-vision", "phi-vision", "molmo", "paligemma", "florence", "idefics", "cogvlm");
+        boolean image = containsAny(outputText, "image") || containsAny(text,
+                "image-generation", "text-to-image", "dall-e", "flux", "stable-diffusion", "kolors",
+                "sdxl", "sd-3", "sd3", "cogview", "hunyuan-image", "ideogram", "recraft", "seedream",
+                "imagen", "playground-v") || (!vision && containsAny(text, "image model", "image-model"));
+        boolean stt = containsAny(text,
+                "whisper", "transcri", "speech-to-text", "speech2text", "speech-recognition",
+                "audio-transcription", "-stt", "stt-", "/stt", "-asr", "asr-", "/asr",
+                "sensevoice", "paraformer", "funasr");
+        boolean tts = !stt && containsAny(text,
+                "text-to-speech", "speech-synth", "speech-generation", "audio-generation", "voice-clone",
+                "-tts", "tts-", "/tts", "cosyvoice", "fish-speech", "chattts", "chat-tts", "indextts",
+                "index-tts", "f5-tts", "melotts", "melo-tts", "gpt-sovits", "sovits", "bark", "spark-tts");
+        boolean video = containsAny(text,
+                "text-to-video", "image-to-video", "video-generation", "cogvideo", "hunyuanvideo",
+                "hunyuan-video", "ltx-video", "wan2.1", "wan2.2", "kling-video");
+        boolean nonGenerative = containsAny(text,
+                "rerank", "reranker", "embedding", "text-embedding", "jina-embeddings",
+                "bge-", "gte-", "e5-", "moderation", "reward-model", "clip-model");
         return switch (capability) {
             case IMAGE -> image;
             case VISION -> vision;
             case TTS -> tts;
             case STT -> stt;
-            case CHAT -> !image && !tts && !stt;
+            case CHAT -> !image && !tts && !stt && !video && !nonGenerative;
         };
+    }
+
+    private static String modelMetadataText(String modelId, JsonNode item, String... fields) {
+        StringBuilder haystack = new StringBuilder(modelId == null ? "" : modelId);
+        if (item != null) {
+            for (String field : fields) {
+                JsonNode value = item.path(field);
+                if (!value.isMissingNode() && !value.isNull()) {
+                    haystack.append(' ').append(value);
+                }
+            }
+        }
+        return haystack.toString().toLowerCase(Locale.ROOT);
     }
 
     static byte[] sttProbeWav() {

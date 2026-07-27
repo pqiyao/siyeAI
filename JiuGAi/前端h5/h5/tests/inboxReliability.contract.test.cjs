@@ -22,6 +22,7 @@ function readUtf8Strict(relativePath, requireNoBom = false) {
 
 for (const file of [
 	'pages/tavern/sessionManage.vue',
+	'pages/tavern/inboxAds.vue',
 	'common/tavernInboxBadge.js',
 	'pages/tavern/tavernInbox.vue',
 	'pages/index/index.vue',
@@ -49,6 +50,7 @@ assert.doesNotThrow(
 );
 
 for (const file of [
+	'pages/tavern/inboxAds.vue',
 	'pages/tavern/tavernInbox.vue',
 	'pages/index/index.vue',
 	'pages/chat/systemmsg.vue'
@@ -61,6 +63,22 @@ for (const file of [
 		.replace(/\bexport default\b/, 'const pageComponent =');
 	assert.doesNotThrow(() => new Function(compilableScript), `${file} JavaScript must be syntactically valid`);
 }
+
+const inboxAdsPage = readUtf8Strict('pages/tavern/inboxAds.vue');
+assert(
+	inboxAdsPage.includes("plus.runtime.openURL(link, () => this.copyExternalLink(link))"),
+	'APP external ads must open in the system browser and retain a copy fallback'
+);
+assert(
+	/copyExternalLink\(link\)[\s\S]*?uni\.setClipboardData\(\{[\s\S]*?data:\s*link/.test(inboxAdsPage),
+	'external ad fallback must actually copy the link'
+);
+const zhText = JSON.parse(readUtf8Strict('common/text/zh-cn.json'));
+assert.strictEqual(
+	zhText.\u9152\u9986\u9875.\u8bf7\u5728\u6d4f\u89c8\u5668\u6253\u5f00,
+	'\u94fe\u63a5\u5df2\u590d\u5236\uff0c\u8bf7\u5728\u6d4f\u89c8\u5668\u4e2d\u7c98\u8d34\u6253\u5f00',
+	'copy fallback must describe the completed action accurately'
+);
 
 function loadBadgeModule(noticeState, syncedTotals) {
 	const source = readUtf8Strict('common/tavernInboxBadge.js');

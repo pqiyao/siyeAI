@@ -73,7 +73,6 @@
 		</scroll-view>
 		<view v-if="rechargeEntryReady && !rechargeEntryVisible" class="project-notice-mask">
 			<view class="project-notice-card">
-				<text class="project-notice-tag">NOTICE</text>
 				<text class="project-notice-title">{{ projectNotice.title }}</text>
 				<text class="project-notice-desc">{{ projectNotice.message }}</text>
 				<view class="project-notice-actions">
@@ -829,20 +828,9 @@ export default {
 	box-shadow: 0 24rpx 72rpx rgba(15, 23, 42, 0.42);
 }
 
-.project-notice-tag {
-	display: inline-flex;
-	padding: 8rpx 18rpx;
-	border-radius: 999rpx;
-	font-size: 22rpx;
-	font-weight: 700;
-	letter-spacing: 1rpx;
-	color: #f8fafc;
-	background: rgba(99, 102, 241, 0.3);
-}
-
 .project-notice-title {
 	display: block;
-	margin-top: 18rpx;
+	margin-top: 0;
 	font-size: 36rpx;
 	font-weight: 700;
 	color: #fff;
@@ -944,11 +932,6 @@ export default {
 	box-shadow: 0 22rpx 52rpx rgba(67, 112, 142, 0.11);
 	backdrop-filter: blur(24rpx);
 	-webkit-backdrop-filter: blur(24rpx);
-}
-
-.project-notice-tag {
-	color: #247494;
-	background: rgba(220, 247, 251, 0.84);
 }
 
 .project-notice-title {

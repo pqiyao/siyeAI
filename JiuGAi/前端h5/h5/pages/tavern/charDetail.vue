@@ -8,7 +8,7 @@
 		<template v-else-if="char">
 			<view class="hero-stage">
 				<image class="detail-default-bg" src="/static/login.png" mode="aspectFill"></image>
-				<image class="hero-image" :class="{ 'hero-image--blur': isPreviewBlurActive(char) }" :src="heroCoverSrc" mode="aspectFit" lazy-load></image>
+				<image class="hero-image" :class="{ 'hero-image--blur': isPreviewBlurActive(char) }" :src="heroCoverSrc" mode="aspectFill" lazy-load></image>
 				<view
 					v-if="isPreviewBlurActive(char)"
 					class="hero-blur-surface"
@@ -30,22 +30,22 @@
 				</view>
 
 				<view class="chrome" :style="{ paddingTop: statusBarPx + 'px' }">
-					<view class="chrome-btn" @tap="goBack">{{ uiText.back }}</view>
+					<view class="chrome-btn" @tap="goBack"><u-icon name="arrow-left" color="#315f72" size="24"></u-icon><text>{{ uiText.back }}</text></view>
 					<view class="chrome-title-wrap">
 						<text class="chrome-main-title">{{ char.nickname }}</text>
 						<text class="chrome-sub-title">{{ uiText.subtitle }}</text>
 					</view>
-					<view class="chrome-btn chrome-btn--ghost" @tap="onMore">{{ uiText.more }}</view>
+					<view class="chrome-btn chrome-btn--ghost" @tap="onMore"><u-icon name="more-dot-fill" color="#315f72" size="26"></u-icon><text>{{ uiText.more }}</text></view>
 				</view>
 			</view>
 
 			<view class="chrome chrome--floating" :style="{ paddingTop: statusBarPx + 'px' }">
-				<view class="chrome-btn" @tap="goBack">{{ uiText.back }}</view>
+				<view class="chrome-btn" @tap="goBack"><u-icon name="arrow-left" color="#315f72" size="24"></u-icon><text>{{ uiText.back }}</text></view>
 				<view class="chrome-title-wrap">
 					<text class="chrome-main-title">{{ char.nickname }}</text>
 					<text class="chrome-sub-title">{{ uiText.subtitle }}</text>
 				</view>
-				<view class="chrome-btn chrome-btn--ghost" @tap="onMore">{{ uiText.more }}</view>
+				<view class="chrome-btn chrome-btn--ghost" @tap="onMore"><u-icon name="more-dot-fill" color="#315f72" size="26"></u-icon><text>{{ uiText.more }}</text></view>
 			</view>
 
 			<scroll-view scroll-y class="page-scroll" :show-scrollbar="false" enable-back-to-top>
@@ -78,15 +78,15 @@
 						<view class="panel-glass action-panel">
 							<view class="action-row">
 								<view class="action-pill" :class="{ on: voteLikeOn }" @tap="bumpLike">
-									<text class="action-pill-icon">♥</text>
+									<view class="action-pill-icon"><u-icon name="heart-fill" color="#4f93a3" size="24"></u-icon></view>
 									<text class="action-pill-text">{{ displayLike }}</text>
 								</view>
 								<view class="action-pill" :class="{ on: voteDislikeOn }" @tap="bumpDislike">
-									<text class="action-pill-icon">×</text>
+									<view class="action-pill-icon"><u-icon name="thumb-down-fill" color="#4f93a3" size="24"></u-icon></view>
 									<text class="action-pill-text">{{ displayDislike }}</text>
 								</view>
 								<view class="action-pill action-pill--wide" :class="{ on: localFav }" @tap="toggleFav">
-									<text class="action-pill-icon">★</text>
+									<view class="action-pill-icon"><u-icon name="star-fill" color="#b65f83" size="24"></u-icon></view>
 									<text class="action-pill-text">{{ localFav ? uiText.favorited : uiText.favorite }}</text>
 								</view>
 							</view>
@@ -1870,5 +1870,309 @@ export default {
 
 .cta-panel {
 	background: rgba(255, 255, 255, 0.84);
+}
+
+/* Character detail: soft editorial glass finish. */
+.chrome-btn {
+	gap: 8rpx;
+	min-width: 104rpx;
+	height: 64rpx;
+	border-radius: 24rpx;
+	color: #315f72;
+	box-shadow: 0 12rpx 28rpx rgba(35, 76, 98, 0.12);
+}
+
+.sheet-shell {
+	padding: 0 22rpx 30rpx;
+}
+
+.sheet-card {
+	border-radius: 44rpx 44rpx 0 0;
+	background: linear-gradient(180deg, rgba(238, 248, 251, 0.86) 0%, rgba(251, 246, 249, 0.74) 100%);
+	border-color: rgba(255, 255, 255, 0.82);
+	box-shadow: 0 -18rpx 50rpx rgba(47, 88, 112, 0.12);
+	backdrop-filter: blur(30rpx);
+	-webkit-backdrop-filter: blur(30rpx);
+}
+
+.sheet-handle {
+	width: 88rpx;
+	height: 8rpx;
+	margin-top: 18rpx;
+	background: rgba(79, 147, 163, 0.26);
+}
+
+.panel-glass {
+	margin: 0 18rpx 20rpx;
+	padding: 28rpx;
+	border-radius: 30rpx;
+	background: linear-gradient(145deg, rgba(255, 255, 255, 0.86) 0%, rgba(249, 253, 254, 0.66) 100%);
+	border: 1rpx solid rgba(255, 255, 255, 0.92);
+	box-shadow: 0 20rpx 46rpx rgba(52, 94, 118, 0.1), inset 0 1rpx 0 rgba(255, 255, 255, 0.88);
+}
+
+.lead-meta-item,
+.opening-preview,
+.privacy-card,
+.detail-item,
+.mode-item {
+	border-radius: 22rpx;
+}
+
+.action-row {
+	gap: 14rpx;
+}
+
+.action-pill {
+	height: 80rpx;
+	border-radius: 24rpx;
+	box-shadow: 0 10rpx 24rpx rgba(52, 94, 118, 0.08);
+}
+
+.info-row {
+	padding: 17rpx 0;
+}
+
+.cta-panel {
+	border-radius: 30rpx;
+	box-shadow: 0 20rpx 48rpx rgba(52, 94, 118, 0.15);
+	backdrop-filter: blur(22rpx);
+	-webkit-backdrop-filter: blur(22rpx);
+}
+
+.cta-btn {
+	border-radius: 999rpx;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.action-pill,
+	.mode-item,
+	.cta-btn {
+		transition: transform 180ms ease, box-shadow 180ms ease;
+	}
+
+	.action-pill:hover,
+	.mode-item:hover,
+	.cta-btn:hover {
+		transform: translateY(-2rpx);
+	}
+}
+
+/* Character detail v3: full-bleed cover with translucent glass layers. */
+.hero-stage {
+	inset: 0 0 auto;
+	height: 68vh;
+	min-height: 780rpx;
+	background-attachment: scroll;
+}
+
+.hero-image {
+	object-fit: cover;
+	object-position: center center;
+}
+
+.hero-mask {
+	background:
+		linear-gradient(180deg, rgba(20, 43, 57, 0.2) 0%, rgba(20, 43, 57, 0.02) 30%, rgba(20, 43, 57, 0.02) 64%, rgba(20, 43, 57, 0.36) 100%);
+}
+
+.hero-fade {
+	height: 300rpx;
+	background: linear-gradient(180deg, rgba(228, 243, 248, 0) 0%, rgba(225, 242, 247, 0.62) 70%, rgba(229, 244, 248, 0.9) 100%);
+}
+
+.hero-identity {
+	left: 34rpx;
+	right: 34rpx;
+	bottom: 13vh;
+	gap: 10rpx;
+}
+
+.hero-eyebrow,
+.hero-chip {
+	color: #274f61;
+	background: rgba(255, 255, 255, 0.58);
+	border-color: rgba(255, 255, 255, 0.74);
+	box-shadow: 0 12rpx 30rpx rgba(23, 57, 75, 0.14);
+	backdrop-filter: blur(18rpx);
+	-webkit-backdrop-filter: blur(18rpx);
+}
+
+.hero-name {
+	font-size: 58rpx;
+	color: #ffffff;
+	text-shadow: 0 6rpx 26rpx rgba(15, 41, 56, 0.42);
+}
+
+.hero-one-line {
+	color: rgba(255, 255, 255, 0.96);
+	text-shadow: 0 4rpx 18rpx rgba(15, 41, 56, 0.46);
+}
+
+.chrome {
+	padding-left: 24rpx;
+	padding-right: 24rpx;
+	padding-bottom: 14rpx;
+	background: transparent;
+}
+
+.chrome-btn,
+.chrome-title-wrap {
+	border: 1rpx solid rgba(255, 255, 255, 0.72);
+	background: rgba(255, 255, 255, 0.58);
+	box-shadow: 0 14rpx 34rpx rgba(23, 57, 75, 0.16), inset 0 1rpx 0 rgba(255, 255, 255, 0.8);
+	backdrop-filter: blur(22rpx);
+	-webkit-backdrop-filter: blur(22rpx);
+}
+
+.chrome-title-wrap {
+	max-width: 360rpx;
+	padding: 10rpx 24rpx;
+	border-radius: 24rpx;
+}
+
+.chrome-main-title {
+	max-width: 300rpx;
+	font-size: 30rpx;
+	color: #203846;
+}
+
+.chrome-sub-title {
+	color: #647b8b;
+}
+
+.sheet-spacer {
+	height: 58vh;
+	min-height: 700rpx;
+}
+
+.sheet-shell {
+	padding: 0 18rpx 30rpx;
+}
+
+.sheet-card {
+	overflow: hidden;
+	border-radius: 46rpx 46rpx 0 0;
+	background: linear-gradient(150deg, rgba(237, 249, 252, 0.5) 0%, rgba(255, 245, 249, 0.42) 100%);
+	border: 1rpx solid rgba(255, 255, 255, 0.72);
+	box-shadow: 0 -20rpx 56rpx rgba(36, 76, 98, 0.16), inset 0 1rpx 0 rgba(255, 255, 255, 0.82);
+	backdrop-filter: blur(30px) saturate(1.08);
+	-webkit-backdrop-filter: blur(30px) saturate(1.08);
+}
+
+.sheet-handle {
+	width: 94rpx;
+	height: 8rpx;
+	margin: 18rpx auto 16rpx;
+	background: rgba(79, 147, 163, 0.32);
+}
+
+.panel-glass {
+	margin: 0 18rpx 20rpx;
+	padding: 28rpx;
+	border-radius: 32rpx;
+	background: linear-gradient(145deg, rgba(255, 255, 255, 0.58) 0%, rgba(247, 252, 254, 0.34) 100%);
+	border: 1rpx solid rgba(255, 255, 255, 0.74);
+	box-shadow: 0 18rpx 44rpx rgba(48, 91, 114, 0.1), inset 0 1rpx 0 rgba(255, 255, 255, 0.78);
+	backdrop-filter: blur(22px) saturate(1.06);
+	-webkit-backdrop-filter: blur(22px) saturate(1.06);
+}
+
+.lead-panel {
+	background: linear-gradient(135deg, rgba(255, 255, 255, 0.62) 0%, rgba(228, 246, 250, 0.42) 62%, rgba(255, 238, 246, 0.38) 100%);
+}
+
+.lead-meta-item,
+.opening-preview,
+.privacy-card,
+.detail-item,
+.mode-item,
+.action-pill {
+	background: rgba(255, 255, 255, 0.38);
+	border-color: rgba(255, 255, 255, 0.64);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.72);
+	backdrop-filter: blur(16rpx);
+	-webkit-backdrop-filter: blur(16rpx);
+}
+
+.opening-preview {
+	background: linear-gradient(135deg, rgba(234, 248, 251, 0.46) 0%, rgba(255, 240, 247, 0.42) 100%);
+}
+
+.action-pill.on,
+.tag-chip,
+.mode-icon {
+	background: rgba(222, 245, 249, 0.58);
+	border-color: rgba(79, 147, 163, 0.24);
+}
+
+.lead-title,
+.block-title,
+.lead-meta-value,
+.opening-preview-title,
+.info-value,
+.privacy-title,
+.detail-item-value,
+.mode-name,
+.cta-title {
+	color: #203846;
+}
+
+.lead-desc,
+.lead-meta-label,
+.opening-preview-text,
+.info-label,
+.intro-summary,
+.privacy-desc,
+.detail-item-label,
+.mode-sub,
+.note-item,
+.note-desc,
+.cta-desc {
+	color: #607786;
+}
+
+.cta-shell {
+	padding: 20rpx 22rpx calc(22rpx + env(safe-area-inset-bottom));
+	background: linear-gradient(180deg, rgba(228, 243, 248, 0) 0%, rgba(228, 243, 248, 0.32) 34%, rgba(237, 247, 250, 0.64) 100%);
+}
+
+.cta-panel {
+	padding: 20rpx;
+	border-radius: 32rpx;
+	background: rgba(255, 255, 255, 0.58);
+	border: 1rpx solid rgba(255, 255, 255, 0.76);
+	box-shadow: 0 22rpx 54rpx rgba(36, 76, 98, 0.16), inset 0 1rpx 0 rgba(255, 255, 255, 0.82);
+	backdrop-filter: blur(26px) saturate(1.08);
+	-webkit-backdrop-filter: blur(26px) saturate(1.08);
+}
+
+.cta-btn,
+.cta-btn--vip {
+	border-radius: 999rpx;
+	background: linear-gradient(135deg, #4f93a3 0%, #76bec8 66%, #d98cae 100%);
+	box-shadow: 0 16rpx 34rpx rgba(79, 147, 163, 0.22);
+}
+
+@media (max-width: 420px) {
+	.hero-stage {
+		height: 64vh;
+		min-height: 700rpx;
+	}
+
+	.sheet-spacer {
+		height: 55vh;
+		min-height: 640rpx;
+	}
+
+	.chrome-title-wrap {
+		max-width: 290rpx;
+		padding-left: 16rpx;
+		padding-right: 16rpx;
+	}
+
+	.chrome-main-title {
+		max-width: 230rpx;
+	}
 }
 </style>

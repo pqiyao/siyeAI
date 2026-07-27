@@ -36,9 +36,10 @@
 						v-if="voiceFeatureEnabledGlobal !== false"
 						class="nav-voice-config"
 						:class="{ 'nav-voice-config--active': isCharacterVoiceConfigCustomized() }"
+						title="角色语音"
 						@tap="openCharacterVoicePanel"
 					>
-						<image class="nav-voice-config-icon" :src="characterVoiceIcon" mode="aspectFit"></image>
+						<u-icon class="nav-voice-config-icon" name="mic" size="30" color="#47758a"></u-icon>
 					</view>
 					<view class="nav-appearance-config" title="聊天显示" @tap="goAppearanceSetting">
 						<u-icon name="setting" size="34" color="#ffffff"></u-icon>
@@ -59,17 +60,6 @@
 		</view>
 
 		<template v-else>
-			<view
-				v-if="jgOn && jgChatLoadState === 'ready' && chatModelCatalog.enabled"
-				class="chat-model-bar"
-				:class="{ 'chat-model-bar--disabled': sending || chatModelCatalog.loading }"
-				@tap="openChatModelPicker"
-			>
-				<view class="chat-model-bar__source">{{ currentChatModelSourceLabel }}</view>
-				<text class="chat-model-bar__name">{{ currentChatModelName }}</text>
-				<text v-if="currentChatModelPrice" class="chat-model-bar__price">{{ currentChatModelPrice }}</text>
-				<u-icon name="arrow-down" size="22" color="#dbe7ef"></u-icon>
-			</view>
 			<view v-if="jgOn" class="tool-bar">
 				<text class="tool-i" :class="{ 'tool-i--disabled': !assistantTailActionState().ok }" @tap="onRegen">{{ chatUi.regen }}</text>
 				<text class="tool-i" :class="{ 'tool-i--disabled': !assistantTailActionState().ok }" @tap="onContinue">{{ chatUi.continue }}</text>
@@ -804,18 +794,23 @@
 			<view class="character-voice-sheet" :style="characterVoiceSheetInlineStyle()" @tap.stop>
 				<view class="character-voice-sheet-top">
 					<view class="character-voice-sheet-head">
-						<image class="character-voice-avatar" :src="charAvatar" mode="aspectFill" lazy-load></image>
+						<view class="character-voice-avatar-shell">
+							<image class="character-voice-avatar" :src="charAvatar" mode="aspectFill" lazy-load></image>
+							<view class="character-voice-avatar-badge"><u-icon name="volume-fill" color="#ffffff" size="20"></u-icon></view>
+						</view>
 						<view class="character-voice-head-copy">
 							<text class="character-voice-title">{{ tx('character_voice_title', '角色语音') }}</text>
-							<text class="character-voice-sub">{{ tx('character_voice_sub', '这里只覆盖当前角色的 TTS 模型、音色和自动播放') }}</text>
+							<text class="character-voice-sub">{{ tx('character_voice_sub', '为当前角色选择音色和播放方式') }}</text>
 						</view>
+						<view class="character-voice-wave" aria-hidden="true"><text></text><text></text><text></text><text></text><text></text></view>
 					</view>
-					<text class="character-voice-close" @tap="closeCharacterVoicePanel">×</text>
+					<view class="character-voice-close" title="关闭" @tap="closeCharacterVoicePanel"><u-icon name="close" color="#526d7c" size="28"></u-icon></view>
 				</view>
 				<scroll-view class="character-voice-scroll" :style="characterVoiceScrollInlineStyle()" scroll-y :show-scrollbar="false">
 					<view class="character-voice-scroll-body">
 				<view class="character-voice-global-card">
 					<view class="character-voice-global-head">
+						<view class="character-voice-section-icon"><u-icon name="setting-fill" color="#347f97" size="24"></u-icon></view>
 						<view class="character-voice-global-copy">
 							<text class="character-voice-global-title">{{ tx('character_voice_global_title', '当前全局 TTS') }}</text>
 							<text class="character-voice-global-sub">{{ characterVoiceGlobalModeText() }}</text>
@@ -892,22 +887,72 @@
 						confirm-type="done"
 					/>
 				</view>
-				<view v-if="characterVoiceGlobalState.mode === 'custom'" class="character-voice-field" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
+				<view class="character-voice-field" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
 					<view class="character-voice-label-row">
 						<text class="character-voice-label">{{ tx('character_voice_voice', '音色') }}</text>
-						<text
-							v-if="characterVoicePanelVoiceTemplates.length"
-							class="character-voice-meta"
-						>
-							{{ characterVoicePanelVoiceTemplates.length }}
-						</text>
-						<text v-else-if="characterVoicePanelVoicePresets.length" class="character-voice-meta">
-							{{ characterVoicePanelVoicePresets.length }}
+						<text class="character-voice-meta">
+							{{ characterVoiceCatalogState.loading ? '读取中' : (characterVoicePanelCatalogCount + ' 项') }}
 						</text>
 					</view>
-					<text class="character-voice-template-intro">{{ characterVoiceTemplateIntroText() }}</text>
+					<view v-if="characterVoiceCatalogState.error" class="character-voice-catalog-state character-voice-catalog-state--error">
+						<text>{{ characterVoiceCatalogState.error }}</text>
+						<text class="character-voice-catalog-retry" @tap="refreshCharacterVoiceCatalog(true, true)">重新读取</text>
+					</view>
+					<text v-else-if="characterVoiceCatalogState.loading" class="character-voice-catalog-state">正在读取官方音色和我的音色...</text>
+
+					<view
+						class="character-voice-choice"
+						:class="{ 'character-voice-choice--active': isCharacterVoiceFollowingGlobal() }"
+						@tap="selectCharacterVoiceFollowGlobal"
+					>
+						<view class="character-voice-choice-icon"><u-icon name="home-fill" color="#347f97" size="24"></u-icon></view>
+						<view class="character-voice-choice-copy">
+							<text class="character-voice-choice-title">跟随全局音色</text>
+							<text class="character-voice-choice-desc">使用 AI 设置中当前生效的音色</text>
+						</view>
+						<u-icon v-if="isCharacterVoiceFollowingGlobal()" name="checkbox-mark" color="#347f97" size="26"></u-icon>
+					</view>
+
+					<view v-if="characterVoiceGlobalState.mode === 'custom' && characterVoicePanelPrivateVoices.length" class="character-voice-catalog-group">
+						<view class="character-voice-catalog-group-head">
+							<text class="character-voice-catalog-title">我的自建音色</text>
+							<text class="character-voice-catalog-count">{{ characterVoicePanelPrivateVoices.length }}</text>
+						</view>
+						<view class="character-voice-private-list">
+							<view
+								v-for="voice in characterVoicePanelPrivateVoices"
+								:key="'character_private_voice_' + voice.id"
+								class="character-voice-choice character-voice-choice--compact"
+								:class="{
+									'character-voice-choice--active': isCharacterPrivateVoiceSelected(voice),
+									'character-voice-choice--unavailable': !voice.available
+								}"
+								@tap="selectCharacterPrivateVoice(voice)"
+							>
+								<view class="character-voice-choice-icon character-voice-choice-icon--private"><u-icon name="mic" color="#8d6780" size="24"></u-icon></view>
+								<view class="character-voice-choice-copy">
+									<text class="character-voice-choice-title">{{ voice.displayName || ('我的音色 ' + voice.id) }}</text>
+									<text class="character-voice-choice-desc">{{ voice.available ? '当前可用' : (voice.statusText || '当前不可用') }}</text>
+								</view>
+								<u-icon v-if="isCharacterPrivateVoiceSelected(voice)" name="checkbox-mark" color="#347f97" size="26"></u-icon>
+							</view>
+						</view>
+					</view>
+					<view
+						v-else-if="characterVoiceGlobalState.mode === 'custom' && canManageCharacterUserVoices() && characterVoiceCatalogState.loaded"
+						class="character-voice-empty"
+					>
+						<text>还没有可用的自建音色</text>
+						<text class="character-voice-empty-action" @tap="goCharacterUserVoices">管理我的音色</text>
+					</view>
+
+					<view v-if="characterVoicePanelVoiceTemplates.length" class="character-voice-catalog-group">
+						<view class="character-voice-catalog-group-head">
+							<text class="character-voice-catalog-title">官方音色</text>
+							<text class="character-voice-catalog-count">{{ characterVoicePanelVoiceTemplates.length }}</text>
+						</view>
+						<text class="character-voice-template-intro">{{ characterVoiceTemplateIntroText() }}</text>
 					<scroll-view
-						v-if="characterVoicePanelVoiceTemplates.length"
 						class="character-voice-template-scroll"
 						scroll-y
 						:show-scrollbar="false"
@@ -942,33 +987,41 @@
 							</view>
 						</view>
 					</scroll-view>
-					<view v-if="characterVoicePanel.ttsVoiceTemplateCode" class="character-voice-template-active">
-						<view class="character-voice-template-active__copy">
-							<text class="character-voice-template-active__title">{{ characterVoiceSelectedTemplateTitleText() }}</text>
-							<text class="character-voice-template-active__desc">{{ characterVoiceSelectedTemplateStatusText() }}</text>
-						</view>
-						<text class="character-voice-template-active__switch" @tap.stop="clearCharacterVoiceTemplateSelection">改为手填 ID</text>
 					</view>
-					<view v-else class="character-voice-manual-box">
-						<text class="character-voice-manual-label">高级音色 ID</text>
-						<input
-							class="character-voice-input"
-							v-model="characterVoicePanel.ttsVoiceName"
-							:disabled="!characterVoicePanel.enabled || characterVoicePanel.saving"
-							:placeholder="characterVoiceVoicePlaceholder()"
-							confirm-type="done"
-						/>
-						<scroll-view v-if="characterVoicePanelVoicePresets.length" class="character-voice-chip-scroll" scroll-y :show-scrollbar="false">
+
+					<view v-if="characterVoicePanelVoicePresets.length" class="character-voice-catalog-group">
+						<text class="character-voice-catalog-title">平台常用音色</text>
+						<scroll-view class="character-voice-chip-scroll" scroll-y :show-scrollbar="false">
 							<view class="character-voice-chip-row">
 								<text
 									v-for="voice in characterVoicePanelVoicePresets"
-									:key="'voice_preset_' + voice"
+									:key="(characterVoiceGlobalState.mode === 'custom' ? 'voice_preset_' : 'official_voice_preset_') + voice"
 									class="character-voice-chip"
 									:class="{ 'character-voice-chip--active': normalizeCharacterVoiceText(characterVoicePanel.ttsVoiceName).toLowerCase() === String(voice).toLowerCase() }"
 									@tap="selectCharacterVoicePreset(voice)"
 								>{{ voice }}</text>
 							</view>
 						</scroll-view>
+					</view>
+
+					<view v-if="characterVoiceGlobalState.mode === 'custom'" class="character-voice-advanced">
+						<view class="character-voice-advanced-toggle" @tap="toggleCharacterVoiceAdvanced">
+							<view class="character-voice-choice-copy">
+								<text class="character-voice-advanced-title">其他音色 ID</text>
+								<text class="character-voice-choice-desc">仅在列表中没有目标音色时使用</text>
+							</view>
+							<u-icon :name="characterVoicePanel.advancedOpen ? 'arrow-up' : 'arrow-down'" color="#607b89" size="22"></u-icon>
+						</view>
+						<view v-if="characterVoicePanel.advancedOpen" class="character-voice-manual-box">
+							<input
+								class="character-voice-input"
+								:value="characterVoicePanel.ttsVoiceName"
+								:disabled="!characterVoicePanel.enabled || characterVoicePanel.saving"
+								:placeholder="characterVoiceVoicePlaceholder()"
+								confirm-type="done"
+								@input="updateCharacterVoiceManual($event.detail.value)"
+							/>
+						</view>
 					</view>
 					<text class="character-voice-hint">{{ characterVoiceVoiceHintText() }}</text>
 				</view>
@@ -1172,30 +1225,36 @@
 		</view>
 		<view v-if="chatModelPicker.visible" class="chat-model-picker-mask" @tap="closeChatModelPicker" @touchmove.stop.prevent>
 			<view class="chat-model-picker" @tap.stop>
-				<view class="chat-model-picker__handle"></view>
 				<view class="chat-model-picker__head">
-					<view>
-						<text class="chat-model-picker__title">选择聊天模型</text>
-						<text class="chat-model-picker__subtitle">本次选择只改变模型，不改变角色卡、世界书和记忆</text>
+					<view class="chat-model-picker__heading">
+						<view class="chat-model-picker__heading-copy">
+							<text class="chat-model-picker__title">切换模型</text>
+							<text class="chat-model-picker__subtitle">为下一条回复选择</text>
+						</view>
 					</view>
-					<text class="chat-model-picker__close" @tap="closeChatModelPicker">×</text>
+					<view class="chat-model-picker__close" title="关闭" aria-label="关闭" @tap="closeChatModelPicker">
+						<u-icon name="close" size="28" color="#48616d"></u-icon>
+					</view>
 				</view>
 				<view class="chat-model-picker__tabs">
 					<view
 						class="chat-model-picker__tab"
 						:class="{ 'chat-model-picker__tab--active': chatModelPicker.tab === 'SYSTEM' }"
 						@tap="setChatModelPickerTab('SYSTEM')"
-					>平台模型 {{ chatModelCatalog.platformModels.length }}</view>
+					>
+						<u-icon name="grid-fill" :color="chatModelPicker.tab === 'SYSTEM' ? '#315f72' : '#78909b'" size="22"></u-icon>
+						<text>平台模型</text>
+						<text class="chat-model-picker__tab-count">{{ chatModelCatalog.platformModels.length }}</text>
+					</view>
 					<view
 						class="chat-model-picker__tab"
 						:class="{ 'chat-model-picker__tab--active': chatModelPicker.tab === 'BYOK' }"
 						@tap="setChatModelPickerTab('BYOK')"
-					>我的 API {{ chatModelCatalog.byokModels.length }}</view>
-				</view>
-				<view class="chat-model-picker__search">
-					<u-icon name="search" size="28" color="#6b7f8d"></u-icon>
-					<input v-model="chatModelPicker.search" maxlength="80" placeholder="搜索模型名称或特点" />
-					<text v-if="chatModelPicker.search" @tap="chatModelPicker.search = ''">清除</text>
+					>
+						<u-icon name="setting-fill" :color="chatModelPicker.tab === 'BYOK' ? '#315f72' : '#78909b'" size="22"></u-icon>
+						<text>我的 API</text>
+						<text class="chat-model-picker__tab-count">{{ chatModelCatalog.byokModels.length }}</text>
+					</view>
 				</view>
 				<scroll-view class="chat-model-picker__list" scroll-y :show-scrollbar="false">
 					<view
@@ -1209,38 +1268,82 @@
 						}"
 						@tap="selectChatModelItem(item)"
 					>
-						<view class="chat-model-option__top">
-							<view class="chat-model-option__identity">
-								<text class="chat-model-option__name">{{ item.displayName || item.modelName }}</text>
-								<text v-if="item.badge" class="chat-model-option__badge">{{ item.badge }}</text>
-								<text v-if="isCurrentChatModel(item)" class="chat-model-option__selected">当前</text>
+						<view class="chat-model-option__main">
+							<view class="chat-model-option__avatar" :class="{ 'chat-model-option__avatar--byok': item._source === 'BYOK' }">
+								<u-icon :name="item._source === 'BYOK' ? 'setting-fill' : 'server-fill'" size="25" color="#ffffff"></u-icon>
 							</view>
-							<text class="chat-model-option__price">{{ chatModelItemPrice(item) }}</text>
+							<view class="chat-model-option__body">
+								<view class="chat-model-option__title-row">
+									<text class="chat-model-option__name">{{ item.displayName || item.modelName }}</text>
+									<text v-if="item.badge" class="chat-model-option__badge">{{ item.badge }}</text>
+								</view>
+								<text v-if="item.shortDescription" class="chat-model-option__desc">{{ item.shortDescription }}</text>
+								<text v-else-if="item._source === 'BYOK'" class="chat-model-option__desc chat-model-option__desc--mono">{{ item.modelName }}</text>
+							</view>
+							<view class="chat-model-option__side">
+								<text class="chat-model-option__price">{{ chatModelItemPrice(item) }}</text>
+								<view v-if="isCurrentChatModel(item)" class="chat-model-option__selected">
+									<u-icon name="checkbox-mark" size="18" color="#ffffff"></u-icon>
+									<text>当前</text>
+								</view>
+							</view>
 						</view>
-						<text v-if="item.shortDescription" class="chat-model-option__desc">{{ item.shortDescription }}</text>
-						<text v-else-if="item._source === 'BYOK'" class="chat-model-option__desc chat-model-option__desc--mono">{{ item.modelName }}</text>
-						<view v-if="item._source === 'SYSTEM'" class="chat-model-option__meta">
-							<text>{{ chatModelLevelText('质量', item.qualityLevel) }}</text>
-							<text>{{ chatModelLevelText('速度', item.speedLevel) }}</text>
-							<text v-if="item.contextLabel">{{ item.contextLabel }}</text>
-							<text v-for="tag in (item.tags || []).slice(0, 3)" :key="item._ref + '_' + tag">{{ tag }}</text>
+						<view v-if="item._source === 'SYSTEM'" class="chat-model-option__signals">
+							<view class="chat-model-signal">
+								<text class="chat-model-signal__label">质量</text>
+								<view class="chat-model-signal__bars">
+									<view
+										v-for="level in 5"
+										:key="item._ref + '_quality_' + level"
+										class="chat-model-signal__bar"
+										:class="{ 'chat-model-signal__bar--active': level <= chatModelLevel(item.qualityLevel) }"
+									></view>
+								</view>
+							</view>
+							<view class="chat-model-signal">
+								<text class="chat-model-signal__label">速度</text>
+								<view class="chat-model-signal__bars">
+									<view
+										v-for="level in 5"
+										:key="item._ref + '_speed_' + level"
+										class="chat-model-signal__bar"
+										:class="{ 'chat-model-signal__bar--active': level <= chatModelLevel(item.speedLevel) }"
+									></view>
+								</view>
+							</view>
+							<text v-if="item.contextLabel" class="chat-model-option__context">{{ item.contextLabel }}</text>
+							<text v-for="tag in (item.tags || []).slice(0, 2)" :key="item._ref + '_' + tag" class="chat-model-option__tag">{{ tag }}</text>
 						</view>
 						<text v-if="item.available === false" class="chat-model-option__reason">{{ item.unavailableReason || '暂不可用' }}</text>
 					</view>
 					<view v-if="!visibleChatModelItems.length" class="chat-model-picker__empty">
+						<view class="chat-model-picker__empty-icon"><u-icon :name="chatModelPicker.search ? 'search' : 'server-fill'" size="34" color="#4f93a3"></u-icon></view>
 						<text>{{ chatModelPicker.search ? '没有找到匹配模型' : (chatModelPicker.tab === 'BYOK' ? '还没有保存自定义聊天模型' : '平台暂未发布可选模型') }}</text>
 						<text v-if="chatModelPicker.tab === 'BYOK' && !chatModelPicker.search" class="chat-model-picker__settings" @tap="goAiSettings">前往 AI 设置</text>
 					</view>
 				</scroll-view>
-				<view v-if="chatModelPicker.tab === 'SYSTEM'" class="chat-model-picker__wallet">
-					<text>余额</text>
-					<text>{{ chatModelCatalog.wallet.diamonds || 0 }} 钻石</text>
-					<text>{{ chatModelCatalog.wallet.gold || 0 }} 金币</text>
+				<view class="chat-model-picker__footer">
+					<view v-if="chatModelPicker.tab === 'SYSTEM'" class="chat-model-picker__wallet">
+						<view class="chat-model-picker__wallet-label">
+							<text>平台余额</text>
+							<text>按次扣除</text>
+						</view>
+						<view class="chat-model-picker__wallet-balance chat-model-picker__wallet-balance--diamond"><u-icon name="integral-fill" size="21" color="#4f93a3"></u-icon><text>{{ chatModelCatalog.wallet.diamonds || 0 }} 钻石</text></view>
+						<view class="chat-model-picker__wallet-balance chat-model-picker__wallet-balance--coin"><u-icon name="rmb-circle-fill" size="21" color="#a87825"></u-icon><text>{{ chatModelCatalog.wallet.gold || 0 }} 金币</text></view>
+					</view>
+					<view v-else class="chat-model-picker__byok-note">
+						<u-icon name="info-circle" size="26" color="#66808b"></u-icon>
+						<text>费用由你的 API 服务商结算</text>
+					</view>
 				</view>
 			</view>
 		</view>
 		<chat-composer
 			v-model="draft"
+			:show-model-selector="jgOn && jgChatLoadState === 'ready' && chatModelCatalog.enabled"
+			:model-name="currentChatModelName"
+			:model-source="currentChatModel.source"
+			:model-selector-disabled="sending || chatModelCatalog.loading"
 			:attachment-menu-visible="attachmentMenuVisible"
 			:show-voice-action="voiceFeatureEnabledGlobal !== false"
 			:voice-action-active="voiceRecording || voiceTranscribing || pendingVoiceStartTimer"
@@ -1275,6 +1378,7 @@
 			@clear-composer-quote="clearComposerQuote"
 			@open-expression-panel="openExpressionPanel"
 			@open-attachment-menu="openChatAttachmentMenu"
+			@open-model-picker="openChatModelPicker"
 			@scroll-bottom="scrollChatToBottom({ immediate: true })"
 			@primary-action="onPrimaryAction"
 			@focus="onInputFocus"
@@ -1493,10 +1597,25 @@
 		return Object.assign(
 			{
 				visible: false,
-				saving: false
+				saving: false,
+				privateVoiceId: 0,
+				privateBindingLoaded: false,
+				privateBindingDirty: false,
+				advancedOpen: false
 			},
 			createDefaultCharacterVoiceConfig()
 		);
+	}
+
+	function createCharacterVoiceCatalogState() {
+		return {
+			loading: false,
+			loaded: false,
+			error: '',
+			privateVoices: [],
+			bindingVoiceId: 0,
+			bindingLoaded: false
+		};
 	}
 
 	function createCharacterVoiceGlobalState() {
@@ -1516,6 +1635,7 @@
 			ttsVoiceName: '',
 			ttsVoiceTemplateCode: '',
 			ttsVoiceTemplateLabel: '',
+			ttsVoicePresets: [],
 			apiKeyConfigured: false,
 			apiKeyMask: '',
 			customUrl: '',
@@ -1842,6 +1962,7 @@
 				characterVoiceConfig: createDefaultCharacterVoiceConfig(),
 				characterVoicePanel: createCharacterVoicePanelState(),
 				characterVoiceGlobalState: createCharacterVoiceGlobalState(),
+				characterVoiceCatalogState: createCharacterVoiceCatalogState(),
 				characterImageConfig: createDefaultCharacterImageConfig(),
 				characterImagePanel: createCharacterImagePanelState(),
 				characterImageGlobalState: createCharacterImageGlobalState(),
@@ -1893,12 +2014,6 @@
 			},
 			currentChatModelName() {
 				return this.currentChatModel.displayName || '选择聊天模型';
-			},
-			currentChatModelPrice() {
-				return this.currentChatModel.priceText || '';
-			},
-			currentChatModelSourceLabel() {
-				return this.currentChatModel.source === 'BYOK' ? '我的 API' : '平台';
 			},
 			visibleChatModelItems() {
 				const source = this.chatModelPicker.tab === 'BYOK'
@@ -2122,8 +2237,16 @@
 				return DEFAULT_CHAT_BACKGROUND_URL;
 			},
 			characterVoicePanelVoicePresets() {
+				const state = this.characterVoiceGlobalState || {};
+				const serverPresets = Array.isArray(state.ttsVoicePresets)
+					? state.ttsVoicePresets.map((voice) => this.normalizeCharacterVoiceText(voice, 80).toLowerCase()).filter(Boolean)
+					: [];
+				if (serverPresets.length) {
+					return Array.from(new Set(serverPresets));
+				}
 				const modelName = this.normalizeCharacterVoiceText(
-					this.characterVoicePanel && this.characterVoicePanel.ttsModelName
+					(this.characterVoicePanel && this.characterVoicePanel.ttsModelName)
+						|| state.ttsModelName
 				);
 				if (this.supportsCharacterVoiceOpenAiPresets(modelName)) {
 					return OPENAI_TTS_VOICE_PRESETS.slice();
@@ -2136,7 +2259,10 @@
 			characterVoicePanelVoiceTemplates() {
 				const state = this.characterVoiceGlobalState || {};
 				const source = Array.isArray(state.ttsVoiceTemplates) ? state.ttsVoiceTemplates : [];
-				return source.map((item) => normalizeCharacterVoiceTemplateItem(item)).filter((item) => item.code);
+				return source.map((item) => normalizeCharacterVoiceTemplateItem(item)).filter((item) => {
+					const status = String(item && item.statusCode || '').trim().toLowerCase();
+					return item.code && status.indexOf('requires_') !== 0 && status !== 'failed';
+				});
 			},
 			selectedCharacterVoicePanelVoiceTemplate() {
 				const currentCode = this.normalizeCharacterVoiceText(
@@ -2147,6 +2273,23 @@
 					return null;
 				}
 				return this.characterVoicePanelVoiceTemplates.find((item) => item.code === currentCode) || null;
+			},
+			characterVoicePanelPrivateVoices() {
+				const state = this.characterVoiceCatalogState || {};
+				const source = Array.isArray(state.privateVoices) ? state.privateVoices : [];
+				return source.filter((item) => item && Math.max(0, Math.floor(Number(item.id) || 0)) > 0);
+			},
+			selectedCharacterVoicePanelPrivateVoice() {
+				const voiceId = Math.max(0, Math.floor(Number(
+					this.characterVoicePanel && this.characterVoicePanel.privateVoiceId
+				) || 0));
+				if (!voiceId) return null;
+				return this.characterVoicePanelPrivateVoices.find((item) => Number(item.id) === voiceId) || null;
+			},
+			characterVoicePanelCatalogCount() {
+				return this.characterVoicePanelPrivateVoices.length
+					+ this.characterVoicePanelVoiceTemplates.length
+					+ this.characterVoicePanelVoicePresets.length;
 			}
 		},
 		watch: {
@@ -2216,6 +2359,9 @@
 				this.refreshCharacterVoiceConfig();
 				this.refreshCharacterImageConfig();
 				this.refreshCharacterImageGlobalSummary(true, false);
+				if (this.characterVoicePanel && this.characterVoicePanel.visible) {
+					this.refreshCharacterVoiceCatalog(true, false);
+				}
 				this.refreshVoiceFeatureGlobalState(true);
 				this.refreshVisionAccessState(true);
 				if (this.jgChatLoadState === 'ready') {
@@ -3088,9 +3234,19 @@
 				if (item.available === false) return '不可用';
 				return item._source === 'BYOK' ? '自己的额度' : String(item.priceText || '');
 			},
-			chatModelLevelText(label, value) {
-				const level = Math.max(1, Math.min(5, Number(value || 3)));
-				return String(label || '') + ' ' + level + '/5';
+			chatModelInitial(item) {
+				const name = String(item && (item.displayName || item.modelName) || '').trim();
+				const words = name.match(/[A-Za-z0-9]+/g) || [];
+				if (words.length > 1) {
+					return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
+				}
+				if (words.length === 1) {
+					return words[0].slice(0, 2).toUpperCase();
+				}
+				return Array.from(name).slice(0, 1).join('') || 'AI';
+			},
+			chatModelLevel(value) {
+				return Math.max(1, Math.min(5, Number(value || 3)));
 			},
 			selectChatModelItem(item) {
 				if (!item || this.sending || this.chatModelPicker.selectingRef) return;
@@ -5840,6 +5996,9 @@
 				const ttsVoiceTemplates = Array.isArray(source.ttsVoiceTemplates)
 					? source.ttsVoiceTemplates.map((item) => normalizeCharacterVoiceTemplateItem(item)).filter((item) => item.code)
 					: [];
+				const ttsVoicePresets = Array.isArray(source.ttsVoicePresets)
+					? source.ttsVoicePresets.map((voice) => this.normalizeCharacterVoiceText(voice, 80).toLowerCase()).filter(Boolean)
+					: [];
 				return {
 					loading: false,
 					loaded: true,
@@ -5862,6 +6021,7 @@
 					ttsUseSeparateConfig: source.ttsUseSeparateConfig === true,
 					userVoiceCreationEnabled: source.userVoiceCreationEnabled === true,
 					providerOptions,
+					ttsVoicePresets: Array.from(new Set(ttsVoicePresets)),
 					ttsVoiceTemplates
 				};
 			},
@@ -6058,7 +6218,7 @@
 					return this.tx('character_voice_global_error_tip', '这里读不到全局配置时，去 AI 设置页仍然可以正常改平台、模型和 API Key。');
 				}
 				if (String(state.mode || '').trim() !== 'custom') {
-					return this.tx('character_voice_global_system_tip', '现在还是官方 API。想自己选平台、填 API Key、单独配 TTS，需要先去 AI 设置页切到“我的 API Key”。');
+					return this.tx('character_voice_global_system_tip', '官方 API 负责线路、模型和费用；全局音色与当前角色音色仍由你选择。');
 				}
 				if (!state.apiKeyConfigured) {
 					return this.tx('character_voice_global_key_tip', '当前生效的 TTS 平台还没保存 Key。先去 AI 设置页填好，再回来给角色单独挑声线。');
@@ -6066,7 +6226,7 @@
 				if (!this.normalizeCharacterVoiceText(state.ttsModelName, 255)) {
 					return this.tx('character_voice_global_tts_tip', '当前全局还没配 TTS 模型。先在 AI 设置里把平台、TTS 模型和音色配好，再回来做角色覆盖。');
 				}
-				return this.tx('character_voice_global_ok_tip', '这里不存平台和 API Key，只给当前角色覆盖 TTS 模型、音色和自动播放。大多数角色直接跟随全局就够了。');
+				return this.tx('character_voice_global_ok_tip', '这里不存平台和 API Key，只给当前角色覆盖 TTS 模型、音色和自动播放。大多数角色直接跟随全局即可。');
 			},
 			refreshCharacterVoiceGlobalSummary(force, showToast) {
 				const current = this.characterVoiceGlobalState || createCharacterVoiceGlobalState();
@@ -6116,6 +6276,87 @@
 					return Promise.resolve(next);
 				}
 			},
+			refreshCharacterVoiceCatalog(force, showToast) {
+				const current = this.characterVoiceCatalogState || createCharacterVoiceCatalogState();
+				if (current.loading) return Promise.resolve(current);
+				try {
+					const tavernApi = require('@/common/tavernApi.js');
+					const clientUid = tavernApi && typeof tavernApi.getClientUid === 'function'
+						? String(tavernApi.getClientUid() || '').trim()
+						: '';
+					const characterId = Number(this.char && this.char.id) || Number(this.cid) || 0;
+					if (!clientUid) throw new Error(this.tx('login_required', '请先登录'));
+					if (!characterId) throw new Error(this.tx('character_voice_character_missing', '当前角色信息尚未加载'));
+					this.characterVoiceCatalogState = Object.assign(createCharacterVoiceCatalogState(), current, {
+						loading: true,
+						error: ''
+					});
+					const settle = (promise) => Promise.resolve(promise)
+						.then((data) => ({ data, error: null }))
+						.catch((error) => ({ data: null, error }));
+					return Promise.all([
+						this.refreshCharacterVoiceGlobalSummary(force === true, false),
+						settle(tavernApi.getUserTtsVoices(clientUid)),
+						settle(tavernApi.getUserTtsVoiceBinding(clientUid, {
+							scopeType: 'CHARACTER',
+							characterId,
+							memberId: 0
+						}))
+					]).then((results) => {
+						const voiceResult = results[1] || {};
+						const bindingResult = results[2] || {};
+						const voiceData = voiceResult.data && typeof voiceResult.data === 'object' ? voiceResult.data : {};
+						const privateVoices = voiceResult.error
+							? (Array.isArray(current.privateVoices) ? current.privateVoices : [])
+							: (Array.isArray(voiceData.voices) ? voiceData.voices : [])
+								.filter((item) => item && Math.max(0, Math.floor(Number(item.id) || 0)) > 0);
+						const bindingLoaded = bindingResult.error ? current.bindingLoaded === true : true;
+						const bindingVoiceId = bindingResult.error
+							? Math.max(0, Math.floor(Number(current.bindingVoiceId) || 0))
+							: Math.max(0, Math.floor(Number(bindingResult.data && bindingResult.data.voiceId) || 0));
+						const errors = [];
+						if (voiceResult.error) errors.push(this.jgErrMsg(voiceResult.error, '我的音色读取失败'));
+						if (bindingResult.error) errors.push(this.jgErrMsg(bindingResult.error, '当前角色音色绑定读取失败'));
+						const next = {
+							loading: false,
+							loaded: true,
+							error: errors.join('；'),
+							privateVoices,
+							bindingVoiceId,
+							bindingLoaded
+						};
+						this.characterVoiceCatalogState = next;
+						const activeCharacterId = Number(this.char && this.char.id) || Number(this.cid) || 0;
+						if (
+							this.characterVoicePanel && this.characterVoicePanel.visible
+							&& activeCharacterId === characterId
+							&& this.characterVoicePanel.privateBindingDirty !== true
+						) {
+							const hasPublicVoice = !!(
+								this.normalizeCharacterVoiceText(this.characterVoicePanel.ttsVoiceName, 255)
+								|| this.normalizeCharacterVoiceText(this.characterVoicePanel.ttsVoiceTemplateCode, 64)
+							);
+							const customMode = String(results[0] && results[0].mode || '').trim() === 'custom';
+							this.characterVoicePanel.privateVoiceId = customMode && !hasPublicVoice ? bindingVoiceId : 0;
+							this.characterVoicePanel.privateBindingLoaded = bindingLoaded;
+							const selectedVoiceName = this.normalizeCharacterVoiceText(this.characterVoicePanel.ttsVoiceName, 255).toLowerCase();
+							if (selectedVoiceName && this.characterVoicePanelVoicePresets.some((voice) => String(voice).toLowerCase() === selectedVoiceName)) {
+								this.characterVoicePanel.advancedOpen = false;
+							}
+						}
+						if (showToast && next.error) this.showErrorToast(next.error);
+						return next;
+					});
+				} catch (error) {
+					const next = Object.assign(createCharacterVoiceCatalogState(), current, {
+						loading: false,
+						error: this.jgErrMsg(error, '音色列表读取失败')
+					});
+					this.characterVoiceCatalogState = next;
+					if (showToast) this.showErrorToast(next.error);
+					return Promise.resolve(next);
+				}
+			},
 			applyCharacterVoiceGlobalDefaults() {
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving) return;
 				const state = this.characterVoiceGlobalState || {};
@@ -6127,10 +6368,13 @@
 					this.showErrorToast(this.tx('character_voice_no_global_tts', '当前全局还没有可带入的 TTS / 音色'));
 					return;
 				}
-				this.characterVoicePanel.ttsModelName = ttsModelName;
+				const customMode = String(state.mode || '').trim() === 'custom';
+				this.characterVoicePanel.ttsModelName = customMode ? ttsModelName : '';
 				this.characterVoicePanel.ttsProviderSource = this.normalizeCharacterVoiceText(state.providerSource, 80).toLowerCase();
 				this.characterVoicePanel.ttsVoiceTemplateCode = ttsVoiceTemplateCode;
-				this.characterVoicePanel.ttsVoiceName = ttsVoiceTemplateCode ? '' : ttsVoiceName;
+				this.characterVoicePanel.ttsVoiceName = customMode && !ttsVoiceTemplateCode ? ttsVoiceName : '';
+				this.characterVoicePanel.privateVoiceId = 0;
+				this.characterVoicePanel.privateBindingDirty = true;
 				uni.showToast({
 					title: this.tx('character_voice_applied_global', '已带入全局语音配置'),
 					icon: 'none'
@@ -6144,11 +6388,12 @@
 					config,
 					{
 						visible: true,
-						saving: false
+						saving: false,
+						advancedOpen: !!this.normalizeCharacterVoiceText(config.ttsVoiceName, 255)
 					}
 				);
 				this.inputFocus = false;
-				this.refreshCharacterVoiceGlobalSummary(false, false);
+				this.refreshCharacterVoiceCatalog(false, false);
 				try {
 					uni.hideKeyboard();
 				} catch (e) {}
@@ -6169,6 +6414,48 @@
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving || this.characterVoicePanel.enabled === false) return;
 				this.characterVoicePanel.ttsVoiceTemplateCode = '';
 				this.characterVoicePanel.ttsVoiceName = String(voiceName || '').trim();
+				this.characterVoicePanel.privateVoiceId = 0;
+				this.characterVoicePanel.privateBindingDirty = true;
+			},
+			isCharacterVoiceFollowingGlobal() {
+				const panel = this.characterVoicePanel || {};
+				return Math.max(0, Math.floor(Number(panel.privateVoiceId) || 0)) === 0
+					&& !this.normalizeCharacterVoiceText(panel.ttsVoiceName, 255)
+					&& !this.normalizeCharacterVoiceText(panel.ttsVoiceTemplateCode, 64);
+			},
+			selectCharacterVoiceFollowGlobal() {
+				if (!this.characterVoicePanel || this.characterVoicePanel.saving || this.characterVoicePanel.enabled === false) return;
+				this.characterVoicePanel.ttsVoiceName = '';
+				this.characterVoicePanel.ttsVoiceTemplateCode = '';
+				this.characterVoicePanel.privateVoiceId = 0;
+				this.characterVoicePanel.privateBindingDirty = true;
+			},
+			isCharacterPrivateVoiceSelected(voice) {
+				const selectedId = Math.max(0, Math.floor(Number(
+					this.characterVoicePanel && this.characterVoicePanel.privateVoiceId
+				) || 0));
+				return selectedId > 0 && selectedId === Math.max(0, Math.floor(Number(voice && voice.id) || 0));
+			},
+			selectCharacterPrivateVoice(voice) {
+				if (!this.characterVoicePanel || this.characterVoicePanel.saving || this.characterVoicePanel.enabled === false) return;
+				const voiceId = Math.max(0, Math.floor(Number(voice && voice.id) || 0));
+				if (!voiceId || !voice || voice.available !== true) return;
+				this.characterVoicePanel.privateVoiceId = voiceId;
+				this.characterVoicePanel.privateBindingDirty = true;
+				this.characterVoicePanel.ttsVoiceName = '';
+				this.characterVoicePanel.ttsVoiceTemplateCode = '';
+				this.characterVoicePanel.advancedOpen = false;
+			},
+			toggleCharacterVoiceAdvanced() {
+				if (!this.characterVoicePanel || this.characterVoicePanel.saving || this.characterVoicePanel.enabled === false) return;
+				this.characterVoicePanel.advancedOpen = !this.characterVoicePanel.advancedOpen;
+			},
+			updateCharacterVoiceManual(value) {
+				if (!this.characterVoicePanel || this.characterVoicePanel.saving || this.characterVoicePanel.enabled === false) return;
+				this.characterVoicePanel.ttsVoiceName = this.normalizeCharacterVoiceText(value, 255);
+				this.characterVoicePanel.ttsVoiceTemplateCode = '';
+				this.characterVoicePanel.privateVoiceId = 0;
+				this.characterVoicePanel.privateBindingDirty = true;
 			},
 			characterVoiceTemplateAssetUrl(url) {
 				const safeUrl = this.normalizeCharacterVoiceText(url, 255);
@@ -6185,10 +6472,14 @@
 			},
 			selectCharacterVoiceTemplate(item) {
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving || this.characterVoicePanel.enabled === false) return;
-				if (!item || !item.code) return;
+				const status = String(item && item.statusCode || '').trim().toLowerCase();
+				if (!item || !item.code || status.indexOf('requires_') === 0 || status === 'failed') return;
 				this.characterVoicePanel.ttsVoiceTemplateCode = String(item.code || '').trim();
 				this.characterVoicePanel.ttsVoiceName = '';
+				this.characterVoicePanel.privateVoiceId = 0;
+				this.characterVoicePanel.privateBindingDirty = true;
 				if (
+					String(this.characterVoiceGlobalState.mode || '').trim() === 'custom' &&
 					!this.normalizeCharacterVoiceText(this.characterVoicePanel.ttsModelName, 255) &&
 					this.normalizeCharacterVoiceText(item.recommendedModelName, 255)
 				) {
@@ -6197,13 +6488,18 @@
 			},
 			clearCharacterVoiceTemplateSelection() {
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving) return;
-				this.characterVoicePanel.ttsVoiceTemplateCode = '';
+				this.selectCharacterVoiceFollowGlobal();
 			},
 			characterVoiceTemplateIntroText() {
+				const officialMode = String(this.characterVoiceGlobalState.mode || '').trim() !== 'custom';
 				if (this.normalizeCharacterVoiceText(this.characterVoicePanel && this.characterVoicePanel.ttsVoiceTemplateCode, 64)) {
-					return this.tx('character_voice_template_intro_active', '当前角色正在使用模板音色，真正发声时会优先按你的 API Key 自动生成并复用专属 voice。');
+					return officialMode
+						? this.tx('character_voice_template_intro_active_official', '当前角色优先使用所选官方音色；API、模型和费用仍由平台管理。')
+						: this.tx('character_voice_template_intro_active', '当前角色正在使用模板音色，实际发声时会按你的 API Key 自动准备并复用。');
 				}
-				return this.tx('character_voice_template_intro', '推荐直接选模板音色。首次使用时，会用你当前生效的 TTS API Key 自动生成属于你的专属音色。');
+				return officialMode
+					? this.tx('character_voice_template_intro_official', '选择平台提供的音色；不选择则跟随 AI 设置中的全局音色。')
+					: this.tx('character_voice_template_intro', '推荐直接选模板音色。首次使用时，会用你当前生效的 TTS API Key 自动准备。');
 			},
 			characterVoiceSelectedTemplateTitleText() {
 				const template = this.selectedCharacterVoicePanelVoiceTemplate;
@@ -6235,6 +6531,15 @@
 				return this.tx('character_voice_voice_placeholder', '留空则跟随全局音色，或填写模型自己的音色 ID');
 			},
 			characterVoiceVoiceHintText() {
+				const privateVoiceId = Math.max(0, Math.floor(Number(
+					this.characterVoicePanel && this.characterVoicePanel.privateVoiceId
+				) || 0));
+				if (privateVoiceId > 0) {
+					const privateVoice = this.selectedCharacterVoicePanelPrivateVoice;
+					return privateVoice
+						? '当前角色将使用“' + (privateVoice.displayName || ('我的音色 ' + privateVoiceId)) + '”。'
+						: '当前角色已绑定我的自建音色。';
+				}
 				const template = this.selectedCharacterVoicePanelVoiceTemplate;
 				if (template) {
 					return template.ready
@@ -6269,12 +6574,15 @@
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving) return;
 				this.characterVoicePanel = Object.assign(createCharacterVoicePanelState(), {
 					visible: true,
-					saving: false
+					saving: false,
+					privateBindingLoaded: !!(this.characterVoiceCatalogState && this.characterVoiceCatalogState.bindingLoaded),
+					privateBindingDirty: true
 				});
 			},
 			saveCharacterVoicePanel() {
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving) return;
 				const next = this.normalizeCharacterVoiceConfig(this.characterVoicePanel);
+				const desiredPrivateVoiceId = Math.max(0, Math.floor(Number(this.characterVoicePanel.privateVoiceId) || 0));
 				const hasProviderScopedOverride = !!(
 					next.ttsModelName || next.ttsVoiceName || next.ttsVoiceTemplateCode
 				);
@@ -6288,24 +6596,70 @@
 						return;
 					}
 					next.ttsProviderSource = providerSource;
-				} else if (!hasProviderScopedOverride) {
+				} else {
 					next.ttsProviderSource = '';
 				}
+				const catalogState = this.characterVoiceCatalogState || createCharacterVoiceCatalogState();
+				const currentBindingVoiceId = Math.max(0, Math.floor(Number(catalogState.bindingVoiceId) || 0));
+				const customMode = String(this.characterVoiceGlobalState.mode || '').trim() === 'custom';
+				const shouldSaveBinding = customMode && (
+					this.characterVoicePanel.privateBindingDirty === true
+					|| (catalogState.bindingLoaded === true && desiredPrivateVoiceId !== currentBindingVoiceId)
+				);
+				let tavernApi = null;
+				let clientUid = '';
+				let characterId = 0;
+				if (shouldSaveBinding) {
+					tavernApi = require('@/common/tavernApi.js');
+					clientUid = tavernApi && typeof tavernApi.getClientUid === 'function'
+						? String(tavernApi.getClientUid() || '').trim()
+						: '';
+					characterId = Number(this.char && this.char.id) || Number(this.cid) || 0;
+					if (!clientUid) {
+						this.showErrorToast(this.tx('login_required', '请先登录'));
+						return;
+					}
+					if (!characterId) {
+						this.showErrorToast(this.tx('character_voice_character_missing', '当前角色信息尚未加载'));
+						return;
+					}
+				}
+				const previous = this.currentCharacterVoiceConfig();
 				this.characterVoicePanel.saving = true;
 				const ok = this.writeCharacterVoiceConfig(next);
-				this.characterVoicePanel.saving = false;
 				if (!ok) {
+					this.characterVoicePanel.saving = false;
 					this.showErrorToast(this.tx('character_voice_save_failed', '角色语音保存失败，请重试'));
 					return;
 				}
-				this.characterVoiceConfig = next;
-				if (next.enabled === false) {
-					this.stopAssistantVoicePlayback();
-				}
-				this.closeCharacterVoicePanel();
-				uni.showToast({
-					title: this.tx('character_voice_saved', '角色语音已保存'),
-					icon: 'none'
+				const bindingPromise = shouldSaveBinding
+					? tavernApi.putUserTtsVoiceBinding(clientUid, {
+						scopeType: 'CHARACTER',
+						characterId,
+						memberId: 0,
+						voiceId: desiredPrivateVoiceId > 0 ? desiredPrivateVoiceId : null
+					})
+					: Promise.resolve(null);
+				return bindingPromise.then(() => {
+					this.characterVoiceCatalogState = Object.assign(createCharacterVoiceCatalogState(), catalogState, {
+						loading: false,
+						bindingLoaded: shouldSaveBinding ? true : catalogState.bindingLoaded === true,
+						bindingVoiceId: shouldSaveBinding ? desiredPrivateVoiceId : currentBindingVoiceId
+					});
+					this.characterVoicePanel.privateBindingDirty = false;
+					this.characterVoicePanel.saving = false;
+					this.characterVoiceConfig = next;
+					if (next.enabled === false) this.stopAssistantVoicePlayback();
+					this.closeCharacterVoicePanel();
+					uni.showToast({
+						title: this.tx('character_voice_saved', '角色语音已保存'),
+						icon: 'none'
+					});
+				}).catch((error) => {
+					this.writeCharacterVoiceConfig(previous);
+					this.characterVoiceConfig = previous;
+					this.characterVoicePanel.saving = false;
+					this.showErrorToast(this.jgErrMsg(error, '角色音色绑定保存失败，请重试'));
 				});
 			},
 			buildCharacterVoiceTtsPayload(text, requestId, segmentIndex, segmentCount, messageId, speakerMemberId) {
@@ -6327,9 +6681,9 @@
 				if (config.ttsProviderSource && config.ttsModelName) {
 					payload.ttsModelName = config.ttsModelName;
 				}
-				if (config.ttsProviderSource && config.ttsVoiceTemplateCode) {
+				if (config.ttsVoiceTemplateCode) {
 					payload.ttsVoiceTemplateCode = config.ttsVoiceTemplateCode;
-				} else if (config.ttsProviderSource && config.ttsVoiceName) {
+				} else if (config.ttsVoiceName) {
 					payload.ttsVoiceName = config.ttsVoiceName;
 				}
 				if (config.ttsProviderSource && (payload.ttsModelName || payload.ttsVoiceName || payload.ttsVoiceTemplateCode)) {
@@ -12346,76 +12700,33 @@
 	}
 
 	.nav-voice-config {
-		width: 68rpx;
-		height: 68rpx;
-		border-radius: 22rpx;
+		width: 64rpx;
+		height: 64rpx;
+		border-radius: 18rpx;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: rgba(12, 21, 34, 0.18);
-		border: 1rpx solid rgba(255, 255, 255, 0.1);
+		overflow: hidden;
+		background: rgba(255, 255, 255, 0.68);
+		border: 1rpx solid rgba(194, 218, 230, 0.84);
 		box-shadow:
-			inset 0 1rpx 0 rgba(255, 255, 255, 0.06),
-			0 10rpx 22rpx rgba(8, 18, 30, 0.08);
+			inset 0 1rpx 0 rgba(255, 255, 255, 0.9),
+			0 8rpx 18rpx rgba(66, 103, 132, 0.07);
 	}
 
 	.nav-voice-config--active {
-		background: linear-gradient(135deg, rgba(56, 189, 248, 0.3), rgba(244, 114, 182, 0.22));
-		border-color: rgba(125, 211, 252, 0.4);
+		background: rgba(221, 242, 248, 0.88);
+		border-color: rgba(142, 194, 211, 0.76);
+		box-shadow:
+			inset 0 1rpx 0 rgba(255, 255, 255, 0.92),
+			0 8rpx 18rpx rgba(66, 103, 132, 0.09);
 	}
 
 	.nav-voice-config-icon {
-		width: 34rpx;
-		height: 34rpx;
-	}
-
-	.chat-model-bar {
-		flex: 0 0 64rpx;
-		height: 64rpx;
-		min-height: 64rpx;
 		display: flex;
 		align-items: center;
-		gap: 12rpx;
-		padding: 0 24rpx;
-		border-bottom: 1rpx solid rgba(255, 255, 255, 0.1);
-		background: rgba(18, 22, 31, 0.9);
-		color: #eef5f8;
-		backdrop-filter: blur(12px);
-	}
-
-	.chat-model-bar--disabled {
-		opacity: 0.7;
-		pointer-events: none;
-	}
-
-	.chat-model-bar__source {
-		flex: 0 0 auto;
-		padding: 5rpx 10rpx;
-		border: 1rpx solid rgba(250, 176, 91, 0.5);
-		border-radius: 6rpx;
-		color: #ffc47c;
-		font-size: 20rpx;
-		line-height: 1;
-	}
-
-	.chat-model-bar__name {
-		min-width: 0;
-		flex: 1;
-		overflow: hidden;
-		font-size: 24rpx;
-		font-weight: 600;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.chat-model-bar__price {
-		flex: 0 1 auto;
-		max-width: 42%;
-		overflow: hidden;
-		color: #a8c4d2;
-		font-size: 21rpx;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		justify-content: center;
+		opacity: 0.92;
 	}
 
 	.chat-model-picker-mask {
@@ -12425,97 +12736,123 @@
 		display: flex;
 		align-items: flex-end;
 		justify-content: center;
-		background: rgba(7, 11, 17, 0.66);
+		background: rgba(13, 23, 29, 0.56);
+		backdrop-filter: blur(6rpx);
+		-webkit-backdrop-filter: blur(6rpx);
 	}
 
 	.chat-model-picker {
 		width: 100%;
 		max-width: 820rpx;
-		max-height: 82vh;
+		max-height: 86vh;
 		display: flex;
 		flex-direction: column;
-		padding: 10rpx 24rpx calc(20rpx + env(safe-area-inset-bottom));
-		border-top: 1rpx solid rgba(255, 255, 255, 0.12);
-		border-radius: 8rpx 8rpx 0 0;
-		background: #f4f7f6;
-		box-shadow: 0 -20rpx 60rpx rgba(0, 0, 0, 0.28);
+		box-sizing: border-box;
+		padding: 10rpx 22rpx calc(18rpx + env(safe-area-inset-bottom));
+		border-top: 1rpx solid rgba(135, 186, 196, 0.42);
+		border-radius: 28rpx 28rpx 0 0;
+		background: #f2f7f7;
+		box-shadow: 0 -24rpx 68rpx rgba(12, 34, 43, 0.24);
 		color: #20313a;
 	}
 
 	.chat-model-picker__handle {
-		width: 64rpx;
-		height: 7rpx;
-		margin: 2rpx auto 16rpx;
+		width: 58rpx;
+		height: 6rpx;
+		margin: 2rpx auto 18rpx;
 		border-radius: 4rpx;
-		background: #b9c6cc;
+		background: #aac0c4;
 	}
 
 	.chat-model-picker__head,
-	.chat-model-option__top,
-	.chat-model-option__identity,
-	.chat-model-picker__wallet {
+	.chat-model-option__main,
+	.chat-model-option__title-row,
+	.chat-model-picker__wallet,
+	.chat-model-picker__byok-note {
 		display: flex;
 		align-items: center;
 	}
 
 	.chat-model-picker__head {
+		min-height: 62rpx;
 		justify-content: space-between;
-		gap: 24rpx;
+		gap: 16rpx;
+		padding: 0 4rpx;
 	}
 
-	.chat-model-picker__head > view {
+	.chat-model-picker__heading-copy {
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 5rpx;
+		gap: 2rpx;
 	}
 
 	.chat-model-picker__title {
-		font-size: 32rpx;
-		font-weight: 700;
+		color: #1d3944;
+		font-size: 34rpx;
+		font-weight: 760;
+		line-height: 1.25;
 	}
 
 	.chat-model-picker__subtitle {
-		color: #6b7f8d;
-		font-size: 21rpx;
-		line-height: 1.45;
+		color: #7a8e96;
+		font-size: 20rpx;
+		line-height: 1.4;
 	}
 
 	.chat-model-picker__close {
-		flex: 0 0 56rpx;
-		width: 56rpx;
-		height: 56rpx;
-		color: #526773;
-		font-size: 44rpx;
-		line-height: 52rpx;
-		text-align: center;
+		flex: 0 0 58rpx;
+		width: 58rpx;
+		height: 58rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		background: #e5eeee;
 	}
 
 	.chat-model-picker__tabs {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		gap: 8rpx;
-		margin-top: 22rpx;
-		padding: 6rpx;
-		border-radius: 8rpx;
-		background: #e4eae9;
+		margin-top: 16rpx;
+		border-bottom: 1rpx solid #d3e0e1;
 	}
 
 	.chat-model-picker__tab {
-		height: 60rpx;
+		position: relative;
+		height: 66rpx;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 6rpx;
-		color: #627783;
-		font-size: 24rpx;
+		gap: 8rpx;
+		color: #758990;
+		font-size: 23rpx;
 	}
 
 	.chat-model-picker__tab--active {
-		background: #ffffff;
-		box-shadow: 0 3rpx 12rpx rgba(28, 48, 58, 0.1);
-		color: #173847;
-		font-weight: 700;
+		color: #245c69;
+		font-weight: 750;
+	}
+
+	.chat-model-picker__tab--active::after {
+		content: '';
+		position: absolute;
+		bottom: -1rpx;
+		left: 24%;
+		right: 24%;
+		height: 5rpx;
+		border-radius: 3rpx 3rpx 0 0;
+		background: #4f93a3;
+	}
+
+	.chat-model-picker__tab-count {
+		color: #8ca0a6;
+		font-size: 18rpx;
+		font-weight: 650;
+	}
+
+	.chat-model-picker__tab--active .chat-model-picker__tab-count {
+		color: #c4665d;
 	}
 
 	.chat-model-picker__search {
@@ -12523,160 +12860,694 @@
 		display: flex;
 		align-items: center;
 		gap: 12rpx;
-		margin: 18rpx 0 14rpx;
-		padding: 0 20rpx;
-		border: 1rpx solid #cfdbdd;
+		margin: 16rpx 0;
+		padding: 0 18rpx;
+		border: 1rpx solid transparent;
 		border-radius: 8rpx;
+		background: #e8f0f0;
+	}
+
+	.chat-model-picker__search:focus-within {
+		border-color: #83b4bd;
 		background: #ffffff;
 	}
 
 	.chat-model-picker__search input {
 		min-width: 0;
 		flex: 1;
+		color: #294752;
 		font-size: 24rpx;
 	}
 
 	.chat-model-picker__search > text {
-		color: #d36c4c;
-		font-size: 22rpx;
+		color: #be655b;
+		font-size: 21rpx;
 	}
 
 	.chat-model-picker__list {
-		min-height: 260rpx;
+		min-height: 280rpx;
 		flex: 1;
+		box-sizing: border-box;
+		border-top: 1rpx solid #dbe6e6;
+		border-bottom: 1rpx solid #dbe6e6;
+		background: rgba(255, 255, 255, 0.62);
 	}
 
 	.chat-model-option {
-		margin-bottom: 12rpx;
-		padding: 20rpx;
-		border: 1rpx solid #d4dfe0;
-		border-radius: 8rpx;
-		background: #ffffff;
+		position: relative;
+		padding: 24rpx 8rpx 22rpx;
+		border-bottom: 1rpx solid #dfe8e8;
+		background: transparent;
+		transition: background-color 0.16s ease, opacity 0.16s ease;
+	}
+
+	.chat-model-option:last-child {
+		border-bottom: 0;
 	}
 
 	.chat-model-option--active {
-		border-color: #e68a58;
-		box-shadow: inset 5rpx 0 0 #e68a58;
+		background: #edf7f7;
+	}
+
+	.chat-model-option--active::before {
+		content: '';
+		position: absolute;
+		top: 18rpx;
+		bottom: 18rpx;
+		left: 0;
+		width: 5rpx;
+		border-radius: 3rpx;
+		background: #4f93a3;
 	}
 
 	.chat-model-option--disabled {
-		background: #edf1f0;
-		opacity: 0.68;
+		background: #eef2f2;
+		opacity: 0.58;
 	}
 
 	.chat-model-option--busy {
 		pointer-events: none;
-		opacity: 0.6;
+		opacity: 0.52;
 	}
 
-	.chat-model-option__top {
-		justify-content: space-between;
-		gap: 16rpx;
+	.chat-model-option__main {
+		align-items: flex-start;
+		gap: 14rpx;
 	}
 
-	.chat-model-option__identity {
+	.chat-model-option__avatar {
+		flex: 0 0 54rpx;
+		width: 54rpx;
+		height: 54rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 14rpx;
+		color: #ffffff;
+		background: #397887;
+		box-shadow: inset 0 0 0 1rpx rgba(255, 255, 255, 0.18);
+	}
+
+	.chat-model-option__avatar--byok {
+		background: #cb7167;
+	}
+
+	.chat-model-option__avatar text {
+		font-size: 18rpx;
+		font-weight: 800;
+		line-height: 1;
+	}
+
+	.chat-model-option__body {
 		min-width: 0;
 		flex: 1;
-		gap: 9rpx;
+	}
+
+	.chat-model-option__title-row {
+		min-width: 0;
+		gap: 8rpx;
 	}
 
 	.chat-model-option__name {
 		min-width: 0;
+		max-width: 100%;
 		overflow: hidden;
-		font-size: 27rpx;
-		font-weight: 700;
+		color: #203c47;
+		font-size: 26rpx;
+		font-weight: 740;
+		line-height: 1.35;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.chat-model-option__badge,
-	.chat-model-option__selected {
-		flex: 0 0 auto;
-		padding: 4rpx 9rpx;
-		border-radius: 5rpx;
-		font-size: 19rpx;
-	}
-
 	.chat-model-option__badge {
-		background: #e8efee;
-		color: #49636f;
-	}
-
-	.chat-model-option__selected {
-		background: #fff0e7;
-		color: #c45f36;
-	}
-
-	.chat-model-option__price {
 		flex: 0 0 auto;
-		color: #c45f36;
-		font-size: 22rpx;
-		font-weight: 700;
+		padding: 3rpx 7rpx;
+		border-radius: 4rpx;
+		color: #966158;
+		background: #f6e8e4;
+		font-size: 17rpx;
+		line-height: 1.25;
 	}
 
 	.chat-model-option__desc {
-		display: block;
-		margin-top: 10rpx;
-		color: #5e727c;
-		font-size: 22rpx;
-		line-height: 1.5;
+		display: -webkit-box;
+		margin-top: 5rpx;
+		overflow: hidden;
+		color: #687d85;
+		font-size: 21rpx;
+		line-height: 1.45;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
 	}
 
 	.chat-model-option__desc--mono {
 		word-break: break-all;
 	}
 
-	.chat-model-option__meta {
+	.chat-model-option__side {
+		flex: 0 0 126rpx;
+		width: 126rpx;
 		display: flex;
-		flex-wrap: wrap;
-		gap: 8rpx;
-		margin-top: 13rpx;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 10rpx;
 	}
 
-	.chat-model-option__meta > text {
-		padding: 4rpx 9rpx;
-		border: 1rpx solid #d9e2e2;
+	.chat-model-option__price {
+		max-width: 126rpx;
+		overflow: hidden;
+		color: #b85e55;
+		font-size: 21rpx;
+		font-weight: 740;
+		line-height: 1.35;
+		text-align: right;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chat-model-option__selected {
+		display: flex;
+		align-items: center;
+		gap: 5rpx;
+		padding: 4rpx 8rpx;
 		border-radius: 5rpx;
-		color: #637680;
-		font-size: 19rpx;
+		color: #ffffff;
+		background: #4f93a3;
+		font-size: 17rpx;
+		line-height: 1;
+	}
+
+	.chat-model-option__signals {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 10rpx 16rpx;
+		margin: 14rpx 0 0 68rpx;
+	}
+
+	.chat-model-signal {
+		display: flex;
+		align-items: center;
+		gap: 7rpx;
+	}
+
+	.chat-model-signal__label {
+		color: #71858d;
+		font-size: 18rpx;
+	}
+
+	.chat-model-signal__bars {
+		display: flex;
+		align-items: flex-end;
+		gap: 3rpx;
+	}
+
+	.chat-model-signal__bar {
+		width: 8rpx;
+		height: 15rpx;
+		border-radius: 2rpx;
+		background: #d5e1e1;
+	}
+
+	.chat-model-signal__bar--active {
+		background: #5b9aa8;
+	}
+
+	.chat-model-option__context,
+	.chat-model-option__tag {
+		color: #778b92;
+		font-size: 18rpx;
+	}
+
+	.chat-model-option__tag::before {
+		content: '·';
+		margin-right: 8rpx;
+		color: #b2c0c4;
 	}
 
 	.chat-model-option__reason {
 		display: block;
-		margin-top: 10rpx;
+		margin: 10rpx 0 0 68rpx;
 		color: #a74b45;
-		font-size: 21rpx;
+		font-size: 20rpx;
 	}
 
 	.chat-model-picker__empty {
-		min-height: 260rpx;
+		min-height: 280rpx;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 20rpx;
+		gap: 18rpx;
 		color: #71848d;
-		font-size: 24rpx;
+		font-size: 23rpx;
 	}
 
 	.chat-model-picker__settings {
-		color: #c45f36;
+		color: #b95f55;
 		font-weight: 700;
+	}
+
+	.chat-model-picker__footer {
+		flex: 0 0 auto;
+		padding-top: 12rpx;
 	}
 
 	.chat-model-picker__wallet {
-		flex: 0 0 62rpx;
+		min-height: 58rpx;
 		gap: 20rpx;
-		margin-top: 8rpx;
 		padding: 0 4rpx;
-		border-top: 1rpx solid #dbe3e3;
 		color: #60747e;
-		font-size: 21rpx;
+		font-size: 20rpx;
 	}
 
-	.chat-model-picker__wallet > text:first-child {
+	.chat-model-picker__wallet-label {
+		min-width: 0;
 		margin-right: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 1rpx;
+	}
+
+	.chat-model-picker__wallet-label text:first-child {
+		color: #37535f;
+		font-size: 21rpx;
+		font-weight: 720;
+	}
+
+	.chat-model-picker__wallet-label text:last-child {
+		color: #8a9ba1;
+		font-size: 17rpx;
+	}
+
+	.chat-model-picker__byok-note {
+		min-height: 58rpx;
+		justify-content: center;
+		gap: 10rpx;
+		color: #687e87;
+		font-size: 20rpx;
+	}
+
+	/* Model selector v2: airy glass workspace. */
+	.chat-model-picker-mask {
+		align-items: center;
+		padding: unquote("max(36rpx, env(safe-area-inset-top)) 24rpx max(36rpx, env(safe-area-inset-bottom))");
+		background: rgba(25, 45, 58, 0.3);
+		backdrop-filter: blur(7rpx) saturate(0.92);
+		-webkit-backdrop-filter: blur(7rpx) saturate(0.92);
+		box-sizing: border-box;
+	}
+
+	.chat-model-picker {
+		width: 100%;
+		max-width: 820rpx;
+		height: unquote("min(72vh, 980rpx)");
+		min-height: 640rpx;
+		max-height: 82vh;
+		padding: 0 12rpx;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		box-shadow: none;
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+		color: #203846;
+		overflow: visible;
+	}
+
+	.chat-model-picker__head {
+		min-height: 72rpx;
+		padding: 0 8rpx;
+	}
+
+	.chat-model-picker__heading {
+		min-width: 0;
+		display: flex;
+		align-items: center;
+	}
+
+	.chat-model-picker__heading-copy {
+		gap: 4rpx;
+	}
+
+	.chat-model-picker__title {
+		color: #f8fcfd;
+		font-size: 34rpx;
+		font-weight: 800;
+		text-shadow: 0 3rpx 12rpx rgba(20, 45, 58, 0.42);
+	}
+
+	.chat-model-picker__subtitle {
+		color: rgba(244, 251, 252, 0.84);
+		font-size: 21rpx;
+		text-shadow: 0 2rpx 8rpx rgba(20, 45, 58, 0.32);
+	}
+
+	.chat-model-picker__close {
+		flex-basis: 62rpx;
+		width: 62rpx;
+		height: 62rpx;
+		border: 1rpx solid rgba(255, 255, 255, 0.7);
+		background: rgba(245, 252, 253, 0.72);
+		box-shadow: 0 10rpx 24rpx rgba(22, 53, 68, 0.16);
+		backdrop-filter: blur(18rpx);
+		-webkit-backdrop-filter: blur(18rpx);
+	}
+
+	.chat-model-picker__tabs {
+		gap: 7rpx;
+		margin-top: 16rpx;
+		padding: 7rpx;
+		border: 1rpx solid rgba(255, 255, 255, 0.72);
+		border-radius: 28rpx;
+		background: rgba(231, 244, 247, 0.7);
+		box-shadow: 0 12rpx 30rpx rgba(22, 53, 68, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.78);
+		backdrop-filter: blur(22rpx) saturate(1.08);
+		-webkit-backdrop-filter: blur(22rpx) saturate(1.08);
+	}
+
+	.chat-model-picker__tab {
+		height: 68rpx;
+		border-radius: 21rpx;
+		color: #718994;
+		font-size: 23rpx;
+	}
+
+	.chat-model-picker__tab--active {
+		color: #315f72;
+		background: rgba(255, 255, 255, 0.9);
+		box-shadow: 0 9rpx 22rpx rgba(44, 83, 103, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.88);
+	}
+
+	.chat-model-picker__tab--active::after {
+		display: none;
+	}
+
+	.chat-model-picker__tab-count {
+		min-width: 32rpx;
+		height: 32rpx;
+		padding: 0 8rpx;
+		border-radius: 999rpx;
+		font-size: 17rpx;
+		line-height: 32rpx;
+		text-align: center;
+		color: #718994;
+		background: rgba(255, 255, 255, 0.64);
+		box-sizing: border-box;
+	}
+
+	.chat-model-picker__tab--active .chat-model-picker__tab-count {
+		color: #4f7f8e;
+		background: rgba(225, 244, 248, 0.78);
+	}
+
+	.chat-model-picker__list {
+		min-height: 250rpx;
+		padding: 16rpx 4rpx 4rpx;
+		border: 0;
+		background: transparent;
+		box-sizing: border-box;
+	}
+
+	.chat-model-option {
+		margin-bottom: 12rpx;
+		padding: 20rpx;
+		border: 1rpx solid rgba(255, 255, 255, 0.78);
+		border-radius: 28rpx;
+		background: rgba(248, 252, 253, 0.76);
+		box-shadow: 0 14rpx 34rpx rgba(22, 53, 68, 0.14), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
+		backdrop-filter: blur(24rpx) saturate(1.08);
+		-webkit-backdrop-filter: blur(24rpx) saturate(1.08);
+		transition: background-color 0.16s ease, opacity 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+	}
+
+	.chat-model-option:last-child {
+		margin-bottom: 0;
+		border: 1rpx solid rgba(255, 255, 255, 0.78);
+	}
+
+	.chat-model-option--active {
+		border-color: rgba(117, 191, 204, 0.74);
+		background: linear-gradient(145deg, rgba(224, 246, 249, 0.9) 0%, rgba(255, 255, 255, 0.84) 100%);
+		box-shadow: 0 17rpx 38rpx rgba(42, 105, 119, 0.18), inset 0 1rpx 0 rgba(255, 255, 255, 0.92);
+	}
+
+	.chat-model-option--active::before {
+		display: none;
+	}
+
+	.chat-model-option--disabled {
+		background: rgba(235, 241, 243, 0.72);
+		opacity: 0.68;
+	}
+
+	.chat-model-option__main {
+		gap: 16rpx;
+	}
+
+	.chat-model-option__avatar {
+		flex-basis: 62rpx;
+		width: 62rpx;
+		height: 62rpx;
+		border-radius: 21rpx;
+		background: linear-gradient(145deg, #3e8090 0%, #69adba 100%);
+		box-shadow: 0 9rpx 20rpx rgba(62, 128, 144, 0.14), inset 0 1rpx 0 rgba(255, 255, 255, 0.24);
+	}
+
+	.chat-model-option__avatar--byok {
+		background: linear-gradient(145deg, #a85d7c 0%, #d38cab 100%);
+		box-shadow: 0 9rpx 20rpx rgba(168, 93, 124, 0.13), inset 0 1rpx 0 rgba(255, 255, 255, 0.24);
+	}
+
+	.chat-model-option__name {
+		color: #203846;
+		font-size: 27rpx;
+		font-weight: 800;
+	}
+
+	.chat-model-option__badge {
+		padding: 5rpx 10rpx;
+		border: 1rpx solid rgba(182, 95, 131, 0.14);
+		border-radius: 999rpx;
+		color: #a24f72;
+		background: rgba(255, 235, 244, 0.54);
+		font-size: 17rpx;
 		font-weight: 700;
+	}
+
+	.chat-model-option__desc {
+		margin-top: 7rpx;
+		color: #647b8b;
+		font-size: 21rpx;
+		line-height: 1.5;
+	}
+
+	.chat-model-option__side {
+		flex-basis: 132rpx;
+		width: 132rpx;
+		gap: 9rpx;
+	}
+
+	.chat-model-option__price {
+		max-width: 132rpx;
+		padding: 7rpx 11rpx;
+		border-radius: 999rpx;
+		color: #a85275;
+		background: rgba(255, 236, 245, 0.5);
+		font-size: 19rpx;
+		font-weight: 800;
+		box-sizing: border-box;
+	}
+
+	.chat-model-option__selected {
+		padding: 6rpx 10rpx;
+		border-radius: 999rpx;
+		background: #4f93a3;
+		font-size: 17rpx;
+		font-weight: 700;
+	}
+
+	.chat-model-option__signals {
+		gap: 10rpx 12rpx;
+		margin: 16rpx 0 0 78rpx;
+	}
+
+	.chat-model-signal {
+		gap: 8rpx;
+		padding: 6rpx 10rpx;
+		border-radius: 999rpx;
+		background: rgba(224, 239, 243, 0.68);
+	}
+
+	.chat-model-signal__label {
+		color: #647b8b;
+		font-size: 18rpx;
+	}
+
+	.chat-model-signal__bars {
+		align-items: center;
+		gap: 4rpx;
+	}
+
+	.chat-model-signal__bar {
+		width: 11rpx;
+		height: 7rpx;
+		border-radius: 999rpx;
+		background: rgba(126, 157, 169, 0.22);
+	}
+
+	.chat-model-signal__bar--active {
+		background: #5c9dac;
+	}
+
+	.chat-model-option__context,
+	.chat-model-option__tag {
+		padding: 6rpx 10rpx;
+		border-radius: 999rpx;
+		color: #607786;
+		background: rgba(255, 255, 255, 0.72);
+		font-size: 18rpx;
+	}
+
+	.chat-model-option__tag::before {
+		display: none;
+	}
+
+	.chat-model-option__reason {
+		margin: 12rpx 0 0 78rpx;
+		padding: 9rpx 12rpx;
+		border-radius: 14rpx;
+		color: #9c5363;
+		background: rgba(255, 235, 240, 0.42);
+		font-size: 19rpx;
+	}
+
+	.chat-model-picker__empty {
+		min-height: 250rpx;
+		gap: 16rpx;
+		color: #647b8b;
+		font-size: 23rpx;
+		text-align: center;
+	}
+
+	.chat-model-picker__empty-icon {
+		width: 78rpx;
+		height: 78rpx;
+		border-radius: 26rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(226, 245, 249, 0.42);
+		border: 1rpx solid rgba(79, 147, 163, 0.13);
+	}
+
+	.chat-model-picker__settings {
+		padding: 10rpx 18rpx;
+		border-radius: 999rpx;
+		color: #4f7f8e;
+		background: rgba(226, 245, 249, 0.46);
+		font-weight: 700;
+	}
+
+	.chat-model-picker__footer {
+		padding-top: 14rpx;
+	}
+
+	.chat-model-picker__wallet,
+	.chat-model-picker__byok-note {
+		min-height: 72rpx;
+		padding: 10rpx 14rpx;
+		border: 1rpx solid rgba(255, 255, 255, 0.76);
+		border-radius: 24rpx;
+		background: rgba(248, 252, 253, 0.74);
+		box-shadow: 0 12rpx 30rpx rgba(22, 53, 68, 0.13), inset 0 1rpx 0 rgba(255, 255, 255, 0.84);
+		backdrop-filter: blur(22rpx) saturate(1.08);
+		-webkit-backdrop-filter: blur(22rpx) saturate(1.08);
+		box-sizing: border-box;
+	}
+
+	.chat-model-picker__wallet {
+		gap: 10rpx;
+	}
+
+	.chat-model-picker__wallet-label text:first-child {
+		color: #315f72;
+		font-size: 21rpx;
+		font-weight: 800;
+	}
+
+	.chat-model-picker__wallet-label text:last-child {
+		color: #7a909a;
+		font-size: 17rpx;
+	}
+
+	.chat-model-picker__wallet-balance {
+		display: inline-flex;
+		align-items: center;
+		gap: 6rpx;
+		padding: 8rpx 11rpx;
+		border-radius: 999rpx;
+		font-size: 19rpx;
+		font-weight: 700;
+		white-space: nowrap;
+	}
+
+	.chat-model-picker__wallet-balance--diamond {
+		color: #4f7f8e;
+		background: rgba(229, 247, 250, 0.46);
+	}
+
+	.chat-model-picker__wallet-balance--coin {
+		color: #8d6827;
+		background: rgba(255, 247, 223, 0.5);
+	}
+
+	.chat-model-picker__byok-note {
+		color: #607786;
+		font-size: 20rpx;
+	}
+
+	@media (max-width: 420px) {
+		.chat-model-picker {
+			min-height: 0;
+			padding-left: 18rpx;
+			padding-right: 18rpx;
+		}
+
+		.chat-model-option {
+			padding: 19rpx;
+		}
+
+		.chat-model-option__side {
+			flex-basis: 118rpx;
+			width: 118rpx;
+		}
+
+		.chat-model-option__price {
+			max-width: 118rpx;
+		}
+
+		.chat-model-picker__wallet-balance {
+			padding-left: 9rpx;
+			padding-right: 9rpx;
+			font-size: 18rpx;
+		}
+	}
+
+	@media (max-height: 720px) {
+		.chat-model-picker {
+			height: 82vh;
+			min-height: 0;
+		}
+	}
+
+	@media (hover: hover) and (pointer: fine) {
+		.chat-model-option:hover,
+		.chat-model-picker__close:hover,
+		.chat-model-picker__tab:hover {
+			transform: translateY(-2rpx);
+		}
 	}
 
 	.tool-bar {
@@ -13751,82 +14622,151 @@
 		align-items: flex-end;
 		justify-content: center;
 		padding: 32rpx 20rpx calc(env(safe-area-inset-bottom) + 24rpx);
-		background: rgba(10, 18, 24, 0.26);
+		background: rgba(24, 43, 58, 0.26);
+		backdrop-filter: blur(10rpx);
+		-webkit-backdrop-filter: blur(10rpx);
 		box-sizing: border-box;
 	}
 
 	.character-voice-sheet {
 		width: 100%;
 		max-width: 760rpx;
-		padding: 26rpx;
+		padding: 22rpx;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
 		overflow: hidden;
-		border-radius: 32rpx;
-		background: rgba(255, 255, 255, 0.94);
-		border: 1rpx solid rgba(255, 255, 255, 0.72);
-		box-shadow: 0 20rpx 52rpx rgba(15, 23, 42, 0.16);
+		border-radius: 36rpx 36rpx 28rpx 28rpx;
+		background: linear-gradient(145deg, rgba(247, 253, 255, 0.92) 0%, rgba(239, 248, 252, 0.88) 56%, rgba(252, 240, 248, 0.88) 100%);
+		border: 1rpx solid rgba(255, 255, 255, 0.88);
+		box-shadow: 0 32rpx 80rpx rgba(34, 65, 86, 0.26), inset 0 2rpx 0 rgba(255, 255, 255, 0.94);
+		backdrop-filter: blur(28rpx);
+		-webkit-backdrop-filter: blur(28rpx);
 		box-sizing: border-box;
 	}
 
 	.character-voice-sheet-top {
+		position: relative;
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
 		justify-content: space-between;
 		gap: 20rpx;
+		min-height: 132rpx;
+		padding: 22rpx 20rpx;
+		overflow: hidden;
+		border-radius: 28rpx;
+		background: linear-gradient(135deg, rgba(255, 255, 255, 0.82) 0%, rgba(220, 243, 249, 0.72) 55%, rgba(249, 224, 239, 0.62) 100%);
+		border: 1rpx solid rgba(255, 255, 255, 0.82);
+		box-shadow: 0 16rpx 38rpx rgba(67, 112, 142, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.94);
 		flex-shrink: 0;
+		box-sizing: border-box;
+	}
+
+	.character-voice-sheet-top::after {
+		content: '';
+		position: absolute;
+		left: 24rpx;
+		right: 24rpx;
+		bottom: 0;
+		height: 3rpx;
+		border-radius: 999rpx;
+		background: linear-gradient(90deg, rgba(64, 151, 174, 0.76), rgba(116, 151, 181, 0.52), rgba(195, 126, 165, 0.54));
 	}
 
 	.character-voice-scroll {
 		flex: 1;
 		min-height: 0;
-		margin-top: 4rpx;
+		margin-top: 8rpx;
 	}
 
 	.character-voice-scroll-body {
-		padding-right: 4rpx;
-		padding-bottom: 8rpx;
+		padding: 0 4rpx 10rpx;
 		box-sizing: border-box;
 	}
 
 	.character-voice-sheet-head {
 		display: flex;
 		align-items: center;
-		gap: 18rpx;
+		gap: 16rpx;
 		min-width: 0;
+		flex: 1;
+		padding-right: 54rpx;
+		box-sizing: border-box;
+	}
+
+	.character-voice-avatar-shell {
+		position: relative;
+		width: 88rpx;
+		height: 88rpx;
+		flex-shrink: 0;
 	}
 
 	.character-voice-avatar {
-		width: 84rpx;
-		height: 84rpx;
-		border-radius: 26rpx;
+		width: 88rpx;
+		height: 88rpx;
+		border-radius: 28rpx;
 		background: rgba(255, 255, 255, 0.72);
 		border: 3rpx solid rgba(255, 255, 255, 0.9);
-		box-shadow: 0 10rpx 24rpx rgba(36, 70, 88, 0.1);
-		flex-shrink: 0;
+		box-shadow: 0 12rpx 26rpx rgba(48, 94, 122, 0.17);
+		box-sizing: border-box;
+	}
+
+	.character-voice-avatar-badge {
+		position: absolute;
+		right: -7rpx;
+		bottom: -5rpx;
+		width: 34rpx;
+		height: 34rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		background: linear-gradient(145deg, #4b9eb3, #8b8fbd);
+		border: 3rpx solid rgba(255, 255, 255, 0.94);
+		box-shadow: 0 6rpx 14rpx rgba(54, 104, 132, 0.22);
 	}
 
 	.character-voice-head-copy {
 		min-width: 0;
+		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 8rpx;
+		gap: 4rpx;
 	}
 
 	.character-voice-title {
 		display: block;
-		font-size: 32rpx;
+		font-size: 34rpx;
 		font-weight: 800;
-		color: #203846;
+		color: #244b66;
 	}
 
 	.character-voice-sub {
 		display: block;
-		font-size: 24rpx;
-		line-height: 1.65;
-		color: #5f7280;
+		font-size: 22rpx;
+		line-height: 1.5;
+		color: #718797;
 	}
+
+	.character-voice-wave {
+		display: flex;
+		align-items: center;
+		gap: 4rpx;
+		height: 44rpx;
+		padding: 0 4rpx;
+		flex-shrink: 0;
+		opacity: 0.72;
+	}
+
+	.character-voice-wave text {
+		width: 5rpx;
+		border-radius: 999rpx;
+		background: linear-gradient(180deg, #4899ae, #b67fa2);
+	}
+
+	.character-voice-wave text:nth-child(1), .character-voice-wave text:nth-child(5) { height: 14rpx; }
+	.character-voice-wave text:nth-child(2), .character-voice-wave text:nth-child(4) { height: 28rpx; }
+	.character-voice-wave text:nth-child(3) { height: 40rpx; }
 
 	.character-voice-entry {
 		display: inline-flex;
@@ -13842,30 +14782,50 @@
 	}
 
 	.character-voice-close {
-		width: 58rpx;
-		height: 58rpx;
+		position: absolute;
+		top: 14rpx;
+		right: 14rpx;
+		z-index: 2;
+		width: 52rpx;
+		height: 52rpx;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		border-radius: 50%;
 		background: rgba(255, 255, 255, 0.76);
-		color: #203846;
-		font-size: 30rpx;
-		line-height: 1;
+		border: 1rpx solid rgba(255, 255, 255, 0.88);
+		box-shadow: 0 8rpx 18rpx rgba(67, 112, 142, 0.1);
 		flex-shrink: 0;
 	}
 
 	.character-voice-global-card {
 		margin-top: 20rpx;
-		padding: 22rpx 24rpx;
-		border-radius: 28rpx;
-		background: rgba(255, 255, 255, 0.76);
-		border: 1rpx solid rgba(79, 147, 163, 0.14);
+		padding: 24rpx;
+		border-radius: 26rpx;
+		background: rgba(255, 255, 255, 0.68);
+		border: 1rpx solid rgba(255, 255, 255, 0.78);
+		box-shadow: 0 18rpx 42rpx rgba(67, 112, 142, 0.1), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
+		backdrop-filter: blur(20rpx);
+		-webkit-backdrop-filter: blur(20rpx);
 	}
 
 	.character-voice-global-head {
 		display: flex;
-		align-items: flex-start;
+		align-items: center;
+		gap: 14rpx;
+	}
+
+	.character-voice-section-icon {
+		width: 52rpx;
+		height: 52rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		border-radius: 16rpx;
+		background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(221, 241, 247, 0.8));
+		border: 1rpx solid rgba(79, 147, 163, 0.14);
+		box-shadow: 0 8rpx 18rpx rgba(67, 112, 142, 0.09);
 	}
 
 	.character-voice-global-copy {
@@ -13949,9 +14909,12 @@
 	.character-voice-field {
 		margin-top: 22rpx;
 		padding: 24rpx;
-		border-radius: 28rpx;
-		background: rgba(255, 255, 255, 0.76);
-		border: 1rpx solid rgba(79, 147, 163, 0.12);
+		border-radius: 26rpx;
+		background: rgba(255, 255, 255, 0.66);
+		border: 1rpx solid rgba(255, 255, 255, 0.76);
+		box-shadow: 0 18rpx 42rpx rgba(67, 112, 142, 0.09), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
+		backdrop-filter: blur(20rpx);
+		-webkit-backdrop-filter: blur(20rpx);
 	}
 
 	.character-voice-field--disabled {
@@ -13977,30 +14940,181 @@
 		color: #5f7280;
 	}
 
+	.character-voice-catalog-state {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16rpx;
+		margin-top: 16rpx;
+		padding: 16rpx 18rpx;
+		border-radius: 18rpx;
+		background: rgba(224, 240, 245, 0.58);
+		font-size: 22rpx;
+		line-height: 1.55;
+		color: #5f7280;
+	}
+
+	.character-voice-catalog-state--error {
+		background: rgba(255, 239, 239, 0.74);
+		color: #a44747;
+	}
+
+	.character-voice-catalog-retry,
+	.character-voice-empty-action {
+		flex-shrink: 0;
+		font-weight: 700;
+		color: #28758a;
+	}
+
+	.character-voice-choice {
+		display: flex;
+		align-items: center;
+		gap: 14rpx;
+		min-height: 88rpx;
+		margin-top: 16rpx;
+		padding: 14rpx 18rpx;
+		border-radius: 22rpx;
+		background: rgba(255, 255, 255, 0.7);
+		border: 1rpx solid rgba(91, 145, 164, 0.13);
+		box-shadow: 0 10rpx 24rpx rgba(56, 96, 120, 0.07), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
+		box-sizing: border-box;
+	}
+
+	.character-voice-choice--compact {
+		margin-top: 0;
+	}
+
+	.character-voice-choice--active {
+		background: linear-gradient(135deg, rgba(224, 246, 250, 0.88), rgba(248, 232, 241, 0.7));
+		border-color: rgba(73, 144, 162, 0.48);
+		box-shadow: 0 0 0 3rpx rgba(79, 147, 163, 0.08), 0 12rpx 26rpx rgba(56, 96, 120, 0.09);
+	}
+
+	.character-voice-choice--unavailable {
+		opacity: 0.48;
+	}
+
+	.character-voice-choice-icon {
+		width: 52rpx;
+		height: 52rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		border-radius: 17rpx;
+		background: rgba(224, 241, 246, 0.82);
+	}
+
+	.character-voice-choice-icon--private {
+		background: rgba(246, 229, 239, 0.8);
+	}
+
+	.character-voice-choice-copy {
+		min-width: 0;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 5rpx;
+	}
+
+	.character-voice-choice-title,
+	.character-voice-advanced-title {
+		display: block;
+		font-size: 24rpx;
+		font-weight: 700;
+		color: #203846;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.character-voice-choice-desc {
+		display: block;
+		font-size: 21rpx;
+		line-height: 1.5;
+		color: #71818d;
+	}
+
+	.character-voice-catalog-group {
+		margin-top: 22rpx;
+	}
+
+	.character-voice-catalog-group-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 14rpx;
+	}
+
+	.character-voice-catalog-title {
+		display: block;
+		font-size: 23rpx;
+		font-weight: 700;
+		color: #405766;
+	}
+
+	.character-voice-catalog-count {
+		min-width: 42rpx;
+		height: 34rpx;
+		padding: 0 10rpx;
+		border-radius: 999rpx;
+		background: rgba(79, 147, 163, 0.11);
+		font-size: 20rpx;
+		line-height: 34rpx;
+		text-align: center;
+		color: #347f97;
+		box-sizing: border-box;
+	}
+
+	.character-voice-private-list {
+		display: flex;
+		flex-direction: column;
+		gap: 12rpx;
+		margin-top: 14rpx;
+	}
+
+	.character-voice-empty {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16rpx;
+		margin-top: 18rpx;
+		padding: 16rpx 18rpx;
+		border-radius: 18rpx;
+		background: rgba(255, 255, 255, 0.5);
+		font-size: 22rpx;
+		color: #71818d;
+	}
+
 	.character-voice-switch-row {
 		display: flex;
-		gap: 12rpx;
+		gap: 6rpx;
 		margin-top: 16rpx;
+		padding: 6rpx;
+		border-radius: 22rpx;
+		background: rgba(222, 238, 244, 0.62);
+		border: 1rpx solid rgba(100, 154, 174, 0.1);
 	}
 
 	.character-voice-switch {
-		min-width: 132rpx;
+		min-width: 0;
+		flex: 1;
 		height: 66rpx;
 		padding: 0 24rpx;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 999rpx;
-		background: rgba(255, 255, 255, 0.76);
+		border-radius: 18rpx;
+		background: transparent;
 		color: #53656f;
 		font-size: 24rpx;
 		font-weight: 600;
 	}
 
 	.character-voice-switch--active {
-		background: #3f8f9f;
+		background: linear-gradient(135deg, #4f9caf, #7096b7);
 		color: #fff;
-		box-shadow: 0 12rpx 24rpx rgba(48, 103, 117, 0.2);
+		box-shadow: 0 10rpx 22rpx rgba(48, 103, 117, 0.2), inset 0 1rpx 0 rgba(255, 255, 255, 0.28);
 	}
 
 	.character-voice-input {
@@ -14009,8 +15123,9 @@
 		margin-top: 16rpx;
 		padding: 0 22rpx;
 		border-radius: 22rpx;
-		background: rgba(255, 255, 255, 0.78);
-		border: 1rpx solid rgba(79, 147, 163, 0.14);
+		background: rgba(255, 255, 255, 0.7);
+		border: 1rpx solid rgba(102, 157, 178, 0.16);
+		box-shadow: inset 0 2rpx 5rpx rgba(58, 96, 117, 0.04), 0 8rpx 20rpx rgba(67, 112, 142, 0.06);
 		box-sizing: border-box;
 		font-size: 26rpx;
 		color: #203846;
@@ -14045,14 +15160,15 @@
 		padding: 14rpx;
 		overflow: hidden;
 		border-radius: 22rpx;
-		background: rgba(255, 255, 255, 0.82);
-		border: 1rpx solid rgba(79, 147, 163, 0.12);
-		box-shadow: 0 12rpx 24rpx rgba(36, 70, 88, 0.08);
+		background: rgba(255, 255, 255, 0.7);
+		border: 1rpx solid rgba(255, 255, 255, 0.82);
+		box-shadow: 0 12rpx 28rpx rgba(49, 94, 121, 0.09), inset 0 1rpx 0 rgba(255, 255, 255, 0.9);
 		box-sizing: border-box;
 	}
 
 	.character-voice-template-card--active {
-		border-color: rgba(79, 147, 163, 0.66);
+		background: linear-gradient(135deg, rgba(224, 247, 251, 0.88), rgba(248, 230, 241, 0.72));
+		border-color: rgba(79, 147, 163, 0.52);
 		box-shadow:
 			0 0 0 3rpx rgba(79, 147, 163, 0.1),
 			0 14rpx 28rpx rgba(36, 70, 88, 0.1);
@@ -14158,7 +15274,7 @@
 		flex-shrink: 0;
 		padding: 7rpx 12rpx;
 		border-radius: 999rpx;
-		background: #4f93a3;
+		background: linear-gradient(135deg, #4f9caf, #778fb5);
 		color: #ffffff;
 		font-size: 19rpx;
 		font-weight: 800;
@@ -14173,8 +15289,8 @@
 		margin-top: 18rpx;
 		padding: 20rpx 22rpx;
 		border-radius: 24rpx;
-		background: rgba(63, 143, 159, 0.1);
-		border: 1rpx solid rgba(79, 147, 163, 0.14);
+		background: linear-gradient(135deg, rgba(221, 245, 249, 0.72), rgba(248, 229, 240, 0.56));
+		border: 1rpx solid rgba(96, 157, 177, 0.16);
 	}
 
 	.character-voice-template-active__copy {
@@ -14210,11 +15326,7 @@
 	}
 
 	.character-voice-manual-box {
-		margin-top: 18rpx;
-		padding: 20rpx;
-		border-radius: 24rpx;
-		background: rgba(255, 255, 255, 0.72);
-		border: 1rpx solid rgba(79, 147, 163, 0.12);
+		padding: 0 18rpx 18rpx;
 	}
 
 	.character-voice-manual-label {
@@ -14223,6 +15335,27 @@
 		font-weight: 700;
 		letter-spacing: 1rpx;
 		color: #53656f;
+	}
+
+	.character-voice-advanced {
+		margin-top: 22rpx;
+		border-radius: 22rpx;
+		background: rgba(255, 255, 255, 0.5);
+		border: 1rpx solid rgba(79, 147, 163, 0.1);
+		overflow: hidden;
+	}
+
+	.character-voice-advanced-toggle {
+		display: flex;
+		align-items: center;
+		gap: 14rpx;
+		min-height: 84rpx;
+		padding: 14rpx 18rpx;
+		box-sizing: border-box;
+	}
+
+	.character-voice-advanced .character-voice-input {
+		margin-top: 0;
 	}
 
 	.character-voice-chip-scroll {
@@ -14250,7 +15383,7 @@
 	}
 
 	.character-voice-chip--active {
-		background: #3f8f9f;
+		background: linear-gradient(135deg, #4f9caf, #778fb5);
 		color: #fff;
 		box-shadow: 0 10rpx 20rpx rgba(48, 103, 117, 0.18);
 	}
@@ -14269,7 +15402,7 @@
 		flex-shrink: 0;
 		margin-top: 18rpx;
 		padding-top: 18rpx;
-		border-top: 1rpx solid rgba(79, 147, 163, 0.12);
+		border-top: 1rpx solid rgba(101, 155, 176, 0.12);
 	}
 
 	.character-voice-btn {
@@ -14278,20 +15411,31 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border-radius: 999rpx;
+		border-radius: 22rpx;
 		font-size: 26rpx;
 		font-weight: 700;
 	}
 
 	.character-voice-btn--ghost {
-		background: rgba(255, 255, 255, 0.76);
+		background: rgba(255, 255, 255, 0.72);
+		border: 1rpx solid rgba(255, 255, 255, 0.84);
 		color: #53656f;
+		box-shadow: 0 10rpx 22rpx rgba(67, 112, 142, 0.07);
 	}
 
 	.character-voice-btn--primary {
-		background: #3f8f9f;
+		background: linear-gradient(135deg, #4d9bad 0%, #668faa 62%, #a77f9d 100%);
 		color: #fff;
-		box-shadow: 0 16rpx 28rpx rgba(48, 103, 117, 0.2);
+		border: 1rpx solid rgba(255, 255, 255, 0.3);
+		box-shadow: 0 16rpx 30rpx rgba(48, 103, 117, 0.24), inset 0 1rpx 0 rgba(255, 255, 255, 0.3);
+	}
+
+	.character-voice-btn:active,
+	.character-voice-global-action:active,
+	.character-voice-template-card:active,
+	.nav-voice-config:active {
+		transform: translateY(2rpx);
+		opacity: 0.88;
 	}
 
 	.character-image-mask {

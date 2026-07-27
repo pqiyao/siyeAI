@@ -9,12 +9,19 @@
 				<view class="loading-line"></view>
 			</view>
 			<view v-else-if="!list.length" class="empty">
+				<view class="empty-icon">
+					<u-icon name="email-fill" color="#4f93a3" size="42"></u-icon>
+				</view>
 				<text class="empty-txt">{{ loadFailed ? loadErrorText : emptyText }}</text>
 				<view v-if="loadFailed" class="empty-retry" @tap="load">{{ uiText.retry }}</view>
 			</view>
 			<view v-for="item in list" :key="item.id + '_' + item.createdAt" class="card">
+				<view class="card-accent"></view>
 				<view class="card-hd">
-					<text class="tag" :class="{ 'tag--review': item.tagType === 'review' }">{{ item.tagText }}</text>
+					<view class="tag" :class="{ 'tag--review': item.tagType === 'review' }">
+						<u-icon :name="item.tagType === 'review' ? 'checkmark-circle-fill' : 'volume-fill'" :color="item.tagType === 'review' ? '#b7791f' : '#4f93a3'" size="21"></u-icon>
+						<text>{{ item.tagText }}</text>
+					</view>
 					<text class="time">{{ item.createtime_attr }}</text>
 				</view>
 				<text class="card-title">{{ item.title }}</text>
@@ -249,13 +256,20 @@ export default {
 	.scroll {
 		flex: 1;
 		height: 0;
-		padding: 20rpx 28rpx 0;
+		padding: 24rpx 26rpx 0;
 		box-sizing: border-box;
 	}
 
 	.empty {
-		padding: 120rpx 32rpx;
+		margin: 24rpx 0;
+		padding: 108rpx 32rpx;
 		text-align: center;
+		border-radius: 32rpx;
+		background: rgba(255, 255, 255, 0.54);
+		border: 1rpx solid rgba(255, 255, 255, 0.76);
+		box-shadow: 0 22rpx 52rpx rgba(67, 112, 142, 0.1);
+		backdrop-filter: blur(18rpx);
+		-webkit-backdrop-filter: blur(18rpx);
 	}
 
 	.empty--loading {
@@ -265,9 +279,9 @@ export default {
 	}
 
 	.loading-line {
-		height: 26rpx;
+		height: 28rpx;
 		border-radius: 999rpx;
-		background: linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(148, 163, 184, 0.16), rgba(255, 255, 255, 0.04));
+		background: linear-gradient(90deg, rgba(255, 255, 255, 0.42), rgba(126, 174, 194, 0.2), rgba(255, 255, 255, 0.42));
 		position: relative;
 		overflow: hidden;
 	}
@@ -292,25 +306,63 @@ export default {
 	}
 
 	.empty-txt {
+		display: block;
+		margin-top: 20rpx;
 		font-size: 28rpx;
 		color: $muted;
 		line-height: 1.5;
 	}
 
+	.empty-icon {
+		width: 92rpx;
+		height: 92rpx;
+		margin: 0 auto;
+		border-radius: 30rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(228, 246, 250, 0.9);
+		border: 1rpx solid rgba(79, 147, 163, 0.16);
+		box-shadow: 0 16rpx 34rpx rgba(79, 147, 163, 0.12);
+	}
+
 	.empty-retry {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 180rpx;
+		height: 72rpx;
 		margin-top: 28rpx;
-		font-size: 28rpx;
-		color: #247494;
-		font-weight: 600;
+		padding: 0 28rpx;
+		border-radius: 999rpx;
+		font-size: 26rpx;
+		color: #fff;
+		background: #4f93a3;
+		box-shadow: 0 14rpx 28rpx rgba(79, 147, 163, 0.2);
+		font-weight: 700;
 	}
 
 	.card {
-		background: $card;
-		border-radius: 20rpx;
-		padding: 28rpx;
-		margin-bottom: 24rpx;
-		border: 1rpx solid rgba(255, 255, 255, 0.9);
-		box-shadow: 0 18rpx 40rpx rgba(67, 112, 142, 0.11);
+		position: relative;
+		overflow: hidden;
+		background: linear-gradient(145deg, rgba(255, 255, 255, 0.9) 0%, rgba(247, 252, 254, 0.76) 100%);
+		border-radius: 30rpx;
+		padding: 30rpx 30rpx 32rpx;
+		margin-bottom: 22rpx;
+		border: 1rpx solid rgba(255, 255, 255, 0.92);
+		box-shadow: 0 20rpx 48rpx rgba(67, 112, 142, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
+		backdrop-filter: blur(18rpx);
+		-webkit-backdrop-filter: blur(18rpx);
+	}
+
+	.card-accent {
+		position: absolute;
+		left: 0;
+		top: 28rpx;
+		bottom: 28rpx;
+		width: 5rpx;
+		border-radius: 0 999rpx 999rpx 0;
+		background: linear-gradient(180deg, #4f93a3 0%, #8ecbd3 68%, #cf88a7 100%);
 	}
 
 	.card-hd {
@@ -321,24 +373,31 @@ export default {
 	}
 
 	.tag {
-		font-size: 22rpx;
-		color: #247494;
-		font-weight: 600;
+		display: inline-flex;
+		align-items: center;
+		gap: 8rpx;
+		padding: 8rpx 14rpx;
+		border-radius: 999rpx;
+		font-size: 21rpx;
+		color: #4f7f8e;
+		font-weight: 700;
+		background: rgba(226, 245, 249, 0.86);
 	}
 
 	.tag--review {
-		color: #f59e0b;
+		color: #99651a;
+		background: rgba(255, 244, 214, 0.9);
 	}
 
 	.time {
-		font-size: 22rpx;
+		font-size: 21rpx;
 		color: $muted;
 	}
 
 	.card-title {
 		display: block;
-		font-size: 30rpx;
-		font-weight: bold;
+		font-size: 31rpx;
+		font-weight: 800;
 		color: $text;
 		margin-bottom: 12rpx;
 		line-height: 1.4;
@@ -348,7 +407,19 @@ export default {
 		display: block;
 		font-size: 26rpx;
 		color: $muted;
-		line-height: 1.55;
+		line-height: 1.72;
+		white-space: pre-wrap;
+	}
+
+	@media (hover: hover) and (pointer: fine) {
+		.card {
+			transition: transform 180ms ease, box-shadow 180ms ease;
+		}
+
+		.card:hover {
+			transform: translateY(-3rpx);
+			box-shadow: 0 26rpx 58rpx rgba(67, 112, 142, 0.16);
+		}
 	}
 
 	.pad {

@@ -24,15 +24,37 @@ public class UserTtsVoiceReservationService {
 
     @Transactional
     public void reserve(long userId, int limit, AppUserTtsVoice row) {
+        lockUserAndCheckQuota(userId, limit);
+        voiceMapper.insert(row);
+    }
+
+    @Transactional
+    public AppUserTtsVoice reserveImported(long userId, int limit, AppUserTtsVoice row) {
+        lockUser(userId);
+        AppUserTtsVoice existing = voiceMapper.findActiveByUserIdAndVoiceUri(userId, row.getVoiceUri());
+        if (existing != null) return existing;
+        checkQuota(userId, limit);
+        voiceMapper.insert(row);
+        return row;
+    }
+
+    private void lockUserAndCheckQuota(long userId, int limit) {
+        lockUser(userId);
+        checkQuota(userId, limit);
+    }
+
+    private void lockUser(long userId) {
         profileMapper.insertDefaultIfAbsent(userId);
         if (profileMapper.findByUserIdForUpdate(userId) == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "用户不存在或无权创建音色");
         }
+    }
+
+    private void checkQuota(long userId, int limit) {
         int used = Math.max(0, voiceMapper.countOccupyingByUserId(userId));
         if (limit <= 0 || used >= limit) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "当前权益最多可创建 " + limit + " 个音色，已达到上限");
         }
-        voiceMapper.insert(row);
     }
 }

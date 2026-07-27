@@ -76,18 +76,20 @@ export default {
 .section-head { justify-content: space-between; margin-bottom: 12rpx; }
 .section-title { display: block; font-size: 30rpx; font-weight: 750; }
 .section-sub { display: block; margin-top: 6rpx; font-size: 22rpx; color: #6a8290; }
-.icon-action, .remove-action, .default-toggle, .segment-remove { display: flex; align-items: center; justify-content: center; width: 60rpx; height: 60rpx; }
+.icon-action, .remove-action, .default-toggle, .segment-remove { display: flex; align-items: center; justify-content: center; width: 60rpx; height: 60rpx; border-radius: 21rpx; }
+.icon-action { background: rgba(228,245,249,.82); border: 1rpx solid rgba(79,147,163,.14); box-shadow: 0 10rpx 22rpx rgba(79,147,163,.1); }
 .opening-actions { flex: 0 0 auto; min-width: 54rpx; min-height: 58rpx; display: flex; align-items: center; justify-content: flex-end; gap: 14rpx; }
-.opening-block { padding: 22rpx 0; border-top: 1rpx solid rgba(72,111,132,.16); }
-.opening-block:first-of-type { border-top: 0; }
+.opening-block { padding: 22rpx; border: 1rpx solid rgba(255,255,255,.82); border-radius: 28rpx; background: rgba(255,255,255,.48); box-shadow: 0 16rpx 34rpx rgba(52,94,118,.08); }
+.opening-block + .opening-block { margin-top: 18rpx; }
+.opening-block:first-of-type { margin-top: 0; }
 .opening-head { gap: 8rpx; }
-.opening-title { flex: 1; height: 58rpx; font-size: 28rpx; font-weight: 700; color: #17394b; border-bottom: 1rpx solid rgba(72,111,132,.15); }
-.summary-input { width: 100%; height: 70rpx; margin-top: 8rpx; font-size: 23rpx; color: #496b7c; border-bottom: 1rpx solid rgba(72,111,132,.12); }
-.scenario-input, .segment-content { box-sizing: border-box; background: rgba(255,255,255,.56); border: 1rpx solid rgba(72,111,132,.16); border-radius: 8rpx; color: #17394b; font-size: 24rpx; line-height: 1.55; }
+.opening-title { flex: 1; height: 64rpx; padding: 0 16rpx; font-size: 28rpx; font-weight: 700; color: #17394b; border: 1rpx solid rgba(79,147,163,.14); border-radius: 18rpx; background: rgba(255,255,255,.64); }
+.summary-input { width: 100%; height: 68rpx; margin-top: 12rpx; padding: 0 18rpx; box-sizing: border-box; font-size: 23rpx; color: #496b7c; border: 1rpx solid rgba(79,147,163,.13); border-radius: 18rpx; background: rgba(255,255,255,.58); }
+.scenario-input, .segment-content { box-sizing: border-box; background: rgba(255,255,255,.64); border: 1rpx solid rgba(79,147,163,.14); border-radius: 22rpx; color: #17394b; font-size: 24rpx; line-height: 1.6; }
 .scenario-input { width: 100%; min-height: 100rpx; margin-top: 12rpx; padding: 14rpx 16rpx; }
 .segment-row { position: relative; margin-top: 14rpx; padding-left: 150rpx; }
-.speaker-select { position: absolute; left: 0; top: 0; width: 136rpx; height: 64rpx; justify-content: space-between; font-size: 22rpx; color: #365f72; border-bottom: 1rpx solid rgba(72,111,132,.18); }
+.speaker-select { position: absolute; left: 0; top: 0; width: 136rpx; height: 64rpx; padding: 0 12rpx; box-sizing: border-box; justify-content: space-between; font-size: 22rpx; color: #365f72; border: 1rpx solid rgba(79,147,163,.13); border-radius: 18rpx; background: rgba(255,255,255,.58); }
 .segment-content { width: 100%; min-height: 112rpx; padding: 14rpx 46rpx 14rpx 16rpx; }
 .segment-remove { position: absolute; right: 0; top: 0; }
-.text-action { padding: 18rpx 0 4rpx; font-size: 23rpx; color: #246681; }
+.text-action { display: inline-flex; align-items: center; min-height: 58rpx; margin-top: 14rpx; padding: 0 20rpx; border-radius: 999rpx; font-size: 23rpx; color: #246681; background: rgba(228,245,249,.72); border: 1rpx solid rgba(79,147,163,.14); }
 </style>

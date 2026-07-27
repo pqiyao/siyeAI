@@ -19,6 +19,11 @@ public interface AppUserTtsVoiceMapper {
             @Param("requestId") String requestId
     );
 
+    AppUserTtsVoice findActiveByUserIdAndVoiceUri(
+            @Param("userId") long userId,
+            @Param("voiceUri") String voiceUri
+    );
+
     List<AppUserTtsVoice> listByUserId(@Param("userId") long userId);
 
     List<AppUserTtsVoice> listAdmin(

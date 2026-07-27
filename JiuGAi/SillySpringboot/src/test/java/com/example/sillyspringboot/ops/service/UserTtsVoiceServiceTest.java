@@ -25,6 +25,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.anyInt;
 
 class UserTtsVoiceServiceTest {
 
@@ -35,6 +36,7 @@ class UserTtsVoiceServiceTest {
     private TtsVoiceProvisionService provisionService;
     private H5EntitlementService entitlementService;
     private CharacterStudioMapper characterStudioMapper;
+    private UserTtsVoiceReservationService reservationService;
     private UserTtsVoiceService service;
 
     @BeforeEach
@@ -46,6 +48,7 @@ class UserTtsVoiceServiceTest {
         provisionService = mock(TtsVoiceProvisionService.class);
         entitlementService = mock(H5EntitlementService.class);
         characterStudioMapper = mock(CharacterStudioMapper.class);
+        reservationService = mock(UserTtsVoiceReservationService.class);
         service = new UserTtsVoiceService(
                 voiceMapper,
                 bindingMapper,
@@ -53,7 +56,7 @@ class UserTtsVoiceServiceTest {
                 entitlementPolicyService,
                 userAiProviderService,
                 provisionService,
-                mock(UserTtsVoiceReservationService.class),
+                reservationService,
                 mock(MediaConcurrencyGate.class),
                 entitlementService,
                 characterStudioMapper);
@@ -174,6 +177,79 @@ class UserTtsVoiceServiceTest {
     }
 
     @Test
+    void importRejectsVoiceMissingFromCurrentProviderAccount() {
+        enabledPolicy();
+        TtsVoiceProvisionService.TtsRuntimeContext runtime = runtime("key-a");
+        when(userAiProviderService.resolveActiveTtsSettingsForUser(7L)).thenReturn(
+                settings("siliconflow", runtime.modelName(), "key-a", runtime.baseUrl()));
+        when(provisionService.listProviderVoices(any())).thenReturn(java.util.List.of());
+
+        assertThatThrownBy(() -> service.importProviderVoice(
+                7L, "import-request-001", "speech:not-owned"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前硅基流动账号");
+
+        verify(reservationService, never()).reserveImported(anyLong(), anyInt(), any());
+    }
+
+    @Test
+    void importUsesAtomicReservationAndStoresReadyProviderVoice() {
+        enabledPolicy();
+        TtsVoiceProvisionService.TtsRuntimeContext runtime = runtime("key-a");
+        when(userAiProviderService.resolveActiveTtsSettingsForUser(7L)).thenReturn(
+                settings("siliconflow", runtime.modelName(), "key-a", runtime.baseUrl()));
+        when(provisionService.listProviderVoices(any())).thenReturn(java.util.List.of(
+                new TtsVoiceProvisionService.ProviderVoice(
+                        "speech:owned", "已有音色", runtime.modelName(), "测试台词")));
+        when(reservationService.reserveImported(eq(7L), anyInt(), any(AppUserTtsVoice.class)))
+                .thenAnswer(invocation -> {
+                    AppUserTtsVoice row = invocation.getArgument(2);
+                    row.setId(82L);
+                    return row;
+                });
+
+        java.util.Map<String, Object> result = service.importProviderVoice(
+                7L, "import-request-002", "speech:owned");
+
+        assertThat(result.get("id")).isEqualTo(82L);
+        assertThat(result.get("status")).isEqualTo("READY");
+        verify(reservationService).reserveImported(eq(7L), anyInt(), any(AppUserTtsVoice.class));
+        verify(provisionService, never()).provisionUserVoice(
+                anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(byte[].class),
+                org.mockito.ArgumentMatchers.anyString(), any());
+    }
+
+    @Test
+    void providerDeleteUsesOwnedVoiceAndMatchingByokConfiguration() {
+        TtsVoiceProvisionService.TtsRuntimeContext runtime = runtime("key-a");
+        AppUserTtsVoice voice = readyVoice(81L, 7L, runtime);
+        when(voiceMapper.findOwnedById(7L, 81L)).thenReturn(voice);
+        when(userAiProviderService.resolveActiveTtsSettingsForUser(7L)).thenReturn(
+                settings("siliconflow", runtime.modelName(), "key-a", runtime.baseUrl()));
+
+        service.deleteProviderResource(7L, 81L);
+
+        verify(provisionService).deleteProviderVoice(runtime, "speech:user-voice");
+        verify(voiceMapper, never()).softDelete(7L, 81L);
+    }
+
+    @Test
+    void providerStatusDoesNotExposeApiKey() {
+        TtsVoiceProvisionService.TtsRuntimeContext runtime = runtime("secret-key");
+        when(userAiProviderService.resolveActiveTtsSettingsForUser(7L)).thenReturn(
+                settings("siliconflow", runtime.modelName(), "secret-key", runtime.baseUrl()));
+        when(provisionService.getProviderAccount(any())).thenReturn(
+                new TtsVoiceProvisionService.ProviderAccount("12.50", "2.50", "15.00"));
+
+        java.util.Map<String, Object> result = service.providerStatus(7L);
+
+        assertThat(result).doesNotContainKey("apiKey");
+        assertThat(result.toString()).doesNotContain("secret-key");
+        assertThat(result.get("totalBalance")).isEqualTo("15.00");
+    }
+
+    @Test
     void overviewRecoversStaleProvisioningBeforeCountingQuota() {
         enabledPolicy();
 
@@ -231,6 +307,7 @@ class UserTtsVoiceServiceTest {
         EntitlementPolicy policy = new EntitlementPolicy();
         policy.setUserVoiceCreationEnabled(true);
         when(entitlementPolicyService.getPolicy()).thenReturn(policy);
+        when(entitlementPolicyService.userVoiceLimitFor(eq(policy), anyInt())).thenReturn(3);
     }
 
     private static H5UserAiProviderService.UserTtsSettings settings(

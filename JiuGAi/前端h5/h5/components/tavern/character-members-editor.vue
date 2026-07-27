@@ -90,50 +90,93 @@
 				</view>
 
 				<view v-if="voiceCatalogPrivateVoices.length" class="settings-field">
-					<text class="settings-label">我的自建音色</text>
-					<view class="private-voice-list">
-						<view
-							v-for="voice in voiceCatalogPrivateVoices"
-							:key="'private_voice_' + voice.id"
-							class="voice-choice"
-							:class="{ 'voice-choice--on': privateVoiceSelected(member, voice), 'voice-choice--disabled': !voice.available }"
-							@tap="selectPrivateVoice(member, voice)"
-						>
-							<view class="voice-choice-copy">
-								<text class="voice-choice-name">{{ voice.displayName || ('音色 ' + voice.id) }}</text>
-								<text class="voice-choice-tip">{{ voice.available ? '使用你的硅基流动 API' : (voice.statusText || '当前不可用') }}</text>
-							</view>
-							<u-icon v-if="privateVoiceSelected(member, voice)" name="checkbox-mark" color="#277268" size="25"></u-icon>
-						</view>
+					<view class="settings-label-row">
+						<text class="settings-label">我的自建音色</text>
+						<text class="voice-count">{{ voiceCatalogPrivateVoices.length }}</text>
 					</view>
+					<scroll-view
+						class="voice-catalog-scroll"
+						:class="{ 'voice-catalog-scroll--private': voiceCatalogPrivateVoices.length > 4 }"
+						scroll-y
+						:show-scrollbar="false"
+					>
+						<view class="private-voice-list">
+							<view
+								v-for="voice in voiceCatalogPrivateVoices"
+								:key="'private_voice_' + voice.id"
+								class="voice-choice"
+								:class="{
+									'voice-choice--on': privateVoiceSelected(member, voice),
+									'voice-choice--disabled': !voiceCatalogCustomMode || !voice.available
+								}"
+								@tap="selectPrivateVoice(member, voice)"
+							>
+								<view class="voice-choice-copy">
+									<text class="voice-choice-name">{{ voice.displayName || ('音色 ' + voice.id) }}</text>
+									<text class="voice-choice-tip">{{ privateVoiceStatusText(voice) }}</text>
+								</view>
+								<u-icon v-if="privateVoiceSelected(member, voice)" name="checkbox-mark" color="#277268" size="25"></u-icon>
+							</view>
+						</view>
+					</scroll-view>
 				</view>
 
-				<view v-if="voicePresets(member).length" class="option-list">
-					<text class="settings-label settings-label--full">平台常用音色</text>
-					<view
-						v-for="voice in voicePresets(member)"
-						:key="'member_voice_' + voice"
-						class="option-chip"
-						:class="{ 'option-chip--on': voiceValue(member, 'ttsVoiceName').toLowerCase() === voice.toLowerCase() }"
-						@tap="selectVoiceName(member, voice)"
-					>{{ voice }}</view>
+				<view v-if="voicePresets(member).length" class="settings-field">
+					<view class="settings-label-row">
+						<text class="settings-label">平台常用音色</text>
+						<text class="voice-count">{{ voicePresets(member).length }}</text>
+					</view>
+					<scroll-view
+						class="voice-catalog-scroll"
+						:class="{ 'voice-catalog-scroll--presets': voicePresets(member).length > 6 }"
+						scroll-y
+						:show-scrollbar="false"
+					>
+						<view class="option-list">
+							<view
+								v-for="voice in voicePresets(member)"
+								:key="'member_voice_' + voice"
+								class="option-chip"
+								:class="{ 'option-chip--on': voiceValue(member, 'ttsVoiceName').toLowerCase() === voice.toLowerCase() }"
+								@tap="selectVoiceName(member, voice)"
+							>{{ voice }}</view>
+						</view>
+					</scroll-view>
 				</view>
 
 				<view v-if="selectableVoiceTemplates.length" class="settings-field settings-field--templates">
-					<text class="settings-label">平台提供音色</text>
-					<view class="template-list">
-						<view
-							v-for="item in selectableVoiceTemplates"
-							:key="'member_template_' + item.code"
-							class="template-option"
-							:class="{ 'template-option--on': voiceValue(member, 'ttsVoiceTemplateCode') === item.code }"
-							@tap="selectVoiceTemplate(member, item)"
-						>
-							<text class="template-name">{{ item.displayName || item.code }}</text>
-							<text class="template-model">{{ item.statusText || '首次使用时自动准备' }}</text>
-						</view>
+					<view class="settings-label-row">
+						<text class="settings-label">平台提供音色</text>
+						<text class="voice-count">{{ selectableVoiceTemplates.length }}</text>
 					</view>
+					<scroll-view
+						class="voice-catalog-scroll"
+						:class="{ 'voice-catalog-scroll--templates': selectableVoiceTemplates.length > 4 }"
+						scroll-y
+						:show-scrollbar="false"
+					>
+						<view class="template-list">
+							<view
+								v-for="item in selectableVoiceTemplates"
+								:key="'member_template_' + item.code"
+								class="template-option"
+								:class="{
+									'template-option--on': voiceValue(member, 'ttsVoiceTemplateCode') === item.code,
+									'template-option--disabled': !templateVoiceSelectable(item)
+								}"
+								@tap="selectVoiceTemplate(member, item)"
+							>
+								<text class="template-name">{{ item.displayName || item.code }}</text>
+								<text class="template-model">{{ item.statusText || '首次使用时自动准备' }}</text>
+							</view>
+						</view>
+					</scroll-view>
 				</view>
+
+				<text
+					v-if="voiceCatalogLoaded && !voiceCatalogLoading && !hasVoiceCatalogEntries"
+					class="catalog-empty"
+				>音色接口暂未返回可选项，当前继续跟随全局音色。</text>
 
 				<view v-if="voiceCatalogCustomMode" class="settings-field settings-field--advanced">
 					<text class="settings-label">其他音色 ID（高级）</text>
@@ -166,6 +209,7 @@ export default {
 			voiceCatalogModelName: '',
 			voiceCatalogProviderSource: '',
 			voiceCatalogCustomMode: false,
+			voiceCatalogPresets: [],
 			voiceCatalogTemplates: [],
 			voiceCatalogPrivateVoices: []
 		};
@@ -185,10 +229,12 @@ export default {
 			return '完善这个角色的' + capabilities.replace('人设', '性格');
 		},
 		selectableVoiceTemplates() {
-			return this.voiceCatalogTemplates.filter(item => {
-				const status = String(item && item.statusCode || '').trim().toLowerCase();
-				return status.indexOf('requires_') !== 0;
-			});
+			return this.voiceCatalogTemplates.filter(item => item && item.code);
+		},
+		hasVoiceCatalogEntries() {
+			return this.voiceCatalogPrivateVoices.length > 0
+				|| this.voiceCatalogPresets.length > 0
+				|| this.selectableVoiceTemplates.length > 0;
 		}
 	},
 	methods: {
@@ -244,7 +290,7 @@ export default {
 		writeVoice(member, value) {
 			const next = Object.assign({}, value && typeof value === 'object' ? value : {});
 			delete next.ttsModelName;
-			if (next.ttsVoiceName || next.ttsVoiceTemplateCode) {
+			if (this.voiceCatalogCustomMode && (next.ttsVoiceName || next.ttsVoiceTemplateCode)) {
 				next.ttsProviderSource = String(this.voiceCatalogProviderSource || '').trim().toLowerCase();
 			} else {
 				delete next.ttsProviderSource;
@@ -298,14 +344,22 @@ export default {
 			this.writeVoice(member, { ttsVoiceName: String(voice || '').trim() });
 		},
 		selectVoiceTemplate(member, item) {
-			if (!item || !item.code) return;
+			if (!this.templateVoiceSelectable(item)) return;
 			this.preparePublicVoice(member);
 			this.writeVoice(member, { ttsVoiceTemplateCode: String(item.code) });
 		},
 		selectPrivateVoice(member, voice) {
-			if (!voice || !voice.available) return;
+			if (!this.voiceCatalogCustomMode || !voice || !voice.available) return;
 			this.markPrivateBinding(member, voice.id);
 			this.writeVoice(member, {});
+		},
+		privateVoiceStatusText(voice) {
+			if (!this.voiceCatalogCustomMode) return '切换到自己的 TTS API 后可用';
+			return voice && voice.available ? '使用你的 TTS API' : String(voice && voice.statusText || '当前不可用');
+		},
+		templateVoiceSelectable(item) {
+			const status = String(item && item.statusCode || '').trim().toLowerCase();
+			return !!(item && item.code) && status.indexOf('requires_') !== 0 && status !== 'failed';
 		},
 		selectFollowGlobal(member) {
 			this.markPrivateBinding(member, 0);
@@ -317,7 +371,7 @@ export default {
 			this.writeVoice(member, text ? { ttsVoiceName: text } : {});
 		},
 		voicePresets(member) {
-			if (!this.voiceCatalogCustomMode) return [];
+			if (this.voiceCatalogPresets.length) return this.voiceCatalogPresets.slice();
 			const model = String(this.voiceCatalogModelName || '').toLowerCase();
 			if (/(gpt-4o-mini-tts|tts-1|tts-1-hd|\/tts|openai\/.*tts)/.test(model)) return OPENAI_TTS_VOICES.slice();
 			if (/(cosyvoice|fish-speech|gpt-sovits)/.test(model)) return SILICONFLOW_TTS_VOICES.slice();
@@ -356,31 +410,53 @@ export default {
 			this.voiceCatalogError = '';
 			this.voiceCatalogMessage = '正在读取可用音色...';
 			const clientUid = tavernApi.getClientUid();
+			const settle = promise => Promise.resolve(promise)
+				.then(data => ({ data, error: null }))
+				.catch(error => ({ data: null, error }));
+			const errors = [];
+			const summaries = [];
 			return Promise.all([
-				tavernApi.getTavernUserAiProvider(clientUid),
-				tavernApi.getUserTtsVoices(clientUid).catch(() => ({ voices: [] }))
+				settle(tavernApi.getTavernUserAiProvider(clientUid)),
+				settle(tavernApi.getUserTtsVoices(clientUid))
 			])
 				.then(results => {
-					const providerState = results[0] && typeof results[0] === 'object' ? results[0] : {};
-					const voiceState = results[1] && typeof results[1] === 'object' ? results[1] : {};
-					this.voiceCatalogCustomMode = providerState.mode === 'custom';
-					this.voiceCatalogProviderSource = String(
-						providerState.effectiveTtsProviderSource || providerState.ttsProviderSource || providerState.providerSource || ''
-					).trim().toLowerCase();
-					this.voiceCatalogModelName = String(providerState.ttsModelName || '').trim();
-					this.voiceCatalogTemplates = (Array.isArray(providerState.ttsVoiceTemplates) ? providerState.ttsVoiceTemplates : [])
-						.filter(item => item && item.code);
-					this.voiceCatalogPrivateVoices = (Array.isArray(voiceState.voices) ? voiceState.voices : [])
-						.filter(item => item && Number(item.id) > 0);
-					const availablePrivateCount = this.voiceCatalogPrivateVoices.filter(item => item.available).length;
-					const label = this.providerLabel(providerState);
-					this.voiceCatalogMessage = this.voiceCatalogCustomMode
-						? '已读取 ' + label + ' 音色；我的可用音色 ' + availablePrivateCount + ' 个'
-						: '当前使用系统语音，角色会跟随平台统一模型和默认音色。';
-					return this.loadMemberBindings(tavernApi, clientUid);
+					const providerResult = results[0] || {};
+					const voiceResult = results[1] || {};
+					if (providerResult.error) {
+						errors.push(String(providerResult.error.message || '官方音色读取失败'));
+					} else {
+						const providerState = providerResult.data && typeof providerResult.data === 'object' ? providerResult.data : {};
+						this.voiceCatalogCustomMode = providerState.mode === 'custom';
+						this.voiceCatalogProviderSource = String(
+							providerState.effectiveTtsProviderSource || providerState.ttsProviderSource || providerState.providerSource || ''
+						).trim().toLowerCase();
+						this.voiceCatalogModelName = String(providerState.ttsModelName || '').trim();
+						this.voiceCatalogPresets = (Array.isArray(providerState.ttsVoicePresets) ? providerState.ttsVoicePresets : [])
+							.map(voice => String(voice || '').trim().toLowerCase())
+							.filter((voice, index, list) => voice && list.indexOf(voice) === index);
+						this.voiceCatalogTemplates = (Array.isArray(providerState.ttsVoiceTemplates) ? providerState.ttsVoiceTemplates : [])
+							.filter(item => item && item.code);
+						const officialCount = this.voiceCatalogPresets.length + this.voiceCatalogTemplates.length;
+						summaries.push((this.voiceCatalogCustomMode ? this.providerLabel(providerState) : '官方平台') + '音色 ' + officialCount + ' 个');
+					}
+					if (voiceResult.error) {
+						errors.push(String(voiceResult.error.message || '我的音色读取失败'));
+					} else {
+						const voiceState = voiceResult.data && typeof voiceResult.data === 'object' ? voiceResult.data : {};
+						this.voiceCatalogPrivateVoices = (Array.isArray(voiceState.voices) ? voiceState.voices : [])
+							.filter(item => item && Number(item.id) > 0);
+						const availablePrivateCount = this.voiceCatalogPrivateVoices.filter(item => item.available).length;
+						summaries.push('我的可用音色 ' + availablePrivateCount + ' 个');
+					}
+					return settle(this.loadMemberBindings(tavernApi, clientUid));
 				})
-				.then(() => {
-					if (showToast) uni.showToast({ title: this.voiceCatalogMessage, icon: 'none' });
+				.then(bindingResult => {
+					if (bindingResult && bindingResult.error) {
+						errors.push(String(bindingResult.error.message || '成员音色绑定读取失败'));
+					}
+					this.voiceCatalogError = errors.join('；');
+					this.voiceCatalogMessage = summaries.concat(errors).join('；') || '音色列表为空';
+					if (showToast) uni.showToast({ title: this.voiceCatalogMessage, icon: 'none', duration: errors.length ? 3000 : 1800 });
 					return this.voiceCatalogPrivateVoices;
 				})
 				.catch(error => {
@@ -404,11 +480,13 @@ export default {
 .section-head { margin-bottom: 20rpx; }
 .section-title { display: block; font-size: 30rpx; font-weight: 750; }
 .section-sub { display: block; margin-top: 6rpx; font-size: 22rpx; color: #607b89; }
-.icon-action { width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; }
-.member-row { padding: 24rpx 0 28rpx; border-top: 1rpx solid rgba(72, 111, 132, 0.16); }
-.member-row:first-of-type, .member-row--single { border-top: 0; padding-top: 4rpx; }
+.icon-action { width: 64rpx; height: 64rpx; border-radius: 22rpx; display: flex; align-items: center; justify-content: center; background: rgba(228, 245, 249, .82); border: 1rpx solid rgba(79, 147, 163, .14); box-shadow: 0 10rpx 22rpx rgba(79, 147, 163, .1); }
+.member-row { padding: 24rpx; border: 1rpx solid rgba(255, 255, 255, .8); border-radius: 28rpx; background: rgba(255, 255, 255, .48); box-shadow: 0 16rpx 34rpx rgba(52, 94, 118, .08); }
+.member-row + .member-row { margin-top: 18rpx; }
+.member-row:first-of-type { margin-top: 0; }
+.member-row--single { padding: 4rpx 0 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .member-head { gap: 16rpx; }
-.member-avatar { width: 112rpx; height: 112rpx; flex: 0 0 112rpx; border-radius: 10rpx; overflow: hidden; display: flex; align-items: center; justify-content: center; background: rgba(225, 238, 244, 0.78); border: 1rpx solid rgba(72, 111, 132, 0.22); }
+.member-avatar { width: 112rpx; height: 112rpx; flex: 0 0 112rpx; border-radius: 28rpx; overflow: hidden; display: flex; align-items: center; justify-content: center; background: rgba(225, 238, 244, 0.78); border: 2rpx solid rgba(255, 255, 255, .88); box-shadow: 0 12rpx 26rpx rgba(52, 94, 118, .12); }
 .member-avatar image { width: 100%; height: 100%; }
 .member-head-copy { flex: 1; min-width: 0; }
 .member-order { display: block; font-size: 27rpx; font-weight: 700; color: #17394b; }
@@ -417,18 +495,18 @@ export default {
 .identity-fields { margin-top: 22rpx; display: grid; grid-template-columns: 1fr; gap: 16rpx; }
 .identity-field { min-width: 0; }
 .field-label, .settings-label { display: block; margin-bottom: 10rpx; font-size: 22rpx; font-weight: 650; color: #446475; }
-.identity-input { width: 100%; height: 76rpx; padding: 0 18rpx; box-sizing: border-box; border: 1rpx solid rgba(72,111,132,.2); border-radius: 6rpx; background: rgba(255,255,255,.68); color: #23485b; font-size: 25rpx; }
+.identity-input { width: 100%; height: 78rpx; padding: 0 20rpx; box-sizing: border-box; border: 1rpx solid rgba(79,147,163,.16); border-radius: 20rpx; background: rgba(255,255,255,.72); color: #23485b; font-size: 25rpx; box-shadow: inset 0 1rpx 0 rgba(255,255,255,.88); }
 .identity-input--name { font-size: 27rpx; font-weight: 650; color: #17394b; }
 .persona-head { margin-top: 24rpx; align-items: flex-end; gap: 16rpx; }
 .persona-head .field-label { margin-bottom: 0; }
 .persona-count { flex-shrink: 0; font-size: 20rpx; color: #718792; }
-.member-persona { width: 100%; min-height: 230rpx; box-sizing: border-box; margin-top: 12rpx; padding: 20rpx; border-radius: 6rpx; background: rgba(255,255,255,.68); border: 1rpx solid rgba(72,111,132,.2); color: #17394b; font-size: 25rpx; line-height: 1.65; }
+.member-persona { width: 100%; min-height: 230rpx; box-sizing: border-box; margin-top: 12rpx; padding: 22rpx; border-radius: 22rpx; background: rgba(255,255,255,.72); border: 1rpx solid rgba(79,147,163,.16); color: #17394b; font-size: 25rpx; line-height: 1.68; box-shadow: inset 0 1rpx 0 rgba(255,255,255,.88); }
 .member-tools { gap: 16rpx; margin-top: 16rpx; }
 .member-reference, .member-advanced-action { display: inline-flex; align-items: center; gap: 8rpx; min-height: 54rpx; font-size: 22rpx; color: #426676; }
-.member-reference image { width: 42rpx; height: 42rpx; border-radius: 5rpx; }
+.member-reference image { width: 42rpx; height: 42rpx; border-radius: 14rpx; }
 .member-reference { min-width: 0; }
 .member-advanced-action { margin-left: auto; white-space: nowrap; }
-.member-settings { margin-top: 14rpx; padding: 20rpx 0 0; border-top: 1rpx solid rgba(72,111,132,.16); }
+.member-settings { margin-top: 18rpx; padding: 22rpx; border: 1rpx solid rgba(79,147,163,.12); border-radius: 24rpx; background: rgba(232,247,250,.5); }
 .voice-head { gap: 18rpx; align-items: flex-start; }
 .voice-head-copy { flex: 1; min-width: 0; }
 .voice-title { display: block; font-size: 25rpx; font-weight: 700; color: #244d60; }
@@ -439,24 +517,33 @@ export default {
 .model-summary { color: #426676; }
 .catalog-message { color: #2d657a; }
 .catalog-message--error { color: #9b4f5a; }
+.catalog-empty { display: block; margin-top: 18rpx; padding: 16rpx 18rpx; border-radius: 18rpx; background: rgba(255,255,255,.5); color: #718792; font-size: 20rpx; line-height: 1.5; }
 .settings-field { margin-top: 20rpx; }
 .settings-field--templates { margin-top: 22rpx; }
 .settings-field--advanced { padding-top: 4rpx; }
-.settings-input { width: 100%; height: 72rpx; padding: 0 16rpx; box-sizing: border-box; border: 1rpx solid rgba(72,111,132,.2); border-radius: 6rpx; background: rgba(255,255,255,.64); color: #244d60; font-size: 24rpx; }
-.option-list { display: flex; flex-wrap: wrap; gap: 10rpx; margin-top: 12rpx; }
+.settings-input { width: 100%; height: 74rpx; padding: 0 18rpx; box-sizing: border-box; border: 1rpx solid rgba(79,147,163,.16); border-radius: 18rpx; background: rgba(255,255,255,.7); color: #244d60; font-size: 24rpx; }
+.settings-label-row { display: flex; align-items: center; justify-content: space-between; gap: 14rpx; margin-bottom: 10rpx; }
+.settings-label-row .settings-label { margin-bottom: 0; }
+.voice-count { min-width: 38rpx; height: 32rpx; padding: 0 10rpx; box-sizing: border-box; border-radius: 999rpx; background: rgba(255,255,255,.7); color: #62808e; font-size: 18rpx; line-height: 32rpx; text-align: center; box-shadow: inset 0 1rpx 0 rgba(255,255,255,.88); }
+.voice-catalog-scroll { width: 100%; }
+.voice-catalog-scroll--private { height: 310rpx; }
+.voice-catalog-scroll--presets { height: 230rpx; }
+.voice-catalog-scroll--templates { height: 290rpx; }
+.option-list { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10rpx; padding: 2rpx; box-sizing: border-box; }
 .settings-label--full { width: 100%; margin-bottom: 0; }
-.option-chip { max-width: 100%; min-height: 50rpx; padding: 0 16rpx; box-sizing: border-box; display: flex; align-items: center; border: 1rpx solid rgba(72,111,132,.22); border-radius: 5rpx; color: #4c6d7c; background: rgba(255,255,255,.45); font-size: 21rpx; overflow-wrap: anywhere; }
+.option-chip { width: 100%; min-width: 0; height: 60rpx; padding: 0 16rpx; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 1rpx solid rgba(79,147,163,.18); border-radius: 18rpx; color: #4c6d7c; background: rgba(255,255,255,.58); font-size: 21rpx; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 5rpx 12rpx rgba(69,105,119,.05), inset 0 1rpx 0 rgba(255,255,255,.82); }
 .option-chip--on { border-color: #39788e; color: #17495d; background: rgba(222,239,244,.88); font-weight: 650; }
-.private-voice-list { display: grid; grid-template-columns: 1fr; gap: 10rpx; }
-.voice-choice { min-height: 72rpx; padding: 12rpx 16rpx; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 14rpx; border: 1rpx solid rgba(72,111,132,.2); border-radius: 6rpx; background: rgba(255,255,255,.48); }
+.private-voice-list { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10rpx; padding: 2rpx; box-sizing: border-box; }
+.voice-choice { min-height: 76rpx; padding: 14rpx 18rpx; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 14rpx; border: 1rpx solid rgba(79,147,163,.16); border-radius: 20rpx; background: rgba(255,255,255,.58); }
 .voice-choice--on { border-color: #39788e; background: rgba(222,239,244,.88); }
 .voice-choice--disabled { opacity: .5; }
 .voice-choice-copy { flex: 1; min-width: 0; }
 .voice-choice-name { display: block; font-size: 23rpx; font-weight: 650; color: #284f61; overflow-wrap: anywhere; }
 .voice-choice-tip { display: block; margin-top: 5rpx; font-size: 19rpx; line-height: 1.4; color: #718792; }
-.template-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10rpx; }
-.template-option { min-width: 0; padding: 14rpx 16rpx; border: 1rpx solid rgba(72,111,132,.2); border-radius: 6rpx; background: rgba(255,255,255,.48); }
+.template-list { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10rpx; padding: 2rpx; box-sizing: border-box; }
+.template-option { min-width: 0; padding: 16rpx 18rpx; border: 1rpx solid rgba(79,147,163,.16); border-radius: 20rpx; background: rgba(255,255,255,.58); }
 .template-option--on { border-color: #39788e; background: rgba(222,239,244,.88); }
+.template-option--disabled { opacity: .5; }
 .template-name { display: block; font-size: 22rpx; font-weight: 650; color: #284f61; overflow-wrap: anywhere; }
 .template-model { display: block; margin-top: 6rpx; font-size: 19rpx; color: #718792; overflow-wrap: anywhere; }
 .clear-voice { margin-top: 20rpx; min-height: 52rpx; display: inline-flex; align-items: center; gap: 7rpx; color: #657b86; font-size: 21rpx; }

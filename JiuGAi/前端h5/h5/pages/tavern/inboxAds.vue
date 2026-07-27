@@ -154,23 +154,52 @@
 					)
 					.catch(() => tavernInboxBadge.refreshCombinedInboxBadge(this, tavernApi));
 			},
+			copyExternalLink(link) {
+				uni.setClipboardData({
+					data: link,
+					success: () => {
+						uni.showToast({
+							title:
+								this.t['\u8bf7\u5728\u6d4f\u89c8\u5668\u6253\u5f00'] ||
+								'\u94fe\u63a5\u5df2\u590d\u5236\uff0c\u8bf7\u5728\u6d4f\u89c8\u5668\u4e2d\u7c98\u8d34\u6253\u5f00',
+							icon: 'none'
+						});
+					},
+					fail: () => {
+						uni.showToast({
+							title: this.t['\u8df3\u8f6c\u5931\u8d25'] || '\u65e0\u6cd5\u6253\u5f00\u94fe\u63a5',
+							icon: 'none'
+						});
+					}
+				});
+			},
 			openAd(item) {
 				if (!item) return;
 				const link = item.linkUrl != null ? String(item.linkUrl).trim() : '';
 				if (!link) return;
 				if (/^https?:\/\//i.test(link)) {
+					/* #ifdef APP-PLUS */
+					try {
+						if (
+							typeof plus !== 'undefined' &&
+							plus.runtime &&
+							typeof plus.runtime.openURL === 'function'
+						) {
+							plus.runtime.openURL(link, () => this.copyExternalLink(link));
+							return;
+						}
+					} catch (e) {
+						this.copyExternalLink(link);
+						return;
+					}
+					/* #endif */
 					/* #ifdef H5 */
 					if (typeof window !== 'undefined' && window.open) {
 						window.open(link, '_blank');
 						return;
 					}
 					/* #endif */
-					uni.showToast({
-						title:
-							this.t['\u8bf7\u5728\u6d4f\u89c8\u5668\u6253\u5f00'] ||
-							'\u8bf7\u590d\u5236\u94fe\u63a5\u5728\u6d4f\u89c8\u5668\u6253\u5f00',
-						icon: 'none'
-					});
+					this.copyExternalLink(link);
 					return;
 				}
 				if (link.charAt(0) !== '/') {

@@ -32,6 +32,11 @@
         SELECT <include refid="Columns"/> FROM app_user_tts_voice
         WHERE user_id = #{userId} AND request_id = #{requestId} LIMIT 1
     </select>
+    <select id="findActiveByUserIdAndVoiceUri" resultMap="UserVoiceMap">
+        SELECT <include refid="Columns"/> FROM app_user_tts_voice
+        WHERE user_id = #{userId} AND voice_uri = #{voiceUri} AND deleted_at IS NULL
+        ORDER BY id DESC LIMIT 1
+    </select>
     <select id="listByUserId" resultMap="UserVoiceMap">
         SELECT <include refid="Columns"/> FROM app_user_tts_voice
         WHERE user_id = #{userId} AND deleted_at IS NULL

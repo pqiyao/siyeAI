@@ -16,23 +16,40 @@
 				v-for="item in list"
 				:key="item.id"
 				class="card"
-				:class="{ 'card--clickable': !!item.linkUrl }"
-				@tap="openAd(item)"
 			>
-				<image
+				<view
 					v-if="item.imagePreview"
-					class="card-cover"
-					:src="item.imagePreview"
-					mode="aspectFill"
-					lazy-load
-				></image>
+					class="card-cover-wrap"
+					role="button"
+					aria-label="查看活动图片"
+					@tap.stop="previewAdImage(item)"
+				>
+					<image
+						class="card-cover"
+						:src="item.imagePreview"
+						mode="aspectFill"
+						lazy-load
+					></image>
+					<view class="cover-preview-icon">
+						<text class="cuIcon-search"></text>
+					</view>
+				</view>
 				<view class="card-hd">
 					<text class="tag">{{ tagText }}</text>
 					<text class="time">{{ item.timeText }}</text>
 				</view>
 				<text class="card-title">{{ item.title || untitledText }}</text>
 				<text v-if="item.content" class="card-body">{{ item.content }}</text>
-				<text v-if="item.linkUrl" class="card-link">{{ openLinkText }}</text>
+				<view
+					v-if="item.linkUrl"
+					class="card-link"
+					hover-class="card-link--pressed"
+					role="button"
+					@tap.stop="openAd(item)"
+				>
+					<text>{{ openLinkText }}</text>
+					<text class="cuIcon-right card-link-icon"></text>
+				</view>
 			</view>
 			<view class="pad"></view>
 		</scroll-view>
@@ -153,6 +170,17 @@
 						tavernInboxBadge.refreshCombinedInboxBadge(this, tavernApi, { adUnread: 0 })
 					)
 					.catch(() => tavernInboxBadge.refreshCombinedInboxBadge(this, tavernApi));
+			},
+			previewAdImage(item) {
+				const current = item && item.imagePreview ? String(item.imagePreview).trim() : '';
+				if (!current) return;
+				const urls = this.list
+					.map((entry) => (entry && entry.imagePreview ? String(entry.imagePreview).trim() : ''))
+					.filter(Boolean);
+				uni.previewImage({
+					current,
+					urls: urls.length ? urls : [current]
+				});
 			},
 			copyExternalLink(link) {
 				uni.setClipboardData({
@@ -302,17 +330,46 @@
 		overflow: hidden;
 	}
 
-	.card--clickable:active {
-		opacity: 0.92;
-	}
-
-	.card-cover {
+	.card-cover-wrap {
+		position: relative;
 		width: 100%;
 		height: 280rpx;
 		border-radius: 16rpx;
 		margin-bottom: 20rpx;
+		overflow: hidden;
+		background: #dceefa;
+		box-shadow: inset 0 0 0 1rpx rgba(255, 255, 255, 0.56);
+	}
+
+	.card-cover {
+		width: 100%;
+		height: 100%;
 		background: #dceefa;
 		display: block;
+		transition: transform 0.18s ease, opacity 0.18s ease;
+	}
+
+	.card-cover-wrap:active .card-cover {
+		transform: scale(0.99);
+		opacity: 0.94;
+	}
+
+	.cover-preview-icon {
+		position: absolute;
+		right: 14rpx;
+		bottom: 14rpx;
+		width: 52rpx;
+		height: 52rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 1rpx solid rgba(255, 255, 255, 0.72);
+		border-radius: 18rpx;
+		background: rgba(29, 71, 91, 0.62);
+		box-shadow: 0 8rpx 18rpx rgba(29, 71, 91, 0.18), inset 0 1rpx 0 rgba(255, 255, 255, 0.28);
+		color: #ffffff;
+		font-size: 25rpx;
+		pointer-events: none;
 	}
 
 	.card-hd {
@@ -354,11 +411,33 @@
 	}
 
 	.card-link {
-		display: block;
+		width: fit-content;
+		min-height: 58rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8rpx;
 		margin-top: 18rpx;
+		margin-left: auto;
+		padding: 0 18rpx 0 20rpx;
+		box-sizing: border-box;
+		border: 1rpx solid rgba(36, 116, 148, 0.16);
+		border-radius: 18rpx;
+		background: rgba(229, 244, 249, 0.82);
+		box-shadow: 0 7rpx 16rpx rgba(67, 112, 142, 0.08), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
 		font-size: 24rpx;
 		color: #247494;
 		font-weight: 700;
+		transition: transform 0.16s ease, opacity 0.16s ease;
+	}
+
+	.card-link--pressed {
+		transform: translateY(1rpx);
+		opacity: 0.82;
+	}
+
+	.card-link-icon {
+		font-size: 22rpx;
 	}
 
 	.pad {

@@ -47,8 +47,9 @@ class AdminH5UserLifecycleServiceTest {
                 "stChatFileName", "chat.jsonl"
         )));
         when(cleanupMapper.listOwnedCharacterCleanupRows(7L)).thenReturn(List.of());
+        when(cleanupMapper.listConversationMemoryWorldbooks(7L)).thenReturn(List.of());
         when(cleanupMapper.listOwnedUploadRelativePaths(7L)).thenReturn(List.of());
-        when(externalCleanupTaskService.enqueueUserDeletionTasks(anyLong(), anyList(), anyList(), anySet()))
+        when(externalCleanupTaskService.enqueueUserDeletionTasks(anyLong(), anyList(), anyList(), anyList(), anySet()))
                 .thenReturn(List.of("cleanup-task-1"));
         when(externalCleanupTaskService.processImmediately(List.of("cleanup-task-1")))
                 .thenReturn(List.of(new ExternalCleanupTaskService.CleanupAttempt(

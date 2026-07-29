@@ -35,6 +35,7 @@ public class ExternalCleanupTaskService {
 
     static final String TYPE_ST_CHAT = "ST_CHAT";
     static final String TYPE_ST_CHARACTER = "ST_CHARACTER";
+    static final String TYPE_ST_WORLDBOOK = "ST_WORLDBOOK";
     static final String TYPE_LOCAL_UPLOAD = "LOCAL_UPLOAD";
 
     static final String STATUS_PENDING = "PENDING";
@@ -70,6 +71,7 @@ public class ExternalCleanupTaskService {
             long userId,
             List<Map<String, Object>> stChats,
             List<Map<String, Object>> ownedCharacters,
+            List<Map<String, Object>> memoryWorldbooks,
             Set<String> localAssetUrls
     ) {
         if (userId <= 0) {
@@ -78,9 +80,19 @@ public class ExternalCleanupTaskService {
         Map<String, CleanupDraft> drafts = new LinkedHashMap<>();
         collectStChatDrafts(drafts, stChats);
         collectStCharacterDrafts(drafts, ownedCharacters);
+        collectMemoryWorldbookDrafts(drafts, memoryWorldbooks);
         collectLocalUploadDrafts(drafts, localAssetUrls);
 
         return persistDrafts(userId, drafts);
+    }
+
+    public List<String> enqueueUserDeletionTasks(
+            long userId,
+            List<Map<String, Object>> stChats,
+            List<Map<String, Object>> ownedCharacters,
+            Set<String> localAssetUrls
+    ) {
+        return enqueueUserDeletionTasks(userId, stChats, ownedCharacters, List.of(), localAssetUrls);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -302,6 +314,7 @@ public class ExternalCleanupTaskService {
         switch (resourceType) {
             case TYPE_ST_CHAT -> stAdapter.deleteChat(primaryRef, text(task.getSecondaryRef()));
             case TYPE_ST_CHARACTER -> stAdapter.deleteCharacter(primaryRef, true);
+            case TYPE_ST_WORLDBOOK -> stAdapter.deleteWorldbook(primaryRef);
             case TYPE_LOCAL_UPLOAD -> deleteLocalUpload(primaryRef);
             default -> throw new IllegalArgumentException("unsupported cleanup resource type: " + resourceType);
         }
@@ -349,6 +362,23 @@ public class ExternalCleanupTaskService {
         for (Map<String, Object> row : rows) {
             String avatarUrl = text(row == null ? null : row.get("stAvatarUrl"));
             addDraft(drafts, TYPE_ST_CHARACTER, avatarUrl, "");
+        }
+    }
+
+    private void collectMemoryWorldbookDrafts(
+            Map<String, CleanupDraft> drafts,
+            List<Map<String, Object>> rows
+    ) {
+        if (rows == null) {
+            return;
+        }
+        for (Map<String, Object> row : rows) {
+            long conversationId = positiveLong(row == null ? null : row.get("conversationId"));
+            String worldName = text(row == null ? null : row.get("memoryWorldName"));
+            if (conversationId <= 0 || !worldName.startsWith("jg_memory_conv_" + conversationId + "_")) {
+                continue;
+            }
+            addDraft(drafts, TYPE_ST_WORLDBOOK, worldName, String.valueOf(conversationId));
         }
     }
 
@@ -433,6 +463,17 @@ public class ExternalCleanupTaskService {
 
     private static String text(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private static long positiveLong(Object value) {
+        if (value instanceof Number number) {
+            return Math.max(0L, number.longValue());
+        }
+        try {
+            return Math.max(0L, Long.parseLong(text(value)));
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
     }
 
     private static String rootMessage(Throwable throwable) {

@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.ops.mapper.AppAndroidReleaseMapper">
+    <resultMap id="ReleaseResultMap" type="com.example.sillyspringboot.ops.entity.AppAndroidRelease">
+        <id column="id" property="id"/>
+        <result column="app_id" property="appId"/>
+        <result column="package_name" property="packageName"/>
+        <result column="channel_code" property="channelCode"/>
+        <result column="version_name" property="versionName"/>
+        <result column="version_code" property="versionCode"/>
+        <result column="update_mode" property="updateMode"/>
+        <result column="min_supported_version_code" property="minSupportedVersionCode"/>
+        <result column="policy_revision" property="policyRevision"/>
+        <result column="title" property="title"/>
+        <result column="changelog" property="changelog"/>
+        <result column="download_url" property="downloadUrl"/>
+        <result column="remind_later_hours" property="remindLaterHours"/>
+        <result column="apk_size_bytes" property="apkSizeBytes"/>
+        <result column="apk_sha256" property="apkSha256"/>
+        <result column="status" property="status"/>
+        <result column="publish_at" property="publishAt"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <sql id="Columns">id, app_id, package_name, channel_code, version_name, version_code,
+        update_mode, min_supported_version_code, policy_revision, title, changelog, download_url,
+        remind_later_hours, apk_size_bytes, apk_sha256, status, publish_at, created_at, updated_at</sql>
+
+    <select id="findEffective" resultMap="ReleaseResultMap">
+        SELECT <include refid="Columns"/>
+        FROM app_android_release
+        WHERE app_id = #{appId}
+          AND package_name = #{packageName}
+          AND channel_code = #{channelCode}
+          AND status = 'PUBLISHED'
+          AND (publish_at IS NULL OR publish_at &lt;= CURRENT_TIMESTAMP)
+        ORDER BY version_code DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <select id="countAdminList" resultType="long">
+        SELECT COUNT(*) FROM app_android_release
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (version_name LIKE CONCAT('%', #{keyword}, '%')
+                 OR package_name LIKE CONCAT('%', #{keyword}, '%')
+                 OR title LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="status != null and status != ''">AND status = #{status}</if>
+        </where>
+    </select>
+
+    <select id="listAdminPage" resultMap="ReleaseResultMap">
+        SELECT <include refid="Columns"/> FROM app_android_release
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (version_name LIKE CONCAT('%', #{keyword}, '%')
+                 OR package_name LIKE CONCAT('%', #{keyword}, '%')
+                 OR title LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="status != null and status != ''">AND status = #{status}</if>
+        </where>
+        ORDER BY version_code DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findById" resultMap="ReleaseResultMap">
+        SELECT <include refid="Columns"/> FROM app_android_release WHERE id = #{id} LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.ops.entity.AppAndroidRelease" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_android_release (
+            app_id, package_name, channel_code, version_name, version_code, update_mode,
+            min_supported_version_code, policy_revision, title, changelog, download_url,
+            remind_later_hours, apk_size_bytes, apk_sha256, status, publish_at
+        ) VALUES (
+            #{appId}, #{packageName}, #{channelCode}, #{versionName}, #{versionCode}, #{updateMode},
+            #{minSupportedVersionCode}, #{policyRevision}, #{title}, #{changelog}, #{downloadUrl},
+            #{remindLaterHours}, #{apkSizeBytes}, #{apkSha256}, #{status}, #{publishAt}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.example.sillyspringboot.ops.entity.AppAndroidRelease">
+        UPDATE app_android_release SET
+            app_id=#{appId}, package_name=#{packageName}, channel_code=#{channelCode},
+            version_name=#{versionName}, version_code=#{versionCode}, update_mode=#{updateMode},
+            min_supported_version_code=#{minSupportedVersionCode}, policy_revision=#{policyRevision},
+            title=#{title}, changelog=#{changelog}, download_url=#{downloadUrl},
+            remind_later_hours=#{remindLaterHours}, apk_size_bytes=#{apkSizeBytes},
+            apk_sha256=#{apkSha256}, publish_at=#{publishAt}, updated_at=CURRENT_TIMESTAMP
+        WHERE id=#{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE app_android_release SET status=#{status}, updated_at=CURRENT_TIMESTAMP WHERE id=#{id}
+    </update>
+
+    <update id="bumpPolicyRevision">
+        UPDATE app_android_release
+        SET policy_revision=policy_revision + 1, updated_at=CURRENT_TIMESTAMP
+        WHERE id=#{id} AND status='PUBLISHED'
+    </update>
+
+    <delete id="deleteDraft">
+        DELETE FROM app_android_release WHERE id=#{id} AND status='DRAFT'
+    </delete>
+</mapper>

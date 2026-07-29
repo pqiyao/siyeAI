@@ -17,6 +17,8 @@ public class AppPaymentOrder {
     private Integer vipDays;
     private String paymentChannel;
     private String status;
+    private LocalDateTime expiresAt;
+    private Boolean userHidden;
     private String providerTradeNo;
     private Integer paidAmountCents;
     private String notifyPayloadHash;
@@ -134,6 +136,22 @@ public class AppPaymentOrder {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public LocalDateTime getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(LocalDateTime expiresAt) {
+        this.expiresAt = expiresAt;
+    }
+
+    public Boolean getUserHidden() {
+        return userHidden;
+    }
+
+    public void setUserHidden(Boolean userHidden) {
+        this.userHidden = userHidden;
     }
 
     public String getProviderTradeNo() {

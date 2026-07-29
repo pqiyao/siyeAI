@@ -63,11 +63,17 @@
             AND biz_type = 'PAYMENT'
         </if>
         <if test="groupType == 'OTHER'">
-            AND biz_type != 'PAYMENT'
+            AND biz_type NOT IN (
+                'PAYMENT', 'CHECKIN',
+                'CHAT_CONSUME', 'CHAT_REFUND',
+                'IMAGE_CONSUME', 'IMAGE_REFUND',
+                'TTS_CONSUME', 'TTS_REFUND', 'STT_CONSUME', 'STT_REFUND',
+                'VISION_CONSUME', 'VISION_REFUND'
+            )
         </if>
         <if test="groupType == 'CONSUMPTION'">
             AND biz_type IN (
-                'CHAT_CONSUME', 'IMAGE_CONSUME', 'IMAGE_REFUND',
+                'CHAT_CONSUME', 'CHAT_REFUND', 'IMAGE_CONSUME', 'IMAGE_REFUND',
                 'TTS_CONSUME', 'TTS_REFUND', 'STT_CONSUME', 'STT_REFUND',
                 'VISION_CONSUME', 'VISION_REFUND'
             )
@@ -95,11 +101,17 @@
             AND biz_type = 'PAYMENT'
         </if>
         <if test="groupType == 'OTHER'">
-            AND biz_type != 'PAYMENT'
+            AND biz_type NOT IN (
+                'PAYMENT', 'CHECKIN',
+                'CHAT_CONSUME', 'CHAT_REFUND',
+                'IMAGE_CONSUME', 'IMAGE_REFUND',
+                'TTS_CONSUME', 'TTS_REFUND', 'STT_CONSUME', 'STT_REFUND',
+                'VISION_CONSUME', 'VISION_REFUND'
+            )
         </if>
         <if test="groupType == 'CONSUMPTION'">
             AND biz_type IN (
-                'CHAT_CONSUME', 'IMAGE_CONSUME', 'IMAGE_REFUND',
+                'CHAT_CONSUME', 'CHAT_REFUND', 'IMAGE_CONSUME', 'IMAGE_REFUND',
                 'TTS_CONSUME', 'TTS_REFUND', 'STT_CONSUME', 'STT_REFUND',
                 'VISION_CONSUME', 'VISION_REFUND'
             )

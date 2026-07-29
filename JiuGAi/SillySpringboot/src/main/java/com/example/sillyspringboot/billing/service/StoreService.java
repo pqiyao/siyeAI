@@ -34,6 +34,7 @@ import java.util.UUID;
 public class StoreService {
 
     private static final SecureRandom ORDER_RANDOM = new SecureRandom();
+    private static final long ORDER_EXPIRATION_MINUTES = 2L;
 
     private final H5ClientUidAuthService h5Auth;
     private final AppTokenService tokenService;
@@ -104,6 +105,37 @@ public class StoreService {
     }
 
     @Transactional
+    public Map<String, Object> removeUnpaidOrder(String clientUid, String orderNo) {
+        AppUser user = resolveUser(clientUid);
+        String safeOrderNo = orderNo == null ? "" : orderNo.trim();
+        if (safeOrderNo.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "订单号不能为空");
+        }
+
+        AppPaymentOrder order = orderMapper.findByOrderNoAndUserId(safeOrderNo, user.getId());
+        if (order == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "订单不存在");
+        }
+        if ("PAID".equalsIgnoreCase(order.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "已支付订单不能删除");
+        }
+
+        int updated = orderMapper.hideUnpaidByOrderNoAndUserId(safeOrderNo, user.getId());
+        if (updated != 1) {
+            AppPaymentOrder current = orderMapper.findByOrderNoAndUserId(safeOrderNo, user.getId());
+            if (current != null && "PAID".equalsIgnoreCase(current.getStatus())) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "订单已支付，不能删除");
+            }
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "订单状态已变化，请刷新后重试");
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("removed", true);
+        data.put("orderNo", safeOrderNo);
+        return data;
+    }
+
+    @Transactional
     public Map<String, Object> createOrder(String clientUid, String productCode, String paymentChannel, StorePaymentContext paymentContext) {
         AppUser user = resolveUser(clientUid);
         AppH5UserProfileExt ext = ensureProfileExt(user);
@@ -135,6 +167,7 @@ public class StoreService {
         order.setVipDays(nvl(product.getVipDays()));
         order.setPaymentChannel(normalizedChannel);
         order.setStatus("PENDING");
+        order.setExpiresAt(LocalDateTime.now().plusMinutes(ORDER_EXPIRATION_MINUTES));
         orderMapper.insert(order);
 
         AppPaymentOrder saved = orderMapper.findByOrderNoAndUserId(order.getOrderNo(), user.getId());
@@ -154,6 +187,14 @@ public class StoreService {
         }
 
         AppPaymentOrder order = orderMapper.findByOrderNoAndUserId(orderNo.trim(), user.getId());
+        if (order == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "订单不存在");
+        }
+        if ("PAID".equalsIgnoreCase(order.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "订单已支付，请勿重复发起支付");
+        }
+        orderMapper.closeExpiredPendingById(order.getId());
+        order = orderMapper.findByOrderNoAndUserId(orderNo.trim(), user.getId());
         if (order == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "订单不存在");
         }
@@ -186,6 +227,11 @@ public class StoreService {
         AppPaymentOrder order = orderMapper.findByOrderNoAndUserId(orderNo.trim(), user.getId());
         if (order == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "订单不存在");
+        }
+        orderMapper.closeExpiredPendingById(order.getId());
+        order = orderMapper.findByOrderNoAndUserId(orderNo.trim(), user.getId());
+        if (order == null || "CLOSED".equalsIgnoreCase(order.getStatus())) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "订单已关闭，请重新下单");
         }
 
         StorePaymentProvider provider = paymentProviderRegistry.resolveRequired(normalizeChannel(order.getPaymentChannel()));
@@ -504,6 +550,7 @@ public class StoreService {
         data.put("paymentChannel", blank(row.getPaymentChannel()));
         data.put("status", blank(row.getStatus()));
         data.put("statusLabel", statusLabel(row.getStatus()));
+        data.put("expiresAt", row.getExpiresAt());
         data.put("createdAt", row.getCreatedAt());
         data.put("paidAt", row.getPaidAt());
         return data;

@@ -1591,7 +1591,7 @@ public final class StClient {
             return true;
         } catch (RestClientResponseException e) {
             int status = e.getStatusCode().value();
-            if (status == 400 || status == 404) {
+            if (status == 404) {
                 return false;
             }
             throw new StUnavailableException(e);
@@ -1967,7 +1967,7 @@ public final class StClient {
             return true;
         } catch (RestClientResponseException e) {
             int status = e.getStatusCode().value();
-            if (status == 400 || status == 404 || status == 500) {
+            if (status == 404) {
                 return false;
             }
             throw new StUnavailableException(e);
@@ -2234,7 +2234,7 @@ public final class StClient {
             return true;
         } catch (RestClientResponseException e) {
             int status = e.getStatusCode().value();
-            if (status == 400 || status == 404) {
+            if (status == 404) {
                 return false;
             }
             throw new StUnavailableException(e);

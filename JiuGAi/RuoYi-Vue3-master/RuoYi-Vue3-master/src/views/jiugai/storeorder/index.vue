@@ -22,7 +22,6 @@
         <el-select v-model="queryParams.status" placeholder="全部" clearable style="width: 140px">
           <el-option label="待支付" value="PENDING" />
           <el-option label="已支付" value="PAID" />
-          <el-option label="已关闭" value="CLOSED" />
         </el-select>
       </el-form-item>
       <el-form-item>

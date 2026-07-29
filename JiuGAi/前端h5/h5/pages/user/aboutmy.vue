@@ -6,8 +6,12 @@
 			<view class="brand-card">
 				<image src="/static/logo.png" mode="aspectFill" class="logo"></image>
 				<text class="name">四叶酒馆</text>
-				<text class="ver">版本 V {{ versionName }}</text>
+				<text class="ver">版本 V {{ versionName }}<text v-if="versionCode">（{{ versionCode }}）</text></text>
 				<text class="desc">AI 角色扮演纯娱乐分享项目，当前非商用，不支持充值或在线支付。内容由模型生成，请理性体验并遵守内容合规要求。</text>
+			</view>
+			<view v-if="androidApp" class="link-row link-row--action" @tap="checkUpdate">
+				<view class="link-main"><u-icon name="reload" color="#77aebe" size="25"></u-icon><text>{{ checkingUpdate ? '正在检查更新' : '检查更新' }}</text></view>
+				<u-icon name="arrow-right" color="#8799a4" size="24"></u-icon>
 			</view>
 
 			<view class="contact-card">
@@ -44,6 +48,7 @@
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 const compliance = require('@/common/tavernCompliance.js');
 const api = require('@/common/api.js');
+const appUpdate = require('@/common/appUpdate.js');
 
 export default {
 	components: { TavernNavBar },
@@ -51,12 +56,22 @@ export default {
 		return {
 			contact: compliance.getOfficialContact(),
 			versionName: api.versionName || '1.0.0',
+			versionCode: Number(api.version || 0),
+			androidApp: appUpdate.isAndroidApp(),
+			checkingUpdate: false,
 			friendLinks: [
 				{ name: 'AivisHub', description: 'AivisSpeech 音色模型社区', url: 'https://hub.aivis-project.com/' },
 				{ name: 'VOICEVOX', description: '开源日语语音合成项目', url: 'https://voicevox.hiroshiba.jp/' },
 				{ name: 'COEIROINK', description: '面向创作的日语语音合成', url: 'https://coeiroink.com/' }
 			]
-		};
+	};
+	},
+	onShow() {
+		if (!this.androidApp) return;
+		appUpdate.readInstalledInfo().then((info) => {
+			this.versionName = info.versionName || this.versionName;
+			this.versionCode = Number(info.versionCode || this.versionCode);
+		}).catch(() => {});
 	},
 	methods: {
 		goBack() {
@@ -67,6 +82,11 @@ export default {
 		},
 		openPrivacy() {
 			uni.navigateTo({ url: '/pages/user/yinshi/yinshi' });
+		},
+		checkUpdate() {
+			if (!this.androidApp || this.checkingUpdate) return;
+			this.checkingUpdate = true;
+			appUpdate.checkNow().catch(() => {}).finally(() => { this.checkingUpdate = false; });
 		},
 		copyExternalLink(url) {
 			uni.setClipboardData({
@@ -129,6 +149,18 @@ export default {
 	border: 1rpx solid rgba(255, 255, 255, 0.12);
 	box-shadow: 0 22rpx 62rpx rgba(0, 0, 0, 0.18);
 	backdrop-filter: blur(18rpx);
+}
+
+.link-row--action {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.link-main {
+	display: flex;
+	align-items: center;
+	gap: 12rpx;
 }
 
 .brand-card,

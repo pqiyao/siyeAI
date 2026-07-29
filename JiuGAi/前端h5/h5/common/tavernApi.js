@@ -789,6 +789,10 @@ function getRuntimeFeatureConfig() {
 	return normalizeRuntimeFeatureConfig(readStoredRuntimeFeatureConfig());
 }
 
+function hasRuntimeFeatureConfigSnapshot() {
+	return !!readStoredRuntimeFeatureConfig();
+}
+
 function fetchAppRuntimeConfig(forceRefresh) {
 	if (!jgEnabled()) {
 		return Promise.resolve(getRuntimeFeatureConfig());
@@ -1130,6 +1134,9 @@ function requestJson(method, path, data, timeout, requestOptions) {
 					return;
 				}
 				captureResponseDeviceToken(res);
+				if (res && Number(res.statusCode) === 426) {
+					try { require('./appUpdate.js').handleHttp426(res); } catch (e) {}
+				}
 				var ok =
 					res.statusCode >= 200 &&
 					res.statusCode < 300 &&
@@ -1396,6 +1403,10 @@ function postStoreOrderCreate(payload) {
 
 function postStoreOrderPay(payload) {
 	return requestJson('POST', '/api/v1/store/orders/pay', payload, 20000);
+}
+
+function postStoreOrderRemove(payload) {
+	return requestJson('POST', '/api/v1/store/orders/remove', payload, 20000);
 }
 
 function postStoreOrderMockPay(payload) {
@@ -3288,6 +3299,7 @@ module.exports = {
 	isRequestSessionCurrent: isRequestSessionCurrent,
 	getProfileAccessSignature: getProfileAccessSignature,
 	getRuntimeFeatureConfig: getRuntimeFeatureConfig,
+	hasRuntimeFeatureConfigSnapshot: hasRuntimeFeatureConfigSnapshot,
 	fetchAppRuntimeConfig: fetchAppRuntimeConfig,
 	isLoginEnabled: isLoginEnabled,
 	isRegisterEnabled: isRegisterEnabled,
@@ -3328,6 +3340,7 @@ module.exports = {
 	fetchMeFavorites: fetchMeFavorites,
 	postStoreOrderCreate: postStoreOrderCreate,
 	postStoreOrderPay: postStoreOrderPay,
+	postStoreOrderRemove: postStoreOrderRemove,
 	postStoreOrderMockPay: postStoreOrderMockPay,
 	postSupportTicketCreate: postSupportTicketCreate,
 	postSupportTicketReply: postSupportTicketReply,

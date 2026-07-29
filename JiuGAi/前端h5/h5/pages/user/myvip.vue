@@ -93,8 +93,8 @@ const COPY = {
 		coin: '金币',
 		buyNow: '去开通',
 		dayUnit: '天',
-		noteTitle: '说明',
-		note: '当前会员商品会继续复用到正式支付通道中。先看权益，再选择适合你的周卡、月卡或长期套餐。',
+		noteTitle: '会员说明',
+		note: '会员有效期内，每日免费聊天次数会按当前会员等级自动刷新，当日未使用的次数不会累计到次日。开通或续费套餐赠送的钻石、金币会直接到账，与每日免费次数分开计算；聊天时会优先消耗每日免费次数，超出后再消耗钻石或金币。续费会叠加会员有效期。具体次数和赠送额度以当前权益及所选套餐展示为准。',
 		vipUntil: '有效期至 {time}，你可以继续叠加会员时长。',
 		vipEmpty: '当前还未开通正式 VIP，先从轻量套餐开始会更稳妥。',
 		emptyProducts: '暂时没有可购买的会员套餐。'
@@ -117,8 +117,8 @@ const COPY = {
 		coin: '金幣',
 		buyNow: '去開通',
 		dayUnit: '天',
-		noteTitle: '說明',
-		note: '目前會員商品會繼續沿用到正式支付通道。先看權益，再選擇適合你的週卡、月卡或長期套餐。',
+		noteTitle: '會員說明',
+		note: '會員有效期內，每日免費聊天次數會按目前會員等級自動刷新，當日未使用的次數不會累積至次日。開通或續費方案贈送的鑽石、金幣會直接到帳，並與每日免費次數分開計算；聊天時會優先使用每日免費次數，超出後再扣除鑽石或金幣。續費會累加會員有效期。具體次數和贈送額度以目前權益及所選方案顯示為準。',
 		vipUntil: '有效期至 {time}，你可以繼續疊加會員時長。',
 		vipEmpty: '目前尚未開通正式 VIP，可先從輕量方案開始。',
 		emptyProducts: '暫時沒有可購買的會員方案。'
@@ -141,8 +141,8 @@ const COPY = {
 		coin: 'coins',
 		buyNow: 'Open',
 		dayUnit: 'day',
-		noteTitle: 'Note',
-		note: 'The same VIP products will continue to be used when real payment providers are turned on. Review the benefits first, then choose a plan.',
+		noteTitle: 'Membership Details',
+		note: 'During an active membership, the daily free chat quota refreshes according to the current membership tier and unused daily quota does not carry over. Bonus diamonds and coins from a new plan or renewal are credited separately. Chats use the daily free quota first, then diamonds or coins after the quota is exhausted. Renewals extend the membership period. Quotas and bonuses are subject to the benefits and plan shown on this page.',
 		vipUntil: 'Valid until {time}. You can stack more time anytime.',
 		vipEmpty: 'VIP is not active yet. Starting with a lighter plan is usually the safest choice.',
 		emptyProducts: 'No membership plans are available right now.'
@@ -165,8 +165,8 @@ const COPY = {
 		coin: 'coins',
 		buyNow: 'Open',
 		dayUnit: 'day',
-		noteTitle: 'Note',
-		note: 'The same VIP products will continue to be used when real payment providers are turned on. Review the benefits first, then choose a plan.',
+		noteTitle: 'Membership Details',
+		note: 'During an active membership, the daily free chat quota refreshes according to the current membership tier and unused daily quota does not carry over. Bonus diamonds and coins from a new plan or renewal are credited separately. Chats use the daily free quota first, then diamonds or coins after the quota is exhausted. Renewals extend the membership period. Quotas and bonuses are subject to the benefits and plan shown on this page.',
 		vipUntil: 'Valid until {time}. You can stack more time anytime.',
 		vipEmpty: 'VIP is not active yet. Starting with a lighter plan is usually the safest choice.',
 		emptyProducts: 'No membership plans are available right now.'
@@ -189,8 +189,8 @@ const COPY = {
 		coin: 'coins',
 		buyNow: 'Open',
 		dayUnit: 'day',
-		noteTitle: 'Note',
-		note: 'The same VIP products will continue to be used when real payment providers are turned on. Review the benefits first, then choose a plan.',
+		noteTitle: 'Membership Details',
+		note: 'During an active membership, the daily free chat quota refreshes according to the current membership tier and unused daily quota does not carry over. Bonus diamonds and coins from a new plan or renewal are credited separately. Chats use the daily free quota first, then diamonds or coins after the quota is exhausted. Renewals extend the membership period. Quotas and bonuses are subject to the benefits and plan shown on this page.',
 		vipUntil: 'Valid until {time}. You can stack more time anytime.',
 		vipEmpty: 'VIP is not active yet. Starting with a lighter plan is usually the safest choice.',
 		emptyProducts: 'No membership plans are available right now.'
@@ -205,7 +205,7 @@ export default {
 			vipProducts: [],
 			profileAccessSignature: '',
 			rechargeEntryVisible: tavernApi.isRechargeEntryVisible(),
-			rechargeEntryReady: false
+			rechargeEntryReady: typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot()
 		};
 	},
 	computed: {
@@ -226,7 +226,9 @@ export default {
 	methods: {
 		syncRechargeEntryVisibility(forceRefresh) {
 			this.rechargeEntryVisible = tavernApi.isRechargeEntryVisible();
-			this.rechargeEntryReady = false;
+			if (typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot()) {
+				this.rechargeEntryReady = true;
+			}
 			return tavernApi
 				.fetchAppRuntimeConfig(forceRefresh === true)
 				.then((config) => {

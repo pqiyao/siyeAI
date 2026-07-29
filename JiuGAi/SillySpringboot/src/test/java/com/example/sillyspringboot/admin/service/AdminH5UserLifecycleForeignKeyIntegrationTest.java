@@ -44,6 +44,7 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
         jdbc.update("UPDATE app_conversation SET active_branch_id = ? WHERE id = ?", branchId, conversationId);
         insertPrivateChatPreset(userId);
         insertMessage(userId, conversationId, branchId);
+        long generationTaskId = insertGenerationData(userId, conversationId, characterId);
         insertMemory(conversationId, branchId);
         insertPasswordResetToken(userId);
         long deviceId = insertTrustedDevice(userId);
@@ -86,6 +87,9 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
         assertThat(count("app_conversation", "user_id", userId)).isZero();
         assertThat(count("app_conversation_branch", "user_id", userId)).isZero();
         assertThat(count("app_conversation_memory_entry", "conversation_id", conversationId)).isZero();
+        assertThat(count("app_generation_task", "id", generationTaskId)).isZero();
+        assertThat(count("app_generation_attempt", "generation_task_id", generationTaskId)).isZero();
+        assertThat(count("app_generation_stat_event", "task_id", generationTaskId)).isZero();
         assertThat(count("app_password_reset_token", "user_id", userId)).isZero();
         assertThat(count("app_user_chat_preference", "user_id", userId)).isZero();
         assertThat(count("app_h5_visitor_device", "id", deviceId)).isZero();
@@ -424,6 +428,49 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
                 conversationId,
                 branchId
         );
+    }
+
+    private long insertGenerationData(long userId, long conversationId, long characterId) {
+        String clientMessageId = "delete-generation-" + IDS.incrementAndGet();
+        jdbc.update(
+                """
+                INSERT INTO app_generation_task
+                    (user_id, conversation_id, request_type, client_message_id, status)
+                VALUES (?, ?, 'generate', ?, 'SUCCESS')
+                """,
+                userId,
+                conversationId,
+                clientMessageId
+        );
+        long taskId = jdbc.queryForObject(
+                "SELECT id FROM app_generation_task WHERE conversation_id = ? AND client_message_id = ?",
+                Long.class,
+                conversationId,
+                clientMessageId
+        );
+        jdbc.update(
+                """
+                INSERT INTO app_generation_attempt
+                    (generation_task_id, conversation_id, character_id, attempt_no,
+                     provider_key, route_key, was_fallback, started_at, finished_at,
+                     duration_ms, status)
+                VALUES (?, ?, ?, 1, 'test', 'test', FALSE,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1, 'SUCCESS')
+                """,
+                taskId,
+                conversationId,
+                characterId
+        );
+        jdbc.update(
+                """
+                INSERT INTO app_generation_stat_event
+                    (task_id, source_type, source_id, event_day, status)
+                VALUES (?, 'TASK', ?, CURRENT_DATE, 'SUCCESS')
+                """,
+                taskId,
+                taskId
+        );
+        return taskId;
     }
 
     private void insertMemory(long conversationId, long branchId) {

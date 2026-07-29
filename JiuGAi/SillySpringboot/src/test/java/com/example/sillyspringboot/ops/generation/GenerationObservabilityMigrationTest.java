@@ -127,12 +127,25 @@ class GenerationObservabilityMigrationTest {
                         + "AND LOWER(constraint_name) = 'ck_character_owner_private'",
                 Integer.class
         ));
-        assertEquals(5, jdbc.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history "
-                        + "WHERE success = TRUE AND version IN ('106', '107', '108', '109', '110')",
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                        + "WHERE table_name = 'app_payment_order' AND column_name = 'expires_at' "
+                        + "AND is_nullable = 'NO'",
                 Integer.class
         ));
-        assertEquals("110", jdbc.queryForObject(
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.indexes "
+                        + "WHERE table_name = 'app_payment_order' "
+                        + "AND index_name = 'idx_payment_order_pending_expiry'",
+                Integer.class
+        ));
+        assertEquals(8, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history "
+                        + "WHERE success = TRUE "
+                        + "AND version IN ('106', '107', '108', '109', '110', '111', '112', '113')",
+                Integer.class
+        ));
+        assertEquals("113", jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class
         ));

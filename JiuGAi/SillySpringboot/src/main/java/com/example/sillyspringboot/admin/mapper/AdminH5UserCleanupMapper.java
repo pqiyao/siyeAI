@@ -15,6 +15,8 @@ public interface AdminH5UserCleanupMapper {
 
     List<Map<String, Object>> listOwnedCharacterCleanupRows(@Param("userId") long userId);
 
+    List<Map<String, Object>> listConversationMemoryWorldbooks(@Param("userId") long userId);
+
     List<String> listOwnedUploadRelativePaths(@Param("userId") long userId);
 
     int deleteSupportTicketMessagesByUser(@Param("userId") long userId);
@@ -46,6 +48,10 @@ public interface AdminH5UserCleanupMapper {
     int deleteChatModelPreferencesByUser(@Param("userId") long userId);
 
     int deleteH5UserAiChatModelsByUser(@Param("userId") long userId);
+
+    int deleteGenerationAttemptsByUser(@Param("userId") long userId);
+
+    int deleteGenerationStatEventsByUser(@Param("userId") long userId);
 
     int deleteConversationBindingsByUser(@Param("userId") long userId);
 

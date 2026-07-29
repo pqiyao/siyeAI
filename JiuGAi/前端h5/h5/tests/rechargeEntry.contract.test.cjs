@@ -119,6 +119,10 @@ async function verifyPaymentRuntimeSwitch(config) {
 	};
 	const component = loadVueComponent('pages/user/pay.vue', {
 		'@/common/tavernApi.js': apiMock,
+		'@/common/paymentCashierSession.js': {
+			save() {},
+			clear() {}
+		},
 		'@/common/tavernUiI18n.js': {
 			getLanguageCode: () => 'zh-cn',
 			getTavernUiText: () => ({})

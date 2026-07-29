@@ -35,7 +35,9 @@ public class AdminPermissionCatalog {
                         item("system:notice:view", "\u67e5\u770b\u7cfb\u7edf\u516c\u544a", "notice", "\u7cfb\u7edf\u516c\u544a", "view", "\u67e5\u770b", RiskLevel.LOW, roles("super-admin", "admin", "support", "content", "finance", "ops")),
                         item("system:notice:edit", "\u7f16\u8f91\u7cfb\u7edf\u516c\u544a", "notice", "\u7cfb\u7edf\u516c\u544a", "edit", "\u7f16\u8f91", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops")),
                         item("system:inbox-ad:view", "\u67e5\u770b\u4f1a\u8bdd\u5e7f\u544a", "inbox-ad", "\u4f1a\u8bdd\u5e7f\u544a", "view", "\u67e5\u770b", RiskLevel.LOW, roles("super-admin", "admin", "ops", "content")),
-                        item("system:inbox-ad:edit", "\u7f16\u8f91\u4f1a\u8bdd\u5e7f\u544a", "inbox-ad", "\u4f1a\u8bdd\u5e7f\u544a", "edit", "\u7f16\u8f91", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops"))
+                        item("system:inbox-ad:edit", "\u7f16\u8f91\u4f1a\u8bdd\u5e7f\u544a", "inbox-ad", "\u4f1a\u8bdd\u5e7f\u544a", "edit", "\u7f16\u8f91", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops")),
+                        item("system:app-update:view", "查看 APP 版本", "app-update", "APP 版本管理", "view", "查看", RiskLevel.MEDIUM, roles("super-admin", "admin", "ops")),
+                        item("system:app-update:edit", "发布 APP 版本", "app-update", "APP 版本管理", "edit", "发布", RiskLevel.HIGH, roles("super-admin", "admin", "ops"))
                 )),
                 group("support", "\u5ba2\u670d", "\u5ba2\u670d\u5de5\u5355\u5904\u7406\u548c\u7528\u6237\u95ee\u9898\u8ddf\u8fdb", 20, List.of(
                         item("support:ticket:list", "\u67e5\u770b\u5de5\u5355\u5217\u8868", "ticket", "\u5ba2\u670d\u5de5\u5355", "list", "\u5217\u8868", RiskLevel.LOW, roles("super-admin", "admin", "support")),
@@ -227,6 +229,8 @@ public class AdminPermissionCatalog {
                         "system:notice:view",
                         "system:inbox-ad:view",
                         "system:inbox-ad:edit",
+                        "system:app-update:view",
+                        "system:app-update:edit",
                         "conversation:runtime:view"
                 ),
                 false,

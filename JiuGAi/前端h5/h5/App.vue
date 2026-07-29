@@ -8,6 +8,7 @@
 	import ko from '@/common/text/ko.json'
 	import ja from '@/common/text/ja.json'
 	const tavernCompliance = require('@/common/tavernCompliance.js')
+	const appUpdate = require('@/common/appUpdate.js')
 	export default {
 		onLaunch: function() {
 			console.log('App Launch')
@@ -44,9 +45,11 @@
 			setTimeout(() => {
 				tavernCompliance.ensureAgeConfirmed();
 			}, 420);
+			appUpdate.onLaunch();
 		},
 		onShow: function() {
 			console.log('App Show')
+			appUpdate.onShow();
 			if (!this._canCallRemoteApi()) {
 				return;
 			}

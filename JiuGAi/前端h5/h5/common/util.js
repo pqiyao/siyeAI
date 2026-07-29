@@ -77,6 +77,9 @@ function request(url, data = {}, dataType = '', method = "POST") {
 				'token': userToken
 			},
 			success(res) {
+				if (res && Number(res.statusCode) === 426) {
+					try { require('./appUpdate.js').handleHttp426(res); } catch (e) {}
+				}
 				if (res && res.data && res.data.code == 1) {
 					if (dataType) {
 						resolve(res.data);
@@ -410,33 +413,6 @@ function checkIDCard(idNum) {
 		return false
 	}
 	return true
-}
-/* 
- APP检查更新
- */
-function getVersion(e) {
-	let _this = this;
-	_this.request('', {
-		type: api.appType
-	}, 'POST').then(res => {
-		if (1 == 1) {
-			uni.showModal({
-				title: '更新提示',
-				content: '为了您的正常使用请您更新最新版本',
-				showCancel: false, 
-				confirmText: '立即更新',
-				success: function(gdx) {
-					if (gdx.confirm) {
-						console.log(res.data.url)
-						plus.runtime.openURL(res.data.url);
-					}
-				}
-			});
-		}
-		if (e == 1) {
-			showToast('您已是最新版本');
-		}
-	})
 }
 /* 
  微信,支付宝 app支付调取
@@ -837,7 +813,6 @@ module.exports = {
 	isWeiXin,
 	checkEmail,
 	checkIDCard,
-	getVersion,
 	appPay,
 	wxPay,
 	wxUpdate,

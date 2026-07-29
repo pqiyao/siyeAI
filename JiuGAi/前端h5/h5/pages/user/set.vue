@@ -28,9 +28,13 @@
 					<text class="cell-txt">{{ pageCopy.security }}</text>
 					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
 				</view>
+				<view v-if="androidApp" class="cell" @tap="checkUpdate">
+					<text class="cell-txt">{{ checkingUpdate ? pageCopy.checkingUpdate : pageCopy.checkUpdate }}</text>
+					<view class="cell-side"><text class="cell-version">V{{ installedVersion }}</text><u-icon name="reload" color="#6f9eaa" size="25"></u-icon></view>
+				</view>
 				<view class="cell" @tap="util.urlTo('/pages/user/aboutmy')">
 					<text class="cell-txt">{{ pageCopy.about }}</text>
-					<u-icon name="arrow-right" color="#94a3b8" size="28" label="v1.0.1" label-pos="left"></u-icon>
+					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
 				</view>
 				<view class="cell" @tap="util.urlTo('/pages/user/tiaokuan/tiaokuan')">
 					<text class="cell-txt">{{ pageCopy.terms }}</text>
@@ -53,6 +57,7 @@
 <script>
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 const tavernApi = require('@/common/tavernApi.js');
+const appUpdate = require('@/common/appUpdate.js');
 const { getLanguageCode } = require('@/common/tavernUiI18n.js');
 
 const COPY = {
@@ -66,6 +71,8 @@ const COPY = {
 		about: '关于我们',
 		terms: '使用条款',
 		privacy: '隐私协议',
+		checkUpdate: '检查更新',
+		checkingUpdate: '正在检查更新',
 		logout: '退出登录'
 	},
 	'zh-hk': {
@@ -78,6 +85,8 @@ const COPY = {
 		about: '關於我們',
 		terms: '使用條款',
 		privacy: '隱私協議',
+		checkUpdate: '檢查更新',
+		checkingUpdate: '正在檢查更新',
 		logout: '登出'
 	},
 	en: {
@@ -90,6 +99,8 @@ const COPY = {
 		about: 'About Us',
 		terms: 'Terms of Use',
 		privacy: 'Privacy Policy',
+		checkUpdate: 'Check for Updates',
+		checkingUpdate: 'Checking for Updates',
 		logout: 'Log Out'
 	}
 };
@@ -98,11 +109,15 @@ export default {
 	components: { TavernNavBar },
 	data() {
 		return {
-			voiceFeatureEnabled: true
+			voiceFeatureEnabled: true,
+			androidApp: appUpdate.isAndroidApp(),
+			installedVersion: '1.3.6',
+			checkingUpdate: false
 		};
 	},
 	onShow() {
 		this.loadRuntimeSettings();
+		this.loadInstalledVersion();
 	},
 	computed: {
 		pageCopy() {
@@ -153,6 +168,17 @@ export default {
 			}).catch((error) => {
 				console.error('[settings] load runtime settings failed', error);
 			});
+		},
+		loadInstalledVersion() {
+			if (!this.androidApp) return;
+			appUpdate.readInstalledInfo().then((info) => {
+				this.installedVersion = info.versionName || this.installedVersion;
+			}).catch(() => {});
+		},
+		checkUpdate() {
+			if (!this.androidApp || this.checkingUpdate) return;
+			this.checkingUpdate = true;
+			appUpdate.checkNow().catch(() => {}).finally(() => { this.checkingUpdate = false; });
 		},
 		outlogin() {
 			if (!this.hasLogin) {
@@ -213,6 +239,17 @@ export default {
 
 .cell-txt--danger {
 	color: #cf6b84;
+}
+
+.cell-side {
+	display: flex;
+	align-items: center;
+	gap: 12rpx;
+}
+
+.cell-version {
+	font-size: 22rpx;
+	color: #718a96;
 }
 
 </style>

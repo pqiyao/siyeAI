@@ -164,6 +164,7 @@ public class RuoYiShellAuthController {
         systemChildren.add(routeChild("JgAdminRole", "adminrole", "jiugai/adminrole/index", "\u7ba1\u7406\u5458\u89d2\u8272", "peoples", "system:admin-role:view"));
         systemChildren.add(routeChild("JgNotice", "notice", "jiugai/notice/index", "\u7cfb\u7edf\u516c\u544a", "bell", "system:notice:view"));
         systemChildren.add(routeChild("JgInboxAd", "inboxad", "jiugai/inboxad/index", "\u4f1a\u8bdd\u5e7f\u544a", "money", "system:inbox-ad:view"));
+        systemChildren.add(routeChild("JgAppUpdate", "appupdate", "jiugai/appupdate/index", "APP 版本管理", "upload", "system:app-update:view"));
         systemChildren.add(routeChild("JgPermissionLog", "permissionlog", "jiugai/permissionlog/index", "\u6743\u9650\u53d8\u66f4\u65e5\u5fd7", "log", "system:permission-log:view", "system:admin-role:view", "system:admin-user:view"));
         systemOps.put("children", filterChildrenByPermission(systemChildren, session.getPermissions()));
 

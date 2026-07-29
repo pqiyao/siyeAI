@@ -65,10 +65,19 @@
 						<text class="section-title">{{ copy.orderTitle }}</text>
 						<text class="section-subtitle">{{ copy.orderSubtitle }}</text>
 					</view>
-					<view class="refresh-btn" @tap="loadPage"><u-icon name="reload" color="#4f7f8e" size="20"></u-icon><text>{{ copy.refresh }}</text></view>
+					<view class="order-head-actions">
+						<view class="order-tool-btn" role="button" :aria-label="copy.refresh" :title="copy.refresh" @tap="loadPage">
+							<u-icon name="reload" color="#4f7f8e" size="22"></u-icon>
+						</view>
+					</view>
 				</view>
-				<view v-if="orderList.length" class="order-list">
-					<view v-for="item in orderList" :key="item.orderNo" class="order-item">
+				<scroll-view v-if="orderList.length" scroll-y class="order-list-scroll" :class="{ 'order-list-scroll--limited': orderList.length > 4 }" :show-scrollbar="false">
+					<view class="order-list">
+					<view
+						v-for="item in orderList"
+						:key="item.orderNo"
+						class="order-item"
+					>
 						<view class="order-main">
 							<text class="order-name">{{ item.productName }}</text>
 							<text class="order-meta">{{ item.orderNo }}</text>
@@ -79,7 +88,8 @@
 							<text class="order-status" :class="item.status === 'PAID' ? 'paid' : 'pending'">{{ item.statusLabel }}</text>
 						</view>
 					</view>
-				</view>
+					</view>
+				</scroll-view>
 				<view v-else class="empty-box">
 					<text>{{ copy.emptyOrders }}</text>
 				</view>
@@ -221,7 +231,7 @@ export default {
 			coinProducts: [],
 			orderList: [],
 			rechargeEntryVisible: tavernApi.isRechargeEntryVisible(),
-			rechargeEntryReady: false
+			rechargeEntryReady: typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot()
 		};
 	},
 	computed: {
@@ -236,7 +246,9 @@ export default {
 	methods: {
 		syncRechargeEntryVisibility(forceRefresh) {
 			this.rechargeEntryVisible = tavernApi.isRechargeEntryVisible();
-			this.rechargeEntryReady = false;
+			if (typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot()) {
+				this.rechargeEntryReady = true;
+			}
 			return tavernApi
 				.fetchAppRuntimeConfig(forceRefresh === true)
 				.then((config) => {
@@ -917,5 +929,52 @@ export default {
 	.refresh-btn:hover {
 		transform: translateY(-2rpx);
 	}
+}
+
+.order-head-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	flex-wrap: wrap;
+	gap: 10rpx;
+}
+
+.order-tool-btn {
+	width: 54rpx;
+	height: 54rpx;
+	flex: 0 0 54rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1rpx solid rgba(79, 147, 163, 0.15);
+	border-radius: 50%;
+	background: rgba(255, 255, 255, 0.64);
+	box-shadow: 0 8rpx 18rpx rgba(67, 112, 142, 0.08), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
+	transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.order-list-scroll {
+	width: 100%;
+}
+
+.order-list-scroll--limited {
+	height: 520rpx;
+}
+
+.order-item {
+	padding-left: 8rpx;
+	padding-right: 8rpx;
+	border-radius: 18rpx;
+	transition: background 160ms ease, opacity 160ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.order-tool-btn:hover {
+		transform: translateY(-2rpx);
+	}
+}
+
+.order-tool-btn:active {
+	transform: scale(0.96);
 }
 </style>

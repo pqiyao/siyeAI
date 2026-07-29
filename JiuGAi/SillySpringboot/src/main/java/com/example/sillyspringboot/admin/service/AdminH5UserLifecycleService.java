@@ -90,11 +90,13 @@ public class AdminH5UserLifecycleService {
         }
         List<Map<String, Object>> stChats = cleanupMapper.listConversationStRefs(userId);
         List<Map<String, Object>> ownedCharacters = cleanupMapper.listOwnedCharacterCleanupRows(userId);
+        List<Map<String, Object>> memoryWorldbooks = cleanupMapper.listConversationMemoryWorldbooks(userId);
         List<String> ownedUploadPaths = cleanupMapper.listOwnedUploadRelativePaths(userId);
         List<String> cleanupTaskIds = externalCleanupTaskService.enqueueUserDeletionTasks(
                 userId,
                 stChats,
                 ownedCharacters,
+                memoryWorldbooks,
                 ownedUploadPaths == null ? Set.of() : Set.copyOf(ownedUploadPaths)
         );
 
@@ -113,6 +115,8 @@ public class AdminH5UserLifecycleService {
         cleanupMapper.deleteChatGenerationContextsByUser(userId);
         cleanupMapper.deleteChatModelPreferencesByUser(userId);
         cleanupMapper.deleteH5UserAiChatModelsByUser(userId);
+        cleanupMapper.deleteGenerationAttemptsByUser(userId);
+        cleanupMapper.deleteGenerationStatEventsByUser(userId);
         cleanupMapper.deleteGenerationTasksByUser(userId);
         cleanupMapper.deleteMessagesByUser(userId);
         cleanupMapper.deleteConversationBindingsByUser(userId);

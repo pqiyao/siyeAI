@@ -40,5 +40,8 @@ assert.match(page, /String\(this\.form\.apiKey \|\| ''\)\.trim\(\) \|\| this\.ef
 assert.match(page, /incompleteSeparateScopes|incompleteScopes/);
 assert.match(page, /this\.form\.ttsUseSeparateConfig = false/);
 assert.match(page, /this\.form\.imageUseSeparateConfig = false/);
+assert.match(page, /<view v-if="form\.mode === 'custom'" class="custom-settings">/);
+assert.doesNotMatch(page, /<view v-else class="custom-settings">/);
+assert.match(page, /selectSystemMode\(\)\s*\{[\s\S]*?this\.form\.mode = 'system'/);
 
 console.log('user AI credential contract tests passed');

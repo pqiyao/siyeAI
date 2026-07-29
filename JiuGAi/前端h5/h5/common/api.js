@@ -107,8 +107,8 @@ var path = trimTrailingSlash(resolvedApiOrigin) + '/api/';
 var img_url = resolveImgBase(resolvedApiOrigin);
 var uploadpath = resolveUploadBase(resolvedApiOrigin);
 var socket = resolveSocketUrl(resolvedApiOrigin);
-var versionName = '1.0.0';
-var version = 100;
+var versionName = '1.3.6';
+var version = 101;
 var appType = 1; // 1=android 2=ios
 
 /** 会话页顶部促销条：站内路径（与 pages.json 一致，勿带 .vue） */

@@ -219,6 +219,7 @@ const AI_SETTINGS_COPY = {
 export default {
 	data() {
 		const runtimeFeatureConfig = tavernApi.getRuntimeFeatureConfig();
+		const runtimeFeatureConfigReady = typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot();
 		return {
 			authUser: uni.getStorageSync('user') || {},
 			authSignature: '',
@@ -227,7 +228,7 @@ export default {
 			storeProfileAccessSignature: '',
 			illustrationEntryEnabled: runtimeFeatureConfig.illustrationEntryEnabled !== false,
 			rechargeEntryVisible: runtimeFeatureConfig.rechargeEntryVisible !== false,
-			rechargeEntryReady: false,
+			rechargeEntryReady: runtimeFeatureConfigReady,
 			checkinEntryVisible: runtimeFeatureConfig.checkinEntryVisible !== false,
 			// 先使用本地运行配置渲染，避免每次进入用户中心都等待网络后才出现。
 			checkinEntryReady: true,
@@ -470,7 +471,9 @@ export default {
 		},
 		syncRechargeEntryVisibility(forceRefresh) {
 			this.rechargeEntryVisible = tavernApi.isRechargeEntryVisible();
-			this.rechargeEntryReady = false;
+			if (typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot()) {
+				this.rechargeEntryReady = true;
+			}
 			return tavernApi.fetchAppRuntimeConfig(forceRefresh === true).then((config) => {
 				this.rechargeEntryVisible = !(config && config.rechargeEntryVisible === false);
 				this.rechargeEntryReady = true;

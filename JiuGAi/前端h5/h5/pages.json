@@ -207,6 +207,13 @@
 			}
 		},
 		{
+			"path": "pages/system/app-update",
+			"style": {
+				"navigationStyle": "custom",
+				"disableScroll": true
+			}
+		},
+		{
 			"path": "pages/chat/systemmsg",
 			"style": {
 				"navigationStyle": "custom"
@@ -216,6 +223,15 @@
 			"path": "pages/user/pay",
 			"style": {
 				"navigationStyle": "custom"
+			}
+		},
+		{
+			"path": "pages/user/paymentCashier",
+			"style": {
+				"navigationStyle": "default",
+				"navigationBarTitleText": "安全支付",
+				"navigationBarTextStyle": "black",
+				"navigationBarBackgroundColor": "#f5f7fa"
 			}
 		},
 		{

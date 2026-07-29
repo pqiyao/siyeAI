@@ -8,6 +8,7 @@
 		"test:viewer-identity": "node tests/viewerIdentity.unit.test.cjs",
 		"test:inbox-reliability": "node tests/inboxReliability.contract.test.cjs",
 		"test:recharge-entry": "node tests/rechargeEntry.contract.test.cjs",
+		"test:payment-cashier": "node tests/paymentCashier.contract.test.cjs",
 		"test:checkin": "node tests/checkin.contract.test.cjs"
 		,"test:local-media": "node tests/localMediaStore.contract.test.cjs",
 		"test:media-experience": "node tests/mediaExperience.contract.test.cjs",

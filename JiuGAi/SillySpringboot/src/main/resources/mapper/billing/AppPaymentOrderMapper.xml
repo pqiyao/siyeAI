@@ -19,6 +19,8 @@
         <result column="vip_days" property="vipDays"/>
         <result column="payment_channel" property="paymentChannel"/>
         <result column="status" property="status"/>
+        <result column="expires_at" property="expiresAt"/>
+        <result column="user_hidden" property="userHidden"/>
         <result column="provider_trade_no" property="providerTradeNo"/>
         <result column="paid_amount_cents" property="paidAmountCents"/>
         <result column="notify_payload_hash" property="notifyPayloadHash"/>
@@ -30,7 +32,7 @@
     <sql id="BaseColumns">
         id, order_no, user_id, product_id, product_code, product_name, product_type,
         amount_cents, score_amount, gold_coin_amount, vip_type, vip_days,
-        payment_channel, status, provider_trade_no, paid_amount_cents, notify_payload_hash,
+        payment_channel, status, expires_at, user_hidden, provider_trade_no, paid_amount_cents, notify_payload_hash,
         created_at, paid_at, updated_at
     </sql>
 
@@ -38,11 +40,11 @@
         INSERT INTO app_payment_order (
             order_no, user_id, product_id, product_code, product_name, product_type,
             amount_cents, score_amount, gold_coin_amount, vip_type, vip_days,
-            payment_channel, status
+            payment_channel, status, expires_at
         ) VALUES (
             #{orderNo}, #{userId}, #{productId}, #{productCode}, #{productName}, #{productType},
             #{amountCents}, #{scoreAmount}, #{goldCoinAmount}, #{vipType}, #{vipDays},
-            #{paymentChannel}, #{status}
+            #{paymentChannel}, #{status}, #{expiresAt}
         )
     </insert>
 
@@ -65,13 +67,44 @@
         SELECT <include refid="BaseColumns"/>
         FROM app_payment_order
         WHERE user_id = #{userId}
+          AND user_hidden = 0
+          AND status != 'CLOSED'
+          AND (status != 'PENDING' OR expires_at &gt; CURRENT_TIMESTAMP)
         ORDER BY id DESC
         LIMIT #{limit}
     </select>
 
+    <update id="hideUnpaidByOrderNoAndUserId">
+        UPDATE app_payment_order
+        SET user_hidden = 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE order_no = #{orderNo}
+          AND user_id = #{userId}
+          AND status != 'PAID'
+          AND user_hidden = 0
+    </update>
+
+    <update id="closeExpiredPending">
+        UPDATE app_payment_order
+        SET status = 'CLOSED',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE status = 'PENDING'
+          AND expires_at &lt;= CURRENT_TIMESTAMP
+    </update>
+
+    <update id="closeExpiredPendingById">
+        UPDATE app_payment_order
+        SET status = 'CLOSED',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND status = 'PENDING'
+          AND expires_at &lt;= CURRENT_TIMESTAMP
+    </update>
+
     <update id="markPaid">
         UPDATE app_payment_order
         SET status = 'PAID',
+            user_hidden = 0,
             paid_at = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP,
             provider_trade_no = COALESCE(#{providerTradeNo}, provider_trade_no),
@@ -84,7 +117,8 @@
     <select id="countAdminList" resultType="long">
         SELECT COUNT(1)
         FROM app_payment_order
-        WHERE 1 = 1
+        WHERE status != 'CLOSED'
+          AND (status != 'PENDING' OR expires_at &gt; CURRENT_TIMESTAMP)
         <if test="keyword != null and keyword != ''">
             AND (
                 order_no LIKE CONCAT('%', #{keyword}, '%')
@@ -101,7 +135,8 @@
     <select id="listAdminPage" resultMap="AppPaymentOrderResultMap">
         SELECT <include refid="BaseColumns"/>
         FROM app_payment_order
-        WHERE 1 = 1
+        WHERE status != 'CLOSED'
+          AND (status != 'PENDING' OR expires_at &gt; CURRENT_TIMESTAMP)
         <if test="keyword != null and keyword != ''">
             AND (
                 order_no LIKE CONCAT('%', #{keyword}, '%')

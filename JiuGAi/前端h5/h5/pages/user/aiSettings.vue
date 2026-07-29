@@ -93,7 +93,7 @@
 					<text v-if="!ttsVoicePresets.length && !officialTtsVoiceTemplates.length" class="official-voice-library__empty">当前官方线路暂无可选音色，聊天会继续使用平台默认音色。</text>
 				</view>
 
-				<view v-else class="custom-settings">
+				<view v-if="form.mode === 'custom'" class="custom-settings">
 					<view class="settings-section settings-section--connection">
 						<view class="section-heading">
 							<view class="section-heading__mark">

@@ -23,7 +23,7 @@
           @keyup.enter="handleQuery"
         />
       </el-form-item>
-      <el-form-item :label="labels.bizType">
+      <el-form-item v-if="currentBizTypeOptions.length" :label="labels.bizType">
         <el-select v-model="queryParams.bizType" :placeholder="labels.all" clearable style="width: 180px">
           <el-option
             v-for="option in currentBizTypeOptions"
@@ -91,7 +91,7 @@ import { jiugaiRequestErrorMessage } from '@/utils/jiugaiRequestError'
 
 const { proxy } = getCurrentInstance()
 
-const alertTitle = '资金流水按用途分开查看：充值收益用于核对用户充值入账，其他资金变动保留签到、消费和退款等完整账本。'
+const alertTitle = '资金流水按用途分开查看：充值收益用于核对用户充值入账，签到与功能消耗请前往对应业务模块查看。'
 const labels = {
   keyword: '关键字',
   keywordPh: '用户ID / 业务单号 / 备注',
@@ -100,6 +100,7 @@ const labels = {
   payment: '充值入账',
   checkin: '签到奖励',
   chat: '聊天消耗',
+  chatRefund: '聊天退款',
   image: '生图消耗',
   imageRefund: '生图退款',
   tts: '语音消耗',
@@ -141,18 +142,7 @@ const currentBizTypeOptions = computed(() => {
   if (activeGroup.value === 'REVENUE') {
     return [{ label: labels.payment, value: 'PAYMENT' }]
   }
-  return [
-    { label: labels.checkin, value: 'CHECKIN' },
-    { label: labels.chat, value: 'CHAT_CONSUME' },
-    { label: labels.image, value: 'IMAGE_CONSUME' },
-    { label: labels.imageRefund, value: 'IMAGE_REFUND' },
-    { label: labels.tts, value: 'TTS_CONSUME' },
-    { label: labels.ttsRefund, value: 'TTS_REFUND' },
-    { label: labels.stt, value: 'STT_CONSUME' },
-    { label: labels.sttRefund, value: 'STT_REFUND' },
-    { label: labels.vision, value: 'VISION_CONSUME' },
-    { label: labels.visionRefund, value: 'VISION_REFUND' }
-  ]
+  return []
 })
 
 function getList() {
@@ -199,6 +189,7 @@ function formatBizType(value) {
     PAYMENT: labels.payment,
     CHECKIN: labels.checkin,
     CHAT_CONSUME: labels.chat,
+    CHAT_REFUND: labels.chatRefund,
     IMAGE_CONSUME: labels.image,
     IMAGE_REFUND: labels.imageRefund,
     TTS_CONSUME: labels.tts,

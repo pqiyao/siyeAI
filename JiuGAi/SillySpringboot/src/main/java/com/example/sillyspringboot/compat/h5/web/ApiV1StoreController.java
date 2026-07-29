@@ -46,6 +46,13 @@ public class ApiV1StoreController {
         return ApiV1Result.ok(storeService.listOrders(clientUid, limit));
     }
 
+    @PostMapping("/orders/remove")
+    public ApiV1Result<Map<String, Object>> removeOrder(@RequestBody Map<String, Object> payload) {
+        String clientUid = payload == null ? null : stringValue(payload.get("clientUid"));
+        String orderNo = payload == null ? null : stringValue(payload.get("orderNo"));
+        return ApiV1Result.ok(storeService.removeUnpaidOrder(clientUid, orderNo));
+    }
+
     @PostMapping("/orders/create")
     public ApiV1Result<Map<String, Object>> create(@RequestBody Map<String, Object> payload, HttpServletRequest request) {
         String clientUid = payload == null ? null : stringValue(payload.get("clientUid"));

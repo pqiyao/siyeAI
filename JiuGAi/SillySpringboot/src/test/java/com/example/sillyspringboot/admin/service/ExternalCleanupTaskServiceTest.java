@@ -69,15 +69,20 @@ class ExternalCleanupTaskServiceTest {
                         Map.of("stAvatarUrl", "alice.png"),
                         Map.of("stAvatarUrl", "alice.png")
                 ),
+                List.of(Map.of(
+                        "conversationId", 31L,
+                        "memoryWorldName", "jg_memory_conv_31_abcdef1234"
+                )),
                 Set.of(ownedFile)
         );
 
-        assertThat(ids).hasSize(3).doesNotHaveDuplicates();
+        assertThat(ids).hasSize(4).doesNotHaveDuplicates();
         assertThat(persisted.values())
                 .extracting(ExternalCleanupTask::getResourceType)
                 .containsExactly(
                         ExternalCleanupTaskService.TYPE_ST_CHAT,
                         ExternalCleanupTaskService.TYPE_ST_CHARACTER,
+                        ExternalCleanupTaskService.TYPE_ST_WORLDBOOK,
                         ExternalCleanupTaskService.TYPE_LOCAL_UPLOAD
                 );
         assertThat(persisted.values())

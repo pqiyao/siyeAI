@@ -16,6 +16,12 @@ public interface AppPaymentOrderMapper {
 
     List<AppPaymentOrder> listByUserId(@Param("userId") long userId, @Param("limit") int limit);
 
+    int hideUnpaidByOrderNoAndUserId(@Param("orderNo") String orderNo, @Param("userId") long userId);
+
+    int closeExpiredPending();
+
+    int closeExpiredPendingById(@Param("id") long id);
+
     int markPaid(
             @Param("id") long id,
             @Param("providerTradeNo") String providerTradeNo,

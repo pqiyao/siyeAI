@@ -36,6 +36,8 @@ class AdminPermissionCatalogTest {
                 "system:notice:edit",
                 "system:inbox-ad:view",
                 "system:inbox-ad:edit",
+                "system:app-update:view",
+                "system:app-update:edit",
                 "support:ticket:list",
                 "support:ticket:view",
                 "support:ticket:reply",

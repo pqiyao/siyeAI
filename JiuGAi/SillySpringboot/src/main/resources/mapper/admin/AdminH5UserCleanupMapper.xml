@@ -37,6 +37,18 @@
         ORDER BY id
     </select>
 
+    <select id="listConversationMemoryWorldbooks" resultType="map">
+        SELECT
+            memory.conversation_id AS conversationId,
+            memory.memory_world_name AS memoryWorldName
+        FROM app_conversation_memory memory
+        INNER JOIN app_conversation conversation
+            ON conversation.id = memory.conversation_id
+        WHERE conversation.user_id = #{userId}
+          AND memory.memory_world_name IS NOT NULL
+          AND memory.memory_world_name != ''
+    </select>
+
     <delete id="deleteSupportTicketMessagesByUser">
         DELETE FROM app_support_ticket_message
         WHERE ticket_id IN (
@@ -142,6 +154,34 @@
     <delete id="deleteH5UserAiChatModelsByUser">
         DELETE FROM app_h5_user_ai_chat_model
         WHERE user_id = #{userId}
+    </delete>
+
+    <delete id="deleteGenerationAttemptsByUser">
+        DELETE FROM app_generation_attempt
+        WHERE generation_task_id IN (
+                SELECT id
+                FROM app_generation_task
+                WHERE user_id = #{userId}
+            )
+           OR conversation_id IN (
+                SELECT id
+                FROM app_conversation
+                WHERE user_id = #{userId}
+            )
+           OR character_id IN (
+                SELECT id
+                FROM app_character
+                WHERE owner_user_id = #{userId}
+            )
+    </delete>
+
+    <delete id="deleteGenerationStatEventsByUser">
+        DELETE FROM app_generation_stat_event
+        WHERE task_id IN (
+            SELECT id
+            FROM app_generation_task
+            WHERE user_id = #{userId}
+        )
     </delete>
 
     <delete id="deleteConversationBindingsByUser">

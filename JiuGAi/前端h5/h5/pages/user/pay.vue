@@ -66,7 +66,6 @@
 
 			<view v-if="rechargeEntryReady && rechargeEntryVisible" class="action-stack">
 				<view class="primary-btn" @tap="payNow">{{ payButtonText }}</view>
-				<view class="ghost-btn" @tap="rebuildOrder">{{ copy.rebuildOrder }}</view>
 				<view class="ghost-btn ghost-btn--soft" @tap="openSupport">{{ supportButtonText }}</view>
 			</view>
 			<u-gap height="48"></u-gap>
@@ -88,6 +87,7 @@
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 
 const tavernApi = require('@/common/tavernApi.js');
+const paymentCashierSession = require('@/common/paymentCashierSession.js');
 const { getLanguageCode, getTavernUiText } = require('@/common/tavernUiI18n.js');
 const { getProjectNoticeCopy } = require('@/common/tavernProjectNotice.js');
 
@@ -294,7 +294,7 @@ export default {
 			lastPayment: null,
 			profileAccessSignature: '',
 			rechargeEntryVisible: tavernApi.isRechargeEntryVisible(),
-			rechargeEntryReady: false,
+			rechargeEntryReady: typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot(),
 			rechargeConfigRequestVersion: 0
 		};
 	},
@@ -361,7 +361,9 @@ export default {
 		syncRechargeEntryVisibility(forceRefresh) {
 			const requestVersion = ++this.rechargeConfigRequestVersion;
 			this.rechargeEntryVisible = tavernApi.isRechargeEntryVisible();
-			this.rechargeEntryReady = false;
+			if (typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot()) {
+				this.rechargeEntryReady = true;
+			}
 			return tavernApi
 				.fetchAppRuntimeConfig(forceRefresh === true)
 				.then((config) => {
@@ -406,6 +408,7 @@ export default {
 		loadPage() {
 			if (!this.canPurchase()) return;
 			const clientUid = tavernApi.getClientUid();
+			this.refreshCurrentOrder(clientUid);
 			tavernApi
 				.fetchStoreOverview(clientUid)
 				.then((res) => {
@@ -427,14 +430,29 @@ export default {
 						return;
 					}
 					this.selectedChannel = this.pickDefaultChannel();
-					if (tavernApi.hasLoggedInUser() && !this.order.orderNo) {
-						this.createOrder();
-					}
 				})
 				.catch((e) => {
 					if (!this.canPurchase()) return;
 					uni.showToast({ title: (e && e.message) || this.copy.loadError, icon: 'none' });
 				});
+		},
+		refreshCurrentOrder(clientUid) {
+			const orderNo = this.order && this.order.orderNo ? String(this.order.orderNo) : '';
+			if (!orderNo) return Promise.resolve(null);
+			return tavernApi
+				.fetchStoreOrders(clientUid || tavernApi.getClientUid(), 50)
+				.then((orders) => {
+					const list = Array.isArray(orders) ? orders : [];
+					const current = list.find((item) => item && String(item.orderNo || '') === orderNo);
+					if (!current) return null;
+					const previousStatus = String(this.order.status || '').toUpperCase();
+					this.order = current;
+					if (previousStatus !== 'PAID' && String(current.status || '').toUpperCase() === 'PAID') {
+						tavernApi.markCharacterAccessRefreshNeeded('payment-order-paid');
+					}
+					return current;
+				})
+				.catch(() => null);
 		},
 		pickDefaultChannel() {
 			if (this.channels.find((item) => item.code === this.selectedChannel)) {
@@ -455,15 +473,13 @@ export default {
 			this.selectedChannel = code;
 			this.order = {};
 			this.lastPayment = null;
-			if (!tavernApi.hasLoggedInUser()) return;
-			this.createOrder();
 		},
-		createOrder() {
-			if (!this.canPurchase()) return;
-			if (!this.requireH5Login()) return;
-			if (this.creating || !this.productCode || !this.selectedChannel) return;
+		createOrder(dispatchAfterCreate) {
+			if (!this.canPurchase()) return Promise.resolve(null);
+			if (!this.requireH5Login()) return Promise.resolve(null);
+			if (this.creating || !this.productCode || !this.selectedChannel) return Promise.resolve(null);
 			this.creating = true;
-			tavernApi
+			return tavernApi
 				.postStoreOrderCreate({
 					clientUid: tavernApi.getClientUid(),
 					productCode: this.productCode,
@@ -474,23 +490,21 @@ export default {
 					this.order = (res && res.order) || {};
 					this.lastPayment = (res && res.payment) || null;
 					this.channels = (res && res.channels) || this.channels;
+					if (dispatchAfterCreate === true) {
+						return this.dispatchPaymentAction(this.lastPayment);
+					}
+					return res;
 				})
 				.catch((e) => {
 					if (!this.canPurchase()) return;
 					this.order = {};
 					this.lastPayment = null;
 					uni.showToast({ title: (e && e.message) || this.copy.createOrderError, icon: 'none' });
+					return null;
 				})
 				.finally(() => {
 					this.creating = false;
 				});
-		},
-		rebuildOrder() {
-			if (!this.canPurchase()) return;
-			if (!this.requireH5Login()) return;
-			this.order = {};
-			this.lastPayment = null;
-			this.createOrder();
 		},
 		openSupport() {
 			const subject = encodeURIComponent((this.product && this.product.name) || this.copy.productFallback);
@@ -504,9 +518,9 @@ export default {
 		payNow() {
 			if (!this.canPurchase()) return;
 			if (!this.requireH5Login()) return;
-			if (this.paying) return;
+			if (this.paying || this.creating) return;
 			if (!this.order.orderNo) {
-				this.createOrder();
+				this.createOrder(true);
 				return;
 			}
 			this.paying = true;
@@ -604,6 +618,9 @@ export default {
 			});
 		},
 		openExternalPayment(paymentUrl) {
+			/* #ifdef APP-PLUS */
+			return this.openInAppPayment(paymentUrl);
+			/* #endif */
 			return new Promise((resolve) => {
 				/* #ifdef H5 */
 				try {
@@ -622,6 +639,32 @@ export default {
 					},
 					fail: () => {
 						uni.showToast({ title: this.copy.tgOpenTip, icon: 'none' });
+						resolve();
+					}
+				});
+			});
+		},
+		openInAppPayment(paymentUrl) {
+			const orderNo = this.order && this.order.orderNo ? String(this.order.orderNo).trim() : '';
+			try {
+				paymentCashierSession.save(orderNo, paymentUrl);
+			} catch (e) {
+				uni.showToast({ title: '支付链接无效，请重试', icon: 'none' });
+				return Promise.resolve();
+			}
+			return new Promise((resolve) => {
+				uni.navigateTo({
+					url: '/pages/user/paymentCashier?orderNo=' + encodeURIComponent(orderNo),
+					success: () => resolve(),
+					fail: () => {
+						paymentCashierSession.clear(orderNo);
+						/* #ifdef APP-PLUS */
+						try {
+							plus.runtime.openURL(paymentUrl);
+						} catch (e) {
+							uni.showToast({ title: '无法打开支付页面', icon: 'none' });
+						}
+						/* #endif */
 						resolve();
 					}
 				});

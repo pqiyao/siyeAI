@@ -337,14 +337,33 @@ public class ApiV1TavernChatController {
     public ApiV1Result<Map<String, Object>> replySuggestions(@RequestBody H5ChatPayload payload) {
         long characterId = requireCharacterId(payload);
         String clientUid = requireClientUid(payload);
+        visitorTrialGuardService.guardAnonymousChatAttempt(clientUid);
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
-        entitlementService.guardChat(clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.GENERATE);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
-        List<String> suggestions = chatService.suggestReplies(conversationId, token, payload == null ? "" : payload.getContent());
-        Map<String, Object> data = new HashMap<>();
-        data.put("suggestions", suggestions);
-        data.put("conversationId", conversationId);
-        return ApiV1Result.ok(data);
+        String requestId = generationRequestId(payload, "h5_suggest");
+        H5EntitlementService.AccessTicket ticket = entitlementService.guardChat(
+                clientUid,
+                characterId,
+                EntitlementPolicyService.ChatQuotaAction.GENERATE,
+                requestId,
+                conversationId,
+                null
+        );
+        try {
+            List<String> suggestions = chatService.suggestReplies(
+                    conversationId, token, payload == null ? "" : payload.getContent());
+            if (suggestions == null || suggestions.isEmpty()) {
+                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "AI 帮答暂时不可用，请稍后再试");
+            }
+            entitlementService.recordSuccessfulChat(ticket, true);
+            Map<String, Object> data = new HashMap<>();
+            data.put("suggestions", suggestions);
+            data.put("conversationId", conversationId);
+            return ApiV1Result.ok(data);
+        } catch (RuntimeException ex) {
+            entitlementService.refundFailedChat(ticket, false);
+            throw ex;
+        }
     }
 
     @PostMapping(value = "/chat/transcribe-audio", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -660,7 +679,8 @@ public class ApiV1TavernChatController {
             long conversationId
     ) {
         if (chatModel == null || chatModel.byok()) {
-            return entitlementService.guardChat(clientUid, characterId, action);
+            return entitlementService.guardChat(
+                    clientUid, characterId, action, generationRequestId, conversationId, chatModel);
         }
         return entitlementService.guardChatModel(
                 clientUid, characterId, action, chatModel, generationRequestId, conversationId);
@@ -708,7 +728,7 @@ public class ApiV1TavernChatController {
         request.setChatModelName(model.modelName());
     }
 
-    private enum StreamKind { GENERATE, CONTINUE, REGENERATE }
+    enum StreamKind { GENERATE, CONTINUE, REGENERATE }
 
     private static String channelFor(StreamKind kind, boolean streaming) {
         return switch (kind) {
@@ -775,11 +795,11 @@ public class ApiV1TavernChatController {
             throw ex;
         }
         boolean[] contentEmitted = {false};
+        StringBuilder assistant = new StringBuilder();
+        boolean[] frontendBridgeGenerated = {false};
         try (var lease = chatService.acquireLease(token);
              ChatGenerationTimeout timeout = ChatGenerationTimeout.start(control, chatService.generationTimeoutSeconds())) {
             auditService.onGenerating(audit.assistantMessageId(), audit.taskId(), traceId);
-            StringBuilder assistant = new StringBuilder();
-            boolean[] frontendBridgeGenerated = {false};
             switch (kind) {
                 case GENERATE -> {
                     String userRef = audit.userMessageId() > 0
@@ -820,13 +840,6 @@ public class ApiV1TavernChatController {
             }
 
             if (timeout.isTimedOut()) {
-                auditService.onFailed(
-                        audit.assistantMessageId(),
-                        audit.taskId(),
-                        ErrorCode.UPSTREAM_ERROR,
-                        traceId,
-                        "generation timed out after " + chatService.generationTimeoutSeconds() + " seconds"
-                );
                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试");
             }
 
@@ -839,6 +852,8 @@ public class ApiV1TavernChatController {
                     ? AppChatService.AssistantOutputNormalization.passthrough(content)
                     : chatService.normalizeAssistantOutput(conversationId, content, token);
             content = normalization.content();
+            content = chatService.finalizeEnsembleOutput(
+                    conversationId, audit.assistantMessageId(), content, token);
             if (timeout.isTimedOut()) {
                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试");
             }
@@ -860,24 +875,30 @@ public class ApiV1TavernChatController {
                     && !assistantSynced) {
                 saveSnapshotQuietly(conversationId);
             }
-            entitlementService.settleBlockingChat(
-                    accessTicket,
-                    cancelled,
-                    contentEmitted[0],
-                    !content.isBlank()
-            );
+            settleFinalizedChat(
+                    kind, accessTicket, cancelled, contentEmitted[0], !content.isBlank(), false);
             Map<String, Object> done = buildDonePayload(kind, anchorOrTargetMessageId, audit, content);
             done.put("cancelled", cancelled);
             return done;
         } catch (BusinessException be) {
-            entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
-            auditService.onFailed(audit.assistantMessageId(), audit.taskId(), be, traceId);
-            restoreSnapshotAfterFailedMutation(kind, conversationId);
+            boolean partialSaved = persistPartialAfterFailure(
+                    kind, conversationId, anchorOrTargetMessageId, audit, assistant.toString(), token, traceId,
+                    frontendBridgeGenerated[0], contentEmitted[0], accessTicket);
+            if (!partialSaved) {
+                refundUnpersistedFailure(accessTicket, kind, contentEmitted[0]);
+                auditService.onFailed(audit.assistantMessageId(), audit.taskId(), be, traceId);
+                restoreSnapshotAfterFailedMutation(kind, conversationId);
+            }
             throw be;
         } catch (Exception ex) {
-            entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
-            auditService.onFailed(audit.assistantMessageId(), audit.taskId(), ex, ErrorCode.INTERNAL_ERROR, traceId);
-            restoreSnapshotAfterFailedMutation(kind, conversationId);
+            boolean partialSaved = persistPartialAfterFailure(
+                    kind, conversationId, anchorOrTargetMessageId, audit, assistant.toString(), token, traceId,
+                    frontendBridgeGenerated[0], contentEmitted[0], accessTicket);
+            if (!partialSaved) {
+                refundUnpersistedFailure(accessTicket, kind, contentEmitted[0]);
+                auditService.onFailed(audit.assistantMessageId(), audit.taskId(), ex, ErrorCode.INTERNAL_ERROR, traceId);
+                restoreSnapshotAfterFailedMutation(kind, conversationId);
+            }
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "服务暂时不可用，请稍后重试");
         } finally {
             chatService.unregisterControl(conversationId, control);
@@ -949,7 +970,7 @@ public class ApiV1TavernChatController {
                             !generatedByFrontendBridge,
                             outputRegexApplied
                     );
-                    auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), content, traceId);
+                    auditService.onHiddenVariantSuccess(audit.assistantMessageId(), audit.taskId(), content, traceId);
                 }
             }
         }
@@ -971,6 +992,7 @@ public class ApiV1TavernChatController {
             }
             done.put("swipes", List.of(streamedRaw));
             done.put("swipeIndex", 0);
+            done.put("segments", chatService.messageSegments(audit.assistantMessageId()));
             return done;
         }
         if (kind == StreamKind.CONTINUE) {
@@ -983,9 +1005,11 @@ public class ApiV1TavernChatController {
             done.put("continueFromMessageId", h5MessageId(anchorOrTargetMessageId));
             done.put("swipes", swipeState.swipes());
             done.put("swipeIndex", swipeState.swipeIndex());
+            done.put("segments", chatService.messageSegments(audit.assistantMessageId()));
             return done;
         }
         fillRegenerateDone(done, anchorOrTargetMessageId);
+        done.put("segments", chatService.messageSegments(anchorOrTargetMessageId));
         return done;
     }
 
@@ -1138,6 +1162,8 @@ public class ApiV1TavernChatController {
         try {
             dispatcher.submit(() -> {
                 boolean[] contentEmitted = {false};
+                StringBuilder assistant = new StringBuilder();
+                boolean[] frontendBridgeGenerated = {false};
                 try {
                     long start = System.nanoTime();
                     long maxWaitNanos = Duration.ofSeconds(chatService.maxQueueWaitSeconds()).toNanos();
@@ -1146,8 +1172,8 @@ public class ApiV1TavernChatController {
                         try (var lease = chatService.acquireLease(token);
                              ChatGenerationTimeout timeout = ChatGenerationTimeout.start(control, chatService.generationTimeoutSeconds())) {
                             auditService.onGenerating(audit.assistantMessageId(), audit.taskId(), traceId);
-                            StringBuilder assistant = new StringBuilder();
-                            boolean[] frontendBridgeGenerated = {false};
+                            assistant.setLength(0);
+                            frontendBridgeGenerated[0] = false;
                             switch (kind) {
                                 case GENERATE -> {
                                     String userRef = audit.userMessageId() > 0
@@ -1191,18 +1217,7 @@ public class ApiV1TavernChatController {
                             boolean cancelled = control.isCancelled();
                             String content = assistant.toString().trim();
                             if (timedOut) {
-                                auditService.onFailed(
-                                        audit.assistantMessageId(),
-                                        audit.taskId(),
-                                        ErrorCode.UPSTREAM_ERROR,
-                                        traceId,
-                                        "generation timed out after " + chatService.generationTimeoutSeconds() + " seconds"
-                                );
-                                restoreSnapshotAfterFailedMutation(kind, conversationId);
-                                entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
-                                sendEvent(emitter, "error", Map.of("message", "生成超时，请稍后重试"), control);
-                                emitter.complete();
-                                return;
+                                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试");
                             }
                             if (shouldFailEmptyGeneratedContent(kind, cancelled, content)) {
                                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, emptyGeneratedContentMessage(kind));
@@ -1211,6 +1226,8 @@ public class ApiV1TavernChatController {
                                     ? AppChatService.AssistantOutputNormalization.passthrough(content)
                                     : chatService.normalizeAssistantOutput(conversationId, content, token);
                             content = normalization.content();
+                            content = chatService.finalizeEnsembleOutput(
+                                    conversationId, audit.assistantMessageId(), content, token);
                             if (timeout.isTimedOut()) {
                                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "生成超时，请稍后重试");
                             }
@@ -1235,8 +1252,8 @@ public class ApiV1TavernChatController {
                                 saveSnapshotQuietly(conversationId);
                             }
 
-                            entitlementService.settleStreamingChat(
-                                    accessTicket, contentEmitted[0], !content.isBlank());
+                            settleFinalizedChat(
+                                    kind, accessTicket, cancelled, contentEmitted[0], !content.isBlank(), true);
 
                             Map<String, Object> done = buildDonePayload(kind, anchorOrTargetMessageId, audit, content);
                             done.put("cancelled", cancelled);
@@ -1264,7 +1281,8 @@ public class ApiV1TavernChatController {
                     }
 
                     auditService.onStopped(audit.assistantMessageId(), audit.taskId(), "", traceId);
-                    entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
+                    settleFinalizedChat(
+                            kind, accessTicket, true, contentEmitted[0], false, true);
                     markUserMessageSuccessIfQueued(audit);
                     restoreSnapshotAfterFailedMutation(kind, conversationId);
                     Map<String, Object> done;
@@ -1284,23 +1302,33 @@ public class ApiV1TavernChatController {
                     sendEvent(emitter, "done", done, control);
                     emitter.complete();
                 } catch (BusinessException be) {
-                    entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
                     log.warn("h5 stream business error conversationId={} kind={} code={} message={}",
                             conversationId, kind, be.getErrorCode(), be.getMessage());
                     try {
-                        recordStreamFailureQuietly(conversationId, kind, audit, be, traceId);
-                        restoreSnapshotAfterFailedMutation(kind, conversationId);
+                        boolean partialSaved = persistPartialAfterFailure(
+                                kind, conversationId, anchorOrTargetMessageId, audit, assistant.toString(), token,
+                                traceId, frontendBridgeGenerated[0], contentEmitted[0], accessTicket);
+                        if (!partialSaved) {
+                            refundUnpersistedFailure(accessTicket, kind, contentEmitted[0]);
+                            recordStreamFailureQuietly(conversationId, kind, audit, be, traceId);
+                            restoreSnapshotAfterFailedMutation(kind, conversationId);
+                        }
                         sendEvent(emitter, "error", Map.of("message", be.getMessage()), control);
                     } finally {
                         completeEmitterQuietly(emitter);
                     }
                 } catch (Exception ex) {
-                    entitlementService.refundFailedChat(accessTicket, contentEmitted[0]);
                     log.error("h5 stream unhandled error conversationId={} kind={} clientMessageId={}",
                             conversationId, kind, clientMessageId, ex);
                     try {
-                        recordStreamFailureQuietly(conversationId, kind, audit, ex, traceId);
-                        restoreSnapshotAfterFailedMutation(kind, conversationId);
+                        boolean partialSaved = persistPartialAfterFailure(
+                                kind, conversationId, anchorOrTargetMessageId, audit, assistant.toString(), token,
+                                traceId, frontendBridgeGenerated[0], contentEmitted[0], accessTicket);
+                        if (!partialSaved) {
+                            refundUnpersistedFailure(accessTicket, kind, contentEmitted[0]);
+                            recordStreamFailureQuietly(conversationId, kind, audit, ex, traceId);
+                            restoreSnapshotAfterFailedMutation(kind, conversationId);
+                        }
                         sendEvent(emitter, "error", Map.of("message", "服务暂时不可用，请稍后重试"), control);
                     } finally {
                         completeEmitterQuietly(emitter);
@@ -1328,6 +1356,68 @@ public class ApiV1TavernChatController {
         if (chunk.delta() != null) {
             assistant.append(chunk.delta());
         }
+    }
+
+    private boolean persistPartialAfterFailure(
+            StreamKind kind,
+            long conversationId,
+            long anchorOrTargetMessageId,
+            ChatAuditService.AuditContext audit,
+            String rawPartial,
+            String token,
+            String traceId,
+            boolean generatedByFrontendBridge,
+            boolean contentEmitted,
+            H5EntitlementService.AccessTicket accessTicket
+    ) {
+        String partial = rawPartial == null ? "" : rawPartial.trim();
+        if (!contentEmitted || partial.isBlank() || kind == StreamKind.REGENERATE) return false;
+        try {
+            boolean assistantSynced = applyStreamPostGenerate(
+                    kind, conversationId, anchorOrTargetMessageId, audit, partial, true, token, traceId,
+                    generatedByFrontendBridge, false);
+            if (kind == StreamKind.GENERATE && !generatedByFrontendBridge && !assistantSynced) {
+                saveSnapshotQuietly(conversationId);
+            }
+            entitlementService.refundFailedChat(accessTicket, true);
+            return true;
+        } catch (RuntimeException ex) {
+            log.error("partial response persistence failed conversationId={} kind={} taskId={}",
+                    conversationId, kind, audit.taskId(), ex);
+            return false;
+        }
+    }
+
+    private void refundUnpersistedFailure(
+            H5EntitlementService.AccessTicket accessTicket,
+            StreamKind kind,
+            boolean contentEmitted
+    ) {
+        if (contentEmitted) {
+            entitlementService.refundDiscardedChat(accessTicket);
+            return;
+        }
+        entitlementService.refundFailedChat(accessTicket, contentEmitted);
+    }
+
+    void settleFinalizedChat(
+            StreamKind kind,
+            H5EntitlementService.AccessTicket accessTicket,
+            boolean cancelled,
+            boolean contentEmitted,
+            boolean generatedContentReady,
+            boolean streaming
+    ) {
+        if (kind == StreamKind.REGENERATE && cancelled) {
+            entitlementService.refundDiscardedChat(accessTicket);
+            return;
+        }
+        if (streaming) {
+            entitlementService.settleStreamingChat(accessTicket, contentEmitted, generatedContentReady);
+            return;
+        }
+        entitlementService.settleBlockingChat(
+                accessTicket, cancelled, contentEmitted, generatedContentReady);
     }
 
     private void observeChatContent(

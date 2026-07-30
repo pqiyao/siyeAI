@@ -7,7 +7,7 @@
 				<image src="/static/logo.png" mode="aspectFill" class="logo"></image>
 				<text class="name">四叶酒馆</text>
 				<text class="ver">版本 V {{ versionName }}<text v-if="versionCode">（{{ versionCode }}）</text></text>
-				<text class="desc">AI 角色扮演纯娱乐分享项目，当前非商用，不支持充值或在线支付。内容由模型生成，请理性体验并遵守内容合规要求。</text>
+				<text class="desc">面向成年用户的 AI 角色扮演与内容生成应用。模型输出可能虚构或不准确，请理性使用并严格遵守内容合规要求。</text>
 			</view>
 			<view v-if="androidApp" class="link-row link-row--action" @tap="checkUpdate">
 				<view class="link-main"><u-icon name="reload" color="#77aebe" size="25"></u-icon><text>{{ checkingUpdate ? '正在检查更新' : '检查更新' }}</text></view>
@@ -18,23 +18,23 @@
 				<text class="contact-title">官方 QQ 群</text>
 				<text class="contact-no">{{ contact.qqGroup }}</text>
 				<image class="qr" :src="contact.qrImage" mode="widthFix"></image>
-				<text class="contact-tip">体验协助、问题反馈、数据处理或模型 token 自愿资助都可以通过官方群联系。</text>
+				<text class="contact-tip">账号与订单协助、问题反馈、数据处理、侵权投诉或内容举报可以通过官方群联系。</text>
 			</view>
 
 			<view class="friend-card">
 				<view class="friend-head">
 					<text class="friend-title">友情链接</text>
-					<text class="friend-subtitle">语音创作与开源社区</text>
+					<!-- <text class="friend-subtitle">模型 API 服务</text> -->
 				</view>
 				<view v-for="item in friendLinks" :key="item.url" class="friend-row" @tap="openExternalLink(item.url)">
-					<view class="friend-mark"><u-icon name="volume-up" color="#247494" size="28"></u-icon></view>
+					<view class="friend-mark"><u-icon name="link" color="#247494" size="28"></u-icon></view>
 					<view class="friend-copy">
 						<text class="friend-name">{{ item.name }}</text>
 						<text class="friend-desc">{{ item.description }}</text>
 					</view>
 					<u-icon name="arrow-right" color="#8da5b2" size="26"></u-icon>
 				</view>
-				<text class="friend-note">第三方网站与本应用相互独立，使用音色或模型前请确认对应许可、署名和商用规则。</text>
+				<text class="friend-note">第三方网站与本应用相互独立，注册或使用前请自行核对服务价格、模型范围、稳定性、使用条款和隐私规则。</text>
 			</view>
 
 			<view class="link-row" @tap="openTerms">用户协议</view>
@@ -60,9 +60,7 @@ export default {
 			androidApp: appUpdate.isAndroidApp(),
 			checkingUpdate: false,
 			friendLinks: [
-				{ name: 'AivisHub', description: 'AivisSpeech 音色模型社区', url: 'https://hub.aivis-project.com/' },
-				{ name: 'VOICEVOX', description: '开源日语语音合成项目', url: 'https://voicevox.hiroshiba.jp/' },
-				{ name: 'COEIROINK', description: '面向创作的日语语音合成', url: 'https://coeiroink.com/' }
+				{ name: 'GPT API 中转站', description: 'codex中转站', url: 'https://api.zhouz.online/register?aff=QQVK7ZZ7H66U' }
 			]
 	};
 	},

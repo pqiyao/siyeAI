@@ -148,6 +148,8 @@ public class AppChatService {
     private final AppChatCompatibilityService compatibilityService;
     private final AppChatFrontendBridgeService frontendBridgeService;
     private final H5EntitlementService entitlementService;
+    private final EnsembleChatService ensembleChatService;
+    private final EnsembleSpeakerPlanner ensembleSpeakerPlanner;
     private final ObjectMapper jsonMapper = new ObjectMapper();
 
     @Autowired(required = false)
@@ -180,7 +182,9 @@ public class AppChatService {
             ChatPresetService chatPresetService,
             AppChatCompatibilityService compatibilityService,
             AppChatFrontendBridgeService frontendBridgeService,
-            H5EntitlementService entitlementService
+            H5EntitlementService entitlementService,
+            EnsembleChatService ensembleChatService,
+            EnsembleSpeakerPlanner ensembleSpeakerPlanner
     ) {
         this.conversationMapper = conversationMapper;
         this.bindingMapper = bindingMapper;
@@ -206,6 +210,8 @@ public class AppChatService {
         this.compatibilityService = compatibilityService;
         this.frontendBridgeService = frontendBridgeService;
         this.entitlementService = entitlementService;
+        this.ensembleChatService = ensembleChatService;
+        this.ensembleSpeakerPlanner = ensembleSpeakerPlanner;
     }
 
     public ChatConcurrencyGate.Lease acquireLease(String token) {
@@ -215,6 +221,68 @@ public class AppChatService {
 
     public long resolveUserId(String token) {
         return tokenService.validateAndLoadUser(token).getId();
+    }
+
+    public String finalizeEnsembleOutput(
+            long conversationId,
+            long messageId,
+            String rawContent,
+            String token
+    ) {
+        long userId = tokenService.validateAndLoadUser(token).getId();
+        AppConversation conversation = conversationMapper.findByIdForUser(conversationId, userId);
+        if (conversation == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "conversation not found");
+        }
+        EnsembleChatService.PreparedOutput output;
+        try {
+            output = ensembleChatService.prepare(conversation.getCharacterId(), rawContent);
+        } catch (Exception ex) {
+            log.warn("ensemble output parse fallback conversationId={} messageId={} cause={}",
+                    conversationId, messageId, rootCauseMessage(ex));
+            return rawContent == null ? "" : rawContent.trim();
+        }
+        try {
+            ensembleChatService.persist(messageId, output);
+        } catch (Exception ex) {
+            log.warn("ensemble segments persistence skipped conversationId={} messageId={} cause={}",
+                    conversationId, messageId, rootCauseMessage(ex));
+        }
+        return output.canonicalContent();
+    }
+
+    public AssistantProtocolStreamFilter assistantProtocolStreamFilter(long characterId) {
+        if (characterId <= 0) {
+            return AssistantProtocolStreamFilter.passthrough();
+        }
+        try {
+            return ensembleChatService.loadContext(characterId).enabled()
+                    ? AssistantProtocolStreamFilter.ensemble()
+                    : AssistantProtocolStreamFilter.passthrough();
+        } catch (Exception ex) {
+            log.warn("ensemble stream display filter skipped characterId={} cause={}",
+                    characterId, rootCauseMessage(ex));
+            return AssistantProtocolStreamFilter.passthrough();
+        }
+    }
+
+    public List<Map<String, Object>> messageSegments(long messageId) {
+        try {
+            return ensembleChatService.segmentMaps(messageId);
+        } catch (Exception ex) {
+            log.warn("ensemble segments read skipped messageId={} cause={}", messageId, rootCauseMessage(ex));
+            return List.of();
+        }
+    }
+
+    public Map<Long, List<Map<String, Object>>> messageSegmentsByIds(List<Long> messageIds) {
+        try {
+            return ensembleChatService.segmentMapsByMessageIds(messageIds);
+        } catch (Exception ex) {
+            log.warn("ensemble segment batch read skipped count={} cause={}",
+                    messageIds == null ? 0 : messageIds.size(), rootCauseMessage(ex));
+            return Map.of();
+        }
     }
 
     public int maxQueueWaitSeconds() {
@@ -426,6 +494,7 @@ public class AppChatService {
                 userId, req.getChatModelSource(), req.getChatModelName());
         boolean customModeSelected = isCustomModeSelected(userId, req.getChatModelSource());
         String userName = displayNameForSt(user, userId, binding);
+        String userPersona = personaForSt(userId);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
         List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
         String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
@@ -462,8 +531,13 @@ public class AppChatService {
                 attachmentMode,
                 attachmentHint
         );
+        String ensemblePlan = buildEnsemblePlan(
+                c.getCharacterId(), req.getConversationId(), activeBranchId, runtimeUserMessage,
+                userModelOverride, req.getChatRouteKey());
+        CharacterStudioRuntimePrompt studioPrompt = buildCharacterStudioRuntimePrompt(
+                c.getCharacterId(), req.getConversationId(), activeBranchId, runtimeUserMessage, ensemblePlan);
         String tailSystemPrompt = combineSystemPrompts(
-                buildCharacterStudioRuntimePrompt(c.getCharacterId(), req.getConversationId(), activeBranchId, runtimeUserMessage),
+                studioPrompt.tail(),
                 tailMemoryPrompt,
                 buildExpressionTailPrompt(attachmentMode, expressionHints, avoidExpressionHints),
                 buildReplySplitTailPrompt(req.getReplySplitMode())
@@ -476,6 +550,7 @@ public class AppChatService {
                         binding.getStAvatarUrl(),
                         binding.getStChatFileName(),
                         userName,
+                        userPersona,
                         charName,
                         worldNames,
                         roleplayUserMessage,
@@ -506,15 +581,16 @@ public class AppChatService {
                 tailSystemPrompt,
                 runtimePresetBundle,
                 AiCapability.CHAT,
-                req.getChatRouteKey()
-        );
+                req.getChatRouteKey(),
+                userPersona
+        ).withStudioLore(
+                studioPrompt.beforeCharacter(), studioPrompt.afterCharacter(), studioPrompt.beforeHistory());
 
         if (tryFrontendBridge(
                 stReq,
                 compatibilityDecision,
                 userModelOverride,
                 needsPromptMessages,
-                tailSystemPrompt,
                 onChunk,
                 control
         )) {
@@ -541,6 +617,7 @@ public class AppChatService {
         UserModelOverride userModelOverride = resolveUserModelOverride(
                 userId, req.getChatModelSource(), req.getChatModelName());
         String userName = displayNameForSt(user, userId, binding);
+        String userPersona = personaForSt(userId);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
         List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
         String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
@@ -548,8 +625,13 @@ public class AppChatService {
         AppChatCompatibilityService.Decision compatibilityDecision =
                 recordCompatibilityDecision(req.getConversationId(), bundle, binding, worldNames, runtimePresetBundle);
         List<ChatMessage> promptMessages = List.of();
+        String ensemblePlan = buildEnsemblePlan(
+                c.getCharacterId(), req.getConversationId(), activeBranchId, "",
+                userModelOverride, req.getChatRouteKey());
+        CharacterStudioRuntimePrompt studioPrompt = buildCharacterStudioRuntimePrompt(
+                c.getCharacterId(), req.getConversationId(), activeBranchId, "", ensemblePlan);
         String tailSystemPrompt = combineSystemPrompts(
-                buildCharacterStudioRuntimePrompt(c.getCharacterId(), req.getConversationId(), activeBranchId, ""),
+                studioPrompt.tail(),
                 tailMemoryPrompt,
                 buildReplySplitTailPrompt(req.getReplySplitMode())
         );
@@ -572,14 +654,15 @@ public class AppChatService {
                 tailSystemPrompt,
                 runtimePresetBundle,
                 AiCapability.CHAT,
-                req.getChatRouteKey()
-        );
+                req.getChatRouteKey(),
+                userPersona
+        ).withStudioLore(
+                studioPrompt.beforeCharacter(), studioPrompt.afterCharacter(), studioPrompt.beforeHistory());
         if (tryFrontendBridge(
                 stReq,
                 compatibilityDecision,
                 userModelOverride,
                 false,
-                tailSystemPrompt,
                 onChunk,
                 control
         )) {
@@ -623,6 +706,7 @@ public class AppChatService {
         UserModelOverride userModelOverride = resolveUserModelOverride(
                 userId, req.getChatModelSource(), req.getChatModelName());
         String userName = displayNameForSt(user, userId, binding);
+        String userPersona = personaForSt(userId);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
         List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
         String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
@@ -631,8 +715,13 @@ public class AppChatService {
                 recordCompatibilityDecision(req.getConversationId(), bundle, binding, worldNames, runtimePresetBundle);
         List<ChatMessage> promptMessages = List.of();
         snapshotService.saveSnapshotFromDb(req.getConversationId(), activeBranchId, 800);
+        String ensemblePlan = buildEnsemblePlan(
+                c.getCharacterId(), req.getConversationId(), activeBranchId, "",
+                userModelOverride, req.getChatRouteKey());
+        CharacterStudioRuntimePrompt studioPrompt = buildCharacterStudioRuntimePrompt(
+                c.getCharacterId(), req.getConversationId(), activeBranchId, "", ensemblePlan);
         String tailSystemPrompt = combineSystemPrompts(
-                buildCharacterStudioRuntimePrompt(c.getCharacterId(), req.getConversationId(), activeBranchId, ""),
+                studioPrompt.tail(),
                 tailMemoryPrompt,
                 buildReplySplitTailPrompt(req.getReplySplitMode())
         );
@@ -655,14 +744,15 @@ public class AppChatService {
                 tailSystemPrompt,
                 runtimePresetBundle,
                 AiCapability.CHAT,
-                req.getChatRouteKey()
-        );
+                req.getChatRouteKey(),
+                userPersona
+        ).withStudioLore(
+                studioPrompt.beforeCharacter(), studioPrompt.afterCharacter(), studioPrompt.beforeHistory());
         if (tryFrontendBridge(
                 stReq,
                 compatibilityDecision,
                 userModelOverride,
                 false,
-                tailSystemPrompt,
                 onChunk,
                 control
         )) {
@@ -706,8 +796,13 @@ public class AppChatService {
         }
 
         try {
+            CharacterStudioRuntimePrompt studioPrompt = buildCharacterStudioRuntimePrompt(
+                    conversation.getCharacterId(), conversationId, activeBranchId, currentDraft, "");
             String tailMemoryPrompt = combineSystemPrompts(
-                    buildCharacterStudioRuntimePrompt(conversation.getCharacterId(), conversationId, activeBranchId, currentDraft),
+                    studioPrompt.tail(),
+                    studioLoreSection("Worldbook facts before character", studioPrompt.beforeCharacter()),
+                    studioLoreSection("Worldbook facts after character", studioPrompt.afterCharacter()),
+                    studioLoreSection("Worldbook facts for current history", studioPrompt.beforeHistory()),
                     tailMemoryPromptForGeneration(conversationId, activeBranchId)
             );
             List<ChatMessage> promptMessages = buildReplySuggestionMessages(
@@ -888,6 +983,7 @@ public class AppChatService {
             String avatarUrl,
             String fileName,
             String userName,
+            String userPersona,
             String charName,
             List<String> worldNames,
             String runtimePresetBundle
@@ -899,7 +995,8 @@ public class AppChatService {
                 charName,
                 List.of(),
                 worldNames,
-                runtimePresetBundle
+                runtimePresetBundle,
+                userPersona
         );
         if (runtimeMessages == null || runtimeMessages.isEmpty()) {
             throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "视觉聊天上下文暂时不可用，请稍后重试");
@@ -925,6 +1022,7 @@ public class AppChatService {
             String avatarUrl,
             String fileName,
             String userName,
+            String userPersona,
             String charName,
             List<String> worldNames,
             String userMessage,
@@ -939,6 +1037,7 @@ public class AppChatService {
                 avatarUrl,
                 fileName,
                 userName,
+                userPersona,
                 charName,
                 worldNames,
                 expressionHints,
@@ -1219,6 +1318,7 @@ public class AppChatService {
             String avatarUrl,
             String fileName,
             String userName,
+            String userPersona,
             String charName,
             List<String> worldNames,
             List<String> expressionHints,
@@ -1229,6 +1329,7 @@ public class AppChatService {
                 avatarUrl,
                 fileName,
                 userName,
+                userPersona,
                 charName,
                 worldNames,
                 runtimePresetBundle
@@ -1702,18 +1803,44 @@ public class AppChatService {
 
     private final com.fasterxml.jackson.databind.ObjectMapper worldMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
+    private String buildEnsemblePlan(
+            long characterId,
+            long conversationId,
+            long branchId,
+            String currentInput,
+            UserModelOverride userModelOverride,
+            String routeKey
+    ) {
+        try {
+            EnsembleChatService.EnsembleContext context = ensembleChatService.loadContext(characterId);
+            return ensembleSpeakerPlanner.planIfStory(
+                    context,
+                    conversationId,
+                    branchId,
+                    currentInput,
+                    userModelOverride,
+                    routeKey
+            );
+        } catch (Exception ex) {
+            log.warn("ensemble speaker planning skipped characterId={} conversationId={} cause={}",
+                    characterId, conversationId, rootCauseMessage(ex));
+            return "";
+        }
+    }
+
     /**
      * Keeps the structured character studio authoritative without replacing the existing SillyTavern
      * snapshot contract. Legacy cards have no studio rows and therefore produce an empty prompt here.
      */
-    private String buildCharacterStudioRuntimePrompt(
+    private CharacterStudioRuntimePrompt buildCharacterStudioRuntimePrompt(
             long characterId,
             long conversationId,
             long branchId,
-            String currentInput
+            String currentInput,
+            String ensemblePlan
     ) {
         if (characterStudioMapper == null && lorebookEntryMapper == null) {
-            return "";
+            return CharacterStudioRuntimePrompt.EMPTY;
         }
         try {
             List<AppCharacterMember> members = characterStudioMapper == null
@@ -1723,48 +1850,44 @@ public class AppChatService {
                     ? List.of()
                     : lorebookEntryMapper.listEnabledByCharacterId(characterId);
             if (members.isEmpty() && loreEntries.isEmpty()) {
-                return "";
+                return CharacterStudioRuntimePrompt.EMPTY;
             }
 
-            StringBuilder prompt = new StringBuilder();
-            if (members.size() > 1) {
-                prompt.append("Ensemble roleplay rules:\n")
-                        .append("- This card has multiple independent characters. Never merge their personalities or invent a member outside this roster.\n")
-                        .append("- Reply only for the member or members naturally present in the scene. Do not speak for the user.\n")
-                        .append("- Prefix each character segment exactly as 【Name】. Use 【旁白】 only for scene narration when needed.\n")
-                        .append("- Keep a member's personality, knowledge and relationships consistent across the full conversation.\n")
-                        .append("Roster:\n");
-                for (AppCharacterMember member : members) {
-                    if (member == null || !StringUtils.hasText(member.getName())) {
-                        continue;
-                    }
-                    prompt.append("- ").append(member.getName());
-                    if (Boolean.TRUE.equals(member.getPrimaryMember())) {
-                        prompt.append(" (primary)");
-                    }
-                    String tagline = nz(member.getTagline());
-                    String persona = nz(member.getPersona());
-                    if (!tagline.isBlank()) prompt.append(": ").append(tagline);
-                    if (!persona.isBlank()) prompt.append("\n  Persona: ").append(persona);
-                    prompt.append('\n');
-                }
-            }
-
+            String ensemblePrompt = ensembleChatService.buildRuntimePrompt(characterId, ensemblePlan);
+            String beforeCharacter = "";
+            String afterCharacter = "";
+            String beforeHistory = "";
             if (!loreEntries.isEmpty()) {
                 List<AppMessage> history = messageMapper.listByConversationBranchAsc(conversationId, branchId, 200);
-                String beforeCharacter = matchedStudioLore(loreEntries, history, currentInput, "BEFORE_CHARACTER", members);
-                String afterCharacter = matchedStudioLore(loreEntries, history, currentInput, "AFTER_CHARACTER", members);
-                String beforeHistory = matchedStudioLore(loreEntries, history, currentInput, "BEFORE_HISTORY", members);
-                appendStudioLoreSection(prompt, "Worldbook facts before character", beforeCharacter);
-                appendStudioLoreSection(prompt, "Worldbook facts after character", afterCharacter);
-                appendStudioLoreSection(prompt, "Worldbook facts for current history", beforeHistory);
+                beforeCharacter = matchedStudioLore(loreEntries, history, currentInput, "BEFORE_CHARACTER", members);
+                afterCharacter = matchedStudioLore(loreEntries, history, currentInput, "AFTER_CHARACTER", members);
+                beforeHistory = matchedStudioLore(loreEntries, history, currentInput, "BEFORE_HISTORY", members);
             }
-            return prompt.length() > 16000 ? prompt.substring(0, 16000) : prompt.toString().trim();
+            return new CharacterStudioRuntimePrompt(
+                    clipStudioPrompt(beforeCharacter),
+                    clipStudioPrompt(afterCharacter),
+                    clipStudioPrompt(beforeHistory),
+                    clipStudioPrompt(ensemblePrompt)
+            );
         } catch (Exception ex) {
             log.warn("character studio runtime prompt skipped characterId={} conversationId={} cause={}",
                     characterId, conversationId, rootCauseMessage(ex));
-            return "";
+            return CharacterStudioRuntimePrompt.EMPTY;
         }
+    }
+
+    private record CharacterStudioRuntimePrompt(
+            String beforeCharacter,
+            String afterCharacter,
+            String beforeHistory,
+            String tail
+    ) {
+        private static final CharacterStudioRuntimePrompt EMPTY = new CharacterStudioRuntimePrompt("", "", "", "");
+    }
+
+    private static String clipStudioPrompt(String value) {
+        String normalized = value == null ? "" : value.trim();
+        return normalized.length() > 9000 ? normalized.substring(0, 9000) : normalized;
     }
 
     private String matchedStudioLore(
@@ -1834,9 +1957,9 @@ public class AppChatService {
         return "";
     }
 
-    private static void appendStudioLoreSection(StringBuilder target, String title, String body) {
-        if (body == null || body.isBlank()) return;
-        target.append(title).append(":\n").append(body).append("\n\n");
+    private static String studioLoreSection(String title, String body) {
+        if (body == null || body.isBlank()) return "";
+        return title + ":\n" + body;
     }
 
     private List<String> worldNamesForGeneration(long conversationId, AppConversationStBinding binding, long characterId) {
@@ -1923,14 +2046,13 @@ public class AppChatService {
             AppChatCompatibilityService.Decision decision,
             UserModelOverride userModelOverride,
             boolean hasPromptMessages,
-            String tailSystemPrompt,
             Consumer<ChatGenerateChunk> onChunk,
             StStreamControl control
     ) {
         if (decision == null || !"frontend_bridge".equals(decision.effectiveMode())) {
             return false;
         }
-        String skipReason = frontendBridgeSkipReason(userModelOverride, hasPromptMessages, tailSystemPrompt);
+        String skipReason = frontendBridgeSkipReason(userModelOverride, hasPromptMessages);
         if (!skipReason.isBlank()) {
             return frontendBridgeSkipped(decision, request, skipReason);
         }
@@ -1944,6 +2066,12 @@ public class AppChatService {
             frontendBridgeService.streamGenerate(request, onChunk, control);
             return true;
         } catch (BusinessException ex) {
+            if (ex instanceof AppChatFrontendBridgeService.FrontendBridgeGenerationException bridgeFailure
+                    && bridgeFailure.wasDispatched()) {
+                log.error("frontend bridge failed after dispatch; runtime fallback suppressed conversationId={} mode={} cause={}",
+                        request.conversationId(), request.mode(), rootCauseMessage(ex));
+                throw ex;
+            }
             if (!decision.fallbackToRuntime()) {
                 throw ex;
             }
@@ -1965,6 +2093,11 @@ public class AppChatService {
             ChatGenerateRequest request,
             String reason
     ) {
+        if ("unsupported_user_model_override".equals(reason)) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_FAILED,
+                    "the selected BYOK provider is not supported by the SillyTavern frontend bridge");
+        }
         if (!decision.fallbackToRuntime()) {
             throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "frontend bridge required but skipped: " + reason);
         }
@@ -1975,17 +2108,13 @@ public class AppChatService {
 
     private String frontendBridgeSkipReason(
             UserModelOverride userModelOverride,
-            boolean hasPromptMessages,
-            String tailSystemPrompt
+            boolean hasPromptMessages
     ) {
-        if (userModelOverride != null) {
-            return "user_model_override";
+        if (!AppChatFrontendBridgeService.BridgeModelOverride.supports(userModelOverride)) {
+            return "unsupported_user_model_override";
         }
         if (hasPromptMessages) {
             return "spring_prompt_messages";
-        }
-        if (StringUtils.hasText(tailSystemPrompt)) {
-            return "tail_system_prompt";
         }
         return "";
     }
@@ -2195,6 +2324,16 @@ public class AppChatService {
         return (first + " " + last).trim();
     }
 
+    private String personaForSt(long userId) {
+        try {
+            AppH5Profile profile = h5ProfileMapper == null ? null : h5ProfileMapper.findByUserId(userId);
+            return profile == null || profile.getPersona() == null ? "" : profile.getPersona().trim();
+        } catch (Exception ex) {
+            log.warn("chat user persona lookup skipped userId={} cause={}", userId, rootCauseMessage(ex));
+            return "";
+        }
+    }
+
     public List<SwipeVariant> listSwipes(long conversationId, String messageId, String token) {
         long userId = tokenService.validateAndLoadUser(token).getId();
         AppConversation c = conversationMapper.findByIdForUser(conversationId, userId);
@@ -2289,8 +2428,13 @@ public class AppChatService {
         }
 
         Integer previousSwipeIndex = target.getSwipeIndex();
+        long chosenMessageId = chosen.getId() == null ? 0L : chosen.getId();
+        String chosenContent = chosen.getContent();
         messageMapper.updateStatusAndContent(mid, "SUCCESS", chosen.getContent(), null, traceIdSafe());
+        chatAuditService.triggerSemanticAnnotationAfterCommit(mid);
         messageMapper.updateVariantMeta(mid, stRef, variantIndex, traceIdSafe());
+        runAfterCommit(() -> activateEnsembleVariant(
+                c.getCharacterId(), chosenMessageId, mid, chosenContent, conversationId));
         snapshotService.saveSnapshotFromDb(conversationId, activeBranchId, 800);
         try {
             syncSwipeSelectionToSt(conversationId, mid, token);
@@ -2381,7 +2525,11 @@ public class AppChatService {
         );
         messageMapper.updateVariantMeta(generatedMessageId, stRef, next, traceIdSafe());
         messageMapper.updateStatusAndContent(targetMessageId, "SUCCESS", generated.getContent(), null, traceIdSafe());
+        chatAuditService.triggerSemanticAnnotationAfterCommit(targetMessageId);
         messageMapper.updateVariantMeta(targetMessageId, stRef, next, traceIdSafe());
+        String generatedContent = generated.getContent();
+        runAfterCommit(() -> activateEnsembleVariant(
+                c.getCharacterId(), generatedMessageId, targetMessageId, generatedContent, conversationId));
         branchService.incrementMemorySourceRevision(conversationId, activeBranchId);
         if (syncRuntimeStateToSt) {
             runAfterCommit(() -> {
@@ -2401,6 +2549,37 @@ public class AppChatService {
         }
         memoryAutoRefreshService.triggerAfterHistoryChange(conversationId, activeBranchId);
         return new SwipeVariant(String.valueOf(targetMessageId), next, generated.getContent(), Instant.now());
+    }
+
+    private void activateEnsembleVariant(
+            long characterId,
+            long sourceMessageId,
+            long targetMessageId,
+            String content,
+            long conversationId
+    ) {
+        try {
+            ensembleChatService.activateVariant(characterId, sourceMessageId, targetMessageId, content);
+        } catch (Exception ex) {
+            log.warn("ensemble swipe segments fallback conversationId={} targetMessageId={} cause={}",
+                    conversationId, targetMessageId, rootCauseMessage(ex));
+        }
+    }
+
+    public void activateEnsembleVariantInCurrentTransaction(
+            long characterId,
+            long sourceMessageId,
+            long targetMessageId,
+            String content,
+            long conversationId
+    ) {
+        try {
+            ensembleChatService.activateVariantInCurrentTransaction(
+                    characterId, sourceMessageId, targetMessageId, content);
+        } catch (Exception ex) {
+            log.warn("ensemble swipe segments skipped conversationId={} targetMessageId={} cause={}",
+                    conversationId, targetMessageId, rootCauseMessage(ex));
+        }
     }
 
     private static String normalizeMessageKind(String value) {
@@ -2551,6 +2730,10 @@ public class AppChatService {
 
     public void markMemorySourceChanged(long conversationId, long branchId) {
         branchService.incrementMemorySourceRevision(conversationId, branchId);
+    }
+
+    public void triggerSemanticAnnotationAfterCommit(long assistantMessageId) {
+        chatAuditService.triggerSemanticAnnotationAfterCommit(assistantMessageId);
     }
 
     @Transactional

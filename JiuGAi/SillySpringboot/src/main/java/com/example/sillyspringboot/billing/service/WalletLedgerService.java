@@ -17,6 +17,17 @@ import java.util.Map;
 @Service
 public class WalletLedgerService {
 
+    public record WalletChargeResult(
+            boolean created,
+            int scoreCharged,
+            int goldCharged,
+            String currency
+    ) {
+        public static WalletChargeResult notCreated() {
+            return new WalletChargeResult(false, 0, 0, "NONE");
+        }
+    }
+
     public static final String BIZ_PAYMENT = "PAYMENT";
     public static final String BIZ_CHAT_CONSUME = "CHAT_CONSUME";
     public static final String BIZ_CHAT_REFUND = "CHAT_REFUND";
@@ -180,6 +191,75 @@ public class WalletLedgerService {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "钱包重复消费补偿失败");
             }
             return false;
+        }
+    }
+
+    /**
+     * Atomically charges exactly one wallet currency. Diamonds are preferred; gold is only
+     * attempted when the diamond balance cannot cover the full diamond price.
+     */
+    @Transactional
+    public WalletChargeResult consumeDiamondOrGold(
+            long userId,
+            int scoreCost,
+            int goldCost,
+            String bizType,
+            String bizRef,
+            String note
+    ) {
+        int safeScore = Math.max(0, scoreCost);
+        int safeGold = Math.max(0, goldCost);
+        if (safeScore == 0 && safeGold == 0) {
+            return WalletChargeResult.notCreated();
+        }
+        String safeBizType = normalizeBizType(bizType);
+        String safeBizRef = trimToNull(bizRef);
+        if (safeBizRef == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "消耗业务引用不能为空");
+        }
+        String idempotencyKey = safeBizType + ":" + safeBizRef;
+        if (walletLedgerMapper.findByIdempotencyKey(idempotencyKey) != null) {
+            return WalletChargeResult.notCreated();
+        }
+
+        int chargedScore = 0;
+        int chargedGold = 0;
+        String currency = "NONE";
+        if (safeScore > 0 && profileExtMapper.deductWallet(userId, safeScore, 0) == 1) {
+            chargedScore = safeScore;
+            currency = "DIAMOND";
+        } else if (safeGold > 0 && profileExtMapper.deductWallet(userId, 0, safeGold) == 1) {
+            chargedGold = safeGold;
+            currency = "GOLD";
+        } else {
+            String message = safeScore > 0 && safeGold > 0
+                    ? "免费次数已用完，钻石或金币不足，请充值"
+                    : safeScore > 0
+                    ? "免费次数已用完，钻石不足，请充值"
+                    : "免费次数已用完，金币不足，请充值";
+            throw new BusinessException(ErrorCode.RATE_LIMITED, message);
+        }
+
+        try {
+            int inserted = walletLedgerMapper.insertFull(
+                    userId,
+                    safeBizType,
+                    null,
+                    safeBizRef,
+                    idempotencyKey,
+                    -chargedScore,
+                    -chargedGold,
+                    note == null ? "" : note
+            );
+            if (inserted != 1) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "钱包消费流水写入失败");
+            }
+            return new WalletChargeResult(true, chargedScore, chargedGold, currency);
+        } catch (DuplicateKeyException ignored) {
+            if (profileExtMapper.creditWallet(userId, chargedScore, chargedGold) != 1) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "钱包重复消费补偿失败");
+            }
+            return WalletChargeResult.notCreated();
         }
     }
 

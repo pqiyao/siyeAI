@@ -66,6 +66,7 @@
 <script>
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 const { getLanguageCode } = require('@/common/tavernUiI18n.js');
+const authSession = require('@/common/authSession.js');
 
 const COPY = {
 	'zh-cn': {
@@ -148,6 +149,7 @@ export default {
 		}
 	},
 	onLoad() {
+		if (!authSession.requireAuth('/pages/user/editziliao')) return;
 		this.myuser();
 	},
 	methods: {
@@ -179,7 +181,8 @@ export default {
 					this.label_id = res.label != null && res.label !== '' ? res.label : '';
 					this.occupation_id = res.occupation != null && res.occupation !== '' ? res.occupation : '';
 					this.gender = res.gender;
-				});
+				})
+				.catch(() => {});
 		},
 		save() {
 			const name = (this.nickname || '').trim();
@@ -212,7 +215,8 @@ export default {
 					uni.setStorageSync('user', u);
 					this.$store.commit('setuser', u);
 					setTimeout(() => uni.navigateBack(), 400);
-				});
+				})
+				.catch(() => {});
 		}
 	}
 };

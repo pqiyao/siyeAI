@@ -29,6 +29,39 @@ import static org.mockito.Mockito.when;
 class AppChatControllerRegenerateCancellationTest {
 
     @Test
+    void successfulRegenerateMarksTheGeneratedMessageAsHiddenVariantOnly() {
+        Fixture fixture = fixture();
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Consumer<ChatGenerateChunk> onChunk = invocation.getArgument(2);
+            onChunk.accept(new ChatGenerateChunk(7L, "regen-client", 0, "replacement", true, null, null));
+            return null;
+        }).when(fixture.chatService).streamRegenerate(
+                eq(fixture.request),
+                eq("token"),
+                any(),
+                any(StStreamControl.class)
+        );
+        when(fixture.chatService.normalizeAssistantOutput(7L, "replacement", "token"))
+                .thenReturn(new AppChatService.AssistantOutputNormalization("replacement", false));
+        when(fixture.chatService.finalizeEnsembleOutput(7L, 101L, "replacement", "token"))
+                .thenReturn("replacement");
+        doAnswer(invocation -> {
+            ((Runnable) invocation.getArgument(0)).run();
+            return null;
+        }).when(fixture.dispatcher).submit(any(Runnable.class));
+
+        fixture.controller.regenerateStream(fixture.request, "Bearer token");
+
+        verify(fixture.auditService).stageFinalAssistantContent(101L, "replacement", "unknown");
+        verify(fixture.chatService).promoteRegenerateVariant(
+                7L, 42L, 101L, "token", true, false
+        );
+        verify(fixture.auditService).onHiddenVariantSuccess(101L, 201L, "replacement", "unknown");
+        verify(fixture.auditService, never()).onSuccess(101L, 201L, "replacement", "unknown");
+    }
+
+    @Test
     void partialRegenerateCancellationKeepsTheOriginalAssistantMessage() {
         Fixture fixture = fixture();
         doAnswer(invocation -> {

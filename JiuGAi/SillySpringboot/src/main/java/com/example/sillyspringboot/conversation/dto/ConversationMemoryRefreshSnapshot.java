@@ -37,6 +37,15 @@ public record ConversationMemoryRefreshSnapshot(
         return last;
     }
 
+    public List<Long> messageIds() {
+        return messages.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(MessageSnapshot::id)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
     public record MessageSnapshot(
             Long id,
             String role,

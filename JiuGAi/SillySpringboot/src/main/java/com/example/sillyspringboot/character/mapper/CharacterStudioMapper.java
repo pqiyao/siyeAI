@@ -12,6 +12,8 @@ import java.util.List;
 public interface CharacterStudioMapper {
     String findCardType(@Param("characterId") long characterId);
 
+    String findEnsembleChatMode(@Param("characterId") long characterId);
+
     List<AppCharacterMember> listMembers(@Param("characterId") long characterId);
 
     List<AppCharacterOpening> listOpenings(@Param("characterId") long characterId);
@@ -35,6 +37,8 @@ public interface CharacterStudioMapper {
     int deleteOpeningsByCharacterId(@Param("characterId") long characterId);
 
     int updateCardType(@Param("characterId") long characterId, @Param("cardType") String cardType);
+
+    int updateEnsembleChatMode(@Param("characterId") long characterId, @Param("ensembleChatMode") String ensembleChatMode);
 
     int clearLorebookMemberScopes(@Param("characterId") long characterId);
 }

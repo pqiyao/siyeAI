@@ -1,6 +1,8 @@
 package com.example.sillyspringboot.admin.service;
 
 import com.example.sillyspringboot.admin.mapper.ExternalCleanupTaskMapper;
+import com.example.sillyspringboot.admin.mapper.CharacterCleanupMapper;
+import com.example.sillyspringboot.admin.model.CharacterUploadAssetRow;
 import com.example.sillyspringboot.admin.model.ExternalCleanupTask;
 import com.example.sillyspringboot.config.ExternalCleanupProperties;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
@@ -23,7 +25,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ExternalCleanupTaskServiceTest {
@@ -32,6 +36,7 @@ class ExternalCleanupTaskServiceTest {
     Path tempDir;
 
     private ExternalCleanupTaskMapper mapper;
+    private CharacterCleanupMapper characterCleanupMapper;
     private StAdapter stAdapter;
     private ExternalCleanupProperties properties;
     private ExternalCleanupTaskService service;
@@ -39,13 +44,20 @@ class ExternalCleanupTaskServiceTest {
     @BeforeEach
     void setUp() {
         mapper = mock(ExternalCleanupTaskMapper.class);
+        characterCleanupMapper = mock(CharacterCleanupMapper.class);
         stAdapter = mock(StAdapter.class);
         properties = new ExternalCleanupProperties();
         properties.setMaxAttempts(3);
         properties.setBaseBackoffSeconds(10);
         properties.setMaxBackoffSeconds(25);
         properties.setProcessingLeaseSeconds(30);
-        service = new ExternalCleanupTaskService(mapper, stAdapter, properties, tempDir.toString());
+        service = new ExternalCleanupTaskService(
+                mapper,
+                characterCleanupMapper,
+                stAdapter,
+                properties,
+                tempDir.toString()
+        );
     }
 
     @Test
@@ -242,6 +254,110 @@ class ExternalCleanupTaskServiceTest {
         assertThat(result.retry()).isZero();
         assertThat(result.dead()).isZero();
         assertThat(result.deferred()).isZero();
+    }
+
+    @Test
+    void sharedCharacterStBundleIsRetainedWithoutCallingSt() {
+        ExternalCleanupTask task = task(
+                "task-character-shared",
+                ExternalCleanupTaskService.TYPE_CHARACTER_ST_BUNDLE,
+                0,
+                3
+        );
+        task.setContextJson("{\"targetCharacterIds\":[101],\"expectedOwnerUserId\":null,\"assetId\":null,\"assetUrl\":\"\"}");
+        installClaimBehavior(task);
+        when(characterCleanupMapper.countOtherCharacterStReferences("alice.png", List.of(101L))).thenReturn(1);
+        when(mapper.markSkipped(anyString(), anyString(), anyString(), anyString(), any())).thenReturn(1);
+
+        ExternalCleanupTaskService.CleanupAttempt result = service.processImmediately(List.of(task.getId())).get(0);
+
+        assertThat(result.status()).isEqualTo(ExternalCleanupTaskService.STATUS_SKIPPED_SHARED);
+        assertThat(result.message()).contains("shared");
+        verify(stAdapter, never()).deleteCharacter(anyString(), any(Boolean.class));
+    }
+
+    @Test
+    void exclusiveCharacterUploadDeletesFileThenOwnershipRecord() throws Exception {
+        String fileName = UUID.randomUUID() + ".png";
+        String assetUrl = "/uploads/h5/" + fileName;
+        Path upload = tempDir.resolve("h5").resolve(fileName);
+        Files.createDirectories(upload.getParent());
+        Files.writeString(upload, "image", StandardCharsets.UTF_8);
+
+        ExternalCleanupTask task = task(
+                "task-character-upload",
+                ExternalCleanupTaskService.TYPE_CHARACTER_LOCAL_UPLOAD,
+                0,
+                3
+        );
+        task.setPrimaryRef(fileName);
+        task.setSecondaryRef("");
+        task.setOperationId("operation-character-upload");
+        task.setContextJson("{\"targetCharacterIds\":[101],\"expectedOwnerUserId\":7,\"assetId\":88,\"assetUrl\":\""
+                + assetUrl + "\"}");
+        installClaimBehavior(task);
+        when(mapper.countBlockingCharacterStTasks(task.getOperationId())).thenReturn(0);
+        when(mapper.countDeadCharacterStTasks(task.getOperationId())).thenReturn(0);
+        CharacterUploadAssetRow asset = new CharacterUploadAssetRow();
+        asset.setAssetId(88L);
+        asset.setOwnerUserId(7L);
+        asset.setRelativePath(fileName);
+        asset.setAssetUrl(assetUrl);
+        when(characterCleanupMapper.findUploadAsset(assetUrl)).thenReturn(asset);
+        when(characterCleanupMapper.countOtherLocalAssetReferences(assetUrl, List.of(101L))).thenReturn(0);
+        when(characterCleanupMapper.deleteUploadAsset(88L, 7L, fileName)).thenReturn(1);
+        when(mapper.markCompleted(anyString(), anyString(), any())).thenReturn(1);
+
+        ExternalCleanupTaskService.CleanupAttempt result = service.processImmediately(List.of(task.getId())).get(0);
+
+        assertThat(result.succeeded()).isTrue();
+        assertThat(upload).doesNotExist();
+        verify(characterCleanupMapper).deleteUploadAsset(88L, 7L, fileName);
+    }
+
+    @Test
+    void characterUploadWaitsForStCleanupWithoutConsumingRetryBudget() {
+        ExternalCleanupTask task = characterUploadTask("task-character-upload-wait", "operation-wait");
+        installClaimBehavior(task);
+        when(mapper.countDeadCharacterStTasks(task.getOperationId())).thenReturn(0);
+        when(mapper.countBlockingCharacterStTasks(task.getOperationId())).thenReturn(1);
+        when(mapper.deferClaim(anyString(), anyString(), any(), anyString(), any())).thenReturn(1);
+
+        ExternalCleanupTaskService.CleanupAttempt result = service.processImmediately(List.of(task.getId())).get(0);
+
+        assertThat(result.status()).isEqualTo("DEFERRED");
+        assertThat(result.message()).contains("waiting for ST cleanup");
+        verify(characterCleanupMapper, never()).findUploadAsset(anyString());
+        verify(mapper).deferClaim(anyString(), anyString(), any(), anyString(), any());
+    }
+
+    @Test
+    void characterUploadIsRetainedWhenStCleanupIsDead() {
+        ExternalCleanupTask task = characterUploadTask("task-character-upload-dead", "operation-dead");
+        installClaimBehavior(task);
+        when(mapper.countDeadCharacterStTasks(task.getOperationId())).thenReturn(1);
+        when(mapper.markSkipped(anyString(), anyString(), anyString(), anyString(), any())).thenReturn(1);
+
+        ExternalCleanupTaskService.CleanupAttempt result = service.processImmediately(List.of(task.getId())).get(0);
+
+        assertThat(result.status()).isEqualTo(ExternalCleanupTaskService.STATUS_DEAD);
+        assertThat(result.message()).contains("local media was retained");
+        verify(characterCleanupMapper, never()).findUploadAsset(anyString());
+    }
+
+    private ExternalCleanupTask characterUploadTask(String id, String operationId) {
+        ExternalCleanupTask task = task(
+                id,
+                ExternalCleanupTaskService.TYPE_CHARACTER_LOCAL_UPLOAD,
+                0,
+                3
+        );
+        task.setPrimaryRef(UUID.randomUUID() + ".png");
+        task.setSecondaryRef("");
+        task.setOperationId(operationId);
+        task.setContextJson("{\"targetCharacterIds\":[101],\"expectedOwnerUserId\":7,\"assetId\":88,"
+                + "\"assetUrl\":\"/uploads/h5/" + task.getPrimaryRef() + "\"}");
+        return task;
     }
 
     private ExternalCleanupTask task(String id, String resourceType, int attemptCount, int maxAttempts) {

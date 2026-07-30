@@ -8,16 +8,16 @@
 				<text class="title">四叶酒馆官方群</text>
 				<text class="group-no">QQ群：{{ contact.qqGroup }}</text>
 				<text class="desc">
-					用于体验协助、问题反馈、账号数据处理、内容合规反馈和模型 token 自愿资助沟通。
+					用于账号与订单协助、问题反馈、数据处理申请、侵权投诉和违规内容举报。
 				</text>
 				<image class="qr" :src="contact.qrImage" mode="widthFix"></image>
 				<text class="tip">长按或截图识别二维码加入群聊。</text>
 			</view>
 
 			<view class="notice">
-				<text class="notice-title">温馨说明</text>
+				<text class="notice-title">联系说明</text>
 				<text class="notice-body">
-					本项目为纯娱乐分享项目，当前非商用，不支持充值、在线支付或付费开通。若你自愿资助，相关费用会全部用于补充模型 token 和维持体验服务。
+					提交账号、订单或内容问题时，请提供必要的账号信息、订单号或内容位置，避免发送支付密码、完整证件号码等无关敏感信息。违规内容举报经核实后，将依据用户协议采取相应措施。
 				</text>
 			</view>
 			<view class="bottom-space"></view>

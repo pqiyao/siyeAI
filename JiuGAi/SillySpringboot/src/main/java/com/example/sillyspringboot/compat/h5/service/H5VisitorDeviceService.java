@@ -71,6 +71,54 @@ public class H5VisitorDeviceService {
         return new DeviceTouchContext(null, generateDeviceToken(), false);
     }
 
+    public Long resolvePersistedDeviceId(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        Object attributedId = request.getAttribute(REQUEST_ATTR_DEVICE_ID);
+        if (attributedId instanceof Number number && number.longValue() > 0L) {
+            return number.longValue();
+        }
+        String deviceToken = normalizeToken(resolveDeviceToken(request));
+        if (deviceToken.isEmpty()) {
+            return null;
+        }
+        AppH5VisitorDevice device = visitorDeviceMapper.findByDeviceToken(deviceToken);
+        return device == null ? null : device.getId();
+    }
+
+    @Transactional
+    public void recordAnonymousAttempt(HttpServletRequest request, AnonymousAction action, String clientUid) {
+        if (action == null) {
+            return;
+        }
+        Long deviceId = resolvePersistedDeviceId(request);
+        if (deviceId != null) {
+            switch (action) {
+                case CHAT -> visitorDeviceMapper.incrementAnonymousChatAttemptCount(deviceId);
+                case CONVERSATION -> visitorDeviceMapper.incrementAnonymousConversationCreateCount(deviceId);
+                case CHARACTER -> visitorDeviceMapper.incrementAnonymousCharacterCreateCount(deviceId);
+            }
+        }
+        if (securityEvents == null) {
+            return;
+        }
+        String safeClientUid = trimToEmpty(clientUid);
+        String ip = request == null ? "" : clientIpResolver.resolve(request);
+        String userAgent = request == null ? "" : request.getHeader("User-Agent");
+        String endpoint = request == null ? "" : clip(trimToEmpty(request.getRequestURI()), 128);
+        securityEvents.insert(
+                deviceId,
+                action.eventType(),
+                clip(safeClientUid, 64),
+                null,
+                ip,
+                hashUserAgent(userAgent),
+                endpoint,
+                action.detail()
+        );
+    }
+
     private DeviceTouchContext insertDevice(String deviceToken, RequestSnapshot snapshot) {
         AppH5VisitorDevice row = new AppH5VisitorDevice();
         row.setDeviceToken(deviceToken);
@@ -205,16 +253,38 @@ public class H5VisitorDeviceService {
             String clientUid = resolveClientUid(request);
             return new RequestSnapshot(
                     clientUid,
-                    resolveAuthenticatedUserId(h5Auth),
+                    resolveAuthenticatedUserId(request, h5Auth),
                     clientIpResolver.resolve(request),
                     hashUserAgent(request == null ? null : request.getHeader("User-Agent")),
                     clip(trimToEmpty(request == null ? null : request.getHeader("User-Agent")), 255)
             );
         }
 
-        private static Long resolveAuthenticatedUserId(H5ClientUidAuthService h5Auth) {
-            AppUser authenticatedUser = h5Auth == null ? null : h5Auth.resolveAuthenticatedRequestUser();
+        private static Long resolveAuthenticatedUserId(HttpServletRequest request, H5ClientUidAuthService h5Auth) {
+            AppUser authenticatedUser = h5Auth == null ? null : h5Auth.resolveAuthenticatedRequestUser(request);
             return authenticatedUser == null ? null : authenticatedUser.getId();
+        }
+    }
+
+    public enum AnonymousAction {
+        CHAT("ANONYMOUS_CHAT_BLOCKED", "anonymous chat blocked"),
+        CONVERSATION("ANONYMOUS_CONVERSATION_BLOCKED", "anonymous conversation creation blocked"),
+        CHARACTER("ANONYMOUS_CHARACTER_BLOCKED", "anonymous character creation blocked");
+
+        private final String eventType;
+        private final String detail;
+
+        AnonymousAction(String eventType, String detail) {
+            this.eventType = eventType;
+            this.detail = detail;
+        }
+
+        public String eventType() {
+            return eventType;
+        }
+
+        public String detail() {
+            return detail;
         }
     }
 }

@@ -37,15 +37,15 @@ public class EmbeddedLorebookSyncService {
         if (characterId <= 0) {
             return 0;
         }
-        lorebookEntryMapper.deleteImportedByCharacterId(characterId);
         String raw = trimToEmpty(embeddedCharacterBookJson);
         if (raw.isBlank()) {
+            lorebookEntryMapper.deleteImportedByCharacterId(characterId);
             return 0;
         }
+        List<AppLorebookEntry> parsedEntries = new ArrayList<>();
         try {
             JsonNode root = objectMapper.readTree(raw);
             List<JsonNode> entries = extractEntries(root);
-            int imported = 0;
             for (JsonNode entryNode : entries) {
                 if (!entryNode.isObject()) {
                     continue;
@@ -54,14 +54,17 @@ public class EmbeddedLorebookSyncService {
                 if (entry == null) {
                     continue;
                 }
-                lorebookEntryMapper.insert(entry);
-                imported++;
+                parsedEntries.add(entry);
             }
-            return imported;
         } catch (Exception e) {
             log.warn("Failed to sync embedded character_book for characterId={}: {}", characterId, e.toString());
             return 0;
         }
+        lorebookEntryMapper.deleteImportedByCharacterId(characterId);
+        for (AppLorebookEntry entry : parsedEntries) {
+            lorebookEntryMapper.insert(entry);
+        }
+        return parsedEntries.size();
     }
 
     @Transactional
@@ -105,7 +108,10 @@ public class EmbeddedLorebookSyncService {
         }
         AppLorebookEntry row = new AppLorebookEntry();
         row.setCharacterId(characterId);
-        row.setKeywordsCsv(buildKeywordsCsv(node));
+        row.setKeywordsCsv(buildKeywordsCsv(node, false));
+        row.setSecondaryKeywordsCsv(buildKeywordsCsv(node, true));
+        row.setMatchMode("ANY");
+        row.setInjectionPosition(injectionPosition(node));
         row.setContent(content);
         row.setPriority(firstInt(node, 0, "priority", "order", "insertion_order", "insertionOrder"));
         row.setConstantInjection(firstBoolean(node, false, "constant", "constant_injection", "constantInjection"));
@@ -116,18 +122,48 @@ public class EmbeddedLorebookSyncService {
         return row;
     }
 
-    private String buildKeywordsCsv(JsonNode node) {
+    private String buildKeywordsCsv(JsonNode node, boolean secondary) {
         Set<String> values = new LinkedHashSet<>();
-        collectTextValues(values, node.get("keys"));
-        collectTextValues(values, node.get("key"));
-        collectTextValues(values, node.get("secondary_keys"));
-        collectTextValues(values, node.get("secondaryKeys"));
-        collectTextValues(values, node.get("keysecondary"));
+        if (secondary) {
+            collectTextValues(values, node.get("secondary_keys"));
+            collectTextValues(values, node.get("secondaryKeys"));
+            collectTextValues(values, node.get("keysecondary"));
+        } else {
+            collectTextValues(values, node.get("keys"));
+            collectTextValues(values, node.get("key"));
+        }
         String joined = String.join(",", values);
         if (joined.length() <= MAX_KEYWORDS_CSV) {
             return joined;
         }
         return joined.substring(0, MAX_KEYWORDS_CSV);
+    }
+
+    private String injectionPosition(JsonNode node) {
+        JsonNode raw = node.get("injection_position");
+        if (raw == null || raw.isNull()) raw = node.get("injectionPosition");
+        if (raw == null || raw.isNull()) raw = node.get("position");
+        if (raw == null || raw.isNull()) {
+            JsonNode extensions = node.get("extensions");
+            if (extensions != null && extensions.isObject()) {
+                raw = extensions.get("position");
+            }
+        }
+        if (raw == null || raw.isNull()) return "BEFORE_CHARACTER";
+        if (raw.isNumber()) {
+            return switch (raw.asInt()) {
+                case 1 -> "AFTER_CHARACTER";
+                case 4 -> "BEFORE_HISTORY";
+                default -> "BEFORE_CHARACTER";
+            };
+        }
+        String value = raw.asText("").trim().toUpperCase(java.util.Locale.ROOT)
+                .replace('-', '_').replace(' ', '_');
+        return switch (value) {
+            case "1", "AFTER", "AFTER_CHAR", "AFTER_CHARACTER" -> "AFTER_CHARACTER";
+            case "4", "BEFORE_HISTORY", "HISTORY", "CHAT", "AT_DEPTH", "ATDEPTH", "IN_CHAT" -> "BEFORE_HISTORY";
+            default -> "BEFORE_CHARACTER";
+        };
     }
 
     private void collectTextValues(Set<String> out, JsonNode node) {

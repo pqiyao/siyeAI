@@ -22,6 +22,13 @@ export function getEntitlementRuntimeSettings() {
   })
 }
 
+export function getSemanticChatRoutes() {
+  return request({
+    url: '/admin/jiugai/entitlement/semantic-chat-routes',
+    method: 'get'
+  })
+}
+
 export function updateEntitlementRuntimeSettings(data) {
   return request({
     url: '/admin/jiugai/entitlement/runtime-settings',

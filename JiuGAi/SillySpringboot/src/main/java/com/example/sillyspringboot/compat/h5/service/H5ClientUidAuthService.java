@@ -50,7 +50,11 @@ public class H5ClientUidAuthService {
     }
 
     public AppUser resolveAuthenticatedRequestUser() {
-        AuthenticatedRequestContext context = resolveAuthenticatedRequestContext();
+        return resolveAuthenticatedRequestUser(currentRequest());
+    }
+
+    public AppUser resolveAuthenticatedRequestUser(HttpServletRequest request) {
+        AuthenticatedRequestContext context = resolveAuthenticatedRequestContext(request);
         return context == null ? null : context.user();
     }
 
@@ -75,7 +79,10 @@ public class H5ClientUidAuthService {
     }
 
     private AuthenticatedRequestContext resolveAuthenticatedRequestContext() {
-        HttpServletRequest request = currentRequest();
+        return resolveAuthenticatedRequestContext(currentRequest());
+    }
+
+    private AuthenticatedRequestContext resolveAuthenticatedRequestContext(HttpServletRequest request) {
         if (request == null) {
             return null;
         }

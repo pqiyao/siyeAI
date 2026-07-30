@@ -17,8 +17,8 @@ assert.match(aiSettings, /ttsVoicePresets\.length[\s\S]{0,500}selectOfficialTtsV
 assert.match(aiSettings, /ttsVoicePresets:\s*\[\]/);
 assert.doesNotMatch(aiSettings, /selectTtsVoiceTemplate\(item\)[\s\S]{0,180}form\.mode !== 'custom'/);
 
-assert.match(chat, /v-if="characterVoiceGlobalState\.mode === 'custom'" class="character-voice-field"[\s\S]{0,220}角色级 TTS 模型覆盖/);
-assert.match(chat, /<view class="character-voice-field"[^>]*>[\s\S]{0,220}character_voice_voice/);
+assert.match(chat, /v-if="characterVoiceGlobalState\.mode === 'custom'" class="character-voice-advanced"[\s\S]{0,500}TTS 模型/);
+assert.match(chat, /class="character-voice-field character-voice-source"[^>]*>[\s\S]{0,220}character_voice_voice/);
 assert.match(chat, /if \(config\.ttsVoiceTemplateCode\) \{\s*payload\.ttsVoiceTemplateCode/);
 assert.match(chat, /else if \(config\.ttsVoiceName\) \{\s*payload\.ttsVoiceName/);
 assert.match(chat, /source\.ttsVoicePresets/);

@@ -37,7 +37,11 @@ const sessionManage = readUtf8Strict('pages/tavern/sessionManage.vue');
 assert(!sessionManage.includes('\ufffd'), 'session manager must not contain Unicode replacement characters');
 assert(sessionManage.includes('class="check-mark">✓</text>'), 'selected sessions must render a check mark');
 assert(sessionManage.includes('return this.allText.酒馆页 || {};'), 'session manager must retain its locale lookup');
-assert(sessionManage.includes('postTavernSessionDelete'), 'session manager must retain its delete API integration');
+assert(sessionManage.includes('postTavernSessionDeleteOne'), 'session manager must delete a concrete story session');
+assert(
+	/postTavernSessionDeleteOne\(\{[\s\S]{0,180}conversationId:\s*Number\(s\.id\)/.test(sessionManage),
+	'session manager must send the selected conversation id instead of deleting by character id'
+);
 
 const sessionScriptMatch = sessionManage.match(/<script>([\s\S]*?)<\/script>/);
 assert(sessionScriptMatch, 'session manager script block must exist');
@@ -189,6 +193,18 @@ async function runBadgeContracts() {
 }
 
 const inboxPage = readUtf8Strict('pages/tavern/tavernInbox.vue');
+assert(
+	/postTavernSessionActivate\(\{[\s\S]{0,200}conversationId:\s*Number\(s\.id\)/.test(inboxPage),
+	'opening an inbox row must activate that exact conversation before navigation'
+);
+assert(
+	/postTavernSessionDeleteOne\(\{[\s\S]{0,200}conversationId:\s*Number\(conversationId\)/.test(inboxPage),
+	'deleting an inbox row must target that exact conversation'
+);
+assert(
+	!inboxPage.includes('.postTavernSessionDelete({'),
+	'inbox must not use the legacy character-scoped delete endpoint'
+);
 const noticeRefresh = inboxPage.slice(
 	inboxPage.indexOf('\t\t\trefreshNoticeUnread() {'),
 	inboxPage.indexOf('\t\t\trefreshAdUnread() {')

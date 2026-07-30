@@ -65,6 +65,27 @@
 						</view>
 					</view>
 				</view>
+				<view v-if="form.cardType === 'ENSEMBLE'" class="field-block ensemble-mode-field">
+					<text class="field-label">聊天模式</text>
+					<view class="type-switch ensemble-mode-switch">
+						<view
+							class="type-option"
+							:class="{ 'type-option--on': form.ensembleChatMode !== 'STORY' }"
+							@tap="form.ensembleChatMode = 'NATURAL'"
+						>
+							<u-icon name="chat" :color="form.ensembleChatMode !== 'STORY' ? '#163f52' : '#708692'" size="29"></u-icon>
+							<view><text class="type-title">自然模式</text><text class="type-sub">日常对话</text></view>
+						</view>
+						<view
+							class="type-option"
+							:class="{ 'type-option--on': form.ensembleChatMode === 'STORY' }"
+							@tap="form.ensembleChatMode = 'STORY'"
+						>
+							<u-icon name="bookmark" :color="form.ensembleChatMode === 'STORY' ? '#163f52' : '#708692'" size="29"></u-icon>
+							<view><text class="type-title">剧情模式</text><text class="type-sub">复杂场景</text></view>
+						</view>
+					</view>
+				</view>
 				<view class="field-block">
 					<view class="field-label-row">
 						<text class="field-label">{{ texts.name }}</text>
@@ -306,6 +327,7 @@ function emptyForm() {
 		avatarUrl: '',
 		coverUrl: ''
 		, cardType: 'SINGLE'
+		, ensembleChatMode: 'NATURAL'
 		, members: []
 		, openings: []
 		, lorebookEntries: []
@@ -395,6 +417,9 @@ export default {
 		normalizeStudioForm(source) {
 			const next = Object.assign(emptyForm(), source || {});
 			next.cardType = String(next.cardType || next.card_type || 'SINGLE').toUpperCase() === 'ENSEMBLE' ? 'ENSEMBLE' : 'SINGLE';
+			next.ensembleChatMode = next.cardType === 'ENSEMBLE'
+				&& String(next.ensembleChatMode || next.ensemble_chat_mode || '').toUpperCase() === 'STORY'
+				? 'STORY' : 'NATURAL';
 			let members = Array.isArray(next.members) ? next.members : [];
 			if (!members.length) {
 				const member = emptyMember(true);
@@ -460,12 +485,14 @@ export default {
 				uni.showModal({ title: '切换为单角色', content: '将保留第一名角色，其他成员会从这张卡中移除。', confirmText: '继续', success: ({ confirm }) => {
 					if (!confirm) return;
 					this.form.cardType = 'SINGLE';
+					this.form.ensembleChatMode = 'NATURAL';
 					this.form.members = this.form.members.slice(0, 1);
 					this.repairOpeningSpeakers();
 				}});
 				return;
 			}
 			this.form.cardType = nextType;
+			if (nextType === 'SINGLE') this.form.ensembleChatMode = 'NATURAL';
 			if (nextType === 'ENSEMBLE' && this.form.members.length < 2) this.form.members.push(emptyMember(false));
 		},
 		repairOpeningSpeakers() {
@@ -813,6 +840,8 @@ export default {
 				avatarUrl: String(this.form.avatarUrl || '').trim(),
 				coverUrl: String(this.form.coverUrl || '').trim(),
 				cardType: this.form.cardType === 'ENSEMBLE' ? 'ENSEMBLE' : 'SINGLE',
+				ensembleChatMode: this.form.cardType === 'ENSEMBLE' && this.form.ensembleChatMode === 'STORY'
+					? 'STORY' : 'NATURAL',
 				members,
 				openings,
 				lorebookEntries: (this.form.lorebookEntries || []).map(item => {
@@ -1415,6 +1444,14 @@ export default {
 	border-radius: 26rpx;
 	background: rgba(225, 240, 246, 0.68);
 	border: 1rpx solid rgba(255, 255, 255, 0.72);
+}
+
+.ensemble-mode-field {
+	padding-top: 2rpx;
+}
+
+.ensemble-mode-switch {
+	background: rgba(222, 239, 242, 0.56);
 }
 
 .type-option {

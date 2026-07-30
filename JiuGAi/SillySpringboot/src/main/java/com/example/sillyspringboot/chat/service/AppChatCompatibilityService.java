@@ -5,6 +5,8 @@ import com.example.sillyspringboot.chat.config.AppChatProperties;
 import com.example.sillyspringboot.conversation.entity.AppConversationStBinding;
 import com.example.sillyspringboot.integration.sillytavern.StClient;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterDetail;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -16,13 +18,27 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class AppChatCompatibilityService {
 
     private static final Logger log = LoggerFactory.getLogger(AppChatCompatibilityService.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final int MAX_MARKERS = 24;
     private static final boolean FRONTEND_BRIDGE_ADAPTER_READY = true;
+    private static final Pattern MACRO_IDENTIFIER_PATTERN = Pattern.compile(
+            "\\{\\{\\s*([a-z_][a-z0-9_.-]*)",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Set<String> RUNTIME_SAFE_MACROS = Set.of(
+            "user",
+            "name1",
+            "char",
+            "name2",
+            "lastchatmessage"
+    );
 
     private static final List<Signature> FRONTEND_EXTENSION_SIGNATURES = List.of(
             new Signature("ejs_template", "<%"),
@@ -42,6 +58,18 @@ public class AppChatCompatibilityService {
             new Signature("prompt_template_state", "tableeditmatches"),
             new Signature("prompt_template_state", "hash_sheets"),
             new Signature("prompt_template_custom_generation", "js_generation_before_end")
+    );
+    private static final List<RegexSignature> FRONTEND_WORLD_INFO_PATTERNS = List.of(
+            new RegexSignature("world_info_special_position", "\\\"position\\\"\\s*:\\s*(?:2|3|5|6|7)(?:\\D|$)"),
+            new RegexSignature("world_info_selective_logic", "\\\"selectivelogic\\\"\\s*:\\s*[1-9]\\d*"),
+            new RegexSignature("world_info_sticky", "\\\"sticky\\\"\\s*:\\s*[1-9]\\d*"),
+            new RegexSignature("world_info_group", "\\\"group\\\"\\s*:\\s*\\\"\\s*[^\\\"]"),
+            new RegexSignature("world_info_group_scoring", "\\\"usegroupscoring\\\"\\s*:\\s*true"),
+            new RegexSignature("world_info_vectorized", "\\\"vectorized\\\"\\s*:\\s*true"),
+            new RegexSignature("world_info_ignore_budget", "\\\"ignorebudget\\\"\\s*:\\s*true"),
+            new RegexSignature("world_info_extra_match_source", "\\\"match(?:personadescription|characterdescription|characterpersonality|characterdepthprompt|scenario|creatornotes)\\\"\\s*:\\s*true"),
+            new RegexSignature("world_info_generation_triggers", "\\\"triggers\\\"\\s*:\\s*\\[\\s*(?!])"),
+            new RegexSignature("world_info_outlet", "\\\"outletname\\\"\\s*:\\s*\\\"\\s*[^\\\"]")
     );
 
     private final AppChatProperties chatProperties;
@@ -73,11 +101,13 @@ public class AppChatCompatibilityService {
         if (!"runtime".equals(configuredMode)) {
             inspectText("character", characterText(character, stDetail, binding), reasons, markers);
             inspectText("preset", runtimePresetBundle, reasons, markers);
+            inspectPresetStructure(runtimePresetBundle, reasons, markers);
             inspectWorldbooks(worldNames, reasons, markers);
         }
 
-        boolean frontendBridgeRequired = !reasons.isEmpty();
-        String recommendedMode = frontendBridgeRequired ? "frontend_bridge" : "runtime";
+        boolean frontendFeaturesDetected = !reasons.isEmpty();
+        boolean frontendBridgeRequired = "frontend_bridge".equals(configuredMode);
+        String recommendedMode = frontendFeaturesDetected ? "frontend_bridge" : "runtime";
         String effectiveMode;
         if (!frontendBridgeRequired) {
             effectiveMode = "runtime";
@@ -148,6 +178,7 @@ public class AppChatCompatibilityService {
             String raw = stClient.readWorldbookRaw(worldName);
             LinkedHashSet<String> markers = new LinkedHashSet<>();
             inspectMarkers(raw, markers);
+            inspectWorldInfoPatterns(raw, markers);
             next = new WorldbookProbe(!markers.isEmpty(), limitMarkers(markers), "", nextProbeExpiry(now));
         } catch (Exception ex) {
             log.debug("compatibility worldbook probe skipped worldName={} cause={}", worldName, rootCauseMessage(ex));
@@ -178,6 +209,78 @@ public class AppChatCompatibilityService {
             if (lower.contains(signature.needle())) {
                 addMarker(markers, signature.name());
             }
+        }
+        Matcher macroMatcher = MACRO_IDENTIFIER_PATTERN.matcher(text);
+        while (macroMatcher.find()) {
+            String identifier = macroMatcher.group(1).toLowerCase(Locale.ROOT);
+            if (!RUNTIME_SAFE_MACROS.contains(identifier)) {
+                addMarker(markers, "advanced_macro:" + identifier);
+            }
+        }
+    }
+
+    private void inspectWorldInfoPatterns(String text, Set<String> markers) {
+        if (!StringUtils.hasText(text)) {
+            return;
+        }
+        for (RegexSignature signature : FRONTEND_WORLD_INFO_PATTERNS) {
+            if (signature.pattern().matcher(text).find()) {
+                addMarker(markers, signature.name());
+            }
+        }
+    }
+
+    private void inspectPresetStructure(String rawBundle, Set<String> reasons, Set<String> markers) {
+        if (!StringUtils.hasText(rawBundle)) {
+            return;
+        }
+        try {
+            JsonNode root = JSON.readTree(rawBundle);
+            JsonNode generation = root.path("generation").isObject() ? root.path("generation") : root;
+            JsonNode settings = generation.path("oai_settings").isObject()
+                    ? generation.path("oai_settings")
+                    : generation;
+            LinkedHashSet<String> found = new LinkedHashSet<>();
+            JsonNode prompts = settings.path("prompts");
+            if (prompts.isArray()) {
+                for (JsonNode prompt : prompts) {
+                    String role = prompt.path("role").asText("system").trim().toLowerCase(Locale.ROOT);
+                    if (!role.isBlank() && !"system".equals(role)) {
+                        addMarker(found, "prompt_manager_role:" + role);
+                    }
+                    if (prompt.path("injection_position").asInt(0) == 1) {
+                        addMarker(found, "prompt_manager_absolute_injection");
+                    }
+                    if (prompt.path("forbid_overrides").asBoolean(false)) {
+                        addMarker(found, "prompt_manager_forbid_overrides");
+                    }
+                    JsonNode triggers = prompt.path("injection_trigger");
+                    if (triggers.isArray() && !triggers.isEmpty()) {
+                        addMarker(found, "prompt_manager_generation_trigger");
+                    }
+                }
+            }
+
+            JsonNode promptOrders = settings.path("prompt_order");
+            if (promptOrders.isArray()) {
+                for (JsonNode promptOrder : promptOrders) {
+                    String characterId = promptOrder.path("character_id").asText("").trim();
+                    if (!characterId.isBlank()
+                            && !"100000".equals(characterId)
+                            && !"100001".equals(characterId)) {
+                        addMarker(found, "prompt_manager_character_order");
+                    }
+                }
+            }
+
+            if (!found.isEmpty()) {
+                reasons.add("preset");
+                for (String marker : found) {
+                    addMarker(markers, "preset:" + marker);
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("compatibility preset structure probe skipped cause={}", rootCauseMessage(ex));
         }
     }
 
@@ -279,6 +382,12 @@ public class AppChatCompatibilityService {
     }
 
     private record Signature(String name, String needle) {
+    }
+
+    private record RegexSignature(String name, Pattern pattern) {
+        private RegexSignature(String name, String regex) {
+            this(name, Pattern.compile(regex, Pattern.CASE_INSENSITIVE));
+        }
     }
 
     private record WorldbookProbe(

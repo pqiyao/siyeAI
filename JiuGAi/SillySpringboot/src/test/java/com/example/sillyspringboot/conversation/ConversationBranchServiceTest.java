@@ -1,7 +1,9 @@
 package com.example.sillyspringboot.conversation;
 
 import com.example.sillyspringboot.chat.entity.AppMessage;
+import com.example.sillyspringboot.chat.entity.AppMessageSegment;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
+import com.example.sillyspringboot.chat.mapper.AppMessageSegmentMapper;
 import com.example.sillyspringboot.conversation.entity.AppConversation;
 import com.example.sillyspringboot.conversation.entity.AppConversationBranch;
 import com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapper;
@@ -19,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,7 +32,7 @@ class ConversationBranchServiceTest {
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
         AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
-        ConversationBranchService service = new ConversationBranchService(conversationMapper, branchMapper, messageMapper);
+        ConversationBranchService service = service(conversationMapper, branchMapper, messageMapper);
 
         AppConversation conversation = conversation(1L, 10L, 20L);
         AppConversationBranch current = branch(20L, 1L, 10L, 0);
@@ -56,7 +59,7 @@ class ConversationBranchServiceTest {
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
         AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
-        ConversationBranchService service = new ConversationBranchService(conversationMapper, branchMapper, messageMapper);
+        ConversationBranchService service = service(conversationMapper, branchMapper, messageMapper);
 
         AppConversation conversation = conversation(1L, 10L, 20L);
         AppConversationBranch current = branch(20L, 1L, 10L, 0);
@@ -116,7 +119,7 @@ class ConversationBranchServiceTest {
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
         AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
-        ConversationBranchService service = new ConversationBranchService(conversationMapper, branchMapper, messageMapper);
+        ConversationBranchService service = service(conversationMapper, branchMapper, messageMapper);
 
         AppConversation conversation = conversation(1L, 10L, 20L);
         AppConversationBranch current = branch(20L, 1L, 10L, 0);
@@ -141,7 +144,7 @@ class ConversationBranchServiceTest {
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
         AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
-        ConversationBranchService service = new ConversationBranchService(conversationMapper, branchMapper, messageMapper);
+        ConversationBranchService service = service(conversationMapper, branchMapper, messageMapper);
 
         AppConversation conversation = conversation(1L, 10L, 30L);
         AppConversationBranch otherUsersActive = branch(30L, 1L, 99L, 1);
@@ -162,7 +165,7 @@ class ConversationBranchServiceTest {
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
         AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
-        ConversationBranchService service = new ConversationBranchService(conversationMapper, branchMapper, messageMapper);
+        ConversationBranchService service = service(conversationMapper, branchMapper, messageMapper);
 
         when(branchMapper.findDefaultByConversationId(1L)).thenReturn(branch(20L, 1L, 99L, 0));
 
@@ -176,7 +179,7 @@ class ConversationBranchServiceTest {
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
         AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
-        ConversationBranchService service = new ConversationBranchService(conversationMapper, branchMapper, messageMapper);
+        ConversationBranchService service = service(conversationMapper, branchMapper, messageMapper);
 
         AppConversation conversation = conversation(1L, 10L, 20L);
         AppConversationBranch legacy = branch(20L, 1L, 10L, null);
@@ -196,12 +199,109 @@ class ConversationBranchServiceTest {
         verify(branchMapper).setOpeningVariantIndex(20L, 1);
     }
 
+    @Test
+    void forkCopiesSegmentsForSelectedRootAndHiddenSwipeVariants() {
+        AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
+        AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
+        AppMessageMapper messageMapper = mock(AppMessageMapper.class);
+        AppMessageSegmentMapper segmentMapper = mock(AppMessageSegmentMapper.class);
+        ConversationBranchService service = new ConversationBranchService(
+                conversationMapper, branchMapper, messageMapper, segmentMapper);
+
+        AppConversation conversation = conversation(1L, 10L, 20L);
+        AppConversationBranch active = branch(20L, 1L, 10L, 0);
+        when(branchMapper.findByIdForConversation(1L, 20L)).thenReturn(active);
+        when(branchMapper.incrementMemorySourceRevision(1L, 30L)).thenReturn(1);
+        doAnswer(invocation -> {
+            AppConversationBranch inserted = invocation.getArgument(0);
+            inserted.setId(30L);
+            return null;
+        }).when(branchMapper).insert(any(AppConversationBranch.class));
+
+        AppMessage root = assistantMessage(50L, 20L, "root:50", 1, "【小夏】\n当前版本");
+        AppMessage alternate = assistantMessage(51L, 20L, "root:50", 0, "【林澈】\n备选版本");
+        when(messageMapper.findById(50L)).thenReturn(root);
+        when(messageMapper.listByConversationBranchAsc(1L, 20L, 20000)).thenReturn(List.of(root, alternate));
+        when(messageMapper.findByStMessageRefAndSwipeIndexAndBranch("root:50", 0, 20L)).thenReturn(alternate);
+        when(segmentMapper.listByMessageId(50L)).thenReturn(List.of(segment(50L, 101L, "小夏", "当前版本")));
+        when(segmentMapper.listByMessageId(51L)).thenReturn(List.of(segment(51L, 102L, "林澈", "备选版本")));
+
+        AtomicLong ids = new AtomicLong(100L);
+        doAnswer(invocation -> {
+            AppMessage inserted = invocation.getArgument(0);
+            inserted.setId(ids.getAndIncrement());
+            return 1;
+        }).when(messageMapper).insert(any(AppMessage.class));
+
+        AppConversationBranch fork = service.forkFromMessage(conversation, 50L, 0, "备选线");
+
+        assertThat(fork.getId()).isEqualTo(30L);
+        ArgumentCaptor<AppMessageSegment> segmentCaptor = ArgumentCaptor.forClass(AppMessageSegment.class);
+        verify(segmentMapper, times(2)).insert(segmentCaptor.capture());
+        List<AppMessageSegment> copied = segmentCaptor.getAllValues();
+        assertThat(copied.get(0).getMessageId()).isEqualTo(100L);
+        assertThat(copied.get(0).getSpeakerMemberId()).isEqualTo(102L);
+        assertThat(copied.get(0).getSpeakerNameSnapshot()).isEqualTo("林澈");
+        assertThat(copied.get(0).getContent()).isEqualTo("备选版本");
+        assertThat(copied.get(1).getMessageId()).isEqualTo(101L);
+        assertThat(copied.get(1).getSpeakerMemberId()).isEqualTo(101L);
+        assertThat(copied.get(1).getSpeakerNameSnapshot()).isEqualTo("小夏");
+        assertThat(copied.get(1).getContent()).isEqualTo("当前版本");
+        verify(conversationMapper).setActiveBranchId(1L, 30L);
+    }
+
     private static AppConversation conversation(long id, long userId, long activeBranchId) {
         AppConversation conversation = new AppConversation();
         conversation.setId(id);
         conversation.setUserId(userId);
         conversation.setActiveBranchId(activeBranchId);
         return conversation;
+    }
+
+    private static ConversationBranchService service(
+            AppConversationMapper conversationMapper,
+            AppConversationBranchMapper branchMapper,
+            AppMessageMapper messageMapper
+    ) {
+        return new ConversationBranchService(
+                conversationMapper,
+                branchMapper,
+                messageMapper,
+                mock(AppMessageSegmentMapper.class)
+        );
+    }
+
+    private static AppMessage assistantMessage(
+            long id,
+            long branchId,
+            String ref,
+            int swipeIndex,
+            String content
+    ) {
+        AppMessage message = new AppMessage();
+        message.setId(id);
+        message.setUserId(10L);
+        message.setConversationId(1L);
+        message.setBranchId(branchId);
+        message.setRole("assistant");
+        message.setContent(content);
+        message.setStMessageRef(ref);
+        message.setSwipeIndex(swipeIndex);
+        message.setStatus("SUCCESS");
+        return message;
+    }
+
+    private static AppMessageSegment segment(long messageId, long memberId, String name, String content) {
+        AppMessageSegment segment = new AppMessageSegment();
+        segment.setMessageId(messageId);
+        segment.setSegmentIndex(0);
+        segment.setSegmentType("CHARACTER");
+        segment.setSpeakerMemberId(memberId);
+        segment.setSpeakerNameSnapshot(name);
+        segment.setSpeakerAvatarSnapshot("/" + name + ".png");
+        segment.setContent(content);
+        segment.setStatus("SUCCESS");
+        return segment;
     }
 
     private static AppConversationBranch branch(

@@ -52,6 +52,16 @@ public class StFrontendBridgeController {
         return Map.of("ok", accepted);
     }
 
+    @PostMapping("/partial")
+    public Map<String, Object> partial(
+            @RequestHeader(name = TOKEN_HEADER, required = false) String token,
+            @RequestBody AppChatFrontendBridgeService.BridgePartial partial
+    ) {
+        requireToken(token);
+        boolean accepted = bridgeService.publishPartial(partial);
+        return Map.of("ok", accepted);
+    }
+
     @PostMapping("/fail")
     public Map<String, Object> fail(
             @RequestHeader(name = TOKEN_HEADER, required = false) String token,
@@ -71,7 +81,14 @@ public class StFrontendBridgeController {
     ) {
         requireToken(token);
         String workerId = body == null ? "" : String.valueOf(body.getOrDefault("workerId", ""));
-        bridgeService.heartbeat(workerId);
+        bridgeService.heartbeat(workerId, new AppChatFrontendBridgeService.WorkerHeartbeat(
+                bool(body, "appReady"),
+                bool(body, "modelConnected"),
+                bool(body, "busy"),
+                bool(body, "generating"),
+                string(body, "activeJobId"),
+                stringList(body, "loadedExtensions")
+        ));
         return Map.of("ok", true, "status", bridgeService.status());
     }
 
@@ -96,5 +113,27 @@ public class StFrontendBridgeController {
         if (!bridgeService.validToken(token)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "frontend bridge token invalid");
         }
+    }
+
+    private static boolean bool(Map<String, Object> body, String key) {
+        if (body == null) {
+            return false;
+        }
+        Object value = body.get(key);
+        return value instanceof Boolean flag ? flag : Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private static String string(Map<String, Object> body, String key) {
+        if (body == null || body.get(key) == null) {
+            return "";
+        }
+        return String.valueOf(body.get(key));
+    }
+
+    private static java.util.List<String> stringList(Map<String, Object> body, String key) {
+        if (body == null || !(body.get(key) instanceof java.util.List<?> values)) {
+            return java.util.List.of();
+        }
+        return values.stream().map(String::valueOf).toList();
     }
 }

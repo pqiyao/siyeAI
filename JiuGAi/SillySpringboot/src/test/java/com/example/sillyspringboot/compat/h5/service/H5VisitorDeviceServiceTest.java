@@ -3,6 +3,7 @@ package com.example.sillyspringboot.compat.h5.service;
 import com.example.sillyspringboot.auth.entity.AppUser;
 import com.example.sillyspringboot.compat.h5.entity.AppH5VisitorDevice;
 import com.example.sillyspringboot.compat.h5.mapper.AppH5VisitorDeviceMapper;
+import com.example.sillyspringboot.compat.h5.mapper.AppH5SecurityEventMapper;
 import com.example.sillyspringboot.config.ApiRateLimitProperties;
 import com.example.sillyspringboot.config.ClientIpResolver;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,9 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -68,18 +72,49 @@ class H5VisitorDeviceServiceTest {
         assertThat(context.created()).isTrue();
     }
 
+    @Test
+    void anonymousChatAttemptIncrementsTheDeviceAndWritesAnAuditEvent() {
+        Fixture fixture = fixture(null);
+        MockHttpServletRequest request = request("legacy-client", "dv_known");
+        request.setRequestURI("/api/v1/tavern/chat/stream");
+        AppH5VisitorDevice persisted = new AppH5VisitorDevice();
+        persisted.setId(19L);
+        persisted.setDeviceToken("dv_known");
+        when(fixture.deviceMapper.findByDeviceToken("dv_known")).thenReturn(persisted);
+
+        fixture.service.recordAnonymousAttempt(
+                request,
+                H5VisitorDeviceService.AnonymousAction.CHAT,
+                "legacy-client"
+        );
+
+        verify(fixture.deviceMapper).incrementAnonymousChatAttemptCount(19L);
+        verify(fixture.securityEvents).insert(
+                eq(19L),
+                eq("ANONYMOUS_CHAT_BLOCKED"),
+                eq("legacy-client"),
+                isNull(),
+                eq("203.0.113.8"),
+                anyString(),
+                eq("/api/v1/tavern/chat/stream"),
+                eq("anonymous chat blocked")
+        );
+    }
+
     private static Fixture fixture(AppUser authenticatedUser) {
         AppH5VisitorDeviceMapper deviceMapper = mock(AppH5VisitorDeviceMapper.class);
+        AppH5SecurityEventMapper securityEvents = mock(AppH5SecurityEventMapper.class);
         H5ClientUidAuthService h5Auth = mock(H5ClientUidAuthService.class);
-        when(h5Auth.resolveAuthenticatedRequestUser()).thenReturn(authenticatedUser);
+        when(h5Auth.resolveAuthenticatedRequestUser(any(MockHttpServletRequest.class))).thenReturn(authenticatedUser);
         return new Fixture(
                 new H5VisitorDeviceService(
                         deviceMapper,
                         h5Auth,
-                        null,
+                        securityEvents,
                         new ClientIpResolver(new ApiRateLimitProperties())
                 ),
-                deviceMapper
+                deviceMapper,
+                securityEvents
         );
     }
 
@@ -96,6 +131,7 @@ class H5VisitorDeviceServiceTest {
 
     private record Fixture(
             H5VisitorDeviceService service,
-            AppH5VisitorDeviceMapper deviceMapper
+            AppH5VisitorDeviceMapper deviceMapper,
+            AppH5SecurityEventMapper securityEvents
     ) {}
 }

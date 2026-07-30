@@ -1,8 +1,11 @@
 package com.example.sillyspringboot.admin.service;
 
 import com.example.sillyspringboot.admin.dto.OwnerPrivateCardCount;
+import com.example.sillyspringboot.admin.mapper.CharacterCleanupMapper;
+import com.example.sillyspringboot.admin.model.CharacterUploadAssetRow;
 import com.example.sillyspringboot.admin.web.dto.AdminCharacterPayload;
 import com.example.sillyspringboot.character.entity.AppCharacter;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
 import com.example.sillyspringboot.character.entity.CharacterReviewStatus;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.character.mapper.AppLorebookEntryMapper;
@@ -17,10 +20,13 @@ import com.example.sillyspringboot.integration.sillytavern.StCharacterFileNamePo
 import com.example.sillyspringboot.integration.sillytavern.StWorldbookCatalogService;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterDetail;
 import com.example.sillyspringboot.ops.service.TagLibraryService;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -33,6 +39,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.regex.Pattern;
 
 @Service
 public class AdminJiugaiCharacterService {
@@ -40,6 +47,9 @@ public class AdminJiugaiCharacterService {
     private static final Logger log = LoggerFactory.getLogger(AdminJiugaiCharacterService.class);
     private static final DateTimeFormatter CREATE_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withLocale(Locale.CHINA);
+    private static final Pattern OWNED_CHARACTER_UPLOAD = Pattern.compile(
+            "^/uploads/h5/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.[a-z0-9]{1,10}$"
+    );
 
     private final AppCharacterMapper characterMapper;
     private final AppLorebookEntryMapper lorebookEntryMapper;
@@ -52,6 +62,8 @@ public class AdminJiugaiCharacterService {
     private final StAdapter stAdapter;
     private final EmbeddedLorebookSyncService embeddedLorebookSyncService;
     private final CharacterPublicProfileService publicProfileService;
+    private final CharacterCleanupMapper characterCleanupMapper;
+    private final ExternalCleanupTaskService externalCleanupTaskService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public AdminJiugaiCharacterService(
@@ -65,7 +77,9 @@ public class AdminJiugaiCharacterService {
             StWorldbookCatalogService worldbookCatalogService,
             StAdapter stAdapter,
             EmbeddedLorebookSyncService embeddedLorebookSyncService,
-            CharacterPublicProfileService publicProfileService
+            CharacterPublicProfileService publicProfileService,
+            CharacterCleanupMapper characterCleanupMapper,
+            ExternalCleanupTaskService externalCleanupTaskService
     ) {
         this.characterMapper = characterMapper;
         this.lorebookEntryMapper = lorebookEntryMapper;
@@ -78,6 +92,8 @@ public class AdminJiugaiCharacterService {
         this.stAdapter = stAdapter;
         this.embeddedLorebookSyncService = embeddedLorebookSyncService;
         this.publicProfileService = publicProfileService;
+        this.characterCleanupMapper = characterCleanupMapper;
+        this.externalCleanupTaskService = externalCleanupTaskService;
     }
 
     public Long resolveOwnerUserId(String ownerClientUid) {
@@ -568,25 +584,226 @@ public class AdminJiugaiCharacterService {
 
     @Transactional
     public RemoveSummary removeIds(String ids, boolean syncStFile) {
-        List<Long> idList = parseIds(ids);
-        int localDeleted = 0;
-        int stDeleted = 0;
-        for (Long id : idList) {
-            AppCharacter row = characterMapper.findById(id);
-            if (row == null || row.getDeletedAt() != null) {
-                continue;
-            }
-            if (syncStFile) {
-                String avatarUrl = row.getStAvatarUrl() == null ? "" : row.getStAvatarUrl().trim();
-                if (!avatarUrl.isBlank() && stAdapter.deleteCharacter(avatarUrl, false)) {
-                    stDeleted++;
+        List<Long> idList = normalizeIdList(parseIds(ids));
+        if (!syncStFile) {
+            int localDeleted = 0;
+            for (Long id : idList) {
+                AppCharacter row = characterMapper.findById(id);
+                if (row == null || row.getDeletedAt() != null) {
+                    continue;
                 }
+                embeddedLorebookSyncService.deleteAllForCharacter(id);
+                characterMapper.softDeleteById(id);
+                localDeleted++;
             }
+            return new RemoveSummary(localDeleted, 0, 0);
+        }
+        if (idList.isEmpty()) {
+            return new RemoveSummary(0, 0, 0);
+        }
+
+        List<AppCharacter> lockedRows = characterCleanupMapper.lockCharacters(idList).stream()
+                .filter(row -> row != null && row.getDeletedAt() == null)
+                .toList();
+        if (lockedRows.isEmpty()) {
+            return new RemoveSummary(0, 0, 0);
+        }
+
+        List<Long> targetIds = lockedRows.stream()
+                .map(AppCharacter::getId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        String operationId = UUID.randomUUID().toString();
+        List<String> taskIds = new ArrayList<>();
+        int retainedShared = enqueueStCleanupTasks(operationId, lockedRows, targetIds, taskIds);
+        retainedShared += enqueueLocalCleanupTasks(operationId, lockedRows, targetIds, taskIds);
+
+        characterCleanupMapper.markBindingsCharacterDeleted(targetIds);
+        characterCleanupMapper.archiveConversations(targetIds);
+
+        int localDeleted = 0;
+        for (Long id : targetIds) {
             embeddedLorebookSyncService.deleteAllForCharacter(id);
             characterMapper.softDeleteById(id);
             localDeleted++;
         }
-        return new RemoveSummary(localDeleted, stDeleted);
+        processCleanupTasksAfterCommit(taskIds);
+        return new RemoveSummary(localDeleted, taskIds.size(), retainedShared);
+    }
+
+    private int enqueueStCleanupTasks(
+            String operationId,
+            List<AppCharacter> rows,
+            List<Long> targetIds,
+            List<String> taskIds
+    ) {
+        Map<String, AppCharacter> distinct = new LinkedHashMap<>();
+        for (AppCharacter row : rows) {
+            String avatarUrl = blank(row.getStAvatarUrl());
+            if (!avatarUrl.isBlank()) {
+                distinct.putIfAbsent(avatarUrl.toLowerCase(Locale.ROOT), row);
+            }
+        }
+
+        int retained = 0;
+        for (AppCharacter row : distinct.values()) {
+            String avatarUrl = blank(row.getStAvatarUrl());
+            if (!StCharacterFileNamePolicy.isSimplePngFileName(avatarUrl)
+                    || characterCleanupMapper.countOtherCharacterStReferences(avatarUrl, targetIds) > 0
+                    || characterCleanupMapper.countOtherBindingStReferences(avatarUrl, targetIds) > 0) {
+                retained++;
+                continue;
+            }
+            taskIds.add(externalCleanupTaskService.enqueueCharacterStBundle(
+                    operationId,
+                    row.getId(),
+                    row.getOwnerUserId(),
+                    avatarUrl,
+                    targetIds
+            ));
+        }
+        return retained;
+    }
+
+    private int enqueueLocalCleanupTasks(
+            String operationId,
+            List<AppCharacter> rows,
+            List<Long> targetIds,
+            List<String> taskIds
+    ) {
+        Map<Long, AppCharacter> byId = new LinkedHashMap<>();
+        Map<String, LocalAssetCandidate> candidates = new LinkedHashMap<>();
+        for (AppCharacter row : rows) {
+            byId.put(row.getId(), row);
+            collectLocalAsset(candidates, row.getAvatarUrl(), row.getId(), row.getOwnerUserId());
+            collectLocalAsset(candidates, row.getCoverUrl(), row.getId(), row.getOwnerUserId());
+            collectLocalAsset(candidates, row.getChatBackgroundUrl(), row.getId(), row.getOwnerUserId());
+        }
+        for (AppCharacterMember member : characterCleanupMapper.listMemberMedia(targetIds)) {
+            long characterId = positiveLong(member.getCharacterId());
+            AppCharacter owner = byId.get(characterId);
+            if (owner == null) {
+                continue;
+            }
+            collectLocalAsset(candidates, member.getAvatarUrl(), characterId, owner.getOwnerUserId());
+            collectLocalAsset(candidates, member.getImageReferenceUrl(), characterId, owner.getOwnerUserId());
+            collectLocalAssetsFromJson(
+                    candidates,
+                    member.getVoiceConfigJson(),
+                    characterId,
+                    owner.getOwnerUserId()
+            );
+        }
+
+        int retained = 0;
+        for (LocalAssetCandidate candidate : candidates.values()) {
+            if (!OWNED_CHARACTER_UPLOAD.matcher(candidate.assetUrl).matches()
+                    || candidate.ownerUserIds.size() != 1
+                    || candidate.ownerUserIds.contains(null)) {
+                retained++;
+                continue;
+            }
+            long ownerUserId = candidate.ownerUserIds.iterator().next();
+            CharacterUploadAssetRow asset = characterCleanupMapper.findUploadAsset(candidate.assetUrl);
+            String relativePath = candidate.assetUrl.substring("/uploads/h5/".length());
+            long assetId = positiveLong(asset == null ? null : asset.getAssetId());
+            long registeredOwner = positiveLong(asset == null ? null : asset.getOwnerUserId());
+            String registeredPath = objectText(asset == null ? null : asset.getRelativePath());
+            if (assetId <= 0
+                    || registeredOwner != ownerUserId
+                    || !relativePath.equals(registeredPath)
+                    || characterCleanupMapper.countOtherLocalAssetReferences(candidate.assetUrl, targetIds) > 0) {
+                retained++;
+                continue;
+            }
+            long sourceCharacterId = candidate.characterIds.iterator().next();
+            taskIds.add(externalCleanupTaskService.enqueueCharacterLocalUpload(
+                    operationId,
+                    sourceCharacterId,
+                    ownerUserId,
+                    candidate.assetUrl,
+                    assetId,
+                    relativePath,
+                    targetIds
+            ));
+        }
+        return retained;
+    }
+
+    private void collectLocalAssetsFromJson(
+            Map<String, LocalAssetCandidate> candidates,
+            Object rawJson,
+            long characterId,
+            Long ownerUserId
+    ) {
+        String json = objectText(rawJson);
+        if (json.isBlank()) {
+            return;
+        }
+        try {
+            collectLocalAssetsFromNode(candidates, objectMapper.readTree(json), characterId, ownerUserId);
+        } catch (Exception ex) {
+            log.warn("character voice media JSON could not be inspected characterId={}", characterId, ex);
+        }
+    }
+
+    private void collectLocalAssetsFromNode(
+            Map<String, LocalAssetCandidate> candidates,
+            JsonNode node,
+            long characterId,
+            Long ownerUserId
+    ) {
+        if (node == null || node.isNull()) {
+            return;
+        }
+        if (node.isTextual()) {
+            collectLocalAsset(candidates, node.asText(), characterId, ownerUserId);
+            return;
+        }
+        if (node.isContainerNode()) {
+            node.elements().forEachRemaining(child ->
+                    collectLocalAssetsFromNode(candidates, child, characterId, ownerUserId));
+        }
+    }
+
+    private static void collectLocalAsset(
+            Map<String, LocalAssetCandidate> candidates,
+            Object rawUrl,
+            long characterId,
+            Long ownerUserId
+    ) {
+        String assetUrl = objectText(rawUrl);
+        if (!assetUrl.startsWith("/uploads/h5/")) {
+            return;
+        }
+        LocalAssetCandidate candidate = candidates.computeIfAbsent(assetUrl, LocalAssetCandidate::new);
+        candidate.characterIds.add(characterId);
+        candidate.ownerUserIds.add(ownerUserId);
+    }
+
+    private void processCleanupTasksAfterCommit(List<String> taskIds) {
+        if (taskIds.isEmpty()) {
+            return;
+        }
+        Runnable process = () -> {
+            try {
+                externalCleanupTaskService.processImmediately(taskIds);
+            } catch (RuntimeException ex) {
+                log.warn("character external cleanup immediate processing failed; scheduled retry will continue", ex);
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            process.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                process.run();
+            }
+        });
     }
 
     private static List<Long> parseIds(String ids) {
@@ -608,7 +825,17 @@ public class AdminJiugaiCharacterService {
         return out;
     }
 
-    public record RemoveSummary(int localDeleted, int stDeleted) {
+    public record RemoveSummary(int localDeleted, int cleanupScheduled, int retainedShared) {
+    }
+
+    private static final class LocalAssetCandidate {
+        private final String assetUrl;
+        private final Set<Long> characterIds = new LinkedHashSet<>();
+        private final Set<Long> ownerUserIds = new LinkedHashSet<>();
+
+        private LocalAssetCandidate(String assetUrl) {
+            this.assetUrl = assetUrl;
+        }
     }
 
     private static List<Long> normalizeIdList(List<Long> ids) {
@@ -622,6 +849,21 @@ public class AdminJiugaiCharacterService {
             }
         }
         return new ArrayList<>(out);
+    }
+
+    private static String objectText(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private static long positiveLong(Object value) {
+        if (value instanceof Number number) {
+            return Math.max(0L, number.longValue());
+        }
+        try {
+            return Math.max(0L, Long.parseLong(objectText(value)));
+        } catch (NumberFormatException ignored) {
+            return 0L;
+        }
     }
 
     private static String nextReviewBatchNo() {

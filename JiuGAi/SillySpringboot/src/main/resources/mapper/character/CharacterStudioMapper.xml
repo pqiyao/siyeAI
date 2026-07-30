@@ -11,6 +11,13 @@
         LIMIT 1
     </select>
 
+    <select id="findEnsembleChatMode" resultType="string">
+        SELECT ensemble_chat_mode
+        FROM app_character
+        WHERE id = #{characterId}
+        LIMIT 1
+    </select>
+
     <resultMap id="MemberMap" type="com.example.sillyspringboot.character.entity.AppCharacterMember">
         <id column="id" property="id"/>
         <result column="character_id" property="characterId"/>
@@ -139,6 +146,12 @@
     <update id="updateCardType">
         UPDATE app_character
         SET card_type = #{cardType}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{characterId}
+    </update>
+
+    <update id="updateEnsembleChatMode">
+        UPDATE app_character
+        SET ensemble_chat_mode = #{ensembleChatMode}, updated_at = CURRENT_TIMESTAMP
         WHERE id = #{characterId}
     </update>
 

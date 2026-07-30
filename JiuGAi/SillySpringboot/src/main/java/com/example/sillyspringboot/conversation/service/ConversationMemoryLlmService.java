@@ -132,12 +132,14 @@ public class ConversationMemoryLlmService {
                       "selective": false,
                       "enabled": true,
                       "confidence": 0.0-1.0,
-                      "replaces": ["entryKey to disable if superseded"]
+                      "replaces": ["entryKey to disable if superseded"],
+                      "sourceMessageIds": [123]
                     }
                   ],
                   "disableEntryKeys": ["entryKey to disable if user clearly revoked it"]
                 }
                 Constant entries are allowed only for identity, relationship, boundary, or core setting.
+                Every entry must cite one or more sourceMessageIds shown in the transcript. Never invent an ID.
                 Existing entries marked USER_DELETED are user deletion tombstones. Never recreate the same key or fact merely because it still appears in chat history.
                 Existing entries marked USER_DISABLED were explicitly disabled by the user. Do not recreate or re-enable the same fact under another key. Only when the recent transcript clearly establishes a different replacement fact may you emit a new key and include the disabled key in replaces.
                 Use priority 200 for names/call signs/boundaries/confirmed relationship, 160 for durable preference/promise, 120 for important event/plot, 80 for ordinary fact.
@@ -366,8 +368,26 @@ public class ConversationMemoryLlmService {
                 n.path("selective").asBoolean(false),
                 !n.has("enabled") || n.path("enabled").asBoolean(true),
                 BigDecimal.valueOf(Math.max(0.0, Math.min(1.0, n.path("confidence").asDouble(0.80)))),
-                readStringList(n.path("replaces"))
+                readStringList(n.path("replaces")),
+                readLongList(n.path("sourceMessageIds"))
         );
+    }
+
+    private static List<Long> readLongList(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        LinkedHashSet<Long> out = new LinkedHashSet<>();
+        for (JsonNode item : node) {
+            if (item == null || !item.canConvertToLong()) {
+                continue;
+            }
+            long value = item.asLong();
+            if (value > 0) {
+                out.add(value);
+            }
+        }
+        return out.isEmpty() ? List.of() : List.copyOf(out);
     }
 
     private static List<String> readStringList(JsonNode node) {
@@ -568,7 +588,8 @@ public class ConversationMemoryLlmService {
             }
             String content = message.content() == null ? "" : message.content().trim();
             if (!content.isBlank()) {
-                sb.append("user".equalsIgnoreCase(role) ? "User: " : "Assistant: ")
+                sb.append("[messageId=").append(message.id()).append("] ")
+                        .append("user".equalsIgnoreCase(role) ? "User: " : "Assistant: ")
                         .append(content)
                         .append('\n');
             }

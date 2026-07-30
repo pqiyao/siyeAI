@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import com.example.sillyspringboot.compat.h5.mapper.AppH5SecurityEventMapper;
+import com.example.sillyspringboot.compat.h5.service.H5VisitorDeviceService;
 
 @Configuration
 public class ApiRateLimitConfiguration {
@@ -23,10 +24,11 @@ public class ApiRateLimitConfiguration {
             ApiRateLimitProperties properties,
             ApiRateLimitCounterStore counterStore,
             AppH5SecurityEventMapper securityEvents,
-            ClientIpResolver clientIpResolver
+            ClientIpResolver clientIpResolver,
+            H5VisitorDeviceService visitorDeviceService
     ) {
         FilterRegistrationBean<ApiRateLimitFilter> registration = new FilterRegistrationBean<>(
-                new ApiRateLimitFilter(properties, counterStore, securityEvents, clientIpResolver)
+                new ApiRateLimitFilter(properties, counterStore, securityEvents, clientIpResolver, visitorDeviceService)
         );
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
         registration.addUrlPatterns("/api/*");

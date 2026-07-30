@@ -6,10 +6,14 @@ public class ExternalCleanupTask {
 
     private String id;
     private String taskKey;
+    private String operationId;
+    private String sourceType;
     private Long sourceUserId;
+    private Long sourceCharacterId;
     private String resourceType;
     private String primaryRef;
     private String secondaryRef;
+    private String contextJson;
     private String status;
     private Integer attemptCount;
     private Integer maxAttempts;
@@ -38,12 +42,36 @@ public class ExternalCleanupTask {
         this.taskKey = taskKey;
     }
 
+    public String getOperationId() {
+        return operationId;
+    }
+
+    public void setOperationId(String operationId) {
+        this.operationId = operationId;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
+    }
+
     public Long getSourceUserId() {
         return sourceUserId;
     }
 
     public void setSourceUserId(Long sourceUserId) {
         this.sourceUserId = sourceUserId;
+    }
+
+    public Long getSourceCharacterId() {
+        return sourceCharacterId;
+    }
+
+    public void setSourceCharacterId(Long sourceCharacterId) {
+        this.sourceCharacterId = sourceCharacterId;
     }
 
     public String getResourceType() {
@@ -68,6 +96,14 @@ public class ExternalCleanupTask {
 
     public void setSecondaryRef(String secondaryRef) {
         this.secondaryRef = secondaryRef;
+    }
+
+    public String getContextJson() {
+        return contextJson;
+    }
+
+    public void setContextJson(String contextJson) {
+        this.contextJson = contextJson;
     }
 
     public String getStatus() {

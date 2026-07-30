@@ -253,10 +253,24 @@
         SET charge_status = #{chargeStatus}, consume_biz_ref = #{consumeBizRef}, updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id}
     </update>
+    <update id="updateGenerationReservation">
+        UPDATE app_chat_generation_context
+        SET charge_status = #{chargeStatus},
+            consume_biz_ref = #{consumeBizRef},
+            diamond_cost = #{diamondCost},
+            gold_cost = #{goldCost},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
     <update id="claimGenerationRefund">
         UPDATE app_chat_generation_context
         SET charge_status = 'REFUNDING', updated_at = CURRENT_TIMESTAMP
         WHERE id = #{id} AND charge_status = 'RESERVED' AND first_content_emitted = 0
+    </update>
+    <update id="claimGenerationRefundDiscardingContent">
+        UPDATE app_chat_generation_context
+        SET charge_status = 'REFUNDING', updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND charge_status = 'RESERVED'
     </update>
     <update id="claimStaleGenerationRefund">
         UPDATE app_chat_generation_context

@@ -179,6 +179,23 @@ public class H5TavernSessionService {
         }
     }
 
+    /**
+     * Permanently detaches a deleted H5 story from all lookup paths while retaining its archived row for audit.
+     */
+    @Transactional
+    public void archiveHideWipeAndDetach(long userId, long conversationId) {
+        requireOwnedConversation(userId, conversationId);
+        wipeConversationMessagesInternal(conversationId);
+        try {
+            snapshotService.saveEmptySnapshot(conversationId);
+        } catch (Exception e) {
+            log.warn("ST 快照清空失败（会话已归档），conversationId={}: {}", conversationId, e.toString());
+        }
+        archiveMapper.upsert(userId, conversationId);
+        idempotencyMapper.deleteByConversationForUser(conversationId, userId);
+        bindingMapper.deleteByConversationId(conversationId);
+    }
+
     private void requireOwnedConversation(long userId, long conversationId) {
         if (conversationMapper.findByIdForUser(conversationId, userId) == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "会话不存在");

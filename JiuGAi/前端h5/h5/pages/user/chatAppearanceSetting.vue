@@ -806,7 +806,7 @@ export default {
 		},
 		previewAssistantBubbleStyle(index, total) {
 			if (this.form.replySplitMode === 'bubble') {
-				return chatAppearance.buildSplitBubbleStyleObject(this.form);
+				return chatAppearance.buildSplitBubbleStyleObject(this.form, index, total);
 			}
 			return this.previewBubbleStyle(false);
 		},
@@ -1156,7 +1156,7 @@ export default {
 }
 
 .preview-bubble-stack--split .chat-message-bubble {
-	margin-bottom: 10rpx;
+	margin-bottom: 14rpx;
 }
 
 .preview-bubble-stack--split .chat-message-bubble:last-child {
@@ -1187,7 +1187,7 @@ export default {
 	display: block;
 	width: 100%;
 	min-width: 0;
-	margin-bottom: 8rpx;
+	margin-bottom: 10rpx;
 	box-sizing: border-box;
 }
 

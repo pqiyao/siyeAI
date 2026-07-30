@@ -134,6 +134,24 @@ public class AiRoutingService {
     }
 
     @Transactional(readOnly = true)
+    public List<Map<String, Object>> routeOptions(AiCapability capability) {
+        if (capability == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "AI 能力不能为空");
+        }
+        return mapper.listRoutes().stream()
+                .filter(route -> capability.name().equalsIgnoreCase(safe(route.getCapability())))
+                .map(route -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("routeKey", safe(route.getRouteKey()));
+                    item.put("displayName", safe(route.getDisplayName()));
+                    item.put("capability", safe(route.getCapability()));
+                    item.put("enabled", Boolean.TRUE.equals(route.getEnabled()));
+                    return item;
+                })
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public Map<String, Object> capabilitySummary(AiCapability capability) {
         if (capability == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "AI 能力不能为空");

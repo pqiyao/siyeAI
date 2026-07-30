@@ -4,6 +4,7 @@
  */
 var app = getApp();
 var api = require('./api.js');
+var authSession = require('./authSession.js');
 // Keys that should persist even when clearing auth-related storage
 const PERSISTENT_KEYS = [
   'languageType',
@@ -80,7 +81,13 @@ function request(url, data = {}, dataType = '', method = "POST") {
 				if (res && Number(res.statusCode) === 426) {
 					try { require('./appUpdate.js').handleHttp426(res); } catch (e) {}
 				}
-				if (res && res.data && res.data.code == 1) {
+				const responseCode = res && res.data ? Number(res.data.code) : NaN;
+				const authExpired = Number(res && res.statusCode) === 401 || authSession.isLegacyAuthExpiredCode(responseCode);
+				if (authExpired) {
+					const msg = (res && res.data && res.data.msg) || '登录已过期，请重新登录';
+					authSession.handleAuthExpired();
+					reject(new Error(msg));
+				}else if (res && res.data && res.data.code == 1) {
 					if (dataType) {
 						resolve(res.data);
 					} else {
@@ -88,14 +95,8 @@ function request(url, data = {}, dataType = '', method = "POST") {
 					}
 				}else if(res && res.data && res.data.code == 4002){
 					resolve(res.data);
-				}else if(res && res.data && res.data.code == 4003){
-					resolve(res.data);
 				}else if(res && res.data && res.data.code == 101){
 					resolve(res.data);
-				}else if (res && res.data && res.data.code == 10001) {
-					clearStoragePreserve(); 
-					toLogin();
-					reject(new Error((res.data && res.data.msg) || '请重新登录'));
 				}else if(res && res.data && res.data.code==10005){
 					resolve(res.data);
 				}else{
@@ -583,6 +584,13 @@ function uploadFile(img) {
 			success: (uploadFileRes) => {
 				try {
 					const up = typeof uploadFileRes.data === 'string' ? JSON.parse(uploadFileRes.data) : uploadFileRes.data;
+					const uploadAuthExpired = Number(uploadFileRes.statusCode) === 401
+						|| authSession.isLegacyAuthExpiredCode(up && up.code);
+					if (uploadAuthExpired) {
+						authSession.handleAuthExpired();
+						reject(new Error((up && up.msg) || '登录已过期，请重新登录'));
+						return;
+					}
 					if (uploadFileRes.statusCode >= 200 && uploadFileRes.statusCode < 300 && up && Number(up.code) === 1) {
 						resolve(up.data);
 						return;

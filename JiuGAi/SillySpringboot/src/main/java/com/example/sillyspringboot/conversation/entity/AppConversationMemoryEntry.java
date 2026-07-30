@@ -27,6 +27,7 @@ public class AppConversationMemoryEntry {
     private BigDecimal confidence;
     private Long sourceMessageFromId;
     private Long sourceMessageToId;
+    private String sourceMessageIdsJson;
     private LocalDateTime lastActivatedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -206,6 +207,14 @@ public class AppConversationMemoryEntry {
 
     public void setSourceMessageToId(Long sourceMessageToId) {
         this.sourceMessageToId = sourceMessageToId;
+    }
+
+    public String getSourceMessageIdsJson() {
+        return sourceMessageIdsJson;
+    }
+
+    public void setSourceMessageIdsJson(String sourceMessageIdsJson) {
+        this.sourceMessageIdsJson = sourceMessageIdsJson;
     }
 
     public LocalDateTime getLastActivatedAt() {

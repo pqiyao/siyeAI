@@ -75,7 +75,7 @@
 					<textarea
 						class="inp"
 						placeholder-class="chat-composer-inp-ph"
-						:value="value"
+						:value="localValue"
 						:placeholder="placeholder"
 						confirm-type="send"
 						auto-height
@@ -101,6 +101,7 @@
 			</view>
 		</view>
 		<view v-else class="scroll-bottom-pill" @tap="emitScrollBottom">
+			<u-icon name="arrow-down" size="28" color="#ffffff"></u-icon>
 			<text class="scroll-bottom-pill-text">{{ scrollBottomText }}</text>
 		</view>
 		<view
@@ -115,6 +116,8 @@
 </template>
 
 <script>
+	const INPUT_SYNC_DELAY_MS = 260;
+
 	export default {
 		name: 'ChatComposer',
 		props: {
@@ -184,7 +187,7 @@
 			},
 			scrollBottomText: {
 				type: String,
-				default: ''
+				default: '回到底部'
 			},
 			cursorSpacing: {
 				type: Number,
@@ -243,6 +246,13 @@
 				default: ''
 			}
 		},
+		data() {
+			return {
+				localValue: this.value == null ? '' : String(this.value),
+				inputSyncTimer: null,
+				pendingInputEcho: null
+			};
+		},
 		computed: {
 			quoteVisible() {
 				return !!(this.quote && this.quote.visible);
@@ -257,24 +267,77 @@
 				return '\u00d7';
 			}
 		},
+		watch: {
+			value(nextValue) {
+				const next = nextValue == null ? '' : String(nextValue);
+				if (this.pendingInputEcho !== null && next === this.pendingInputEcho) {
+					this.pendingInputEcho = null;
+					return;
+				}
+				this.pendingInputEcho = null;
+				if (next === this.localValue) return;
+				this.clearInputSyncTimer();
+				this.localValue = next;
+			}
+		},
+		beforeDestroy() {
+			this.flushInputValue();
+			this.clearInputSyncTimer();
+		},
 		methods: {
+			clearInputSyncTimer() {
+				if (!this.inputSyncTimer) return;
+				clearTimeout(this.inputSyncTimer);
+				this.inputSyncTimer = null;
+			},
+			syncInputValue() {
+				const next = this.localValue == null ? '' : String(this.localValue);
+				const parentValue = this.value == null ? '' : String(this.value);
+				if (next === parentValue) {
+					this.pendingInputEcho = null;
+					return false;
+				}
+				this.pendingInputEcho = next;
+				this.$emit('input', next);
+				return true;
+			},
+			scheduleInputSync() {
+				this.clearInputSyncTimer();
+				this.inputSyncTimer = setTimeout(() => {
+					this.inputSyncTimer = null;
+					this.syncInputValue();
+				}, INPUT_SYNC_DELAY_MS);
+			},
+			flushInputValue() {
+				this.clearInputSyncTimer();
+				return this.syncInputValue();
+			},
 			emitInput(event) {
 				const value = event && event.detail ? event.detail.value : '';
-				this.$emit('input', value);
+				this.localValue = value == null ? '' : String(value);
+				if (this.localValue === String(this.value == null ? '' : this.value)) {
+					this.clearInputSyncTimer();
+					return;
+				}
+				this.scheduleInputSync();
 			},
 			emitFocus(event) {
 				this.$emit('focus', event);
 			},
 			emitBlur(event) {
+				this.flushInputValue();
 				this.$emit('blur', event);
 			},
 			emitConfirm(event) {
+				this.flushInputValue();
 				this.$emit('confirm', event);
 			},
 			emitToggleVoiceInput() {
+				this.flushInputValue();
 				this.$emit('toggle-voice-input');
 			},
 			emitOpenCharacterImagePanel() {
+				this.flushInputValue();
 				this.$emit('open-character-image-panel');
 			},
 			emitPickCamera() {
@@ -293,19 +356,24 @@
 				this.$emit('clear-composer-quote');
 			},
 			emitOpenExpressionPanel() {
+				this.flushInputValue();
 				this.$emit('open-expression-panel');
 			},
 			emitOpenAttachmentMenu() {
+				this.flushInputValue();
 				this.$emit('open-attachment-menu');
 			},
 			emitOpenModelPicker() {
 				if (this.modelSelectorDisabled) return;
+				this.flushInputValue();
 				this.$emit('open-model-picker');
 			},
 			emitScrollBottom() {
+				this.flushInputValue();
 				this.$emit('scroll-bottom');
 			},
 			emitPrimaryAction() {
+				this.flushInputValue();
 				this.$emit('primary-action');
 			}
 		}
@@ -614,6 +682,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		gap: 12rpx;
 		padding: 0 26rpx;
 		border-radius: 999rpx;
 		background: linear-gradient(135deg, rgba(52, 143, 184, 0.92) 0%, rgba(118, 210, 221, 0.9) 62%, rgba(244, 166, 196, 0.92) 100%) !important;
@@ -621,10 +690,11 @@
 	}
 
 	.chat-composer .scroll-bottom-pill-text {
-		color: #fff;
+		color: #ffffff;
 		font-size: 28rpx;
 		font-weight: 600;
-		letter-spacing: 1rpx;
+		line-height: 1;
+		letter-spacing: 0;
 	}
 
 	.chat-composer .attach-fab-menu {
@@ -840,6 +910,16 @@
 		height: 40rpx;
 	}
 
+	.wrap--app-plus .chat-composer .scroll-bottom-pill {
+		min-width: 0 !important;
+		max-width: 100% !important;
+		height: 82rpx;
+		box-sizing: border-box !important;
+		border-radius: 999rpx;
+		background: #4f93a3 !important;
+		box-shadow: 0 12rpx 24rpx rgba(48, 103, 117, 0.18) !important;
+	}
+
 	.wrap--app-plus .chat-composer .composer-quote-bar {
 		max-height: 138rpx;
 		padding: 12rpx 14rpx !important;
@@ -863,16 +943,6 @@
 		border-radius: 50%;
 		background: rgba(255, 255, 255, 0.76);
 		color: #5b7284;
-	}
-
-	.wrap--app-plus .chat-composer .scroll-bottom-pill {
-		min-width: 0 !important;
-		max-width: 100% !important;
-		box-sizing: border-box !important;
-		height: 82rpx;
-		border-radius: 999rpx;
-		background: #4f93a3 !important;
-		box-shadow: 0 12rpx 24rpx rgba(48, 103, 117, 0.18) !important;
 	}
 
 	.wrap--app-plus .chat-composer .attach-fab-menu {

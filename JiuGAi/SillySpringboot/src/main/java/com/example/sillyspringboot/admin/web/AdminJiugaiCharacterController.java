@@ -225,10 +225,9 @@ public class AdminJiugaiCharacterController {
         AdminJiugaiCharacterService.RemoveSummary summary = adminCharacterService.removeIds(ids, syncStFile);
         String message;
         if (syncStFile) {
-            if (summary.stDeleted() > 0) {
-                message = "删除成功，已同步清理 " + summary.stDeleted() + " 个 ST 角色文件";
-            } else {
-                message = "本地删除成功，未同步清理到 ST 文件";
+            message = "角色已删除，已安排同步清理 ST 角色、该角色全部 ST 聊天及专属本地媒体";
+            if (summary.retainedShared() > 0) {
+                message += "；" + summary.retainedShared() + " 项共享或归属不明资源已安全保留";
             }
         } else {
             message = "本地删除成功";
@@ -236,7 +235,8 @@ public class AdminJiugaiCharacterController {
         Map<String, Object> result = AdminAjaxResult.ok(message);
         result.put("data", new LinkedHashMap<>(Map.of(
                 "localDeleted", summary.localDeleted(),
-                "stDeleted", summary.stDeleted(),
+                "cleanupScheduled", summary.cleanupScheduled(),
+                "retainedShared", summary.retainedShared(),
                 "syncStFile", syncStFile
         )));
         return result;

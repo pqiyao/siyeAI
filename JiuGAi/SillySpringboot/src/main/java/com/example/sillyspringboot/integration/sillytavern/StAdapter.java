@@ -76,6 +76,20 @@ public interface StAdapter {
         return buildRuntimeMessages(avatarUrl, fileName, userName, charName, groupNames, worldNames);
     }
 
+    default List<java.util.Map<String, String>> buildRuntimeMessages(
+            String avatarUrl,
+            String fileName,
+            String userName,
+            String charName,
+            List<String> groupNames,
+            List<String> worldNames,
+            String runtimePresetBundle,
+            String userPersona
+    ) {
+        return buildRuntimeMessages(
+                avatarUrl, fileName, userName, charName, groupNames, worldNames, runtimePresetBundle);
+    }
+
     void appendUserMessage(ChatGenerateRequest request);
 
     /**

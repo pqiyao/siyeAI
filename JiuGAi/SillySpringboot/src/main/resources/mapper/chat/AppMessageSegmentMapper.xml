@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.chat.mapper.AppMessageSegmentMapper">
+    <resultMap id="SegmentMap" type="com.example.sillyspringboot.chat.entity.AppMessageSegment">
+        <id column="id" property="id"/>
+        <result column="message_id" property="messageId"/>
+        <result column="segment_index" property="segmentIndex"/>
+        <result column="segment_type" property="segmentType"/>
+        <result column="speaker_member_id" property="speakerMemberId"/>
+        <result column="speaker_name_snapshot" property="speakerNameSnapshot"/>
+        <result column="speaker_avatar_snapshot" property="speakerAvatarSnapshot"/>
+        <result column="content" property="content"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.example.sillyspringboot.chat.entity.AppMessageSegment"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_message_segment (
+            message_id, segment_index, segment_type, speaker_member_id,
+            speaker_name_snapshot, speaker_avatar_snapshot, content, status
+        ) VALUES (
+            #{messageId}, #{segmentIndex}, #{segmentType}, #{speakerMemberId},
+            #{speakerNameSnapshot}, #{speakerAvatarSnapshot}, #{content}, #{status}
+        )
+    </insert>
+
+    <delete id="deleteByMessageId">
+        DELETE FROM app_message_segment WHERE message_id = #{messageId}
+    </delete>
+
+    <select id="listByMessageId" resultMap="SegmentMap">
+        SELECT *
+        FROM app_message_segment
+        WHERE message_id = #{messageId}
+        ORDER BY segment_index ASC, id ASC
+    </select>
+
+    <select id="listByMessageIds" resultMap="SegmentMap">
+        SELECT *
+        FROM app_message_segment
+        WHERE message_id IN
+        <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
+            #{messageId}
+        </foreach>
+        ORDER BY message_id ASC, segment_index ASC, id ASC
+    </select>
+</mapper>

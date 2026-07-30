@@ -72,7 +72,8 @@ public interface AppMessageMapper {
 
     int updateSpeakerSnapshot(@Param("id") long id,
                               @Param("speakerMemberId") Long speakerMemberId,
-                              @Param("speakerNameSnapshot") String speakerNameSnapshot);
+                              @Param("speakerNameSnapshot") String speakerNameSnapshot,
+                              @Param("speakerAvatarSnapshot") String speakerAvatarSnapshot);
 
     Integer findMaxSwipeIndex(@Param("stMessageRef") String stMessageRef);
 

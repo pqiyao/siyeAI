@@ -37,6 +37,16 @@ public class ConversationMemorySanitizer {
     }
 
     public AppConversationMemoryEntry toEntity(long conversationId, ExtractedMemoryEntry src, Long fromId, Long toId) {
+        return toEntity(conversationId, src, fromId, toId, List.of());
+    }
+
+    public AppConversationMemoryEntry toEntity(
+            long conversationId,
+            ExtractedMemoryEntry src,
+            Long fromId,
+            Long toId,
+            List<Long> availableMessageIds
+    ) {
         if (src == null) {
             return null;
         }
@@ -75,6 +85,7 @@ public class ConversationMemorySanitizer {
         e.setConfidence(confidence);
         e.setSourceMessageFromId(fromId);
         e.setSourceMessageToId(toId);
+        e.setSourceMessageIdsJson(toJson(sanitizeSourceMessageIds(src.sourceMessageIds(), availableMessageIds)));
         return e;
     }
 
@@ -159,6 +170,46 @@ public class ConversationMemorySanitizer {
         } catch (Exception ignored) {
             return List.of();
         }
+    }
+
+    public List<Long> readMessageIds(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<?> raw = objectMapper.readValue(json, List.class);
+            LinkedHashSet<Long> out = new LinkedHashSet<>();
+            for (Object item : raw) {
+                if (item instanceof Number number && number.longValue() > 0) {
+                    out.add(number.longValue());
+                }
+            }
+            return out.isEmpty() ? List.of() : List.copyOf(out);
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private static List<Long> sanitizeSourceMessageIds(List<Long> requested, List<Long> available) {
+        if (requested == null || requested.isEmpty() || available == null || available.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<Long> allowed = new LinkedHashSet<>();
+        for (Long id : available) {
+            if (id != null && id > 0) {
+                allowed.add(id);
+            }
+        }
+        LinkedHashSet<Long> out = new LinkedHashSet<>();
+        for (Long id : requested) {
+            if (id != null && allowed.contains(id)) {
+                out.add(id);
+            }
+            if (out.size() >= 16) {
+                break;
+            }
+        }
+        return out.isEmpty() ? List.of() : List.copyOf(out);
     }
 
     private List<String> sanitizeKeywords(List<String> raw, String content) {
@@ -286,7 +337,7 @@ public class ConversationMemorySanitizer {
         return BigDecimal.valueOf(value);
     }
 
-    private String toJson(List<String> values) {
+    private String toJson(Object values) {
         try {
             return objectMapper.writeValueAsString(values == null ? List.of() : values);
         } catch (JsonProcessingException e) {

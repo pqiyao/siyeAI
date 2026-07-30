@@ -12,7 +12,8 @@ assert.match(chat, /referenceSourceMode,/);
 assert.match(chat, /recentSceneHint:\s*this\.resolveCharacterImageRecentSceneHint/);
 assert.match(chat, /consistencyMode === 'free'\s*\? Promise\.resolve\(''\)/s);
 
-assert.match(chat, /state:\s*firstAudioDataUrl \? 'partial' : 'error'/);
+assert.match(chat, /state:\s*firstAudioDataUrl \? 'partial' : 'generation_error'/);
+assert.match(chat, /errorKind:\s*'generation'/);
 assert.match(chat, /missingIndexes:\s*this\.assistantVoiceMissingSegmentIndexes/);
 assert.match(chat, /const requestKey = String\(entry\.taskId \|\| \('tts_' \+ messageId\)\)/);
 assert.match(chat, /resumeAssistantVoiceSegments\(row, \{ autoplay: true \}\)/);

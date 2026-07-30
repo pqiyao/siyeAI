@@ -47,12 +47,12 @@ public class AppChatProperties {
     public static class Compatibility {
         /**
          * runtime: always use the current runtime path.
-         * auto: detect cards/books/presets that need frontend extensions.
+         * auto: use runtime and report frontend-only compatibility markers.
          * frontend_bridge: require the high compatibility path for every chat.
          */
-        private String mode = "auto";
+        private String mode = "runtime";
         private boolean frontendBridgeEnabled = false;
-        private boolean fallbackToRuntime = true;
+        private boolean fallbackToRuntime = false;
         private int worldbookProbeCacheSeconds = 300;
         private String frontendBridgeToken = "";
         private int frontendBridgeRequestTimeoutSeconds = 600;
@@ -65,7 +65,7 @@ public class AppChatProperties {
         }
 
         public void setMode(String mode) {
-            this.mode = mode == null ? "auto" : mode;
+            this.mode = mode == null ? "runtime" : mode;
         }
 
         public boolean isFrontendBridgeEnabled() {

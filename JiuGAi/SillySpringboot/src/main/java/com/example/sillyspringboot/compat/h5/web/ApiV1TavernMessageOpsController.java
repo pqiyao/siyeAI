@@ -106,6 +106,14 @@ public class ApiV1TavernMessageOpsController {
                     m.getTraceId()
             );
             messageMapper.updateVariantMeta(m.getId(), stRef, target, m.getTraceId());
+            chatService.triggerSemanticAnnotationAfterCommit(m.getId());
+            chatService.activateEnsembleVariantInCurrentTransaction(
+                    characterId,
+                    targetVariant.getId() == null ? 0L : targetVariant.getId(),
+                    m.getId(),
+                    targetVariant.getContent(),
+                    conversationId
+            );
             m = messageMapper.findById(m.getId());
         }
 
@@ -232,7 +240,7 @@ public class ApiV1TavernMessageOpsController {
         return detail.conversationId();
     }
 
-    private static Map<String, Object> toH5Row(AppMessage m, int swipeIndex, List<String> swipes) {
+    private Map<String, Object> toH5Row(AppMessage m, int swipeIndex, List<String> swipes) {
         Map<String, Object> out = new HashMap<>();
         out.put("id", "db_" + m.getId());
         out.put("branchId", m.getBranchId());
@@ -245,6 +253,7 @@ public class ApiV1TavernMessageOpsController {
         }
         out.put("swipes", swipes);
         out.put("swipeIndex", swipeIndex);
+        out.put("segments", chatService.messageSegments(m.getId()));
         return out;
     }
 

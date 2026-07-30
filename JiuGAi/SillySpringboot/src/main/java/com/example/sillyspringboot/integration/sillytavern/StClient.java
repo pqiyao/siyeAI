@@ -703,6 +703,7 @@ public final class StClient {
         StUnavailableException last = null;
         int attemptNo = 0;
         boolean bufferedVision = request != null && request.routingCapabilityOrChat() == AiCapability.VISION;
+        boolean updateProviderHealth = !isAuxiliarySidecarRequest(request);
         for (RuntimeProviderOverride providerOverride : providerChain) {
             attemptNo++;
             if (control.isCancelled()) {
@@ -720,14 +721,20 @@ public final class StClient {
                 if (bufferedVision) {
                     bufferedChunks.forEach(onChunk);
                 }
-                recordProviderSuccess(providerOverride);
+                if (updateProviderHealth) {
+                    recordProviderSuccess(providerOverride);
+                }
                 return;
             } catch (StUnavailableException ex) {
                 last = ex;
                 AiProviderCallException providerFailure = ex.getProviderFailure();
-                if (providerFailure != null && AiProviderFailurePolicy.shouldCountCircuitFailure(providerFailure)) {
+                if (updateProviderHealth
+                        && providerFailure != null
+                        && AiProviderFailurePolicy.shouldCountCircuitFailure(providerFailure)) {
                     recordProviderFailure(providerOverride, providerFailure.getMessage());
-                } else if (providerFailure != null && !AiProviderFailurePolicy.shouldFallback(providerFailure)) {
+                } else if (updateProviderHealth
+                        && providerFailure != null
+                        && !AiProviderFailurePolicy.shouldFallback(providerFailure)) {
                     recordProviderConfigurationError(providerOverride, providerFailure.getMessage());
                 }
                 if ((!bufferedVision && idx.get() > 0)
@@ -799,6 +806,7 @@ public final class StClient {
         }
         StUnavailableException last = null;
         int attemptNo = 0;
+        boolean updateProviderHealth = !isAuxiliarySidecarRequest(request);
         for (RuntimeProviderOverride providerOverride : providerChain) {
             attemptNo++;
             if (control.isCancelled()) {
@@ -806,14 +814,20 @@ public final class StClient {
             }
             try {
                 streamRuntimeChatGenerateAttempt(url, request, onChunk, control, idx, providerOverride, attemptNo);
-                recordProviderSuccess(providerOverride);
+                if (updateProviderHealth) {
+                    recordProviderSuccess(providerOverride);
+                }
                 return;
             } catch (StUnavailableException e) {
                 last = e;
                 AiProviderCallException providerFailure = e.getProviderFailure();
-                if (providerFailure != null && AiProviderFailurePolicy.shouldCountCircuitFailure(providerFailure)) {
+                if (updateProviderHealth
+                        && providerFailure != null
+                        && AiProviderFailurePolicy.shouldCountCircuitFailure(providerFailure)) {
                     recordProviderFailure(providerOverride, providerFailure.getMessage());
-                } else if (providerFailure != null && !AiProviderFailurePolicy.shouldFallback(providerFailure)) {
+                } else if (updateProviderHealth
+                        && providerFailure != null
+                        && !AiProviderFailurePolicy.shouldFallback(providerFailure)) {
                     recordProviderConfigurationError(providerOverride, providerFailure.getMessage());
                 }
                 if (idx.get() > 0
@@ -1086,6 +1100,10 @@ public final class StClient {
         } catch (RuntimeException ex) {
             log.warn("provider success telemetry failed providerKey={} reason={}", provider.providerKey(), rootCauseMessage(ex));
         }
+    }
+
+    static boolean isAuxiliarySidecarRequest(ChatGenerateRequest request) {
+        return request != null && "semantic_annotation".equalsIgnoreCase(firstNonBlank(request.mode()));
     }
 
     private void recordProviderFailure(RuntimeProviderOverride provider, String message) {
@@ -1642,6 +1660,7 @@ public final class StClient {
         root.put("avatar_url", request.stAvatarUrl() == null ? "" : request.stAvatarUrl());
         root.put("file_name", request.stChatFileName() == null ? "" : request.stChatFileName());
         root.put("user_name", request.userName() == null ? "" : request.userName());
+        root.put("user_persona", request.userPersona() == null ? "" : request.userPersona());
         root.put("char_name", request.charName() == null ? "" : request.charName());
         root.put("stream", request.stream());
         if (StringUtils.hasText(request.mode())) {
@@ -1660,6 +1679,15 @@ public final class StClient {
         root.putPOJO("world_names", request.stWorldNames() == null ? java.util.List.of() : request.stWorldNames());
         if (StringUtils.hasText(request.tailSystemPrompt())) {
             root.put("tail_system_prompt", request.tailSystemPrompt().trim());
+        }
+        if (StringUtils.hasText(request.studioLoreBeforeCharacter())) {
+            root.put("studio_lore_before_character", request.studioLoreBeforeCharacter().trim());
+        }
+        if (StringUtils.hasText(request.studioLoreAfterCharacter())) {
+            root.put("studio_lore_after_character", request.studioLoreAfterCharacter().trim());
+        }
+        if (StringUtils.hasText(request.studioLoreBeforeHistory())) {
+            root.put("studio_lore_before_history", request.studioLoreBeforeHistory().trim());
         }
         if (StringUtils.hasText(request.runtimePresetBundle())) {
             root.set("runtime_preset_bundle", objectMapper.readTree(request.runtimePresetBundle()));
@@ -1772,7 +1800,7 @@ public final class StClient {
             List<String> groupNames,
             List<String> worldNames
     ) {
-        return runtimeChatBuildMessages(avatarUrl, fileName, userName, charName, groupNames, worldNames, null);
+        return runtimeChatBuildMessages(avatarUrl, fileName, userName, charName, groupNames, worldNames, null, null);
     }
 
     @SuppressWarnings("unchecked")
@@ -1785,16 +1813,32 @@ public final class StClient {
             List<String> worldNames,
             String runtimePresetBundle
     ) {
+        return runtimeChatBuildMessages(
+                avatarUrl, fileName, userName, charName, groupNames, worldNames, runtimePresetBundle, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<java.util.Map<String, String>> runtimeChatBuildMessages(
+            String avatarUrl,
+            String fileName,
+            String userName,
+            String charName,
+            List<String> groupNames,
+            List<String> worldNames,
+            String runtimePresetBundle,
+            String userPersona
+    ) {
         try {
             java.util.Map<String, Object> requestBody = new java.util.LinkedHashMap<>();
             requestBody.put("avatar_url", avatarUrl == null ? "" : avatarUrl);
             requestBody.put("file_name", fileName == null ? "" : fileName);
             requestBody.put("user_name", userName == null ? "" : userName);
+            requestBody.put("user_persona", userPersona == null ? "" : userPersona);
             requestBody.put("char_name", charName == null ? "" : charName);
             requestBody.put("group_names", groupNames == null ? java.util.List.of() : groupNames);
             requestBody.put("world_names", worldNames == null ? java.util.List.of() : worldNames);
             if (StringUtils.hasText(runtimePresetBundle)) {
-                requestBody.put("runtime_preset_bundle", objectMapper.readTree(runtimePresetBundle));
+                requestBody.put("runtime_preset_bundle", objectMapper.readValue(runtimePresetBundle, Object.class));
             }
             Object body = postSt(StApiPaths.RUNTIME_CHAT_BUILD)
                     .contentType(MediaType.APPLICATION_JSON)

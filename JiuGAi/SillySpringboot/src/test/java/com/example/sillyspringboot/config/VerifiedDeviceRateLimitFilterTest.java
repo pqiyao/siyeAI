@@ -114,6 +114,14 @@ class VerifiedDeviceRateLimitFilterTest {
         );
     }
 
+    @Test
+    void deviceTrackingCoversThePrimaryAppChatRoute() {
+        H5VisitorDeviceFilter filter = new H5VisitorDeviceFilter(mock(H5VisitorDeviceService.class));
+
+        assertThat(filter.shouldNotFilter(new MockHttpServletRequest("POST", "/api/app/chat/stream")))
+                .isFalse();
+    }
+
     private static ApiRateLimitProperties properties(int maxRequestsPerWindow) {
         ApiRateLimitProperties properties = new ApiRateLimitProperties();
         properties.setEnabled(true);

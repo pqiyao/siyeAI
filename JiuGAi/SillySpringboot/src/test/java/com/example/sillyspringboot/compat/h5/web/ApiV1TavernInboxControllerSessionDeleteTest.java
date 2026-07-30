@@ -9,14 +9,16 @@ import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.compat.h5.service.H5StAssetUrls;
 import com.example.sillyspringboot.compat.h5.service.H5TavernSessionService;
 import com.example.sillyspringboot.conversation.dto.ConversationDetailDto;
+import com.example.sillyspringboot.conversation.dto.ConversationInboxItemDto;
 import com.example.sillyspringboot.conversation.service.AppConversationMemoryService;
 import com.example.sillyspringboot.conversation.service.AppConversationService;
-import com.example.sillyspringboot.shared.error.BusinessException;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -34,28 +36,66 @@ class ApiV1TavernInboxControllerSessionDeleteTest {
 
         fixture.controller.deleteOneSession(payload());
 
-        verify(fixture.sessionService).archiveHideAndWipe(7L, 11L);
-        verify(fixture.archiveMapper).upsert(7L, 11L);
+        verify(fixture.sessionService).archiveHideWipeAndDetach(7L, 11L);
+        verify(fixture.conversationService, never()).activateH5Session(
+                "client", 22L, 12L, "token");
     }
 
     @Test
-    void refusesToDeleteActiveSession() {
+    void deletingActiveSessionSwitchesToAnotherVisibleStoryFirst() {
         Fixture fixture = fixture();
         when(fixture.conversationService.getDetail(11L, "token"))
                 .thenReturn(new ConversationDetailDto(11L, 22L, "当前故事", null));
         when(fixture.conversationService.findConversationIdByH5CharacterForSessionCleanup("client", 22L, "token"))
                 .thenReturn(11L);
+        when(fixture.conversationService.listInboxForUser("token", 200))
+                .thenReturn(List.of(inboxItem(12L, 22L, "备用故事")));
 
-        assertThatThrownBy(() -> fixture.controller.deleteOneSession(payload()))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("请先切换到其他故事");
+        fixture.controller.deleteOneSession(payload());
 
-        verify(fixture.sessionService, never()).archiveHideAndWipe(7L, 11L);
-        verify(fixture.archiveMapper, never()).upsert(7L, 11L);
+        verify(fixture.conversationService).activateH5Session("client", 22L, 12L, "token");
+        verify(fixture.sessionService).archiveHideWipeAndDetach(7L, 11L);
+    }
+
+    @Test
+    void deletingLastActiveSessionDetachesItWithoutRecreatingOrRestarting() {
+        Fixture fixture = fixture();
+        when(fixture.conversationService.getDetail(11L, "token"))
+                .thenReturn(new ConversationDetailDto(11L, 22L, "唯一故事", null));
+        when(fixture.conversationService.findConversationIdByH5CharacterForSessionCleanup("client", 22L, "token"))
+                .thenReturn(11L);
+        when(fixture.conversationService.listInboxForUser("token", 200)).thenReturn(List.of());
+
+        fixture.controller.deleteOneSession(payload());
+
+        verify(fixture.conversationService, never()).activateH5Session(
+                org.mockito.ArgumentMatchers.anyString(), anyLong(), anyLong(),
+                org.mockito.ArgumentMatchers.anyString());
+        verify(fixture.sessionService).archiveHideWipeAndDetach(7L, 11L);
+        verify(fixture.sessionService, never()).restartFresh(7L, 11L);
+    }
+
+    @Test
+    void legacyCharacterDeleteArchivesAndDetachesInsteadOfRestartingActiveStory() {
+        Fixture fixture = fixture();
+        when(fixture.conversationService.findConversationIdByH5CharacterForSessionCleanup(
+                "client", 22L, "token")).thenReturn(11L);
+
+        fixture.controller.delete(null, Map.of("clientUid", "client", "characterId", 22L));
+
+        verify(fixture.sessionService).archiveHideWipeAndDetach(7L, 11L);
+        verify(fixture.sessionService, never()).restartFresh(7L, 11L);
+        verify(fixture.archiveMapper, never()).deleteByUserAndConversation(7L, 11L);
     }
 
     private static Map<String, Object> payload() {
         return Map.of("clientUid", "client", "characterId", 22L, "conversationId", 11L);
+    }
+
+    private static ConversationInboxItemDto inboxItem(long conversationId, long characterId, String title) {
+        LocalDateTime now = LocalDateTime.now();
+        return new ConversationInboxItemDto(
+                conversationId, characterId, title, now, "角色", "", "", "assistant", "回复", now);
     }
 
     private static Fixture fixture() {

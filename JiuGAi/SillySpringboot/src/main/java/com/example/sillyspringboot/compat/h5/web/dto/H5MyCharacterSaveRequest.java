@@ -30,6 +30,7 @@ public class H5MyCharacterSaveRequest {
     private Integer likeCount;
     private Integer dislikeCount;
     private String cardType;
+    private String ensembleChatMode;
     private List<MemberInput> members;
     private List<OpeningInput> openings;
     private List<LorebookInput> lorebookEntries;
@@ -244,6 +245,8 @@ public class H5MyCharacterSaveRequest {
 
     public String getCardType() { return cardType; }
     public void setCardType(String cardType) { this.cardType = cardType; }
+    public String getEnsembleChatMode() { return ensembleChatMode; }
+    public void setEnsembleChatMode(String ensembleChatMode) { this.ensembleChatMode = ensembleChatMode; }
     public List<MemberInput> getMembers() { return members; }
     public void setMembers(List<MemberInput> members) { this.members = members; }
     public List<OpeningInput> getOpenings() { return openings; }

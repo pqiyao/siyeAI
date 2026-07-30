@@ -65,6 +65,12 @@
 						</view>
 						<view v-if="presetSaving || presetLoading" class="loading-mark"><u-icon name="reload" color="#3f8f9f" size="23" class="spin"></u-icon></view>
 					</view>
+					<view class="preset-default-action" :class="{ 'preset-default-action--active': !currentPresetId, 'preset-default-action--disabled': presetSaving }" @tap="restoreSystemDefault">
+						<view class="preset-default-icon"><u-icon name="reload" :color="currentPresetId ? '#526f7d' : '#ffffff'" size="23"></u-icon></view>
+						<view class="preset-default-copy"><text class="preset-default-title">系统默认</text><text class="preset-default-sub">{{ currentPresetId ? '恢复当前会话的默认生成参数' : '当前会话正在使用' }}</text></view>
+						<u-icon v-if="currentPresetId" name="arrow-right" color="#718590" size="23"></u-icon>
+						<u-icon v-else name="checkmark" color="#3f8f9f" size="23"></u-icon>
+					</view>
 					<view v-if="showSystemPresets && showUserPresets" class="segment">
 						<view class="segment-item" :class="{ 'segment-item--active': presetTab === 'official' }" @tap="presetTab = 'official'">官方预设</view>
 						<view class="segment-item" :class="{ 'segment-item--active': presetTab === 'mine' }" @tap="presetTab = 'mine'">我的预设 <text v-if="myPresets.length">{{ myPresets.length }}</text></view>
@@ -84,6 +90,9 @@
 					</view>
 
 					<view v-else-if="showUserPresets" class="preset-pane">
+						<view class="create-preset-button" :class="{ 'create-preset-button--disabled': presetSaving }" @tap="createPrivatePreset">
+							<u-icon name="plus" color="#236f82" size="24"></u-icon><text>新建我的预设</text>
+						</view>
 						<view v-if="!myPresets.length" class="preset-empty"><text>暂无我的预设</text></view>
 						<view v-for="item in myPresets" :key="'my_preset_' + item.id" class="preset-row" :class="{ 'preset-row--selected': Number(currentPresetId) === Number(item.id), 'preset-row--disabled': !item.enabled }" @tap="selectMyPreset(item)">
 							<view class="preset-row-main"><text class="preset-row-name">{{ item.name }}</text><text class="preset-row-meta">{{ presetSummaryText(item) }}</text></view>
@@ -109,10 +118,11 @@
 				<text class="lab">名称</text>
 				<input class="inp" v-model="presetEditor.name" maxlength="40" placeholder="预设名称" placeholder-class="ph" />
 				<view class="param-grid">
-					<view class="param-field"><text class="lab">随机度</text><input class="param-input" v-model="presetEditor.temperature" type="digit" /></view>
+					<view class="param-field"><text class="lab">温度（随机度）</text><input class="param-input" v-model="presetEditor.temperature" type="digit" /></view>
 					<view class="param-field"><text class="lab">Top P</text><input class="param-input" v-model="presetEditor.topP" type="digit" /></view>
-					<view class="param-field"><text class="lab">回复长度</text><input class="param-input" v-model="presetEditor.maxTokens" type="number" /></view>
-					<view class="param-field"><text class="lab">上下文长度</text><input class="param-input" v-model="presetEditor.maxContext" type="number" /></view>
+					<view class="param-field"><text class="lab">频率惩罚</text><input class="param-input" v-model="presetEditor.frequencyPenalty" type="text" /></view>
+					<view class="param-field"><text class="lab">存在惩罚</text><input class="param-input" v-model="presetEditor.presencePenalty" type="text" /></view>
+					<view class="param-field param-field--wide"><text class="lab">最大输出 Token</text><input class="param-input" v-model="presetEditor.maxTokens" type="number" /></view>
 				</view>
 				<view class="enable-row"><view><text class="enable-title">启用预设</text><text class="enable-sub">关闭后绑定此预设的会话恢复系统默认</text></view><switch :checked="presetEditor.enabled" color="#3f8f9f" @change="presetEditor.enabled = $event.detail.value" /></view>
 				<text v-if="presetEditor.error" class="editor-error">{{ presetEditor.error }}</text>
@@ -126,7 +136,7 @@
 	import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 
 	function emptyPresetEditor() {
-		return { visible: false, id: null, name: '', temperature: '1', topP: '1', maxTokens: '512', maxContext: '8192', enabled: true, saving: false, error: '' };
+		return { visible: false, id: null, name: '', temperature: '1', topP: '1', frequencyPenalty: '0', presencePenalty: '0', maxTokens: '800', enabled: true, saving: false, error: '' };
 	}
 
 	export default {
@@ -225,6 +235,24 @@
 					this.currentPresetId = presetId || null; uni.showToast({ title: '聊天预设已切换', icon: 'none' }); return true;
 				}).catch((error) => { this.showError(error, '切换聊天预设失败'); return false; }).finally(() => { this.presetSaving = false; });
 			},
+			restoreSystemDefault() {
+				if (!this.currentPresetId || this.presetSaving) return;
+				const previousOfficialId = this.officialDraftId;
+				this.officialDraftId = null;
+				this.saveConversationPreset(null).then((saved) => {
+					if (!saved) this.officialDraftId = previousOfficialId;
+				});
+			},
+			createPrivatePreset() {
+				if (!this.showUserPresets || this.presetSaving) return;
+				const api = require('@/common/tavernApi.js'); this.presetSaving = true;
+				api.postTavernPrivateChatPreset(api.getClientUid(), '我的预设').then((row) => {
+					return this.loadChatPresets().then(() => {
+						const item = this.myPresets.find((entry) => Number(entry.id) === Number(row && row.id));
+						if (item) this.openPresetEditor(item);
+					});
+				}).catch((error) => this.showError(error, '新建预设失败')).finally(() => { this.presetSaving = false; });
+			},
 			copyOfficialPreset() {
 				if (!this.showSystemPresets || !this.showUserPresets || !this.selectedOfficial || this.presetSaving) return;
 				const api = require('@/common/tavernApi.js'); this.presetSaving = true;
@@ -242,33 +270,36 @@
 			},
 			presetSummaryText(item) {
 				const s = item && item.summary || {}; const parts = [];
-				if (s.temperature !== '' && s.temperature != null) parts.push('随机度 ' + s.temperature);
+				if (s.temperature !== '' && s.temperature != null) parts.push('温度 ' + s.temperature);
 				if (s.topP !== '' && s.topP != null) parts.push('Top P ' + s.topP);
-				if (s.maxTokens) parts.push('回复 ' + s.maxTokens);
-				if (s.maxContext) parts.push('上下文 ' + s.maxContext);
+				if (s.frequencyPenalty !== '' && s.frequencyPenalty != null) parts.push('频率惩罚 ' + s.frequencyPenalty);
+				if (s.presencePenalty !== '' && s.presencePenalty != null) parts.push('存在惩罚 ' + s.presencePenalty);
+				if (s.maxTokens) parts.push('输出 ' + s.maxTokens);
 				return parts.join(' · ') || '使用系统默认参数';
 			},
 			openPresetEditor(item) {
 				if (!this.showUserPresets) return;
 				const form = require('@/common/chatPresetForm.js');
 				const s = item && item.summary || {};
-				this.presetEditor = { visible: true, id: Number(item.id), name: item.name || '', temperature: form.fieldText(s.temperature, 1), topP: form.fieldText(s.topP, 1), maxTokens: form.fieldText(s.maxTokens, 512), maxContext: form.fieldText(s.maxContext, 8192), enabled: item.enabled !== false, saving: false, error: '' };
+				this.presetEditor = { visible: true, id: Number(item.id), name: item.name || '', temperature: form.fieldText(s.temperature, 1), topP: form.fieldText(s.topP, 1), frequencyPenalty: form.fieldText(s.frequencyPenalty, 0), presencePenalty: form.fieldText(s.presencePenalty, 0), maxTokens: form.fieldText(s.maxTokens, 800), enabled: item.enabled !== false, saving: false, error: '' };
 			},
 			closePresetEditor() { if (!this.presetEditor.saving) this.presetEditor = emptyPresetEditor(); },
 			savePresetEditor() {
 				const e = this.presetEditor; if (!this.showUserPresets || !e.visible || e.saving) return;
 				const form = require('@/common/chatPresetForm.js');
-				const temperature = form.requiredNumber(e.temperature); const topP = form.requiredNumber(e.topP); const maxTokens = form.requiredNumber(e.maxTokens); const maxContext = form.requiredNumber(e.maxContext);
-				const payload = { name: String(e.name || '').trim(), temperature: temperature.value, topP: topP.value, maxTokens: maxTokens.value, maxContext: maxContext.value, enabled: e.enabled === true };
+				const temperature = form.requiredNumber(e.temperature); const topP = form.requiredNumber(e.topP); const frequencyPenalty = form.requiredNumber(e.frequencyPenalty); const presencePenalty = form.requiredNumber(e.presencePenalty); const maxTokens = form.requiredNumber(e.maxTokens);
+				const payload = { name: String(e.name || '').trim(), temperature: temperature.value, topP: topP.value, frequencyPenalty: frequencyPenalty.value, presencePenalty: presencePenalty.value, maxTokens: maxTokens.value, enabled: e.enabled === true };
 				if (!payload.name) return this.$set(this.presetEditor, 'error', '请输入预设名称');
-				if (!temperature.valid) return this.$set(this.presetEditor, 'error', '请输入随机度');
-				if (payload.temperature < 0 || payload.temperature > 2) return this.$set(this.presetEditor, 'error', '随机度范围为 0–2');
+				if (!temperature.valid) return this.$set(this.presetEditor, 'error', '请输入温度');
+				if (payload.temperature < 0 || payload.temperature > 2) return this.$set(this.presetEditor, 'error', '温度范围为 0–2');
 				if (!topP.valid) return this.$set(this.presetEditor, 'error', '请输入 Top P');
 				if (payload.topP < 0.01 || payload.topP > 1) return this.$set(this.presetEditor, 'error', 'Top P 范围为 0.01–1');
-				if (!maxTokens.valid) return this.$set(this.presetEditor, 'error', '请输入回复长度');
-				if (!Number.isInteger(payload.maxTokens) || payload.maxTokens < 64 || payload.maxTokens > 8192) return this.$set(this.presetEditor, 'error', '回复长度范围为 64–8192');
-				if (!maxContext.valid) return this.$set(this.presetEditor, 'error', '请输入上下文长度');
-				if (!Number.isInteger(payload.maxContext) || payload.maxContext < 2048 || payload.maxContext > 131072 || payload.maxContext < payload.maxTokens + 512) return this.$set(this.presetEditor, 'error', '上下文长度无效');
+				if (!frequencyPenalty.valid) return this.$set(this.presetEditor, 'error', '请输入频率惩罚');
+				if (payload.frequencyPenalty < -2 || payload.frequencyPenalty > 2) return this.$set(this.presetEditor, 'error', '频率惩罚范围为 -2–2');
+				if (!presencePenalty.valid) return this.$set(this.presetEditor, 'error', '请输入存在惩罚');
+				if (payload.presencePenalty < -2 || payload.presencePenalty > 2) return this.$set(this.presetEditor, 'error', '存在惩罚范围为 -2–2');
+				if (!maxTokens.valid) return this.$set(this.presetEditor, 'error', '请输入最大输出 Token');
+				if (!Number.isInteger(payload.maxTokens) || payload.maxTokens < 800 || payload.maxTokens > 8192) return this.$set(this.presetEditor, 'error', '最大输出 Token 范围为 800–8192');
 				const api = require('@/common/tavernApi.js'); this.$set(this.presetEditor, 'saving', true); this.$set(this.presetEditor, 'error', '');
 				api.putTavernPrivateChatPreset(api.getClientUid(), e.id, payload).then(() => this.loadChatPresets()).then(() => { this.presetEditor = emptyPresetEditor(); uni.showToast({ title: '预设已保存', icon: 'none' }); }).catch((error) => this.$set(this.presetEditor, 'error', this.errorText(error, '保存预设失败'))).finally(() => { if (this.presetEditor.visible) this.$set(this.presetEditor, 'saving', false); });
 			},
@@ -314,6 +345,15 @@
 	.section::before { content: ''; position: absolute; top: 0; left: 28rpx; width: 74rpx; height: 4rpx; border-radius: 0 0 999rpx 999rpx; background: linear-gradient(90deg, #4f93a3, #9bbec5); opacity: .72; }
 	.section--persona::before { background: linear-gradient(90deg, #7894aa, #b7a9c7); }
 	.preset-section::before { background: linear-gradient(90deg, #b58a92, #d6adb9); }
+	.preset-default-action { min-height: 76rpx; margin-top: 22rpx; padding: 10rpx 16rpx 10rpx 12rpx; display: flex; align-items: center; gap: 13rpx; border: 1rpx solid rgba(79,147,163,.13); border-radius: 18rpx; background: rgba(255,255,255,.58); box-sizing: border-box; }
+	.preset-default-action--active { border-color: rgba(79,147,163,.28); background: rgba(234,248,250,.78); }
+	.preset-default-action--disabled { opacity: .52; pointer-events: none; }
+	.preset-default-icon { width: 48rpx; height: 48rpx; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 14rpx; background: rgba(231,241,244,.9); }
+	.preset-default-action--active .preset-default-icon { background: #4f93a3; }
+	.preset-default-copy { min-width: 0; flex: 1; }
+	.preset-default-title, .preset-default-sub { display: block; }
+	.preset-default-title { color: #244b66; font-size: 23rpx; font-weight: 750; }
+	.preset-default-sub { margin-top: 3rpx; color: #718590; font-size: 19rpx; }
 	.section-head, .field-head, .section-actions, .editor-head, .enable-row, .editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
 	.section-heading { display: flex; align-items: center; gap: 14rpx; margin-bottom: 24rpx; }
 	.section-heading--compact { margin-bottom: 0; }
@@ -343,6 +383,8 @@
 	.segment-item { height: 64rpx; display: flex; align-items: center; justify-content: center; gap: 6rpx; border-radius: 15rpx; color: #667f8f; font-size: 23rpx; font-weight: 700; transition: transform .18s ease, box-shadow .18s ease; }
 	.segment-item--active { color: #2d7488; background: rgba(255,255,255,.9); box-shadow: 0 9rpx 22rpx rgba(67,112,142,.12), inset 0 1rpx 0 rgba(255,255,255,.9); }
 	.preset-pane { margin-top: 18rpx; }
+	.create-preset-button { min-height: 68rpx; margin-bottom: 14rpx; display: flex; align-items: center; justify-content: center; gap: 8rpx; border: 1rpx dashed rgba(79,147,163,.3); border-radius: 18rpx; color: #236f82; background: rgba(240,249,250,.62); font-size: 22rpx; font-weight: 700; }
+	.create-preset-button--disabled { opacity: .42; pointer-events: none; }
 	.selector-row { height: 82rpx; padding: 0 20rpx; display: flex; align-items: center; justify-content: space-between; gap: 16rpx; border: 1rpx solid rgba(78,99,115,.13); border-radius: 18rpx; background: rgba(255,255,255,.7); box-sizing: border-box; box-shadow: 0 8rpx 20rpx rgba(67,112,142,.05); }
 	.selector-copy { min-width: 0; }
 	.selector-label { color: #6b7f8b; font-size: 19rpx; }
@@ -374,6 +416,7 @@
 	.editor-title { font-size: 30rpx; font-weight: 800; color: #244b66; }
 	.param-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16rpx; margin-top: 18rpx; }
 	.param-field { min-width: 0; }
+	.param-field--wide { grid-column: 1 / -1; }
 	.param-input { height: 72rpx; padding: 0 17rpx; font-size: 24rpx; }
 	.enable-row { margin-top: 22rpx; padding: 18rpx 0; border-top: 1rpx solid #e2e8f0; border-bottom: 1rpx solid #e2e8f0; }
 	.enable-title { color: #203846; font-size: 24rpx; font-weight: 700; }

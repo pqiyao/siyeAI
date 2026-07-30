@@ -19,11 +19,15 @@ import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Set;
 
 @Configuration
 public class LegacyFlywayBootstrapConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(LegacyFlywayBootstrapConfiguration.class);
+    private static final Set<String> KNOWN_LATE_MIGRATIONS = Set.of("99");
+    private static final Set<String> REPAIRABLE_FAILED_MIGRATIONS = Set.of("23", "24", "27", "34", "35", "45", "99");
+    private static final Set<String> REPAIRABLE_CHECKSUM_MIGRATIONS = Set.of("69", "99");
 
     @Bean
     public InitializingBean legacyFlywayBootstrapRunner(DataSource dataSource, LegacyFlywayProperties properties) {
@@ -44,13 +48,20 @@ public class LegacyFlywayBootstrapConfiguration {
             }
 
             Flyway flyway = configuration.load();
-            if (hasRepairableFailedMigration(dataSource, historyTable)) {
+            if (hasRepairableFailedMigration(dataSource, historyTable)
+                    && hasOnlyRepairableValidationErrors(flyway)) {
                 log.warn("Detected repairable failed Flyway history entries, repairing schema history before retry");
                 flyway.repair();
             }
-            if (hasRepairableChecksumMismatch(flyway)) {
+            if (!hasFailedMigration(dataSource, historyTable)
+                    && hasRepairableChecksumMismatch(flyway)
+                    && hasOnlyRepairableValidationErrors(flyway)) {
                 log.warn("Detected repairable Flyway checksum mismatch, repairing schema history before migrate");
                 flyway.repair();
+            }
+            if (hasOnlyKnownLateMigrations(flyway)) {
+                log.warn("Detected known late Flyway migration V99; enabling out-of-order for this migration run only");
+                flyway = configuration.outOfOrder(true).load();
             }
             MigrateResult result = flyway.migrate();
             log.info(
@@ -143,17 +154,31 @@ public class LegacyFlywayBootstrapConfiguration {
         if (!tableExists(dataSource, historyTable)) {
             return false;
         }
-        String sql = "SELECT COUNT(1) FROM `" + historyTable + "` WHERE success = 0 AND version IN (?, ?, ?, ?, ?, ?)";
+        String sql = "SELECT version FROM `" + historyTable + "` WHERE success = 0";
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement ps = connection.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            boolean found = false;
+            while (rs.next()) {
+                String version = rs.getString(1);
+                if (!REPAIRABLE_FAILED_MIGRATIONS.contains(version)) {
+                    return false;
+                }
+                found = true;
+            }
+            return found;
+        }
+    }
+
+    private boolean hasFailedMigration(DataSource dataSource, String historyTable) throws SQLException {
+        if (!tableExists(dataSource, historyTable)) {
+            return false;
+        }
+        String sql = "SELECT 1 FROM `" + historyTable + "` WHERE success = 0 LIMIT 1";
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, "23");
-            ps.setString(2, "24");
-            ps.setString(3, "27");
-            ps.setString(4, "34");
-            ps.setString(5, "35");
-            ps.setString(6, "45");
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() && rs.getInt(1) > 0;
+                return rs.next();
             }
         }
     }
@@ -163,16 +188,77 @@ public class LegacyFlywayBootstrapConfiguration {
         if (result.validationSuccessful || result.invalidMigrations == null) {
             return false;
         }
+        boolean repairableMismatchFound = false;
         for (ValidateOutput invalid : result.invalidMigrations) {
             String message = invalid != null && invalid.errorDetails != null
                     ? invalid.errorDetails.errorMessage
                     : "";
-            if ("69".equals(invalid != null ? invalid.version : null)
-                    && message != null
-                    && message.toLowerCase().contains("checksum mismatch")) {
-                return true;
+            if (message == null || !message.toLowerCase().contains("checksum mismatch")) {
+                continue;
+            }
+            String version = invalid != null ? invalid.version : null;
+            if (!REPAIRABLE_CHECKSUM_MIGRATIONS.contains(version)) {
+                return false;
+            }
+            repairableMismatchFound = true;
+        }
+        return repairableMismatchFound;
+    }
+
+    private boolean hasOnlyRepairableValidationErrors(Flyway flyway) {
+        ValidateResult result = flyway.validateWithResult();
+        if (result.validationSuccessful || result.invalidMigrations == null || result.invalidMigrations.isEmpty()) {
+            return true;
+        }
+        for (ValidateOutput invalid : result.invalidMigrations) {
+            String version = invalid == null ? null : invalid.version;
+            String errorCode = invalid != null && invalid.errorDetails != null
+                    ? String.valueOf(invalid.errorDetails.errorCode)
+                    : "";
+            if ("FAILED_VERSIONED_MIGRATION".equals(errorCode)
+                    && REPAIRABLE_FAILED_MIGRATIONS.contains(version)) {
+                continue;
+            }
+            if ("CHECKSUM_MISMATCH".equals(errorCode)
+                    && REPAIRABLE_CHECKSUM_MIGRATIONS.contains(version)) {
+                continue;
+            }
+            if ("RESOLVED_VERSIONED_MIGRATION_NOT_APPLIED".equals(errorCode)
+                    && KNOWN_LATE_MIGRATIONS.contains(version)) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private boolean hasOnlyKnownLateMigrations(Flyway flyway) {
+        ValidateResult result = flyway.validateWithResult();
+        if (result.validationSuccessful || result.invalidMigrations == null || result.invalidMigrations.isEmpty()) {
+            return false;
+        }
+        var current = flyway.info().current();
+        if (current == null || current.getVersion() == null) {
+            return false;
+        }
+        MigrationVersion currentVersion = current.getVersion();
+        boolean knownLateMigrationFound = false;
+        for (ValidateOutput invalid : result.invalidMigrations) {
+            String version = invalid == null ? null : invalid.version;
+            String errorCode = invalid != null && invalid.errorDetails != null
+                    ? String.valueOf(invalid.errorDetails.errorCode)
+                    : "";
+            if (!"RESOLVED_VERSIONED_MIGRATION_NOT_APPLIED".equals(errorCode) || !StringUtils.hasText(version)) {
+                return false;
+            }
+            MigrationVersion invalidVersion = MigrationVersion.fromVersion(version);
+            if (invalidVersion.compareTo(currentVersion) < 0) {
+                if (!KNOWN_LATE_MIGRATIONS.contains(version)) {
+                    return false;
+                }
+                knownLateMigrationFound = true;
             }
         }
-        return false;
+        return knownLateMigrationFound;
     }
 }

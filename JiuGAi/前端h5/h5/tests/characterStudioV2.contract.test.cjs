@@ -11,6 +11,11 @@ const openingsEditor = fs.readFileSync(path.join(root, 'components/tavern/charac
 const worldbookEditor = fs.readFileSync(path.join(root, 'components/tavern/character-worldbook-editor.vue'), 'utf8');
 
 assert.match(editor, /cardType/);
+assert.match(editor, /ensembleChatMode/);
+assert.match(editor, /自然模式/);
+assert.match(editor, /剧情模式/);
+assert.match(editor, /form.cardType === 'ENSEMBLE' && this.form.ensembleChatMode === 'STORY'/);
+assert.match(editor, /if \(nextType === 'SINGLE'\) this\.form\.ensembleChatMode = 'NATURAL'/);
 assert.match(editor, /character-members-editor/);
 assert.match(editor, /character-openings-editor/);
 assert.match(editor, /character-worldbook-editor/);
@@ -83,6 +88,14 @@ assert.match(chat, /speakerMemberId/);
 assert.match(chat, /currentEnsembleSpeakerMemberId/);
 assert.match(chat, /studioMembers/);
 assert.match(chat, /assistantVoiceSegmentsForRow/);
+assert.match(chat, /normalizeAssistantSegments/);
+assert.match(chat, /shouldRenderStructuredAssistant/);
+assert.match(chat, /applyAssistantSegmentsFromResponse/);
+assert.match(chat, /assistantVoiceBlocksFromSegments/);
+assert.match(chat, /ensemble-message-segment/);
+assert.match(chat, /speakerSegment.speakerName/);
+assert.match(chat, /segments: d.segments/);
+assert.match(chat, /assistantProtocolDisplayText/);
 assert.match(chat, /ttsProviderSource/);
 assert.match(chat, /sentenceSpeakerMemberIds/);
 assert.match(chat, /buildCharacterVoiceTtsPayload\([\s\S]*speakerMemberId/);

@@ -17,6 +17,8 @@ public class AppFeatureSettings {
     private boolean checkinEntryVisible = true;
     private boolean systemChatPresetEntryVisible = true;
     private boolean userChatPresetEntryVisible = true;
+    private boolean semanticAnnotationEnabled = false;
+    private String semanticAnnotationRouteKey = "";
     private int userByokVipMinLevel = 0;
     private int anonymousTrialChatLimit = 30;
     private int anonymousTrialConversationLimit = 6;
@@ -116,6 +118,22 @@ public class AppFeatureSettings {
 
     public void setUserChatPresetEntryVisible(boolean userChatPresetEntryVisible) {
         this.userChatPresetEntryVisible = userChatPresetEntryVisible;
+    }
+
+    public boolean isSemanticAnnotationEnabled() {
+        return semanticAnnotationEnabled;
+    }
+
+    public void setSemanticAnnotationEnabled(boolean semanticAnnotationEnabled) {
+        this.semanticAnnotationEnabled = semanticAnnotationEnabled;
+    }
+
+    public String getSemanticAnnotationRouteKey() {
+        return semanticAnnotationRouteKey;
+    }
+
+    public void setSemanticAnnotationRouteKey(String semanticAnnotationRouteKey) {
+        this.semanticAnnotationRouteKey = semanticAnnotationRouteKey == null ? "" : semanticAnnotationRouteKey.trim();
     }
 
     public int getUserByokVipMinLevel() {

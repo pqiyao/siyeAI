@@ -1,5 +1,6 @@
 const tavernApi = require('@/common/tavernApi.js');
 const structuredContent = require('@/common/chatStructuredContent.js');
+const chatMarkdown = require('@/common/chatMarkdown.js');
 
 const STORAGE_PREFIX = 'tavern_chat_appearance_v2_';
 const LEGACY_STORAGE_PREFIX = 'tavern_chat_appearance_v1_';
@@ -1527,36 +1528,69 @@ function buildMessageTextStyleObject(message, config) {
 function buildAssistantSplitBubbleStyle(config, index, total) {
 	var c = normalizeConfig(config);
 	var surface = bubbleSurface(c, false);
+	var position = splitBubblePosition(index, total);
 	return [
 		'display:block',
+		'width:auto',
 		'max-width:100%',
 		'padding:' + runtimeRpx(c.bubblePaddingY) + ' ' + runtimeRpx(c.bubblePaddingX) + ' !important',
-		'border-radius:' + bubbleRadius(c) + ' !important',
+		'border-radius:' + splitBubbleRadius(c, position) + ' !important',
 		'background:' + surface.background + '!important',
 		'border:' + runtimeRpx(1) + ' solid ' + surface.border + '!important',
 		'border-left:' + (c.sideBorderWidth > 0 ? runtimeRpx(c.sideBorderWidth) + ' solid ' + surface.sideBorder : '0') + '!important',
-		'box-shadow:' + surface.shadow + '!important',
+		'box-shadow:' + splitBubbleShadow(c, surface.shadow, position) + '!important',
 		'color:' + c.baseTextColor + '!important',
 		'box-sizing:border-box'
 	].join(';') + ';';
 }
 
-function buildSplitBubbleStyleObject(config) {
+function splitBubblePosition(index, total) {
+	var safeIndex = Math.max(0, Number(index) || 0);
+	var safeTotal = Math.max(1, Number(total) || 1);
+	if (safeTotal <= 1) return 'single';
+	if (safeIndex <= 0) return 'first';
+	if (safeIndex >= safeTotal - 1) return 'last';
+	return 'middle';
+}
+
+function splitBubbleRadius(config, position) {
+	var radius = Number(normalizeConfig(config).radius || 20);
+	var full = runtimeRpx(radius);
+	var linked = runtimeRpx(Math.max(10, Math.round(radius * 0.62)));
+	if (position === 'first') return [full, full, full, linked].join(' ');
+	if (position === 'last') return [linked, full, full, full].join(' ');
+	if (position === 'middle') return [linked, full, full, linked].join(' ');
+	return [full, full, full, full].join(' ');
+}
+
+function splitBubbleShadow(config, fallback, position) {
+	var c = normalizeConfig(config);
+	if (position !== 'middle' || c.shadowStrength <= 0) return fallback;
+	var alpha = Math.max(0, Math.min(0.12, c.shadowStrength / 760));
+	var shadow = '0 ' + runtimeRpx(c.surfaceMode === 'legacyGlass' ? 4 : 2) + ' ' + runtimeRpx(c.surfaceMode === 'legacyGlass' ? 12 : 8) + ' rgba(0,0,0,' + alpha.toFixed(3) + ')';
+	if (c.surfaceMode === 'legacyGlass') {
+		shadow += ',inset 0 ' + runtimeRpx(1) + ' 0 rgba(255,255,255,0.08)';
+	}
+	return shadow;
+}
+
+function buildSplitBubbleStyleObject(config, index, total) {
 	var c = normalizeConfig(config);
 	var surface = bubbleSurface(c, false);
 	var content = buildEmbeddedContentTokens(c, false);
 	var blur = c.blurRadius > 0 ? 'blur(' + runtimeRpx(c.blurRadius) + ') saturate(104%)' : 'none';
+	var position = splitBubblePosition(index, total);
 	return {
 		'display': 'block',
-		'width': '100%',
+		'width': 'auto',
 		'max-width': '100%',
 		'min-width': '0',
 		'padding': runtimeRpx(c.bubblePaddingY) + ' ' + runtimeRpx(c.bubblePaddingX),
-		'border-radius': bubbleRadius(c),
+		'border-radius': splitBubbleRadius(c, position),
 		'background': surface.background,
 		'border': runtimeRpx(1) + ' solid ' + surface.border,
 		'border-left': c.sideBorderWidth > 0 ? runtimeRpx(c.sideBorderWidth) + ' solid ' + surface.sideBorder : '0',
-		'box-shadow': surface.shadow,
+		'box-shadow': splitBubbleShadow(c, surface.shadow, position),
 		'backdrop-filter': blur,
 		'-webkit-backdrop-filter': blur,
 		'color': c.baseTextColor,
@@ -1663,46 +1697,177 @@ function splitSentences(text) {
 	return matches.map(function (item) { return item.trim(); }).filter(Boolean);
 }
 
-function groupSentences(sentences, maxChars, maxCount) {
+function bubbleVisualLength(text) {
+	var source = String(text || '');
+	var length = 0;
+	Array.from(source).forEach(function (character) {
+		if (/\s/.test(character)) {
+			length += 0.2;
+		} else if (/[\x00-\x7f]/.test(character)) {
+			length += /[A-Za-z0-9]/.test(character) ? 0.55 : 0.4;
+		} else if (/[，。！？；：、“”‘’（）【】《》…—]/.test(character)) {
+			length += 0.55;
+		} else {
+			length += 1;
+		}
+	});
+	return length;
+}
+
+function semanticWrapper(text, type) {
+	var source = String(text || '').trim();
+	var pairs = type === 'speech'
+		? [['“', '”'], ['"', '"'], ['「', '」'], ['『', '』']]
+		: type === 'thought'
+			? [['（', '）'], ['(', ')']]
+			: type === 'action'
+				? [['*', '*']]
+				: [];
+	for (var i = 0; i < pairs.length; i += 1) {
+		var pair = pairs[i];
+		if (source.length > 2 && source.charAt(0) === pair[0] && source.charAt(source.length - 1) === pair[1]) {
+			return { open: pair[0], body: source.slice(1, -1).trim(), close: pair[1] };
+		}
+	}
+	return { open: '', body: source, close: '' };
+}
+
+function groupSemanticSentences(sentences, targetLength, maxCount) {
 	var groups = [];
 	var current = [];
 	var currentLength = 0;
 	(sentences || []).forEach(function (sentence) {
-		var nextLength = currentLength + sentence.length;
-		if (current.length && (current.length >= maxCount || nextLength > maxChars)) {
+		var text = String(sentence || '').trim();
+		if (!text) return;
+		var nextLength = bubbleVisualLength(text);
+		if (current.length && (current.length >= maxCount || currentLength + nextLength > targetLength)) {
 			groups.push(current.join(''));
 			current = [];
 			currentLength = 0;
 		}
-		current.push(sentence);
-		currentLength += sentence.length;
+		current.push(text);
+		currentLength += nextLength;
 	});
-	if (current.length) {
-		groups.push(current.join(''));
-	}
+	if (current.length) groups.push(current.join(''));
 	return groups;
 }
 
-function mergeTinyBubbleChunks(chunks) {
-	var merged = [];
-	(chunks || []).forEach(function (chunk) {
-		var text = String(chunk || '').trim();
-		if (!text) return;
-		var previous = merged.length ? merged[merged.length - 1] : '';
-		if (previous && text.length < 18 && previous.length + text.length <= 112) {
-			merged[merged.length - 1] = previous + '\n' + text;
-			return;
-		}
-		merged.push(text);
+function splitLongSemanticUnit(unit) {
+	var source = unit && unit.text ? String(unit.text).trim() : '';
+	if (!source || bubbleVisualLength(source) <= 60) return source ? [unit] : [];
+	var wrapper = semanticWrapper(source, unit.type);
+	var sentences = splitSentences(wrapper.body);
+	if (sentences.length <= 1) {
+		var clauses = wrapper.body.match(/[^，,、：:\n]+[，,、：:]?/g);
+		if (clauses && clauses.length > 1) sentences = clauses.map(function (item) { return item.trim(); }).filter(Boolean);
+	}
+	if (sentences.length <= 1) return [unit];
+	return groupSemanticSentences(sentences, 48, 2).map(function (group, index) {
+		return {
+			type: unit.type,
+			text: wrapper.open + group + wrapper.close,
+			lineBreakBefore: index === 0 ? unit.lineBreakBefore === true : true
+		};
 	});
-	return merged;
+}
+
+function normalizeBubbleSemanticType(type, text) {
+	var normalized = ['speech', 'action', 'thought', 'narration'].indexOf(type) >= 0 ? type : 'narration';
+	var source = String(text || '').trim();
+	if (
+		normalized === 'action'
+		&& (/^（[\s\S]+）$/.test(source) || /^\([\s\S]+\)$/.test(source))
+		&& /(?:明明|其实|却|不敢|希望|担心|害怕|后悔|为什么|怎么办|觉得|意识到|记得|知道|没想到|想要|心里|内心|心底|脑海|思绪|念头|暗自|默默|think|thought|wonder|hope|wish|afraid)/i.test(source)
+	) {
+		return 'thought';
+	}
+	return normalized;
+}
+
+function semanticUnitsForBubble(text) {
+	var lines = String(text || '').replace(/\r\n?/g, '\n')
+		.split(/\n+/)
+		.map(function (line) { return line.trim(); })
+		.filter(Boolean);
+	var units = [];
+	lines.forEach(function (line, lineIndex) {
+		var parsed = typeof chatMarkdown.splitChatSegments === 'function'
+			? chatMarkdown.splitChatSegments(line)
+			: [];
+		if (!parsed.length) parsed = [{ type: 'narration', text: line }];
+		parsed.forEach(function (segment, segmentIndex) {
+			if (!segment || !String(segment.text || '').trim()) return;
+			var type = normalizeBubbleSemanticType(segment.type, segment.text);
+			var expanded = splitLongSemanticUnit({
+				type: type,
+				text: String(segment.text).trim(),
+				lineBreakBefore: lineIndex > 0 && segmentIndex === 0
+			});
+			units.push.apply(units, expanded);
+		});
+	});
+	return units;
+}
+
+function shouldMergeSemanticUnit(current, next) {
+	if (!current.length || !next) return false;
+	var last = current[current.length - 1];
+	if (!last || last.type === 'thought' || next.type === 'thought' || current.length >= 3) return false;
+	var currentText = current.map(function (item) { return item.text; }).join('\n');
+	var combinedLength = bubbleVisualLength(currentText) + bubbleVisualLength(next.text);
+	if (combinedLength > 72) return false;
+
+	var pair = last.type + ':' + next.type;
+	if (!next.lineBreakBefore) {
+		return ['speech:speech', 'action:action', 'narration:narration'].indexOf(pair) >= 0
+			|| ['action:speech', 'speech:action', 'narration:speech', 'speech:narration', 'action:narration', 'narration:action'].indexOf(pair) >= 0;
+	}
+	if (pair === 'action:speech') return true;
+	if (pair === 'speech:action') return bubbleVisualLength(next.text) <= 28;
+	if (pair === 'narration:speech') return bubbleVisualLength(last.text) <= 30;
+	if (pair === 'speech:narration') return bubbleVisualLength(next.text) <= 22;
+	if (pair === 'narration:action' || pair === 'action:narration') return combinedLength <= 52;
+	if (last.type === next.type && next.type !== 'speech') return combinedLength <= 46;
+	return false;
+}
+
+function semanticBubbleChunks(text) {
+	var units = semanticUnitsForBubble(text);
+	if (!units.length) return [];
+	var groups = [];
+	var current = [];
+	units.forEach(function (unit) {
+		if (current.length && !shouldMergeSemanticUnit(current, unit)) {
+			groups.push(current);
+			current = [];
+		}
+		current.push(unit);
+	});
+	if (current.length) groups.push(current);
+	return groups.map(function (group) {
+		return group.map(function (item) { return item.text; }).join('\n').trim();
+	}).filter(Boolean);
 }
 
 function limitBubbleChunks(chunks, maxCount) {
 	var list = Array.isArray(chunks) ? chunks.slice() : [];
 	var limit = Math.max(2, Number(maxCount || 8));
-	if (list.length <= limit) return list;
-	return list.slice(0, limit - 1).concat([list.slice(limit - 1).join('\n\n')]);
+	while (list.length > limit) {
+		var mergeIndex = 0;
+		var bestScore = Number.POSITIVE_INFINITY;
+		for (var i = 0; i < list.length - 1; i += 1) {
+			var left = String(list[i] || '');
+			var right = String(list[i + 1] || '');
+			var structuredPenalty = structuredContent.hasStructuredContent(left) || structuredContent.hasStructuredContent(right) ? 10000 : 0;
+			var score = bubbleVisualLength(left) + bubbleVisualLength(right) + structuredPenalty;
+			if (score < bestScore) {
+				bestScore = score;
+				mergeIndex = i;
+			}
+		}
+		list.splice(mergeIndex, 2, String(list[mergeIndex] || '').trim() + '\n\n' + String(list[mergeIndex + 1] || '').trim());
+	}
+	return list;
 }
 
 function splitPlainReplyBubbleTexts(text) {
@@ -1714,30 +1879,12 @@ function splitPlainReplyBubbleTexts(text) {
 		.split(/\n\s*\n/)
 		.map(function (block) { return block.trim(); })
 		.filter(Boolean);
-	var hasExplicitParagraphs = paragraphBlocks.length > 1;
-	var seedBlocks = paragraphBlocks;
-	if (seedBlocks.length <= 1) {
-		var lineBlocks = source
-			.split(/\n+/)
-			.map(function (line) { return line.trim(); })
-			.filter(Boolean);
-		seedBlocks = lineBlocks.length > 1 ? lineBlocks : [source];
-	}
 
 	var chunks = [];
-	seedBlocks.forEach(function (block) {
-		if (block.length <= 96) {
-			chunks.push(block);
-			return;
-		}
-		var sentences = splitSentences(block);
-		if (sentences.length <= 1) {
-			chunks.push(block);
-			return;
-		}
-		chunks.push.apply(chunks, groupSentences(sentences, 88, 2));
+	paragraphBlocks.forEach(function (block) {
+		var semanticChunks = semanticBubbleChunks(block);
+		chunks.push.apply(chunks, semanticChunks.length ? semanticChunks : [block]);
 	});
-	chunks = hasExplicitParagraphs ? chunks : mergeTinyBubbleChunks(chunks);
 	chunks = limitBubbleChunks(chunks, 8);
 	return chunks.length > 1 ? chunks : [source];
 }

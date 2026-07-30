@@ -34,6 +34,9 @@ class AppConversationMemoryMapperGuardTest {
                     memory_world_name VARCHAR(255) NULL,
                     entry_count INT NOT NULL DEFAULT 0,
                     enabled_entry_count INT NOT NULL DEFAULT 0,
+                    manual_revision BIGINT NOT NULL DEFAULT 0,
+                    memory_revision BIGINT NOT NULL DEFAULT 0,
+                    applied_source_revision BIGINT NOT NULL DEFAULT 0,
                     last_source_message_id BIGINT NULL,
                     last_refreshed_message_count INT NOT NULL DEFAULT 0,
                     last_manual_refresh_at TIMESTAMP NULL,
@@ -64,6 +67,63 @@ class AppConversationMemoryMapperGuardTest {
             assertThat(mapper.releaseManualRefresh(10L, 20L, "wrong-token")).isZero();
             assertThat(mapper.releaseManualRefresh(10L, 20L, "token-1")).isEqualTo(1);
             assertThat(mapper.tryAcquireManualRefresh(10L, 20L, "token-3", now.minusSeconds(60), now.minusSeconds(300))).isZero();
+
+            jdbc.update("""
+                    INSERT INTO app_conversation_memory
+                        (conversation_id, branch_id, enabled_entry_count, sync_status, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, 11L, 0L, 1, "FAILED", now.minusSeconds(60));
+            jdbc.update("""
+                    INSERT INTO app_conversation_memory
+                        (conversation_id, branch_id, enabled_entry_count, sync_status, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, 12L, 0L, 1, "FAILED", now);
+            jdbc.update("""
+                    INSERT INTO app_conversation_memory
+                        (conversation_id, branch_id, enabled_entry_count, sync_status, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, 13L, 2L, 1, "SYNCING", now.minusSeconds(300));
+
+            var retryCandidates = mapper.listWorldbookSyncRetryCandidates(
+                    now.minusSeconds(30),
+                    now.minusSeconds(120),
+                    10
+            );
+            assertThat(retryCandidates)
+                    .extracting(memory -> memory.getConversationId())
+                    .containsExactly(13L, 11L);
+            assertThat(mapper.tryClaimWorldbookSync(
+                    11L,
+                    0L,
+                    now.minusSeconds(30),
+                    now.minusSeconds(120)
+            )).isEqualTo(1);
+            assertThat(mapper.tryClaimWorldbookSync(
+                    11L,
+                    0L,
+                    now.minusSeconds(30),
+                    now.minusSeconds(120)
+            )).isZero();
+            assertThat(mapper.updateWorldbookSyncStatusWithRevision(
+                    11L,
+                    0L,
+                    "memory-world",
+                    2,
+                    2,
+                    "SUCCESS",
+                    null,
+                    1L
+            )).isZero();
+            assertThat(mapper.updateWorldbookSyncStatusWithRevision(
+                    11L,
+                    0L,
+                    "memory-world",
+                    2,
+                    2,
+                    "SUCCESS",
+                    null,
+                    0L
+            )).isEqualTo(1);
         }
     }
 }

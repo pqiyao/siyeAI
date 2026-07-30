@@ -106,6 +106,15 @@
       </div>
       <el-tag :type="bridgeTagType">{{ bridgeState }}</el-tag>
     </div>
+    <div class="worker-band">
+      <div>
+        <b>后端运行节点</b>
+        <span>{{ clusterLabel }}</span>
+      </div>
+      <el-tag :type="clusterDistributed ? 'success' : 'info'">
+        {{ clusterDistributed ? '集群协调' : '单实例模式' }}
+      </el-tag>
+    </div>
   </div>
 </template>
 
@@ -159,6 +168,11 @@ const metrics = computed(() => [
     label: '桥接任务',
     value: overview.value.bridge?.activeJobs || 0,
     note: `Worker ${overview.value.bridge?.onlineWorkers || 0}`
+  },
+  {
+    label: '运行节点',
+    value: overview.value.cluster?.instanceCount || 1,
+    note: overview.value.cluster?.distributed ? 'Redis 全局汇总' : '当前节点数据'
   }
 ])
 
@@ -169,6 +183,12 @@ const bridgeTagType = computed(() => !bridgeEnabled.value ? 'info' : bridgeOnlin
 const bridgeLabel = computed(() => !bridgeEnabled.value
   ? '当前使用服务端运行时'
   : `${overview.value.bridge?.onlineWorkers || 0} 在线`)
+const clusterDistributed = computed(() => overview.value.cluster?.distributed === true)
+const clusterLabel = computed(() => {
+  const count = Number(overview.value.cluster?.instanceCount || 1)
+  const current = overview.value.cluster?.currentInstanceId || '-'
+  return `${count} 个在线 · 当前 ${current}`
+})
 
 async function load(options = {}) {
   const silent = options.silent === true
@@ -294,7 +314,7 @@ onBeforeUnmount(stopAutoRefresh)
 
 <style scoped>
 .runtime-page { min-height: 100%; background: #f5f7f8; }
-.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 .metric { padding: 18px 20px; background: #fff; border: 1px solid #e2e8ea; border-radius: 6px; }
 .metric span, .metric small { display: block; color: #728087; }
 .metric strong { display: block; margin: 8px 0; color: #173d46; font-size: 30px; }

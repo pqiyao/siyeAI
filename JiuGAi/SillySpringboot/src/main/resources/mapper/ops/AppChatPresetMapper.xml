@@ -104,7 +104,7 @@
             owner_user_id, scope, source_type, api_type, source_name, name, description,
             bundle_json, enabled, sort_order
         ) VALUES (
-            #{ownerUserId}, 'PRIVATE', 'USER_COPY', 'openai', #{sourceName}, #{name}, #{description},
+            #{ownerUserId}, 'PRIVATE', #{sourceType}, #{apiType}, #{sourceName}, #{name}, #{description},
             #{bundleJson}, #{enabled}, 100
         )
     </insert>

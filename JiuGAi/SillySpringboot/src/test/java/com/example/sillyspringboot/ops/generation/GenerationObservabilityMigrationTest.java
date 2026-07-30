@@ -139,13 +139,13 @@ class GenerationObservabilityMigrationTest {
                         + "AND index_name = 'idx_payment_order_pending_expiry'",
                 Integer.class
         ));
-        assertEquals(8, jdbc.queryForObject(
+        assertEquals(11, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history "
                         + "WHERE success = TRUE "
-                        + "AND version IN ('106', '107', '108', '109', '110', '111', '112', '113')",
+                        + "AND version IN ('106', '107', '108', '109', '110', '111', '112', '113', '114', '115', '117')",
                 Integer.class
         ));
-        assertEquals("113", jdbc.queryForObject(
+        assertEquals("117", jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class
         ));

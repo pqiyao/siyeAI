@@ -29,6 +29,7 @@ public class H5VisitorDeviceFilter extends OncePerRequestFilter {
     private static boolean isH5CompatibilityPath(String path) {
         return path != null && (
                 path.startsWith("/api/v1/")
+                        || path.startsWith("/api/app/")
                         || path.startsWith("/api/index/")
                         || path.startsWith("/api/common/")
                         || path.startsWith("/api/user/")

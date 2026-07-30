@@ -27,6 +27,7 @@
         SELECT *
         FROM app_conversation_st_binding
         WHERE conversation_id = #{conversationId}
+          AND status != 'CHARACTER_DELETED'
     </select>
 
     <insert id="insert" parameterType="com.example.sillyspringboot.conversation.entity.AppConversationStBinding"

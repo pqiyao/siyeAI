@@ -11,10 +11,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class EntitlementPolicyService {
+
+    private static final Set<String> CHAT_WALLET_MODES = Set.of(
+            "DIAMOND_ONLY", "GOLD_ONLY", "DIAMOND_OR_GOLD", "DIAMOND_AND_GOLD"
+    );
 
     public enum ChatQuotaAction {
         GENERATE,
@@ -74,6 +80,7 @@ public class EntitlementPolicyService {
             current.setOverQuotaBillingEnabled(boolVal(body.get("overQuotaBillingEnabled"), current.isOverQuotaBillingEnabled()));
             current.setChatScoreCost(intVal(body.get("chatScoreCost"), current.getChatScoreCost()));
             current.setChatGoldCost(intVal(body.get("chatGoldCost"), current.getChatGoldCost()));
+            current.setChatWalletMode(chatWalletModeVal(body.get("chatWalletMode"), current.getChatWalletMode()));
             current.setImageScoreCost(intVal(body.get("imageScoreCost"), current.getImageScoreCost()));
             current.setImageGoldCost(intVal(body.get("imageGoldCost"), current.getImageGoldCost()));
             current.setTtsScoreCost(intVal(body.get("ttsScoreCost"), current.getTtsScoreCost()));
@@ -115,6 +122,7 @@ public class EntitlementPolicyService {
         data.put("overQuotaBillingEnabled", policy.isOverQuotaBillingEnabled());
         data.put("chatScoreCost", policy.getChatScoreCost());
         data.put("chatGoldCost", policy.getChatGoldCost());
+        data.put("chatWalletMode", normalizedChatWalletMode(policy.getChatWalletMode()));
         data.put("imageScoreCost", policy.getImageScoreCost());
         data.put("imageGoldCost", policy.getImageGoldCost());
         data.put("ttsScoreCost", policy.getTtsScoreCost());
@@ -283,5 +291,22 @@ public class EntitlementPolicyService {
             return bool;
         }
         return Boolean.parseBoolean(String.valueOf(value).trim());
+    }
+
+    public static String normalizedChatWalletMode(String value) {
+        String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
+        return CHAT_WALLET_MODES.contains(normalized) ? normalized : "DIAMOND_AND_GOLD";
+    }
+
+    private static String chatWalletModeVal(Object value, String fallback) {
+        if (value == null) return normalizedChatWalletMode(fallback);
+        String normalized = String.valueOf(value).trim().toUpperCase(Locale.ROOT);
+        if (!CHAT_WALLET_MODES.contains(normalized)) {
+            throw new com.example.sillyspringboot.shared.error.BusinessException(
+                    com.example.sillyspringboot.shared.error.ErrorCode.VALIDATION_FAILED,
+                    "聊天钱包扣费方式不支持：" + normalized
+            );
+        }
+        return normalized;
     }
 }

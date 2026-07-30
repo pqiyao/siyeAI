@@ -35,7 +35,8 @@ class ChatPresetServiceTest {
         AppChatPreset source = preset(1L, null, "PUBLIC", true);
         source.setName("官方平衡");
         source.setBundleJson("""
-                {"generation":{"temperature":0.8,"top_p":0.9,"openai_max_tokens":700,
+                {"generation":{"temperature":0.8,"top_p":0.9,"frequency_penalty":0.2,
+                "presence_penalty":0.3,"openai_max_tokens":700,
                 "openai_max_context":16000,"chat_completion_source":"custom","reverse_proxy":"secret",
                 "prompts":[{"identifier":"main","content":"hidden"}]}}
                 """);
@@ -50,12 +51,39 @@ class ChatPresetServiceTest {
         assertThat(stored.getOwnerUserId()).isEqualTo(USER_ID);
         assertThat(stored.getScope()).isEqualTo("PRIVATE");
         assertThat(stored.getName()).isEqualTo("我的平衡");
-        assertThat(generation.size()).isEqualTo(4);
+        assertThat(generation.size()).isEqualTo(6);
         assertThat(generation.path("temperature").asDouble()).isEqualTo(0.8d);
         assertThat(generation.path("top_p").asDouble()).isEqualTo(0.9d);
-        assertThat(generation.path("openai_max_tokens").asInt()).isEqualTo(700);
+        assertThat(generation.path("frequency_penalty").asDouble()).isEqualTo(0.2d);
+        assertThat(generation.path("presence_penalty").asDouble()).isEqualTo(0.3d);
+        assertThat(generation.path("openai_max_tokens").asInt()).isEqualTo(800);
         assertThat(generation.path("openai_max_context").asInt()).isEqualTo(16000);
         assertThat(stored.getBundleJson()).doesNotContain("custom", "reverse_proxy", "hidden", "prompts");
+        verify(fixture.presetMapper).lockOwnerUser(USER_ID);
+        verify(fixture.presetMapper).countPrivateByOwner(USER_ID);
+    }
+
+    @Test
+    void createPrivatePresetStartsWithSafeDefaultsWithoutPlatformPreset() throws Exception {
+        Fixture fixture = fixture();
+        fixture.service.createPrivatePreset(USER_ID, "我的自定义");
+
+        ArgumentCaptor<AppChatPreset> captor = ArgumentCaptor.forClass(AppChatPreset.class);
+        verify(fixture.presetMapper).insertPrivate(captor.capture());
+        AppChatPreset stored = captor.getValue();
+        JsonNode generation = new ObjectMapper().readTree(stored.getBundleJson()).path("generation");
+        assertThat(stored.getOwnerUserId()).isEqualTo(USER_ID);
+        assertThat(stored.getScope()).isEqualTo("PRIVATE");
+        assertThat(stored.getSourceType()).isEqualTo("USER_CUSTOM");
+        assertThat(stored.getName()).isEqualTo("我的自定义");
+        assertThat(new ObjectMapper().readTree(stored.getBundleJson()).path("source_type").asText())
+                .isEqualTo("USER_CUSTOM");
+        assertThat(generation.path("temperature").asDouble()).isEqualTo(1.0d);
+        assertThat(generation.path("top_p").asDouble()).isEqualTo(1.0d);
+        assertThat(generation.path("frequency_penalty").asDouble()).isZero();
+        assertThat(generation.path("presence_penalty").asDouble()).isZero();
+        assertThat(generation.path("openai_max_tokens").asInt()).isEqualTo(800);
+        assertThat(generation.path("openai_max_context").asInt()).isEqualTo(8192);
         verify(fixture.presetMapper).lockOwnerUser(USER_ID);
         verify(fixture.presetMapper).countPrivateByOwner(USER_ID);
     }
@@ -104,6 +132,21 @@ class ChatPresetServiceTest {
     }
 
     @Test
+    void legacyPrivatePresetBelowNewEditableMinimumStillResolvesAtRuntime() {
+        Fixture fixture = fixture();
+        AppConversationStBinding binding = new AppConversationStBinding();
+        binding.setUserId(USER_ID);
+        binding.setChatPresetId(5L);
+        AppChatPreset preset = preset(5L, USER_ID, "PRIVATE", true);
+        when(fixture.presetMapper.findEnabledAvailableById(5L, USER_ID)).thenReturn(preset);
+
+        assertThat(fixture.service.resolveRuntimePresetBundle(binding))
+                .contains("\"openai_max_tokens\":512")
+                .contains("\"frequency_penalty\":0.0")
+                .contains("\"presence_penalty\":0.0");
+    }
+
+    @Test
     void disablingPrivatePresetClearsExistingConversationBindings() {
         Fixture fixture = fixture();
         AppChatPreset existing = preset(5L, USER_ID, "PRIVATE", true);
@@ -111,14 +154,62 @@ class ChatPresetServiceTest {
         updated.setName("低随机");
         when(fixture.presetMapper.findPrivateByIdForOwner(5L, USER_ID)).thenReturn(existing, updated);
         when(fixture.presetMapper.updatePrivate(
-                5L, USER_ID, "低随机", "temp=0.4 / top_p=0.8 / tokens=512 / context=8192",
-                "{\"schemaVersion\":1,\"source_type\":\"USER_COPY\",\"generation\":{\"temperature\":0.4,\"top_p\":0.8,\"openai_max_tokens\":512,\"openai_max_context\":8192}}",
+                5L, USER_ID, "低随机", "temp=0.4 / top_p=0.8 / frequency=0.1 / presence=0.2 / tokens=800 / context=8192",
+                "{\"schemaVersion\":1,\"source_type\":\"USER_COPY\",\"generation\":{\"temperature\":0.4,\"top_p\":0.8,\"frequency_penalty\":0.1,\"presence_penalty\":0.2,\"openai_max_tokens\":800,\"openai_max_context\":8192}}",
                 false
         )).thenReturn(1);
 
-        fixture.service.updatePrivatePreset(USER_ID, 5L, "低随机", 0.4d, 0.8d, 512, 8192, false);
+        fixture.service.updatePrivatePreset(USER_ID, 5L, "低随机", 0.4d, 0.8d, 0.1d, 0.2d, 800, false);
 
         verify(fixture.bindingMapper).clearChatPresetId(5L);
+    }
+
+    @Test
+    void editingPrivatePresetRejectsUnsafeLowOutputBudget() {
+        Fixture fixture = fixture();
+        AppChatPreset existing = preset(5L, USER_ID, "PRIVATE", true);
+        when(fixture.presetMapper.findPrivateByIdForOwner(5L, USER_ID)).thenReturn(existing);
+
+        assertThatThrownBy(() -> fixture.service.updatePrivatePreset(
+                USER_ID, 5L, "过短", 1.0d, 1.0d, 0.0d, 0.0d, 799, true))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("800");
+
+        verify(fixture.presetMapper, never()).updatePrivate(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyBoolean()
+        );
+    }
+
+    @Test
+    void editingPrivatePresetAutomaticallyExpandsHiddenContextBudget() {
+        Fixture fixture = fixture();
+        AppChatPreset existing = preset(5L, USER_ID, "PRIVATE", true);
+        when(fixture.presetMapper.findPrivateByIdForOwner(5L, USER_ID)).thenReturn(existing, existing);
+        when(fixture.presetMapper.updatePrivate(
+                5L,
+                USER_ID,
+                "长输出",
+                "temp=1 / top_p=1 / frequency=0 / presence=0 / tokens=8192 / context=8704",
+                "{\"schemaVersion\":1,\"source_type\":\"USER_COPY\",\"generation\":{\"temperature\":1.0,\"top_p\":1.0,\"frequency_penalty\":0.0,\"presence_penalty\":0.0,\"openai_max_tokens\":8192,\"openai_max_context\":8704}}",
+                true
+        )).thenReturn(1);
+
+        fixture.service.updatePrivatePreset(
+                USER_ID, 5L, "长输出", 1.0d, 1.0d, 0.0d, 0.0d, 8192, true);
+
+        verify(fixture.presetMapper).updatePrivate(
+                5L,
+                USER_ID,
+                "长输出",
+                "temp=1 / top_p=1 / frequency=0 / presence=0 / tokens=8192 / context=8704",
+                "{\"schemaVersion\":1,\"source_type\":\"USER_COPY\",\"generation\":{\"temperature\":1.0,\"top_p\":1.0,\"frequency_penalty\":0.0,\"presence_penalty\":0.0,\"openai_max_tokens\":8192,\"openai_max_context\":8704}}",
+                true
+        );
     }
 
     @Test

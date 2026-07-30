@@ -27,8 +27,52 @@ public record ChatGenerateRequest(
         String tailSystemPrompt,
         String runtimePresetBundle,
         AiCapability routingCapability,
-        String routingRouteKey
+        String routingRouteKey,
+        String userPersona,
+        String studioLoreBeforeCharacter,
+        String studioLoreAfterCharacter,
+        String studioLoreBeforeHistory
 ) {
+
+    public ChatGenerateRequest(
+            Long conversationId, String userMessage, List<ChatMessage> messages, String clientMessageId,
+            boolean stream, String mode, Set<String> allowedFeatures, String userName, String charName,
+            List<String> groupNames, String stAvatarUrl, String stChatFileName, String stMessageRef,
+            List<String> stWorldNames, UserModelOverride userModelOverride, String tailSystemPrompt,
+            String runtimePresetBundle, AiCapability routingCapability, String routingRouteKey, String userPersona
+    ) {
+        this(conversationId, userMessage, messages, clientMessageId, stream, mode, allowedFeatures,
+                userName, charName, groupNames, stAvatarUrl, stChatFileName, stMessageRef, stWorldNames,
+                userModelOverride, tailSystemPrompt, runtimePresetBundle, routingCapability, routingRouteKey,
+                userPersona, null, null, null);
+    }
+
+    public ChatGenerateRequest(
+            Long conversationId,
+            String userMessage,
+            List<ChatMessage> messages,
+            String clientMessageId,
+            boolean stream,
+            String mode,
+            Set<String> allowedFeatures,
+            String userName,
+            String charName,
+            List<String> groupNames,
+            String stAvatarUrl,
+            String stChatFileName,
+            String stMessageRef,
+            List<String> stWorldNames,
+            UserModelOverride userModelOverride,
+            String tailSystemPrompt,
+            String runtimePresetBundle,
+            AiCapability routingCapability,
+            String routingRouteKey
+    ) {
+        this(conversationId, userMessage, messages, clientMessageId, stream, mode, allowedFeatures,
+                userName, charName, groupNames, stAvatarUrl, stChatFileName, stMessageRef, stWorldNames,
+                userModelOverride, tailSystemPrompt, runtimePresetBundle, routingCapability, routingRouteKey,
+                null, null, null, null);
+    }
 
     public ChatGenerateRequest(
             Long conversationId,
@@ -52,7 +96,8 @@ public record ChatGenerateRequest(
     ) {
         this(conversationId, userMessage, messages, clientMessageId, stream, mode, allowedFeatures,
                 userName, charName, groupNames, stAvatarUrl, stChatFileName, stMessageRef, stWorldNames,
-                userModelOverride, tailSystemPrompt, runtimePresetBundle, routingCapability, null);
+                userModelOverride, tailSystemPrompt, runtimePresetBundle, routingCapability, null,
+                null, null, null, null);
     }
 
     public ChatGenerateRequest(
@@ -76,7 +121,8 @@ public record ChatGenerateRequest(
     ) {
         this(conversationId, userMessage, messages, clientMessageId, stream, mode, allowedFeatures,
                 userName, charName, groupNames, stAvatarUrl, stChatFileName, stMessageRef, stWorldNames,
-                userModelOverride, tailSystemPrompt, runtimePresetBundle, AiCapability.CHAT, null);
+                userModelOverride, tailSystemPrompt, runtimePresetBundle, AiCapability.CHAT, null,
+                null, null, null, null);
     }
 
     public ChatGenerateRequest(
@@ -115,6 +161,10 @@ public record ChatGenerateRequest(
                 null,
                 null,
                 AiCapability.CHAT,
+                null,
+                null,
+                null,
+                null,
                 null
         );
     }
@@ -156,7 +206,20 @@ public record ChatGenerateRequest(
                 tailSystemPrompt,
                 null,
                 AiCapability.CHAT,
+                null,
+                null,
+                null,
+                null,
                 null
+        );
+    }
+
+    public ChatGenerateRequest withStudioLore(String beforeCharacter, String afterCharacter, String beforeHistory) {
+        return new ChatGenerateRequest(
+                conversationId, userMessage, messages, clientMessageId, stream, mode, allowedFeatures,
+                userName, charName, groupNames, stAvatarUrl, stChatFileName, stMessageRef, stWorldNames,
+                userModelOverride, tailSystemPrompt, runtimePresetBundle, routingCapability, routingRouteKey,
+                userPersona, beforeCharacter, afterCharacter, beforeHistory
         );
     }
 

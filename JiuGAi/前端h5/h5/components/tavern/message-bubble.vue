@@ -49,7 +49,10 @@
 
 .chat-message-split-part {
 	position: relative;
-	margin-bottom: 8rpx;
+	align-self: flex-start;
+	width: auto;
+	max-width: 100%;
+	margin-bottom: 14rpx;
 	word-break: break-word;
 	overflow-wrap: break-word;
 }
@@ -77,7 +80,7 @@
 .chat-message-markdown .st-chat-render {
 	display: flex;
 	flex-direction: column;
-	gap: 8rpx;
+	gap: 10rpx;
 }
 
 .chat-message-markdown .st-chat-seg,
@@ -153,7 +156,7 @@
 }
 
 .chat-message-native {
-	gap: 8rpx;
+	gap: 10rpx;
 }
 
 .chat-message-segment-label,

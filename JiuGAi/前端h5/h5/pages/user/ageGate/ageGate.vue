@@ -5,10 +5,10 @@
 			<image class="logo" src="/static/logo.png" mode="aspectFill"></image>
 			<text class="title">访问已暂停</text>
 			<text class="desc">
-				本项目为 AI 角色扮演纯娱乐分享项目，非商用，不支持充值或在线支付。继续访问前，需要确认已满 18 周岁并同意用户协议与隐私政策。
+				本应用提供 AI 角色扮演与内容生成服务，模型输出可能包含虚构、不准确或不适宜内容。继续访问前，需要确认已满 18 周岁并同意用户协议与隐私政策。
 			</text>
 			<view class="notice">
-				<text>如果你是未成年人，或不同意“纯娱乐、非商用、不支持充值”的项目说明及相关条款，请停止访问本项目。</text>
+				<text>如果你未满 18 周岁，或不同意用户协议、隐私政策及内容合规要求，请停止访问和使用本应用。</text>
 			</view>
 			<view class="btn btn--primary" @tap="confirmAge">我已满18岁并同意继续</view>
 			<view class="btn btn--ghost" @tap="openTerms">查看用户协议</view>

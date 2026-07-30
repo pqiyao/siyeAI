@@ -45,8 +45,8 @@
       <el-table-column type="selection" width="48" align="center" />
       <el-table-column label="风险" width="90">
         <template #default="scope">
-          <el-tag :type="scope.row.riskScore ? 'danger' : 'success'">
-            {{ scope.row.riskScore ? '关注' : '正常' }}
+          <el-tag :type="riskTagType(scope.row.riskScore)">
+            {{ riskLabel(scope.row.riskScore) }}
           </el-tag>
         </template>
       </el-table-column>
@@ -55,9 +55,14 @@
       <el-table-column label="用户" prop="userId" width="90" />
       <el-table-column label="IP" prop="ip" width="140" />
       <el-table-column label="设备环境" prop="userAgent" min-width="220" show-overflow-tooltip />
-      <el-table-column label="匿名聊天" prop="anonymousChats" width="100" />
+      <el-table-column label="匿名拦截" prop="anonymousBlocksTotal" width="100" />
       <el-table-column label="最后活跃" prop="lastSeenAt" width="170" />
-      <el-table-column label="24h事件" prop="riskScore" width="90" />
+      <el-table-column label="24h 风险" min-width="160">
+        <template #default="scope">
+          <b>{{ scope.row.riskScore || 0 }} 分</b>
+          <div class="event-meta">{{ riskSummary(scope.row) }}</div>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" fixed="right" width="96">
         <template #default="scope">
           <el-button
@@ -131,7 +136,10 @@ const eventLabels = {
   CLIENT_UID_CHANGED: '身份标识切换',
   USER_CHANGED: '登录账号切换',
   IP_CHANGED: '网络变化',
-  RATE_LIMIT_HIT: '触发限流'
+  RATE_LIMIT_HIT: '触发限流',
+  ANONYMOUS_CHAT_BLOCKED: '匿名聊天被拦截',
+  ANONYMOUS_CONVERSATION_BLOCKED: '匿名创建会话被拦截',
+  ANONYMOUS_CHARACTER_BLOCKED: '匿名创建角色被拦截'
 }
 
 const cards = computed(() => [
@@ -139,11 +147,15 @@ const cards = computed(() => [
   { label: '24h 活跃', value: overview.value.activeDay || 0 },
   { label: '24h 新设备', value: overview.value.newDay || 0 },
   { label: '限流命中', value: overview.value.limitHitsDay || 0 },
+  { label: '匿名拦截', value: overview.value.anonymousBlockedDay || 0 },
   { label: '需关注设备', value: overview.value.riskyDay || 0 }
 ])
 
-async function load() {
-  loading.value = true
+let refreshTimer = null
+
+async function load(options = {}) {
+  const silent = options.silent === true
+  if (!silent) loading.value = true
   try {
     const [overviewResponse, listResponse] = await Promise.all([
       getVisitorRiskOverview(),
@@ -153,15 +165,41 @@ async function load() {
     rows.value = listResponse.rows || []
     total.value = listResponse.total || 0
   } catch (error) {
-    proxy.$modal.msgError(error?.msg || error?.message || '访客风险数据加载失败')
+    if (!silent) proxy.$modal.msgError(error?.msg || error?.message || '访客风险数据加载失败')
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
 function search() {
   query.pageNum = 1
   load()
+}
+
+function riskTagType(score) {
+  const value = Number(score) || 0
+  if (value >= 15) return 'danger'
+  if (value >= 5) return 'warning'
+  if (value > 0) return 'info'
+  return 'success'
+}
+
+function riskLabel(score) {
+  const value = Number(score) || 0
+  if (value >= 15) return '高风险'
+  if (value >= 5) return '需关注'
+  if (value > 0) return '低风险'
+  return '正常'
+}
+
+function riskSummary(row) {
+  const parts = []
+  if (Number(row.userChanges)) parts.push(`换账号 ${row.userChanges}`)
+  if (Number(row.clientUidChanges)) parts.push(`换身份 ${row.clientUidChanges}`)
+  if (Number(row.rateLimitHits)) parts.push(`限流 ${row.rateLimitHits}`)
+  if (Number(row.anonymousBlocksDay)) parts.push(`匿名 ${row.anonymousBlocksDay}`)
+  if (Number(row.ipChanges)) parts.push(`换 IP ${row.ipChanges}`)
+  return parts.join(' · ') || '无异常事件'
 }
 
 function handleSelectionChange(selection) {
@@ -224,12 +262,30 @@ function eventKey(event) {
   return [event.createdAt, event.eventType, event.clientUid, event.endpointGroup].join('|')
 }
 
-onMounted(load)
+function startAutoRefresh() {
+  stopAutoRefresh()
+  refreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible' && !loading.value && !deleting.value && !drawerVisible.value) {
+      load({ silent: true })
+    }
+  }, 60000)
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer != null) window.clearInterval(refreshTimer)
+  refreshTimer = null
+}
+
+onMounted(() => {
+  load()
+  startAutoRefresh()
+})
+onBeforeUnmount(stopAutoRefresh)
 </script>
 
 <style scoped>
 .risk-page { min-height: 100%; background: #f5f7f8; }
-.summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .summary > div { padding: 16px; background: #fff; border: 1px solid #e1e7e9; border-left: 3px solid #2b7a78; border-radius: 5px; }
 .summary span { display: block; color: #758188; font-size: 13px; }
 .summary b { display: block; margin-top: 7px; color: #193f46; font-size: 26px; }

@@ -7,10 +7,14 @@
     <sql id="columns">
         id,
         task_key AS taskKey,
+        operation_id AS operationId,
+        source_type AS sourceType,
         source_user_id AS sourceUserId,
+        source_character_id AS sourceCharacterId,
         resource_type AS resourceType,
         primary_ref AS primaryRef,
         secondary_ref AS secondaryRef,
+        context_json AS contextJson,
         status,
         attempt_count AS attemptCount,
         max_attempts AS maxAttempts,
@@ -28,10 +32,14 @@
         INSERT INTO app_external_cleanup_task (
             id,
             task_key,
+            operation_id,
+            source_type,
             source_user_id,
+            source_character_id,
             resource_type,
             primary_ref,
             secondary_ref,
+            context_json,
             status,
             attempt_count,
             max_attempts,
@@ -39,10 +47,14 @@
         ) VALUES (
             #{task.id},
             #{task.taskKey},
+            #{task.operationId},
+            COALESCE(#{task.sourceType}, 'USER_DELETION'),
             #{task.sourceUserId},
+            #{task.sourceCharacterId},
             #{task.resourceType},
             #{task.primaryRef},
             #{task.secondaryRef},
+            #{task.contextJson},
             #{task.status},
             #{task.attemptCount},
             #{task.maxAttempts},
@@ -61,6 +73,22 @@
         SELECT <include refid="columns"/>
         FROM app_external_cleanup_task
         WHERE task_key = #{taskKey}
+    </select>
+
+    <select id="countBlockingCharacterStTasks" resultType="int">
+        SELECT COUNT(*)
+        FROM app_external_cleanup_task
+        WHERE operation_id = #{operationId}
+          AND resource_type = 'CHARACTER_ST_BUNDLE'
+          AND status IN ('PENDING', 'RETRY', 'PROCESSING')
+    </select>
+
+    <select id="countDeadCharacterStTasks" resultType="int">
+        SELECT COUNT(*)
+        FROM app_external_cleanup_task
+        WHERE operation_id = #{operationId}
+          AND resource_type = 'CHARACTER_ST_BUNDLE'
+          AND status = 'DEAD'
     </select>
 
     <select id="listDueTasks" resultType="com.example.sillyspringboot.admin.model.ExternalCleanupTask">
@@ -109,9 +137,37 @@
           AND lock_token = #{lockToken}
     </update>
 
+    <update id="markSkipped">
+        UPDATE app_external_cleanup_task
+        SET status = #{status},
+            next_attempt_at = NULL,
+            locked_until = NULL,
+            lock_token = NULL,
+            last_error = #{lastError},
+            completed_at = #{completedAt},
+            updated_at = #{completedAt}
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_token = #{lockToken}
+    </update>
+
     <update id="markFailed">
         UPDATE app_external_cleanup_task
         SET status = #{status},
+            next_attempt_at = #{nextAttemptAt},
+            locked_until = NULL,
+            lock_token = NULL,
+            last_error = #{lastError},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_token = #{lockToken}
+    </update>
+
+    <update id="deferClaim">
+        UPDATE app_external_cleanup_task
+        SET status = 'RETRY',
+            attempt_count = CASE WHEN attempt_count &gt; 0 THEN attempt_count - 1 ELSE 0 END,
             next_attempt_at = #{nextAttemptAt},
             locked_until = NULL,
             lock_token = NULL,

@@ -1,7 +1,11 @@
 package com.example.sillyspringboot.admin.service;
 
+import com.example.sillyspringboot.admin.mapper.CharacterCleanupMapper;
+import com.example.sillyspringboot.admin.model.CharacterUploadAssetRow;
 import com.example.sillyspringboot.admin.mapper.ExternalCleanupTaskMapper;
 import com.example.sillyspringboot.admin.model.ExternalCleanupTask;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.sillyspringboot.config.ExternalCleanupProperties;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
 import org.slf4j.Logger;
@@ -37,12 +41,15 @@ public class ExternalCleanupTaskService {
     static final String TYPE_ST_CHARACTER = "ST_CHARACTER";
     static final String TYPE_ST_WORLDBOOK = "ST_WORLDBOOK";
     static final String TYPE_LOCAL_UPLOAD = "LOCAL_UPLOAD";
+    static final String TYPE_CHARACTER_ST_BUNDLE = "CHARACTER_ST_BUNDLE";
+    static final String TYPE_CHARACTER_LOCAL_UPLOAD = "CHARACTER_LOCAL_UPLOAD";
 
     static final String STATUS_PENDING = "PENDING";
     static final String STATUS_PROCESSING = "PROCESSING";
     static final String STATUS_RETRY = "RETRY";
     static final String STATUS_COMPLETED = "COMPLETED";
     static final String STATUS_DEAD = "DEAD";
+    static final String STATUS_SKIPPED_SHARED = "SKIPPED_SHARED";
 
     private static final Logger log = LoggerFactory.getLogger(ExternalCleanupTaskService.class);
     private static final int MAX_ERROR_LENGTH = 4_000;
@@ -51,17 +58,21 @@ public class ExternalCleanupTaskService {
     );
 
     private final ExternalCleanupTaskMapper mapper;
+    private final CharacterCleanupMapper characterCleanupMapper;
     private final StAdapter stAdapter;
     private final ExternalCleanupProperties properties;
     private final Path h5UploadRoot;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ExternalCleanupTaskService(
             ExternalCleanupTaskMapper mapper,
+            CharacterCleanupMapper characterCleanupMapper,
             StAdapter stAdapter,
             ExternalCleanupProperties properties,
             @Value("${app.upload.dir:${user.dir}/data/uploads}") String uploadRootDir
     ) {
         this.mapper = mapper;
+        this.characterCleanupMapper = characterCleanupMapper;
         this.stAdapter = stAdapter;
         this.properties = properties;
         this.h5UploadRoot = Path.of(uploadRootDir).toAbsolutePath().normalize().resolve("h5").normalize();
@@ -84,6 +95,55 @@ public class ExternalCleanupTaskService {
         collectLocalUploadDrafts(drafts, localAssetUrls);
 
         return persistDrafts(userId, drafts);
+    }
+
+    public String enqueueCharacterStBundle(
+            String operationId,
+            long sourceCharacterId,
+            Long sourceUserId,
+            String stAvatarUrl,
+            List<Long> targetCharacterIds
+    ) {
+        CharacterCleanupContext context = new CharacterCleanupContext(
+                normalizeCharacterIds(targetCharacterIds),
+                null,
+                null,
+                ""
+        );
+        return persistCharacterTask(
+                operationId,
+                sourceCharacterId,
+                sourceUserId,
+                TYPE_CHARACTER_ST_BUNDLE,
+                text(stAvatarUrl),
+                context
+        );
+    }
+
+    public String enqueueCharacterLocalUpload(
+            String operationId,
+            long sourceCharacterId,
+            long sourceUserId,
+            String assetUrl,
+            long assetId,
+            String relativePath,
+            List<Long> targetCharacterIds
+    ) {
+        String safeRelativePath = normalizeLocalUploadReference(relativePath);
+        CharacterCleanupContext context = new CharacterCleanupContext(
+                normalizeCharacterIds(targetCharacterIds),
+                sourceUserId,
+                assetId,
+                text(assetUrl)
+        );
+        return persistCharacterTask(
+                operationId,
+                sourceCharacterId,
+                sourceUserId,
+                TYPE_CHARACTER_LOCAL_UPLOAD,
+                safeRelativePath,
+                context
+        );
     }
 
     public List<String> enqueueUserDeletionTasks(
@@ -119,6 +179,7 @@ public class ExternalCleanupTaskService {
             ExternalCleanupTask task = new ExternalCleanupTask();
             task.setId(UUID.randomUUID().toString());
             task.setTaskKey(taskKey);
+            task.setSourceType("USER_DELETION");
             task.setSourceUserId(sourceUserId);
             task.setResourceType(draft.resourceType());
             task.setPrimaryRef(draft.primaryRef());
@@ -136,6 +197,49 @@ public class ExternalCleanupTaskService {
             taskIds.add(persisted.getId());
         }
         return List.copyOf(taskIds);
+    }
+
+    private String persistCharacterTask(
+            String operationId,
+            long sourceCharacterId,
+            Long sourceUserId,
+            String resourceType,
+            String primaryRef,
+            CharacterCleanupContext context
+    ) {
+        String safeOperationId = text(operationId);
+        if (safeOperationId.isBlank() || sourceCharacterId <= 0 || primaryRef.isBlank()) {
+            throw new IllegalArgumentException("character cleanup task context is invalid");
+        }
+        String contextJson;
+        try {
+            contextJson = objectMapper.writeValueAsString(context);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("character cleanup context is invalid", ex);
+        }
+
+        ExternalCleanupTask task = new ExternalCleanupTask();
+        task.setId(UUID.randomUUID().toString());
+        task.setOperationId(safeOperationId);
+        task.setSourceType("CHARACTER_DELETION");
+        task.setSourceUserId(sourceUserId);
+        task.setSourceCharacterId(sourceCharacterId);
+        task.setResourceType(resourceType);
+        task.setPrimaryRef(primaryRef);
+        task.setSecondaryRef("");
+        task.setContextJson(contextJson);
+        task.setTaskKey(taskKey(safeOperationId, resourceType, primaryRef));
+        task.setStatus(STATUS_PENDING);
+        task.setAttemptCount(0);
+        task.setMaxAttempts(clamp(properties.getMaxAttempts(), 1, 100));
+        task.setNextAttemptAt(LocalDateTime.now());
+        mapper.insertOrKeep(task);
+
+        ExternalCleanupTask persisted = mapper.findByTaskKey(task.getTaskKey());
+        if (persisted == null || persisted.getId() == null || persisted.getId().isBlank()) {
+            throw new IllegalStateException("character cleanup task was not persisted");
+        }
+        return persisted.getId();
     }
 
     public List<CleanupAttempt> processImmediately(Collection<String> taskIds) {
@@ -267,6 +371,42 @@ public class ExternalCleanupTaskService {
                 return new CleanupAttempt(taskId, claimedTask.getResourceType(), "SUPERSEDED", "cleanup completion was superseded");
             }
             return new CleanupAttempt(taskId, claimedTask.getResourceType(), STATUS_COMPLETED, "cleanup completed");
+        } catch (CleanupDependencyPendingException ex) {
+            LocalDateTime deferredAt = LocalDateTime.now();
+            String error = clip(ex.getMessage(), MAX_ERROR_LENGTH);
+            int updated = mapper.deferClaim(
+                    taskId,
+                    lockToken,
+                    deferredAt.plusSeconds(clamp(properties.getBaseBackoffSeconds(), 1L, 86_400L)),
+                    error,
+                    deferredAt
+            );
+            if (updated != 1) {
+                return new CleanupAttempt(taskId, claimedTask.getResourceType(), "SUPERSEDED", "cleanup deferral was superseded");
+            }
+            return new CleanupAttempt(taskId, claimedTask.getResourceType(), "DEFERRED", error);
+        } catch (CleanupDependencyFailedException ex) {
+            LocalDateTime completedAt = LocalDateTime.now();
+            String error = clip(ex.getMessage(), MAX_ERROR_LENGTH);
+            int updated = mapper.markSkipped(taskId, lockToken, STATUS_DEAD, error, completedAt);
+            if (updated != 1) {
+                return new CleanupAttempt(taskId, claimedTask.getResourceType(), "SUPERSEDED", "cleanup dependency failure was superseded");
+            }
+            return new CleanupAttempt(taskId, claimedTask.getResourceType(), STATUS_DEAD, error);
+        } catch (UnsafeCleanupReferenceException ex) {
+            LocalDateTime completedAt = LocalDateTime.now();
+            String error = clip(ex.getMessage(), MAX_ERROR_LENGTH);
+            int updated = mapper.markSkipped(
+                    taskId,
+                    lockToken,
+                    STATUS_SKIPPED_SHARED,
+                    error,
+                    completedAt
+            );
+            if (updated != 1) {
+                return new CleanupAttempt(taskId, claimedTask.getResourceType(), "SUPERSEDED", "cleanup skip was superseded");
+            }
+            return new CleanupAttempt(taskId, claimedTask.getResourceType(), STATUS_SKIPPED_SHARED, error);
         } catch (RuntimeException ex) {
             return recordFailure(claimedTask, lockToken, ex);
         }
@@ -316,7 +456,78 @@ public class ExternalCleanupTaskService {
             case TYPE_ST_CHARACTER -> stAdapter.deleteCharacter(primaryRef, true);
             case TYPE_ST_WORLDBOOK -> stAdapter.deleteWorldbook(primaryRef);
             case TYPE_LOCAL_UPLOAD -> deleteLocalUpload(primaryRef);
+            case TYPE_CHARACTER_ST_BUNDLE -> deleteCharacterStBundle(task);
+            case TYPE_CHARACTER_LOCAL_UPLOAD -> deleteCharacterLocalUpload(task);
             default -> throw new IllegalArgumentException("unsupported cleanup resource type: " + resourceType);
+        }
+    }
+
+    private void deleteCharacterStBundle(ExternalCleanupTask task) {
+        CharacterCleanupContext context = parseCharacterContext(task);
+        String stAvatarUrl = text(task.getPrimaryRef());
+        if (characterCleanupMapper.countOtherCharacterStReferences(stAvatarUrl, context.targetCharacterIds()) > 0
+                || characterCleanupMapper.countOtherBindingStReferences(stAvatarUrl, context.targetCharacterIds()) > 0) {
+            throw new UnsafeCleanupReferenceException("ST resource is shared by another character");
+        }
+        stAdapter.deleteCharacter(stAvatarUrl, true);
+    }
+
+    private void deleteCharacterLocalUpload(ExternalCleanupTask task) {
+        CharacterCleanupContext context = parseCharacterContext(task);
+        String operationId = text(task.getOperationId());
+        if (operationId.isBlank()) {
+            throw new UnsafeCleanupReferenceException("character cleanup operation is missing");
+        }
+        if (mapper.countDeadCharacterStTasks(operationId) > 0) {
+            throw new CleanupDependencyFailedException("ST cleanup permanently failed; local media was retained");
+        }
+        if (mapper.countBlockingCharacterStTasks(operationId) > 0) {
+            throw new CleanupDependencyPendingException("local media cleanup is waiting for ST cleanup");
+        }
+        String relativePath = normalizeOwnedUploadRelativePath(task.getPrimaryRef());
+        String assetUrl = text(context.assetUrl());
+        if (assetUrl.isBlank() || context.expectedOwnerUserId() == null || context.assetId() == null) {
+            throw new UnsafeCleanupReferenceException("local upload ownership is unknown");
+        }
+
+        CharacterUploadAssetRow asset = characterCleanupMapper.findUploadAsset(assetUrl);
+        Path target = resolveStoredUploadPath(relativePath);
+        if (asset == null) {
+            if (Files.notExists(target)) {
+                return;
+            }
+            throw new UnsafeCleanupReferenceException("local upload ownership record is missing");
+        }
+        long actualAssetId = positiveLong(asset.getAssetId());
+        long actualOwnerUserId = positiveLong(asset.getOwnerUserId());
+        String actualRelativePath = text(asset.getRelativePath());
+        if (actualAssetId != context.assetId()
+                || actualOwnerUserId != context.expectedOwnerUserId()
+                || !relativePath.equals(actualRelativePath)) {
+            throw new UnsafeCleanupReferenceException("local upload ownership changed");
+        }
+        if (characterCleanupMapper.countOtherLocalAssetReferences(assetUrl, context.targetCharacterIds()) > 0) {
+            throw new UnsafeCleanupReferenceException("local upload is shared by another resource");
+        }
+
+        deleteLocalUpload(relativePath);
+        characterCleanupMapper.deleteUploadAsset(actualAssetId, actualOwnerUserId, actualRelativePath);
+    }
+
+    private CharacterCleanupContext parseCharacterContext(ExternalCleanupTask task) {
+        try {
+            CharacterCleanupContext context = objectMapper.readValue(task.getContextJson(), CharacterCleanupContext.class);
+            if (context.targetCharacterIds() == null || context.targetCharacterIds().isEmpty()) {
+                throw new UnsafeCleanupReferenceException("character cleanup target set is missing");
+            }
+            return new CharacterCleanupContext(
+                    normalizeCharacterIds(context.targetCharacterIds()),
+                    context.expectedOwnerUserId(),
+                    context.assetId(),
+                    text(context.assetUrl())
+            );
+        } catch (JsonProcessingException | IllegalArgumentException ex) {
+            throw new UnsafeCleanupReferenceException("character cleanup context is invalid", ex);
         }
     }
 
@@ -440,6 +651,33 @@ public class ExternalCleanupTaskService {
         }
     }
 
+    private String taskKey(String operationId, String resourceType, String primaryRef) {
+        String material = operationId + "\n" + resourceType + "\n" + primaryRef;
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(material.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
+        }
+    }
+
+    private static List<Long> normalizeCharacterIds(Collection<Long> rawIds) {
+        if (rawIds == null) {
+            throw new IllegalArgumentException("character cleanup target set is missing");
+        }
+        List<Long> ids = rawIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(id -> id > 0)
+                .distinct()
+                .sorted()
+                .toList();
+        if (ids.isEmpty()) {
+            throw new IllegalArgumentException("character cleanup target set is missing");
+        }
+        return ids;
+    }
+
     long backoffSeconds(int attemptCount) {
         long base = clamp(properties.getBaseBackoffSeconds(), 1L, 86_400L);
         long configuredMax = clamp(properties.getMaxBackoffSeconds(), 1L, 604_800L);
@@ -502,6 +740,36 @@ public class ExternalCleanupTaskService {
     }
 
     private record CleanupDraft(String resourceType, String primaryRef, String secondaryRef) {
+    }
+
+    public record CharacterCleanupContext(
+            List<Long> targetCharacterIds,
+            Long expectedOwnerUserId,
+            Long assetId,
+            String assetUrl
+    ) {
+    }
+
+    private static final class UnsafeCleanupReferenceException extends RuntimeException {
+        private UnsafeCleanupReferenceException(String message) {
+            super(message);
+        }
+
+        private UnsafeCleanupReferenceException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private static final class CleanupDependencyPendingException extends RuntimeException {
+        private CleanupDependencyPendingException(String message) {
+            super(message);
+        }
+    }
+
+    private static final class CleanupDependencyFailedException extends RuntimeException {
+        private CleanupDependencyFailedException(String message) {
+            super(message);
+        }
     }
 
     public record CleanupAttempt(String taskId, String resourceType, String status, String message) {

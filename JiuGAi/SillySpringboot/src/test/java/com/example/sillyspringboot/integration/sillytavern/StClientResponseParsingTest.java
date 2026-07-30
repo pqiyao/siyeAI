@@ -35,6 +35,7 @@ class StClientResponseParsingTest {
     private final AtomicReference<String> regexResponse = new AtomicReference<>("{\"mes\":\"clean\"}");
     private final AtomicInteger regexStatus = new AtomicInteger(200);
     private final AtomicReference<String> appendRequest = new AtomicReference<>();
+    private final AtomicReference<String> buildRequest = new AtomicReference<>();
     private final AtomicReference<String> exportRequest = new AtomicReference<>();
     private final AtomicReference<String> exportMethod = new AtomicReference<>();
     private final AtomicReference<String> exportContentType = new AtomicReference<>();
@@ -54,6 +55,10 @@ class StClientResponseParsingTest {
         server.createContext(StApiPaths.RUNTIME_CHAT_APPEND, exchange -> {
             appendRequest.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             respond(exchange, 200, "{\"ok\":true,\"mes\":\"\"}");
+        });
+        server.createContext(StApiPaths.RUNTIME_CHAT_BUILD, exchange -> {
+            buildRequest.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, "{\"messages\":[{\"role\":\"system\",\"content\":\"ok\"}]}");
         });
         server.createContext(StApiPaths.CHARACTERS_EXPORT, exchange -> {
             exportMethod.set(exchange.getRequestMethod());
@@ -168,6 +173,26 @@ class StClientResponseParsingTest {
         JsonNode whitespaceBody = new ObjectMapper().readTree(appendRequest.get());
         assertEquals("  canonical reply  ", whitespaceBody.path("mes").textValue());
         assertTrue(whitespaceBody.path("output_regex_applied").booleanValue());
+    }
+
+    @Test
+    void runtimeBuildSendsUserPersonaInTheHttpRequestBody() throws Exception {
+        List<Map<String, String>> messages = client.runtimeChatBuildMessages(
+                "avatar.png",
+                "chat.jsonl",
+                "Bob",
+                "Alice",
+                List.of("Alice"),
+                List.of("world"),
+                "{\"generation\":{\"temperature\":0.4}}",
+                "A careful archivist"
+        );
+
+        assertEquals(1, messages.size());
+        JsonNode body = new ObjectMapper().readTree(buildRequest.get());
+        assertEquals("A careful archivist", body.path("user_persona").textValue());
+        assertEquals("Bob", body.path("user_name").textValue());
+        assertEquals(0.4, body.path("runtime_preset_bundle").path("generation").path("temperature").doubleValue());
     }
 
     @Test

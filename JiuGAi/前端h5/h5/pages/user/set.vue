@@ -16,6 +16,10 @@
 					<text class="cell-txt">{{ pageCopy.userVoices }}</text>
 					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
 				</view>
+				<view class="cell" @tap="openVoiceCache">
+					<text class="cell-txt">{{ pageCopy.voiceCache }}</text>
+					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
+				</view>
 				<view class="cell" @tap="util.urlTo('/pages/user/supportCreate')">
 					<text class="cell-txt">{{ pageCopy.support }}</text>
 					<u-icon name="arrow-right" color="#94a3b8" size="28"></u-icon>
@@ -65,6 +69,7 @@ const COPY = {
 		title: '更多设置',
 		persona: '酒馆 · 我的人设',
 		userVoices: '自建音色',
+		voiceCache: '语音缓存',
 		support: '联系客服',
 		tickets: '我的工单',
 		security: '账号与安全',
@@ -79,6 +84,7 @@ const COPY = {
 		title: '更多設定',
 		persona: '酒館 · 我的人設',
 		userVoices: '自建音色',
+		voiceCache: '語音快取',
 		support: '聯絡客服',
 		tickets: '我的工單',
 		security: '帳號與安全',
@@ -93,6 +99,7 @@ const COPY = {
 		title: 'More Settings',
 		persona: 'Tavern · My Persona',
 		userVoices: 'Custom Voices',
+		voiceCache: 'Voice Cache',
 		support: 'Contact Support',
 		tickets: 'My Tickets',
 		security: 'Account & Security',
@@ -161,6 +168,9 @@ export default {
 		},
 		openUserVoices() {
 			this.util.urlTo('/pages/user/myVoices');
+		},
+		openVoiceCache() {
+			this.util.urlTo('/pages/user/voiceCache');
 		},
 		loadRuntimeSettings() {
 			tavernApi.fetchAppRuntimeConfig(true).then((config) => {

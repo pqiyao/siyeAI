@@ -6,7 +6,7 @@
 			<view class="hero">
 				<text class="eyebrow">四叶酒馆 · 用户协议</text>
 				<text class="title">使用前请确认你已满 18 周岁</text>
-				<text class="subtitle">本项目为 AI 角色扮演纯娱乐分享项目，非商用，不支持充值或在线支付，请理性使用并遵守内容合规要求。</text>
+				<text class="subtitle">使用 AI 角色扮演与内容生成服务前，请了解模型输出风险、账号规则、权益与支付规则，并严格遵守内容合规要求。</text>
 			</view>
 
 			<view class="section" v-for="item in sections" :key="item.title">

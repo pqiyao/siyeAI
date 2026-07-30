@@ -1,7 +1,9 @@
 package com.example.sillyspringboot.conversation.service;
 
 import com.example.sillyspringboot.chat.entity.AppMessage;
+import com.example.sillyspringboot.chat.entity.AppMessageSegment;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
+import com.example.sillyspringboot.chat.mapper.AppMessageSegmentMapper;
 import com.example.sillyspringboot.conversation.entity.AppConversation;
 import com.example.sillyspringboot.conversation.entity.AppConversationBranch;
 import com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapper;
@@ -26,15 +28,18 @@ public class ConversationBranchService {
     private final AppConversationMapper conversationMapper;
     private final AppConversationBranchMapper branchMapper;
     private final AppMessageMapper messageMapper;
+    private final AppMessageSegmentMapper segmentMapper;
 
     public ConversationBranchService(
             AppConversationMapper conversationMapper,
             AppConversationBranchMapper branchMapper,
-            AppMessageMapper messageMapper
+            AppMessageMapper messageMapper,
+            AppMessageSegmentMapper segmentMapper
     ) {
         this.conversationMapper = conversationMapper;
         this.branchMapper = branchMapper;
         this.messageMapper = messageMapper;
+        this.segmentMapper = segmentMapper;
     }
 
     @Transactional
@@ -314,6 +319,7 @@ public class ConversationBranchService {
                     selection.content(),
                     selection.swipeIndex()
             );
+            copyMessageSegments(selection.segmentSourceMessageId(), copied.getId());
             copySwipeVariants(
                     source,
                     copied,
@@ -333,7 +339,11 @@ public class ConversationBranchService {
         int swipeIndex = source != null && source.getSwipeIndex() != null
                 ? Math.max(0, source.getSwipeIndex())
                 : 0;
-        return new ForkSelection(source == null ? null : source.getContent(), swipeIndex);
+        return new ForkSelection(
+                source == null ? null : source.getContent(),
+                swipeIndex,
+                source == null ? null : source.getId()
+        );
     }
 
     private ForkSelection resolveForkMessageSelection(AppMessage source, Integer variantIndex) {
@@ -349,7 +359,7 @@ public class ConversationBranchService {
         if (variant == null || variant.getContent() == null || variant.getContent().isBlank()) {
             return current;
         }
-        return new ForkSelection(variant.getContent(), variantIndex);
+        return new ForkSelection(variant.getContent(), variantIndex, variant.getId());
     }
 
     private AppMessage copyMessage(
@@ -460,6 +470,33 @@ public class ConversationBranchService {
             copiedVariant.setSpeakerNameSnapshot(sourceVariant.getSpeakerNameSnapshot());
             copiedVariant.setSpeakerAvatarSnapshot(sourceVariant.getSpeakerAvatarSnapshot());
             messageMapper.insert(copiedVariant);
+            copyMessageSegments(sourceVariant.getId(), copiedVariant.getId());
+        }
+    }
+
+    private void copyMessageSegments(Long sourceMessageId, Long targetMessageId) {
+        if (sourceMessageId == null || sourceMessageId <= 0 || targetMessageId == null || targetMessageId <= 0) {
+            return;
+        }
+        List<AppMessageSegment> sourceSegments = segmentMapper.listByMessageId(sourceMessageId);
+        if (sourceSegments == null || sourceSegments.isEmpty()) {
+            return;
+        }
+        int index = 0;
+        for (AppMessageSegment source : sourceSegments) {
+            if (source == null || source.getContent() == null || source.getContent().isBlank()) {
+                continue;
+            }
+            AppMessageSegment copied = new AppMessageSegment();
+            copied.setMessageId(targetMessageId);
+            copied.setSegmentIndex(index++);
+            copied.setSegmentType(source.getSegmentType());
+            copied.setSpeakerMemberId(source.getSpeakerMemberId());
+            copied.setSpeakerNameSnapshot(source.getSpeakerNameSnapshot());
+            copied.setSpeakerAvatarSnapshot(source.getSpeakerAvatarSnapshot());
+            copied.setContent(source.getContent());
+            copied.setStatus(StringUtils.hasText(source.getStatus()) ? source.getStatus() : "SUCCESS");
+            segmentMapper.insert(copied);
         }
     }
 
@@ -588,6 +625,6 @@ public class ConversationBranchService {
         return copiedIdsBySourceId.get(sourceId);
     }
 
-    private record ForkSelection(String content, int swipeIndex) {
+    private record ForkSelection(String content, int swipeIndex, Long segmentSourceMessageId) {
     }
 }

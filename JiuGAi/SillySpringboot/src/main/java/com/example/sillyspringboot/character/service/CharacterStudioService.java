@@ -69,6 +69,12 @@ public class CharacterStudioService {
         if (request.getCardType() != null) {
             studioMapper.updateCardType(characterId, cardType);
         }
+        if (request.getEnsembleChatMode() != null || !"ENSEMBLE".equals(cardType)) {
+            studioMapper.updateEnsembleChatMode(
+                    characterId,
+                    "ENSEMBLE".equals(cardType) ? normalizeEnsembleChatMode(request.getEnsembleChatMode()) : "NATURAL"
+            );
+        }
 
         Map<String, Long> memberIds = new LinkedHashMap<>();
         if (request.getMembers() != null) {
@@ -125,6 +131,7 @@ public class CharacterStudioService {
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("cardType", normalizeCardType(character.getCardType()));
+        out.put("ensembleChatMode", normalizeEnsembleChatMode(studioMapper.findEnsembleChatMode(characterId)));
         out.put("members", members.isEmpty() ? legacyMembers(character) : members.stream().map(this::memberMap).toList());
         out.put("openings", openings.isEmpty()
                 ? legacyOpenings(character)
@@ -500,6 +507,10 @@ public class CharacterStudioService {
 
     private static String normalizeCardType(String value) {
         return "ENSEMBLE".equalsIgnoreCase(nullToEmpty(value).trim()) ? "ENSEMBLE" : "SINGLE";
+    }
+
+    private static String normalizeEnsembleChatMode(String value) {
+        return "STORY".equalsIgnoreCase(nullToEmpty(value).trim()) ? "STORY" : "NATURAL";
     }
 
     private static String normalizeSpeakerType(String value) {

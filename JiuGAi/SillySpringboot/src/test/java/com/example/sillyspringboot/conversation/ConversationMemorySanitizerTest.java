@@ -132,6 +132,31 @@ public class ConversationMemorySanitizerTest {
         ))).containsExactly("identity_user_call_gege", "别叫哥哥了");
     }
 
+    @Test
+    void toEntity_shouldKeepOnlyEvidenceIdsPresentInTheRefreshSnapshot() {
+        ExtractedMemoryEntry extracted = new ExtractedMemoryEntry(
+                "event_station_promise",
+                "event",
+                "车站约定",
+                "双方约定在旧车站见面。",
+                List.of("旧车站", "见面"),
+                List.of(),
+                120,
+                "before_char",
+                false,
+                false,
+                true,
+                new BigDecimal("0.90"),
+                List.of(),
+                List.of(100L, 999L, 120L, 100L)
+        );
+
+        AppConversationMemoryEntry entity = sanitizer.toEntity(
+                10L, extracted, 100L, 120L, List.of(100L, 110L, 120L));
+
+        assertThat(sanitizer.readMessageIds(entity.getSourceMessageIdsJson())).containsExactly(100L, 120L);
+    }
+
     private static ExtractedMemoryEntry entry(
             String entryKey,
             String memoryType,

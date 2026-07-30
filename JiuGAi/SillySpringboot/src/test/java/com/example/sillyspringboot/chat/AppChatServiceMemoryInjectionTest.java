@@ -16,6 +16,8 @@ import com.example.sillyspringboot.chat.service.ChatAuditService;
 import com.example.sillyspringboot.chat.service.ChatConcurrencyGate;
 import com.example.sillyspringboot.chat.service.ChatImageContentService;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
+import com.example.sillyspringboot.chat.service.EnsembleChatService;
+import com.example.sillyspringboot.chat.service.EnsembleSpeakerPlanner;
 import com.example.sillyspringboot.compat.h5.mapper.AppH5ProfileMapper;
 import com.example.sillyspringboot.compat.h5.mapper.H5MyCharacterMapper;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
@@ -42,9 +44,12 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -57,6 +62,9 @@ public class AppChatServiceMemoryInjectionTest {
     private ChatPresetService serviceTestChatPresetService;
     private ChatImageContentService serviceTestChatImageContentService;
     private ChatSnapshotService serviceTestSnapshotService;
+    private H5UserAiProviderService serviceTestUserAiProviderService;
+    private AppChatCompatibilityService serviceTestCompatibilityService;
+    private AppChatFrontendBridgeService serviceTestFrontendBridgeService;
 
     @Test
     void streamGenerate_shouldExcludeOnlyCurrentUserMessageRefFromSnapshot() {
@@ -75,6 +83,45 @@ public class AppChatServiceMemoryInjectionTest {
         verify(serviceTestStAdapter).streamGenerateAssistantReply(requestCaptor.capture(), any(), any(StStreamControl.class));
         assertThat(requestCaptor.getValue().stMessageRef()).isEqualTo("root:456");
         assertThat(requestCaptor.getValue().userMessage()).isEqualTo("hello once");
+    }
+
+    @Test
+    void streamGenerate_shouldNeverFallBackToRuntimeAfterFrontendDispatch() {
+        long conversationId = 131L;
+        AppChatService service = buildService(conversationId);
+        when(serviceTestUserAiProviderService.resolveActiveOverrideForUser(77L)).thenReturn(null);
+        when(serviceTestCompatibilityService.decideForGeneration(
+                anyLong(), any(), any(), any(), any(), any()
+        )).thenReturn(new AppChatCompatibilityService.Decision(
+                conversationId,
+                "auto",
+                "frontend_bridge",
+                "frontend_bridge",
+                true,
+                true,
+                true,
+                true,
+                List.of("character"),
+                List.of("character:advanced_macro:getvar")
+        ));
+        when(serviceTestFrontendBridgeService.enabled()).thenReturn(true);
+        when(serviceTestFrontendBridgeService.hasOnlineWorker()).thenReturn(true);
+        AppChatFrontendBridgeService.FrontendBridgeGenerationException dispatchedFailure =
+                mock(AppChatFrontendBridgeService.FrontendBridgeGenerationException.class);
+        when(dispatchedFailure.wasDispatched()).thenReturn(true);
+        doThrow(dispatchedFailure).when(serviceTestFrontendBridgeService)
+                .streamGenerate(any(ChatGenerateRequest.class), any(), any(StStreamControl.class));
+
+        AppChatStreamRequest request = new AppChatStreamRequest();
+        request.setConversationId(conversationId);
+        request.setUserMessage("hello");
+        request.setClientMessageId("client-dispatched-failure");
+
+        assertThatThrownBy(() ->
+                service.streamGenerate(request, "token", chunk -> { }, new StStreamControl())
+        ).isSameAs(dispatchedFailure);
+        verify(serviceTestStAdapter, never())
+                .streamGenerateAssistantReply(any(ChatGenerateRequest.class), any(), any(StStreamControl.class));
     }
 
     @Test
@@ -463,6 +510,8 @@ public class AppChatServiceMemoryInjectionTest {
             return null;
         }).when(stAdapter).streamGenerateAssistantReply(any(ChatGenerateRequest.class), any(), any(StStreamControl.class));
 
+        AppChatCompatibilityService compatibilityService = mock(AppChatCompatibilityService.class);
+        AppChatFrontendBridgeService frontendBridgeService = mock(AppChatFrontendBridgeService.class);
         AppChatService service = new AppChatService(
                 conversationMapper,
                 bindingMapper,
@@ -485,14 +534,19 @@ public class AppChatServiceMemoryInjectionTest {
                 branchService,
                 worldbookCatalogService,
                 chatPresetService,
-                mock(AppChatCompatibilityService.class),
-                mock(AppChatFrontendBridgeService.class),
-                mock(com.example.sillyspringboot.ops.service.H5EntitlementService.class)
+                compatibilityService,
+                frontendBridgeService,
+                mock(com.example.sillyspringboot.ops.service.H5EntitlementService.class),
+                mock(EnsembleChatService.class),
+                mock(EnsembleSpeakerPlanner.class)
         );
         serviceTestStAdapter = stAdapter;
         serviceTestChatPresetService = chatPresetService;
         serviceTestChatImageContentService = chatImageContentService;
         serviceTestSnapshotService = snapshotService;
+        serviceTestUserAiProviderService = userAiProviderService;
+        serviceTestCompatibilityService = compatibilityService;
+        serviceTestFrontendBridgeService = frontendBridgeService;
         return service;
     }
 }

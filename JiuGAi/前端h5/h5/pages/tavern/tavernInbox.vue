@@ -134,7 +134,8 @@
 				unreadIdentitySignature: '',
 				noticeUnreadRequestVersion: 0,
 				adUnreadRequestVersion: 0,
-				moreBusy: false
+				moreBusy: false,
+				sessionActionId: ''
 			};
 		},
 		computed: {
@@ -176,11 +177,11 @@
 					this.jgInboxLoading = false;
 					this.sessions = [];
 					this.jgInboxError = this.t.发现后端未配置 || '后端接口未开启';
-					return;
+					return Promise.resolve([]);
 				}
 				this.jgInboxLoading = true;
 				this.jgInboxError = '';
-				tavernApi
+				return tavernApi
 					.fetchTavernSessions(tavernApi.getClientUid())
 					.then((list) => {
 						this.sessions = Array.isArray(list) ? list : [];
@@ -315,12 +316,33 @@
 				return tavernApi.resolveJgAssetUrl(u) || '/static/logo.png';
 			},
 			openSession(s) {
-				if (s.characterId == null || s.characterId === '') return;
-				uni.navigateTo({ url: '/pages/tavern/tavernChat?id=' + s.characterId });
+				if (!s || s.characterId == null || s.characterId === '' || s.id == null || s.id === '') return;
+				if (this.sessionActionId) return;
+				const actionId = String(s.id);
+				this.sessionActionId = actionId;
+				tavernApi
+					.postTavernSessionActivate({
+						characterId: Number(s.characterId),
+						conversationId: Number(s.id),
+						clientUid: tavernApi.getClientUid()
+					})
+					.then(() => {
+						uni.navigateTo({ url: '/pages/tavern/tavernChat?id=' + s.characterId });
+					})
+					.catch((e) => {
+						uni.showToast({
+							title: tavernErrors.getTavernErrorMessage(e, '打开会话失败'),
+							icon: 'none'
+						});
+					})
+					.finally(() => {
+						if (this.sessionActionId === actionId) this.sessionActionId = '';
+					});
 			},
 			deleteRecord(s) {
 				const cid = s.characterId;
-				if (cid == null || cid === '') {
+				const conversationId = s && s.id;
+				if (cid == null || cid === '' || conversationId == null || conversationId === '') {
 					uni.showToast({ title: this.t.删除失败无角色 || '无法删除', icon: 'none' });
 					return;
 				}
@@ -332,13 +354,16 @@
 					success: (res) => {
 						if (!res.confirm) return;
 						tavernApi
-							.postTavernSessionDelete({
+							.postTavernSessionDeleteOne({
 								characterId: Number(cid),
+								conversationId: Number(conversationId),
 								clientUid: tavernApi.getClientUid()
 							})
 							.then(() => {
 								clearSessionLocalArtifacts(s);
-								this.sessions = this.sessions.filter((x) => x.id !== s.id);
+								return this.loadInboxSessions();
+							})
+							.then(() => {
 								uni.showToast({ title: this.t.记录已删除成功, icon: 'none' });
 							})
 							.catch((e) => {

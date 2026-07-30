@@ -25,6 +25,10 @@ function isAppPlus() {
 	return typeof plus !== 'undefined' && plus && plus.io;
 }
 
+function maxStorageBytes() {
+	return isAppPlus() ? APP_MAX_BYTES : H5_MAX_BYTES;
+}
+
 function readIndex() {
 	try {
 		var raw = uni.getStorageSync(INDEX_KEY);
@@ -66,7 +70,10 @@ function extensionForMime(mimeType) {
 	if (mime === 'audio/wav' || mime === 'audio/x-wav') return 'wav';
 	if (mime === 'audio/ogg') return 'ogg';
 	if (mime === 'audio/webm') return 'webm';
-	if (mime === 'audio/mp4') return 'm4a';
+	if (mime === 'audio/mp4' || mime === 'audio/m4a' || mime === 'audio/x-m4a') return 'm4a';
+	if (mime === 'audio/aac' || mime === 'audio/x-aac') return 'aac';
+	if (mime === 'audio/flac' || mime === 'audio/x-flac') return 'flac';
+	if (mime === 'audio/amr' || mime === 'audio/3gpp') return 'amr';
 	if (mime === 'image/jpeg') return 'jpg';
 	if (mime === 'image/webp') return 'webp';
 	if (mime === 'image/gif') return 'gif';
@@ -143,30 +150,46 @@ function appWrite(key, parts) {
 		var fileName = hashKey(key) + '_' + Date.now() + '.' + extensionForMime(parts.mimeType);
 		var relativePath = '_doc/tavern_media/' + fileName;
 		var mediaBlob = new Blob([parts.bytes], { type: parts.mimeType });
+		var settled = false;
+		var timeoutId = setTimeout(function () {
+			if (settled) return;
+			settled = true;
+			reject(new Error('app_media_write_timeout'));
+		}, 15000);
+		var finish = function (error, value) {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeoutId);
+			if (error) reject(error);
+			else resolve(value);
+		};
 		try {
 			plus.io.resolveLocalFileSystemURL('_doc/', function (docEntry) {
 				docEntry.getDirectory('tavern_media', { create: true }, function (mediaDir) {
 					mediaDir.getFile(fileName, { create: true, exclusive: false }, function (fileEntry) {
 						fileEntry.createWriter(function (writer) {
-							var settled = false;
 							writer.onwrite = function () {
 								if (settled) return;
-								settled = true;
-								var localUrl = typeof fileEntry.toLocalURL === 'function' ? fileEntry.toLocalURL() : relativePath;
-								resolve(text(localUrl) || relativePath);
+								fileEntry.file(function (file) {
+									var actualSize = Number(file && file.size);
+									if (Number.isFinite(actualSize) && actualSize !== parts.bytes.byteLength) {
+										finish(new Error('app_media_write_incomplete'));
+										return;
+									}
+									var localUrl = typeof fileEntry.toLocalURL === 'function' ? fileEntry.toLocalURL() : relativePath;
+									finish(null, text(localUrl) || relativePath);
+								}, finish);
 							};
 							writer.onerror = function (error) {
-								if (settled) return;
-								settled = true;
-								reject(error || new Error('app_media_write_failed'));
+								finish(error || new Error('app_media_write_failed'));
 							};
 							writer.write(mediaBlob);
-						}, reject);
-					}, reject);
-				}, reject);
-			}, reject);
+						}, finish);
+					}, finish);
+				}, finish);
+			}, finish);
 		} catch (error) {
-			reject(error);
+			finish(error);
 		}
 	});
 }
@@ -337,6 +360,49 @@ function list(query) {
 	});
 }
 
+function matchesQuery(item, query) {
+	var source = query && typeof query === 'object' ? query : {};
+	var ownerKey = text(source.ownerKey);
+	var conversationId = text(source.conversationId);
+	var messageId = text(source.messageId);
+	var kind = text(source.kind);
+	return !!item
+		&& (!ownerKey || item.ownerKey === ownerKey)
+		&& (!conversationId || item.conversationId === conversationId)
+		&& (!messageId || item.messageId === messageId)
+		&& (!kind || item.kind === kind);
+}
+
+function summary(query) {
+	var entries = readIndex().filter(function (item) { return matchesQuery(item, query); });
+	var totalBytes = entries.reduce(function (sum, item) {
+		return sum + Math.max(0, Number(item.size) || 0);
+	}, 0);
+	var latestAt = entries.reduce(function (latest, item) {
+		return Math.max(latest, Number(item.lastAccessAt || item.createdAt || 0));
+	}, 0);
+	return Promise.resolve({
+		count: entries.length,
+		totalBytes: totalBytes,
+		maxBytes: maxStorageBytes(),
+		latestAt: latestAt
+	});
+}
+
+function removeMatching(query) {
+	var source = query && typeof query === 'object' ? query : {};
+	if (!text(source.ownerKey) && !text(source.conversationId) && !text(source.messageId) && !text(source.kind)) {
+		return Promise.resolve(false);
+	}
+	return serializeMutation(function () {
+		var entries = readIndex();
+		var removed = entries.filter(function (item) { return matchesQuery(item, source); });
+		if (!removed.length) return false;
+		writeIndex(entries.filter(function (item) { return removed.indexOf(item) < 0; }));
+		return Promise.all(removed.map(removeLocation)).then(function () { return true; });
+	});
+}
+
 function removeByConversation(ownerKey, conversationId) {
 	var owner = text(ownerKey);
 	var conversation = text(conversationId);
@@ -361,6 +427,21 @@ function removeByOwner(ownerKey) {
 		writeIndex(entries.filter(function (item) { return item.ownerKey !== owner; }));
 		return Promise.all(removed.map(removeLocation)).then(function () { return true; });
 	});
+}
+
+function removeByConversationKind(ownerKey, conversationId, kind) {
+	var owner = text(ownerKey);
+	var conversation = text(conversationId);
+	var mediaKind = text(kind);
+	if (!owner || !conversation || !mediaKind) return Promise.resolve(false);
+	return removeMatching({ ownerKey: owner, conversationId: conversation, kind: mediaKind });
+}
+
+function removeByOwnerKind(ownerKey, kind) {
+	var owner = text(ownerKey);
+	var mediaKind = text(kind);
+	if (!owner || !mediaKind) return Promise.resolve(false);
+	return removeMatching({ ownerKey: owner, kind: mediaKind });
 }
 
 function moveMessage(ownerKey, conversationId, fromMessageId, toMessageId) {
@@ -400,7 +481,7 @@ function moveMessage(ownerKey, conversationId, fromMessageId, toMessageId) {
 }
 
 function prune() {
-	var maxBytes = isAppPlus() ? APP_MAX_BYTES : H5_MAX_BYTES;
+	var maxBytes = maxStorageBytes();
 	var entries = readIndex().slice();
 	var total = entries.reduce(function (sum, item) { return sum + Math.max(0, Number(item.size) || 0); }, 0);
 	if (total <= maxBytes) return Promise.resolve(false);
@@ -420,8 +501,12 @@ module.exports = {
 	registerLocalUrl: registerLocalUrl,
 	get: get,
 	list: list,
+	summary: summary,
+	removeMatching: removeMatching,
 	removeByConversation: removeByConversation,
 	removeByOwner: removeByOwner,
+	removeByConversationKind: removeByConversationKind,
+	removeByOwnerKind: removeByOwnerKind,
 	moveMessage: moveMessage,
 	prune: prune
 };

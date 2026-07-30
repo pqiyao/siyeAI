@@ -5,9 +5,8 @@ import com.example.sillyspringboot.admin.security.AdminPermitted;
 import com.example.sillyspringboot.admin.web.support.AdminAjaxResult;
 import com.example.sillyspringboot.chat.entity.AppGenerationTask;
 import com.example.sillyspringboot.chat.mapper.AppGenerationTaskMapper;
-import com.example.sillyspringboot.chat.service.AppChatFrontendBridgeService;
-import com.example.sillyspringboot.chat.service.AppChatRuntimeRegistry;
-import com.example.sillyspringboot.chat.service.ChatGenerationDispatcher;
+import com.example.sillyspringboot.chat.service.ChatRuntimeClusterService;
+import com.example.sillyspringboot.ops.service.OperationalStatsService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -41,31 +40,35 @@ public class AdminChatRuntimeController {
 
     private final AdminChatRuntimeMapper adminMapper;
     private final AppGenerationTaskMapper taskMapper;
-    private final ChatGenerationDispatcher dispatcher;
-    private final AppChatRuntimeRegistry runtimeRegistry;
-    private final AppChatFrontendBridgeService bridge;
+    private final OperationalStatsService operationalStatsService;
+    private final ChatRuntimeClusterService clusterService;
 
     public AdminChatRuntimeController(
             AdminChatRuntimeMapper adminMapper,
             AppGenerationTaskMapper taskMapper,
-            ChatGenerationDispatcher dispatcher,
-            AppChatRuntimeRegistry runtimeRegistry,
-            AppChatFrontendBridgeService bridge
+            OperationalStatsService operationalStatsService,
+            ChatRuntimeClusterService clusterService
     ) {
         this.adminMapper = adminMapper;
         this.taskMapper = taskMapper;
-        this.dispatcher = dispatcher;
-        this.runtimeRegistry = runtimeRegistry;
-        this.bridge = bridge;
+        this.operationalStatsService = operationalStatsService;
+        this.clusterService = clusterService;
     }
 
     @GetMapping("/overview")
     public Map<String, Object> overview() {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("tasks", adminMapper.summary());
-        data.put("dispatcher", dispatcher.status());
-        data.put("runtime", runtimeRegistry.status());
-        data.put("bridge", bridge.status());
+        ChatRuntimeClusterService.ClusterOverview cluster = clusterService.overview();
+        data.put("dispatcher", cluster.dispatcher());
+        data.put("runtime", cluster.runtime());
+        data.put("bridge", cluster.bridge());
+        data.put("cluster", Map.of(
+                "distributed", cluster.distributed(),
+                "currentInstanceId", cluster.currentInstanceId(),
+                "instanceCount", cluster.instanceCount(),
+                "instances", cluster.instances()
+        ));
         return AdminAjaxResult.okData(data);
     }
 
@@ -91,6 +94,7 @@ public class AdminChatRuntimeController {
     }
 
     @PostMapping("/{taskId}/cancel")
+    @Transactional
     @AdminPermitted("ops:chat-runtime:cancel")
     public Map<String, Object> cancel(@PathVariable long taskId, HttpServletRequest request) {
         if (taskId <= 0) {
@@ -110,13 +114,22 @@ public class AdminChatRuntimeController {
         if (updated != 1) {
             return AdminAjaxResult.error("任务状态已变化，请刷新后重试");
         }
+        int messagesStopped = adminMapper.stopAssistantMessageForTask(taskId);
+        operationalStatsService.recordGenerationTaskStatus(taskId, "STOPPED");
 
-        boolean signalled = runtimeRegistry.cancelTask(taskId);
+        ChatRuntimeClusterService.CancellationSignal signal = clusterService.requestCancellation(taskId);
         Map<String, Object> result = AdminAjaxResult.ok(
-                signalled ? "取消信号已发送" : "任务已标记停止，但当前实例未找到运行句柄"
+                signal.localSignalled()
+                        ? "取消信号已发送到当前运行节点"
+                        : signal.distributedAccepted()
+                                ? "取消信号已发布，运行节点将在短时间内停止任务"
+                                : "任务已标记停止；当前为单实例回退模式且未找到运行句柄"
         );
         result.put("taskId", taskId);
-        result.put("signalled", signalled);
+        result.put("signalled", signal.accepted());
+        result.put("localSignalled", signal.localSignalled());
+        result.put("distributed", signal.distributedAccepted());
+        result.put("messagesStopped", messagesStopped);
         return result;
     }
 

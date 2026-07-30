@@ -149,6 +149,24 @@ public class DefaultStAdapter implements StAdapter {
     }
 
     @Override
+    public List<java.util.Map<String, String>> buildRuntimeMessages(
+            String avatarUrl,
+            String fileName,
+            String userName,
+            String charName,
+            List<String> groupNames,
+            List<String> worldNames,
+            String runtimePresetBundle,
+            String userPersona
+    ) {
+        if (avatarUrl == null || avatarUrl.isBlank() || fileName == null || fileName.isBlank()) {
+            throw new StUnsupportedFeatureException();
+        }
+        return stClient.runtimeChatBuildMessages(
+                avatarUrl, fileName, userName, charName, groupNames, worldNames, runtimePresetBundle, userPersona);
+    }
+
+    @Override
     public void appendUserMessage(ChatGenerateRequest request) {
         String avatarUrl = request.stAvatarUrl();
         String fileName = request.stChatFileName();

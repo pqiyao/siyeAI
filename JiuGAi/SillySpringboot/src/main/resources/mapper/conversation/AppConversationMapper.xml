@@ -43,10 +43,13 @@
     </select>
 
     <select id="listByUser" resultMap="AppConversationResultMap">
-        SELECT id, user_id, character_id, active_branch_id, title, created_at, updated_at
-        FROM app_conversation
-        WHERE user_id = #{userId}
-        ORDER BY updated_at DESC
+        SELECT c.id, c.user_id, c.character_id, c.active_branch_id, c.title, c.created_at, c.updated_at
+        FROM app_conversation c
+        LEFT JOIN app_conversation_archive a
+          ON a.user_id = c.user_id AND a.conversation_id = c.id
+        WHERE c.user_id = #{userId}
+          AND a.id IS NULL
+        ORDER BY c.updated_at DESC
     </select>
 
     <select id="listInboxByUser" resultType="com.example.sillyspringboot.conversation.dto.ConversationInboxItemDto">

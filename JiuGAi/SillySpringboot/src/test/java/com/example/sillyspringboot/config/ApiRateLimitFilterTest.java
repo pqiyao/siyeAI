@@ -161,6 +161,40 @@ class ApiRateLimitFilterTest {
     }
 
     @Test
+    void networkLimitLinksARecognizedDeviceWithoutRunningTheFullDeviceFilter() throws Exception {
+        ApiRateLimitProperties properties = new ApiRateLimitProperties();
+        properties.setEnabled(true);
+        properties.setWindowSeconds(60);
+        properties.setMaxRequestsPerWindow(1);
+        properties.setMaxRequestsPerIpWindow(100);
+        AppH5SecurityEventMapper securityEvents = mock(AppH5SecurityEventMapper.class);
+        H5VisitorDeviceService visitorDeviceService = mock(H5VisitorDeviceService.class);
+        when(visitorDeviceService.resolvePersistedDeviceId(org.mockito.ArgumentMatchers.any(HttpServletRequest.class)))
+                .thenReturn(77L);
+        ApiRateLimitFilter filter = new ApiRateLimitFilter(
+                properties,
+                new ApiRateLimitCounterStore(null),
+                securityEvents,
+                new ClientIpResolver(properties),
+                visitorDeviceService
+        );
+
+        assertThat(execute(filter, requestWithToken("dv_known")).getStatus()).isEqualTo(200);
+        assertThat(execute(filter, requestWithToken("dv_known")).getStatus()).isEqualTo(429);
+
+        verify(securityEvents).insert(
+                eq(77L),
+                eq("RATE_LIMIT_HIT"),
+                eq(""),
+                isNull(),
+                eq("203.0.113.9"),
+                anyString(),
+                eq("/api/v1/app/me/stats"),
+                eq("scope=ip+ua;method=GET")
+        );
+    }
+
+    @Test
     void legacyLoginIsCoveredByStableNetworkLimit() throws Exception {
         ApiRateLimitProperties properties = new ApiRateLimitProperties();
         properties.setEnabled(true);

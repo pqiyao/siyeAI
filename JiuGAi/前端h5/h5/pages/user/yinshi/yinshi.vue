@@ -6,7 +6,7 @@
 			<view class="hero">
 				<text class="eyebrow">四叶酒馆 · 隐私政策</text>
 				<text class="title">我们只收集提供体验所需的信息</text>
-				<text class="subtitle">本项目为纯娱乐分享、非商用、不支持充值。请在使用前了解账号、匿名设备、角色卡、聊天与上传内容的处理方式。</text>
+				<text class="subtitle">请在使用前了解账号、设备、角色卡、聊天、上传内容、生成服务、支付订单及相关数据的处理方式。</text>
 			</view>
 
 			<view class="section" v-for="item in sections" :key="item.title">

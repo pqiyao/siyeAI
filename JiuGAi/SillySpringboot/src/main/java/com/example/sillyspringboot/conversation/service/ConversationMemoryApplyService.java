@@ -82,7 +82,8 @@ public class ConversationMemoryApplyService {
                         snapshot.conversationId(),
                         extracted,
                         snapshot.firstMessageId(),
-                        snapshot.lastMessageId()
+                        snapshot.lastMessageId(),
+                        snapshot.messageIds()
                 );
                 if (entity == null) {
                     continue;

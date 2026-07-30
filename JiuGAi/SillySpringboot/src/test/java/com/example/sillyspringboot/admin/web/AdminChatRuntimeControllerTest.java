@@ -3,10 +3,8 @@ package com.example.sillyspringboot.admin.web;
 import com.example.sillyspringboot.admin.mapper.AdminChatRuntimeMapper;
 import com.example.sillyspringboot.chat.entity.AppGenerationTask;
 import com.example.sillyspringboot.chat.mapper.AppGenerationTaskMapper;
-import com.example.sillyspringboot.chat.service.AppChatFrontendBridgeService;
-import com.example.sillyspringboot.chat.service.AppChatRuntimeRegistry;
-import com.example.sillyspringboot.chat.service.ChatGenerationDispatcher;
-import com.example.sillyspringboot.integration.sillytavern.StStreamControl;
+import com.example.sillyspringboot.chat.service.ChatRuntimeClusterService;
+import com.example.sillyspringboot.ops.service.OperationalStatsService;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
@@ -26,9 +24,9 @@ class AdminChatRuntimeControllerTest {
         when(fixture.taskMapper.findById(41L)).thenReturn(task);
         when(fixture.taskMapper.updateStatus(eq(41L), eq("STOPPED"), eq("ADMIN_CANCELLED"),
                 contains("ops-admin"), isNull(), eq(499))).thenReturn(1);
-        StStreamControl control = new StStreamControl();
-        fixture.registry.register(9L, control);
-        fixture.registry.bindTask(9L, 41L, control);
+        when(fixture.clusterService.requestCancellation(41L))
+                .thenReturn(new ChatRuntimeClusterService.CancellationSignal(true, true));
+        when(fixture.adminMapper.stopAssistantMessageForTask(41L)).thenReturn(1);
 
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute("adminUsername", "ops-admin");
@@ -36,7 +34,9 @@ class AdminChatRuntimeControllerTest {
 
         assertThat(result.get("code")).isEqualTo(200);
         assertThat(result.get("signalled")).isEqualTo(true);
-        assertThat(control.isCancelled()).isTrue();
+        assertThat(result.get("messagesStopped")).isEqualTo(1);
+        verify(fixture.clusterService).requestCancellation(41L);
+        verify(fixture.operationalStatsService).recordGenerationTaskStatus(41L, "STOPPED");
     }
 
     @Test
@@ -46,15 +46,15 @@ class AdminChatRuntimeControllerTest {
         when(fixture.taskMapper.findById(51L)).thenReturn(selected);
         when(fixture.taskMapper.updateStatus(eq(51L), anyString(), any(), any(), any(), any()))
                 .thenReturn(1);
-        StStreamControl other = new StStreamControl();
-        fixture.registry.register(15L, other);
-        fixture.registry.bindTask(15L, 52L, other);
+        when(fixture.clusterService.requestCancellation(51L))
+                .thenReturn(new ChatRuntimeClusterService.CancellationSignal(false, true));
 
         Map<String, Object> result = fixture.controller.cancel(51L, new MockHttpServletRequest());
 
         assertThat(result.get("code")).isEqualTo(200);
-        assertThat(result.get("signalled")).isEqualTo(false);
-        assertThat(other.isCancelled()).isFalse();
+        assertThat(result.get("signalled")).isEqualTo(true);
+        assertThat(result.get("localSignalled")).isEqualTo(false);
+        assertThat(result.get("distributed")).isEqualTo(true);
     }
 
     @Test
@@ -64,14 +64,10 @@ class AdminChatRuntimeControllerTest {
         when(fixture.taskMapper.findById(61L)).thenReturn(task);
         when(fixture.taskMapper.updateStatus(eq(61L), anyString(), any(), any(), any(), any()))
                 .thenReturn(0);
-        StStreamControl control = new StStreamControl();
-        fixture.registry.register(19L, control);
-        fixture.registry.bindTask(19L, 61L, control);
-
         Map<String, Object> result = fixture.controller.cancel(61L, new MockHttpServletRequest());
 
         assertThat(result.get("code")).isEqualTo(500);
-        assertThat(control.isCancelled()).isFalse();
+        verify(fixture.clusterService, never()).requestCancellation(anyLong());
     }
 
     @Test
@@ -125,11 +121,10 @@ class AdminChatRuntimeControllerTest {
     private static final class Fixture {
         private final AdminChatRuntimeMapper adminMapper = mock(AdminChatRuntimeMapper.class);
         private final AppGenerationTaskMapper taskMapper = mock(AppGenerationTaskMapper.class);
-        private final ChatGenerationDispatcher dispatcher = mock(ChatGenerationDispatcher.class);
-        private final AppChatRuntimeRegistry registry = new AppChatRuntimeRegistry();
-        private final AppChatFrontendBridgeService bridge = mock(AppChatFrontendBridgeService.class);
+        private final OperationalStatsService operationalStatsService = mock(OperationalStatsService.class);
+        private final ChatRuntimeClusterService clusterService = mock(ChatRuntimeClusterService.class);
         private final AdminChatRuntimeController controller = new AdminChatRuntimeController(
-                adminMapper, taskMapper, dispatcher, registry, bridge
+                adminMapper, taskMapper, operationalStatsService, clusterService
         );
     }
 }

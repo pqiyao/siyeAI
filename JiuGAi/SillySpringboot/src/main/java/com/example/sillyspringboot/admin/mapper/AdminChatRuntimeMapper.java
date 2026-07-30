@@ -11,6 +11,7 @@ public interface AdminChatRuntimeMapper {
     List<Map<String, Object>> list(@Param("status") String status, @Param("keyword") String keyword,
                                    @Param("offset") int offset, @Param("limit") int limit);
     Map<String, Object> summary();
+    int stopAssistantMessageForTask(@Param("taskId") long taskId);
     List<Map<String, Object>> findTaskStatuses(@Param("ids") List<Long> ids);
     int deleteAttemptsByTaskIds(@Param("ids") List<Long> ids);
     int deleteStatEventsByTaskIds(@Param("ids") List<Long> ids);

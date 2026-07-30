@@ -32,8 +32,13 @@ public class ChatPresetService {
     private static final String SCOPE_PRIVATE = "PRIVATE";
     private static final String SOURCE_ST_PLATFORM = "ST_PLATFORM";
     private static final String SOURCE_USER_COPY = "USER_COPY";
+    private static final String SOURCE_USER_CUSTOM = "USER_CUSTOM";
     private static final String API_OPENAI = "openai";
     private static final int MAX_PRIVATE_PRESETS = 20;
+    private static final int LEGACY_MIN_MAX_TOKENS = 64;
+    private static final int MIN_EDITABLE_MAX_TOKENS = 800;
+    private static final int MAX_MAX_TOKENS = 8192;
+    private static final int DEFAULT_PRIVATE_MAX_CONTEXT = 8192;
 
     private final AppChatPresetMapper presetMapper;
     private final AppConversationMapper conversationMapper;
@@ -164,7 +169,30 @@ public class ChatPresetService {
         preset.setSourceName("user:" + userId + ":" + UUID.randomUUID());
         preset.setName(normalizeName(requestedName, source.getName() + " 副本"));
         preset.setDescription(privateDescription(generation));
-        preset.setBundleJson(writePrivateBundle(generation));
+        preset.setBundleJson(writePrivateBundle(generation, SOURCE_USER_COPY));
+        preset.setEnabled(true);
+        preset.setSourceAvailable(true);
+        presetMapper.insertPrivate(preset);
+        return toH5Row(preset);
+    }
+
+    @Transactional
+    public Map<String, Object> createPrivatePreset(long userId, String requestedName) {
+        lockOwnerOrThrow(userId);
+        if (presetMapper.countPrivateByOwner(userId) >= MAX_PRIVATE_PRESETS) {
+            throw new BusinessException(ErrorCode.CONFLICT, "最多可保存 20 个我的预设");
+        }
+        PrivateGeneration generation = validateEditablePrivateGeneration(
+                1.0d, 1.0d, 0.0d, 0.0d, MIN_EDITABLE_MAX_TOKENS, DEFAULT_PRIVATE_MAX_CONTEXT);
+        AppChatPreset preset = new AppChatPreset();
+        preset.setOwnerUserId(userId);
+        preset.setScope(SCOPE_PRIVATE);
+        preset.setSourceType(SOURCE_USER_CUSTOM);
+        preset.setApiType(API_OPENAI);
+        preset.setSourceName("user:" + userId + ":" + UUID.randomUUID());
+        preset.setName(normalizeName(requestedName, "我的预设"));
+        preset.setDescription(privateDescription(generation));
+        preset.setBundleJson(writePrivateBundle(generation, SOURCE_USER_CUSTOM));
         preset.setEnabled(true);
         preset.setSourceAvailable(true);
         presetMapper.insertPrivate(preset);
@@ -178,8 +206,9 @@ public class ChatPresetService {
             String name,
             double temperature,
             double topP,
+            Double frequencyPenalty,
+            Double presencePenalty,
             int maxTokens,
-            int maxContext,
             boolean enabled
     ) {
         lockOwnerOrThrow(userId);
@@ -187,14 +216,29 @@ public class ChatPresetService {
         if (existing == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "private preset not found");
         }
-        PrivateGeneration generation = validatePrivateGeneration(temperature, topP, maxTokens, maxContext);
+        PrivateGeneration storedGeneration = readPrivateGeneration(existing.getBundleJson());
+        double effectiveFrequencyPenalty = frequencyPenalty == null
+                ? storedGeneration.frequencyPenalty()
+                : frequencyPenalty;
+        double effectivePresencePenalty = presencePenalty == null
+                ? storedGeneration.presencePenalty()
+                : presencePenalty;
+        int internalMaxContext = normalizedInternalMaxContext(storedGeneration.maxContext(), maxTokens);
+        PrivateGeneration generation = validateEditablePrivateGeneration(
+                temperature,
+                topP,
+                effectiveFrequencyPenalty,
+                effectivePresencePenalty,
+                maxTokens,
+                internalMaxContext
+        );
         String safeName = normalizeName(name, existing.getName());
         if (presetMapper.updatePrivate(
                 presetId,
                 userId,
                 safeName,
                 privateDescription(generation),
-                writePrivateBundle(generation),
+                writePrivateBundle(generation, privateSourceType(existing.getSourceType())),
                 enabled
         ) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "private preset changed, please retry");
@@ -258,7 +302,10 @@ public class ChatPresetService {
         }
         if (SCOPE_PRIVATE.equalsIgnoreCase(preset.getScope())) {
             try {
-                return writePrivateBundle(readPrivateGeneration(preset.getBundleJson()));
+                return writePrivateBundle(
+                        readPrivateGeneration(preset.getBundleJson()),
+                        privateSourceType(preset.getSourceType())
+                );
             } catch (Exception ignored) {
                 return null;
             }
@@ -349,9 +396,19 @@ public class ChatPresetService {
             JsonNode generation = root != null && root.has("generation") ? root.path("generation") : root;
             double temperature = firstNumber(generation, 1.0d, "temperature", "temp_openai");
             double topP = firstNumber(generation, 1.0d, "top_p", "top_p_openai");
+            double frequencyPenalty = firstNumber(generation, 0.0d, "frequency_penalty", "freq_pen_openai");
+            double presencePenalty = firstNumber(generation, 0.0d, "presence_penalty", "pres_pen_openai");
             int maxTokens = firstInt(generation, 512, "openai_max_tokens", "max_tokens");
             int maxContext = firstInt(generation, 8192, "openai_max_context", "max_context");
-            return validatePrivateGeneration(temperature, topP, maxTokens, maxContext);
+            return validatePrivateGeneration(
+                    temperature,
+                    topP,
+                    frequencyPenalty,
+                    presencePenalty,
+                    maxTokens,
+                    maxContext,
+                    LEGACY_MIN_MAX_TOKENS
+            );
         } catch (BusinessException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -367,11 +424,16 @@ public class ChatPresetService {
                     firstNumber(generation, 1.0d, "temperature", "temp_openai")));
             double topP = Math.max(0.01d, Math.min(1.0d,
                     firstNumber(generation, 1.0d, "top_p", "top_p_openai")));
-            int maxTokens = Math.max(64, Math.min(8192,
-                    firstInt(generation, 512, "openai_max_tokens", "max_tokens")));
+            double frequencyPenalty = Math.max(-2.0d, Math.min(2.0d,
+                    firstNumber(generation, 0.0d, "frequency_penalty", "freq_pen_openai")));
+            double presencePenalty = Math.max(-2.0d, Math.min(2.0d,
+                    firstNumber(generation, 0.0d, "presence_penalty", "pres_pen_openai")));
+            int maxTokens = Math.max(MIN_EDITABLE_MAX_TOKENS, Math.min(MAX_MAX_TOKENS,
+                    firstInt(generation, MIN_EDITABLE_MAX_TOKENS, "openai_max_tokens", "max_tokens")));
             int maxContext = Math.max(maxTokens + 512, Math.min(131072,
                     firstInt(generation, 8192, "openai_max_context", "max_context")));
-            return validatePrivateGeneration(temperature, topP, maxTokens, maxContext);
+            return validateEditablePrivateGeneration(
+                    temperature, topP, frequencyPenalty, presencePenalty, maxTokens, maxContext);
         } catch (BusinessException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -379,30 +441,73 @@ public class ChatPresetService {
         }
     }
 
-    private PrivateGeneration validatePrivateGeneration(double temperature, double topP, int maxTokens, int maxContext) {
+    private PrivateGeneration validateEditablePrivateGeneration(
+            double temperature,
+            double topP,
+            double frequencyPenalty,
+            double presencePenalty,
+            int maxTokens,
+            int maxContext
+    ) {
+        return validatePrivateGeneration(
+                temperature,
+                topP,
+                frequencyPenalty,
+                presencePenalty,
+                maxTokens,
+                maxContext,
+                MIN_EDITABLE_MAX_TOKENS
+        );
+    }
+
+    private PrivateGeneration validatePrivateGeneration(
+            double temperature,
+            double topP,
+            double frequencyPenalty,
+            double presencePenalty,
+            int maxTokens,
+            int maxContext,
+            int minMaxTokens
+    ) {
         if (!Double.isFinite(temperature) || temperature < 0.0d || temperature > 2.0d) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "temperature must be between 0 and 2");
         }
         if (!Double.isFinite(topP) || topP < 0.01d || topP > 1.0d) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "topP must be between 0.01 and 1");
         }
-        if (maxTokens < 64 || maxTokens > 8192) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "maxTokens must be between 64 and 8192");
+        if (!Double.isFinite(frequencyPenalty) || frequencyPenalty < -2.0d || frequencyPenalty > 2.0d) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "frequencyPenalty must be between -2 and 2");
+        }
+        if (!Double.isFinite(presencePenalty) || presencePenalty < -2.0d || presencePenalty > 2.0d) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "presencePenalty must be between -2 and 2");
+        }
+        if (maxTokens < minMaxTokens || maxTokens > MAX_MAX_TOKENS) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_FAILED,
+                    "maxTokens must be between " + minMaxTokens + " and " + MAX_MAX_TOKENS
+            );
         }
         if (maxContext < 2048 || maxContext > 131072 || maxContext < maxTokens + 512) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "maxContext invalid");
         }
-        return new PrivateGeneration(temperature, topP, maxTokens, maxContext);
+        return new PrivateGeneration(
+                temperature, topP, frequencyPenalty, presencePenalty, maxTokens, maxContext);
     }
 
-    private String writePrivateBundle(PrivateGeneration generation) {
+    private static int normalizedInternalMaxContext(int currentMaxContext, int maxTokens) {
+        return Math.min(131072, Math.max(Math.max(2048, currentMaxContext), maxTokens + 512));
+    }
+
+    private String writePrivateBundle(PrivateGeneration generation, String sourceType) {
         try {
             ObjectNode root = objectMapper.createObjectNode();
             root.put("schemaVersion", 1);
-            root.put("source_type", SOURCE_USER_COPY);
+            root.put("source_type", privateSourceType(sourceType));
             ObjectNode values = root.putObject("generation");
             values.put("temperature", generation.temperature());
             values.put("top_p", generation.topP());
+            values.put("frequency_penalty", generation.frequencyPenalty());
+            values.put("presence_penalty", generation.presencePenalty());
             values.put("openai_max_tokens", generation.maxTokens());
             values.put("openai_max_context", generation.maxContext());
             return objectMapper.writeValueAsString(root);
@@ -411,9 +516,17 @@ public class ChatPresetService {
         }
     }
 
+    private static String privateSourceType(String sourceType) {
+        return SOURCE_USER_CUSTOM.equalsIgnoreCase(sourceType == null ? "" : sourceType)
+                ? SOURCE_USER_CUSTOM
+                : SOURCE_USER_COPY;
+    }
+
     private static String privateDescription(PrivateGeneration generation) {
         return "temp=" + trimNumber(generation.temperature())
                 + " / top_p=" + trimNumber(generation.topP())
+                + " / frequency=" + trimNumber(generation.frequencyPenalty())
+                + " / presence=" + trimNumber(generation.presencePenalty())
                 + " / tokens=" + generation.maxTokens()
                 + " / context=" + generation.maxContext();
     }
@@ -448,7 +561,14 @@ public class ChatPresetService {
         return value == Math.rint(value) ? String.valueOf((int) value) : String.valueOf(value);
     }
 
-    private record PrivateGeneration(double temperature, double topP, int maxTokens, int maxContext) {
+    private record PrivateGeneration(
+            double temperature,
+            double topP,
+            double frequencyPenalty,
+            double presencePenalty,
+            int maxTokens,
+            int maxContext
+    ) {
     }
 
     private Map<String, Object> toAdminRow(AppChatPreset preset) {
@@ -513,6 +633,10 @@ public class ChatPresetService {
             ));
             summary.put("temperature", firstNonBlank(text(generation, "temperature"), text(generation, "temp_openai")));
             summary.put("topP", firstNonBlank(text(generation, "top_p"), text(generation, "top_p_openai")));
+            summary.put("frequencyPenalty", firstNonBlank(
+                    text(generation, "frequency_penalty"), text(generation, "freq_pen_openai")));
+            summary.put("presencePenalty", firstNonBlank(
+                    text(generation, "presence_penalty"), text(generation, "pres_pen_openai")));
             summary.put("maxTokens", firstNonBlank(text(generation, "openai_max_tokens"), text(generation, "max_tokens")));
             summary.put("maxContext", firstNonBlank(text(generation, "openai_max_context"), text(generation, "max_context")));
         } catch (Exception ignored) {

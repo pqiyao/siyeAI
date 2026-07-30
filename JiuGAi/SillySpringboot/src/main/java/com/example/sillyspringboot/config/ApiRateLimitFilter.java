@@ -17,6 +17,21 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
     private final ApiRateLimitCounterStore counterStore;
     private final AppH5SecurityEventMapper securityEvents;
     private final ClientIpResolver clientIpResolver;
+    private final H5VisitorDeviceService visitorDeviceService;
+
+    public ApiRateLimitFilter(
+            ApiRateLimitProperties properties,
+            ApiRateLimitCounterStore counterStore,
+            AppH5SecurityEventMapper securityEvents,
+            ClientIpResolver clientIpResolver,
+            H5VisitorDeviceService visitorDeviceService
+    ) {
+        this.properties = properties;
+        this.counterStore = counterStore;
+        this.securityEvents = securityEvents;
+        this.clientIpResolver = clientIpResolver;
+        this.visitorDeviceService = visitorDeviceService;
+    }
 
     public ApiRateLimitFilter(
             ApiRateLimitProperties properties,
@@ -24,14 +39,11 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
             AppH5SecurityEventMapper securityEvents,
             ClientIpResolver clientIpResolver
     ) {
-        this.properties = properties;
-        this.counterStore = counterStore;
-        this.securityEvents = securityEvents;
-        this.clientIpResolver = clientIpResolver;
+        this(properties, counterStore, securityEvents, clientIpResolver, null);
     }
 
     ApiRateLimitFilter(ApiRateLimitProperties properties, StringRedisTemplate redisTemplate) {
-        this(properties, new ApiRateLimitCounterStore(redisTemplate), null, new ClientIpResolver(properties));
+        this(properties, new ApiRateLimitCounterStore(redisTemplate), null, new ClientIpResolver(properties), null);
     }
 
     @Override
@@ -68,7 +80,10 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         if (ipUsed > properties.getMaxRequestsPerIpWindow()
                 || clientUsed > properties.getMaxRequestsPerWindow()) {
             if (securityEvents != null && shouldRecordLimitEvent(request, resolvedIp)) {
-                securityEvents.insert(null, "RATE_LIMIT_HIT", H5VisitorDeviceService.resolveClientUid(request), null,
+                Long deviceId = visitorDeviceService == null
+                        ? null
+                        : visitorDeviceService.resolvePersistedDeviceId(request);
+                securityEvents.insert(deviceId, "RATE_LIMIT_HIT", H5VisitorDeviceService.resolveClientUid(request), null,
                         resolvedIp, H5VisitorDeviceService.hashUserAgent(request.getHeader("User-Agent")),
                         request.getRequestURI(), networkLimitDetail(request, ipUsed, clientUsed));
             }

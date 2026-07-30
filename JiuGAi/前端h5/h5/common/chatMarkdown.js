@@ -467,9 +467,14 @@ function splitPlainSegments(text) {
 }
 
 function splitSegments(text) {
+	var options = arguments.length > 1 && arguments[1] && typeof arguments[1] === 'object' ? arguments[1] : {};
 	var source = normalizeText(text);
 	if (!source) {
 		return [];
+	}
+	var annotated = semanticSegmentsForText(String(text == null ? '' : text), options.semantic);
+	if (annotated) {
+		return annotated;
 	}
 	var parts = structuredContent.splitStructuredContent(source);
 	var hasStructuredPart = parts.some(function (part) { return part && part.type !== 'text'; });
@@ -491,6 +496,92 @@ function splitSegments(text) {
 		segments.push.apply(segments, splitPlainSegments(part.text));
 	});
 	return mergeAdjacentSegments(segments);
+}
+
+function semanticTextFingerprint(text) {
+	var source = String(text == null ? '' : text);
+	var hash = 0x811c9dc5;
+	for (var i = 0; i < source.length; i += 1) {
+		var codeUnit = source.charCodeAt(i);
+		hash ^= codeUnit & 0xff;
+		hash = Math.imul(hash, 0x01000193);
+		hash ^= (codeUnit >>> 8) & 0xff;
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return ('00000000' + (hash >>> 0).toString(16)).slice(-8);
+}
+
+function validateSemanticAnnotation(text, semantic) {
+	var source = String(text == null ? '' : text);
+	if (!source || !semantic || typeof semantic !== 'object' || Number(semantic.schemaVersion) !== 1) return null;
+	if (String(semantic.textFingerprint || '').toLowerCase() !== semanticTextFingerprint(source)) return null;
+	var list = Array.isArray(semantic.segments) ? semantic.segments : [];
+	if (!list.length) return null;
+	var allowed = { speech: true, action: true, thought: true, narration: true };
+	var cursor = 0;
+	var normalized = [];
+	for (var i = 0; i < list.length; i += 1) {
+		var item = list[i] || {};
+		var type = String(item.type || '').toLowerCase();
+		var start = Number(item.start);
+		var end = Number(item.end);
+		if (!allowed[type] || !Number.isInteger(start) || !Number.isInteger(end)) return null;
+		if (start !== cursor || end <= start || end > source.length) return null;
+		normalized.push({
+			type: type,
+			start: start,
+			end: end,
+			confidence: Math.max(0, Math.min(1, Number(item.confidence) || 0))
+		});
+		cursor = end;
+	}
+	return cursor === source.length ? normalized : null;
+}
+
+function semanticSegmentsForText(text, semantic) {
+	var source = String(text == null ? '' : text);
+	var structuredParts = structuredContent.splitStructuredContent(source);
+	if (structuredParts.some(function (part) { return part && part.type !== 'text'; })) return null;
+	var validated = validateSemanticAnnotation(source, semantic);
+	if (!validated) return null;
+	return validated.map(function (item) {
+		return {
+			type: item.type,
+			text: source.slice(item.start, item.end),
+			confidence: item.confidence,
+			start: item.start,
+			end: item.end
+		};
+	});
+}
+
+function sliceSemanticAnnotation(text, semantic, start, end) {
+	var source = String(text == null ? '' : text);
+	var validated = validateSemanticAnnotation(source, semantic);
+	var safeStart = Number(start);
+	var safeEnd = Number(end);
+	if (!validated || !Number.isInteger(safeStart) || !Number.isInteger(safeEnd) || safeStart < 0 || safeEnd <= safeStart || safeEnd > source.length) return null;
+	var slice = source.slice(safeStart, safeEnd);
+	var segments = [];
+	validated.forEach(function (item) {
+		var overlapStart = Math.max(safeStart, item.start);
+		var overlapEnd = Math.min(safeEnd, item.end);
+		if (overlapEnd <= overlapStart) return;
+		segments.push({
+			type: item.type,
+			start: overlapStart - safeStart,
+			end: overlapEnd - safeStart,
+			confidence: item.confidence
+		});
+	});
+	if (!segments.length || segments[0].start !== 0 || segments[segments.length - 1].end !== slice.length) return null;
+	return {
+		schemaVersion: 1,
+		classifierVersion: semantic.classifierVersion || '',
+		textFingerprint: semanticTextFingerprint(slice),
+		confidence: semantic.confidence,
+		segments: segments
+	};
 }
 
 function mergeAdjacentSegments(segments) {
@@ -524,6 +615,7 @@ function normalizeRenderOptions(options) {
 	var colors = opts.segmentColors && typeof opts.segmentColors === 'object' ? opts.segmentColors : {};
 	var weights = opts.segmentWeights && typeof opts.segmentWeights === 'object' ? opts.segmentWeights : {};
 	return {
+		semantic: opts.semantic && typeof opts.semantic === 'object' ? opts.semantic : null,
 		readMode: READ_MODES.indexOf(opts.readMode) >= 0 ? opts.readMode : 'original',
 		showSegmentLabels: opts.showSegmentLabels === true,
 		replySplitMode: ['none', 'bubble'].indexOf(opts.replySplitMode) >= 0 ? opts.replySplitMode : 'none',
@@ -726,7 +818,7 @@ function renderChatMarkdown(text, options) {
 	}
 	try {
 		var opts = normalizeRenderOptions(options);
-		var segments = splitSegments(text);
+		var segments = splitSegments(text, opts);
 		segments = applyReadModeSegments(segments, text, opts);
 		if (!segments.length) {
 			if (opts.readMode === 'speechOnly') {
@@ -744,9 +836,9 @@ function renderChatMarkdown(text, options) {
 	}
 }
 
-function extractChatSpeechSegments(text) {
+function extractChatSpeechSegments(text, options) {
 	var speechSegments = [];
-	splitSegments(text).forEach(function (item) {
+	splitSegments(text, options).forEach(function (item) {
 		if (!item || !normalizeText(item.text)) return;
 		if (item.type === 'speech') {
 			speechSegments.push(item);
@@ -764,6 +856,9 @@ function extractChatSpeechSegments(text) {
 
 module.exports = {
 	extractChatSpeechSegments: extractChatSpeechSegments,
+	semanticTextFingerprint: semanticTextFingerprint,
+	sliceSemanticAnnotation: sliceSemanticAnnotation,
+	validateSemanticAnnotation: validateSemanticAnnotation,
 	structuredTextForSemantics: structuredTextForSemantics,
 	renderChatMarkdown: renderChatMarkdown,
 	splitChatSegments: splitSegments,

@@ -152,7 +152,7 @@
           <view><text class="section-kicker">VOICE RESOURCES</text><text class="section-title">音色资源站</text></view>
           <view class="resource-spark"><u-icon name="link" color="#ffffff" size="28"></u-icon></view>
         </view>
-        <text class="resource-intro">寻找参考声音、开源模型和创作工具。打开第三方站点时不会携带你的 API Key。</text>
+        <text class="resource-intro">这里提供第三方音色资源和模型 API 服务入口。打开外部站点时不会携带你的 API Key。</text>
         <view class="resource-flow">
           <view v-for="(item, index) in voiceResourceLinks" :key="item.url" class="resource-island" :class="['resource-island--' + item.tone, { 'resource-island--featured': index === 0 }]" @tap="openExternalVoiceResource(item)">
             <view class="resource-index">0{{ index + 1 }}</view>
@@ -161,7 +161,7 @@
             <view class="resource-arrow"><u-icon name="arrow-right" color="#ffffff" size="26"></u-icon></view>
           </view>
         </view>
-        <view class="license-wave"><u-icon name="info-circle" color="#6e7f87" size="26"></u-icon><text>使用第三方音色前，请确认已获得授权；公开发布或商业使用时，请遵守对应平台规则。</text></view>
+        <view class="license-wave"><u-icon name="info-circle" color="#6e7f87" size="26"></u-icon><text>第三方站点与本应用相互独立，使用前请自行核对服务内容、价格、授权范围、使用条款和隐私规则。</text></view>
       </view>
       <view class="bottom-space"></view>
     </scroll-view>
@@ -205,9 +205,7 @@ export default {
       ],
       voiceResourceLinks: [
         { name: '共享音色广场', description: 'SiliconFlow 音色管理与共享参考声线', domain: 'voice.gbkgov.cn', url: 'https://voice.gbkgov.cn/', icon: 'volume-up', iconColor: '#ffffff', tone: 'night' },
-        { name: 'AivisHub', description: 'AivisSpeech 音色模型社区', domain: 'hub.aivis-project.com', url: 'https://hub.aivis-project.com/', icon: 'grid', iconColor: '#286b72', tone: 'mint' },
-        { name: 'VOICEVOX', description: '开源日语语音合成项目', domain: 'voicevox.hiroshiba.jp', url: 'https://voicevox.hiroshiba.jp/', icon: 'mic', iconColor: '#9a5260', tone: 'rose' },
-        { name: 'COEIROINK', description: '面向创作的日语语音合成', domain: 'coeiroink.com', url: 'https://coeiroink.com/', icon: 'volume-up', iconColor: '#5e648f', tone: 'lilac' }
+        { name: 'GPT API 中转站', description: '第三方模型 API 接入服务', domain: 'api.zhouz.online', url: 'https://api.zhouz.online/register?aff=QQVK7ZZ7H66U', icon: 'link', iconColor: '#286b72', tone: 'mint' }
       ],
       createRequestId: '',
       overview: { used: 0, limit: 0, canCreate: false, denyReason: '', globalVoiceId: 0 },

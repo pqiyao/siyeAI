@@ -26,6 +26,24 @@
                SUM(CASE WHEN error_code LIKE '%TIMEOUT%' AND queued_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 HOUR) THEN 1 ELSE 0 END) AS timeoutHour
         FROM app_generation_task WHERE deleted_at IS NULL
     </select>
+    <update id="stopAssistantMessageForTask">
+        UPDATE app_message
+        SET status = 'STOPPED',
+            error_code = 'ADMIN_CANCELLED',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE role = 'assistant'
+          AND status IN ('QUEUED', 'GENERATING')
+          AND EXISTS (
+              SELECT 1
+              FROM app_generation_task t
+              WHERE t.id = #{taskId}
+                AND t.conversation_id = app_message.conversation_id
+                AND (
+                    t.client_message_id = app_message.client_message_id
+                    OR (t.client_message_id IS NULL AND app_message.client_message_id IS NULL)
+                )
+          )
+    </update>
     <select id="findTaskStatuses" resultType="map">
         SELECT id, status
         FROM app_generation_task

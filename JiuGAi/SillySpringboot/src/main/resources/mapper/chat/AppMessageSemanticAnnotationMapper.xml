@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.chat.mapper.AppMessageSemanticAnnotationMapper">
+    <resultMap id="SemanticAnnotationResultMap" type="com.example.sillyspringboot.chat.entity.AppMessageSemanticAnnotation">
+        <id column="message_id" property="messageId"/>
+        <result column="content_hash" property="contentHash"/>
+        <result column="schema_version" property="schemaVersion"/>
+        <result column="classifier_version" property="classifierVersion"/>
+        <result column="status" property="status"/>
+        <result column="segments_json" property="segmentsJson"/>
+        <result column="confidence" property="confidence"/>
+        <result column="error_code" property="errorCode"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <insert id="upsertPending">
+        INSERT INTO app_message_semantic_annotation (
+            message_id, content_hash, schema_version, classifier_version, status,
+            segments_json, confidence, error_code
+        ) VALUES (
+            #{messageId}, #{contentHash}, #{schemaVersion}, #{classifierVersion}, 'PENDING',
+            NULL, NULL, NULL
+        )
+        ON DUPLICATE KEY UPDATE
+            content_hash = VALUES(content_hash),
+            schema_version = VALUES(schema_version),
+            classifier_version = VALUES(classifier_version),
+            status = 'PENDING',
+            segments_json = NULL,
+            confidence = NULL,
+            error_code = NULL,
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="markReadyIfHash">
+        UPDATE app_message_semantic_annotation
+        SET status = 'READY', segments_json = #{segmentsJson}, confidence = #{confidence},
+            error_code = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE message_id = #{messageId} AND content_hash = #{contentHash}
+    </update>
+
+    <update id="markFailedIfHash">
+        UPDATE app_message_semantic_annotation
+        SET status = 'FAILED', segments_json = NULL, confidence = NULL,
+            error_code = #{errorCode}, updated_at = CURRENT_TIMESTAMP
+        WHERE message_id = #{messageId} AND content_hash = #{contentHash}
+    </update>
+
+    <select id="listReadyByMessageIds" resultMap="SemanticAnnotationResultMap">
+        SELECT * FROM app_message_semantic_annotation
+        WHERE status = 'READY'
+          AND message_id IN
+          <foreach collection="messageIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <select id="findByMessageId" resultMap="SemanticAnnotationResultMap">
+        SELECT * FROM app_message_semantic_annotation WHERE message_id = #{messageId}
+    </select>
+</mapper>

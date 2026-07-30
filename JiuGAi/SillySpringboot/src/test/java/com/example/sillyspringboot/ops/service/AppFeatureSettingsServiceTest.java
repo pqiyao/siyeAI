@@ -33,6 +33,27 @@ class AppFeatureSettingsServiceTest {
         assertTrue((Boolean) service.toMap(service.getSettings()).get("userChatPresetEntryVisible"));
         assertFalse(service.getSettings().isUserCharacterPromotionEnabled());
         assertFalse((Boolean) service.toMap(service.getSettings()).get("userCharacterPromotionEnabled"));
+        assertFalse(service.getSettings().isSemanticAnnotationEnabled());
+        assertFalse((Boolean) service.toMap(service.getSettings()).get("semanticAnnotationEnabled"));
+        assertTrue(service.getSettings().getSemanticAnnotationRouteKey().isEmpty());
+    }
+
+    @Test
+    void semanticAnnotationRequiresExplicitSwitchAndDedicatedRoute() {
+        AppRuntimeSettingMapper mapper = mock(AppRuntimeSettingMapper.class);
+        AppFeatureSettingsService service = new AppFeatureSettingsService(mapper);
+
+        AppFeatureSettings saved = service.saveSettings(Map.of(
+                "semanticAnnotationEnabled", true,
+                "semanticAnnotationRouteKey", "CHAT.SEMANTIC-CHEAP"
+        ));
+
+        assertTrue(saved.isSemanticAnnotationEnabled());
+        assertTrue(saved.getSemanticAnnotationRouteKey().equals("chat.semantic-cheap"));
+        ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+        verify(mapper).upsert(eq("app_feature_settings"), json.capture());
+        assertTrue(json.getValue().contains("\"semanticAnnotationEnabled\":true"));
+        assertTrue(json.getValue().contains("\"semanticAnnotationRouteKey\":\"chat.semantic-cheap\""));
     }
 
     @Test

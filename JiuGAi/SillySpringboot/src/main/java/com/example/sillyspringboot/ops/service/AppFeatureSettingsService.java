@@ -72,6 +72,12 @@ public class AppFeatureSettingsService {
             settings.setUserChatPresetEntryVisible(
                     boolVal(body.get("userChatPresetEntryVisible"), settings.isUserChatPresetEntryVisible())
             );
+            settings.setSemanticAnnotationEnabled(
+                    boolVal(body.get("semanticAnnotationEnabled"), settings.isSemanticAnnotationEnabled())
+            );
+            settings.setSemanticAnnotationRouteKey(
+                    routeKeyVal(body.get("semanticAnnotationRouteKey"), settings.getSemanticAnnotationRouteKey())
+            );
             settings.setUserByokVipMinLevel(
                     boundedIntVal(body.get("userByokVipMinLevel"), settings.getUserByokVipMinLevel(), 0, 2)
             );
@@ -106,6 +112,8 @@ public class AppFeatureSettingsService {
         data.put("checkinEntryVisible", settings.isCheckinEntryVisible());
         data.put("systemChatPresetEntryVisible", settings.isSystemChatPresetEntryVisible());
         data.put("userChatPresetEntryVisible", settings.isUserChatPresetEntryVisible());
+        data.put("semanticAnnotationEnabled", settings.isSemanticAnnotationEnabled());
+        data.put("semanticAnnotationRouteKey", settings.getSemanticAnnotationRouteKey());
         data.put("userByokVipMinLevel", settings.getUserByokVipMinLevel());
         data.put("anonymousTrialChatLimit", settings.getAnonymousTrialChatLimit());
         data.put("anonymousTrialConversationLimit", settings.getAnonymousTrialConversationLimit());
@@ -184,5 +192,15 @@ public class AppFeatureSettingsService {
             }
         }
         return Math.max(min, Math.min(max, raw));
+    }
+
+    private static String routeKeyVal(Object value, String fallback) {
+        if (value == null) return fallback == null ? "" : fallback;
+        String routeKey = String.valueOf(value).trim().toLowerCase(java.util.Locale.ROOT);
+        if (routeKey.isEmpty()) return "";
+        if (!routeKey.matches("[a-z0-9_.-]+")) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "语义标注模型路由格式不正确");
+        }
+        return routeKey;
     }
 }

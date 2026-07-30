@@ -76,6 +76,42 @@ class H5EntitlementChatModelRefundTest {
     }
 
     @Test
+    void discardedPartialCanBeRefundedAfterFirstContent() {
+        when(chatModelMapper.claimGenerationRefundDiscardingContent(41L)).thenReturn(1);
+        H5EntitlementService.AccessTicket ticket = ticket(true, true);
+
+        service.refundDiscardedChat(ticket);
+
+        verify(chatModelMapper).claimGenerationRefundDiscardingContent(41L);
+        verify(wallet).refundConsume(
+                7L, 3, 2,
+                WalletLedgerService.BIZ_CHAT_REFUND,
+                "refund:chat-ref",
+                "聊天内容未保存失败退回"
+        );
+        verify(chatModelMapper).updateGenerationChargeStatus(41L, "REFUNDED", "chat-ref");
+    }
+
+    @Test
+    void refundReturnsOnlyTheCurrencyActuallySelected() {
+        when(chatModelMapper.claimGenerationRefund(41L)).thenReturn(1);
+        H5EntitlementService.AccessTicket ticket = new H5EntitlementService.AccessTicket(
+                7L, "client", false, 0, H5EntitlementService.QuotaBucket.OFFICIAL_CHAT,
+                3L, "GENERATE", true, 0, 100, "chat-ref", true,
+                true, false, "request-1", 41L
+        );
+
+        service.refundFailedChat(ticket, false);
+
+        verify(wallet).refundConsume(
+                7L, 0, 100,
+                WalletLedgerService.BIZ_CHAT_REFUND,
+                "refund:chat-ref",
+                "聊天模型首个内容前失败退回"
+        );
+    }
+
+    @Test
     void blockingCancellationBeforeFirstContentRefundsReservation() {
         when(chatModelMapper.claimGenerationRefund(41L)).thenReturn(1);
         H5EntitlementService.AccessTicket ticket = ticket(false, false);

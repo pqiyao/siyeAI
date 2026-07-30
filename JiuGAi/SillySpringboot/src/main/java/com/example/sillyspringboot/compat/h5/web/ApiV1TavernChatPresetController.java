@@ -65,6 +65,15 @@ public class ApiV1TavernChatPresetController {
         ));
     }
 
+    @PostMapping("/chat-presets")
+    public ApiV1Result<Map<String, Object>> create(@RequestBody Map<String, Object> body) {
+        long userId = userIdOf(requiredText(body, "clientUid"));
+        return ApiV1Result.ok(chatPresetService.createPrivatePreset(
+                userId,
+                optionalText(body, "name")
+        ));
+    }
+
     @PutMapping("/chat-presets/{presetId}")
     public ApiV1Result<Map<String, Object>> update(
             @PathVariable long presetId,
@@ -77,8 +86,9 @@ public class ApiV1TavernChatPresetController {
                 requiredText(body, "name"),
                 requiredDouble(body, "temperature"),
                 requiredDouble(body, "topP"),
+                optionalDouble(body, "frequencyPenalty"),
+                optionalDouble(body, "presencePenalty"),
                 requiredInt(body, "maxTokens"),
-                requiredInt(body, "maxContext"),
                 optionalBoolean(body, "enabled", true)
         ));
     }
@@ -157,6 +167,13 @@ public class ApiV1TavernChatPresetController {
         }
         if (!Double.isFinite(value)) throw validation(field + " invalid");
         return value;
+    }
+
+    private static Double optionalDouble(Map<String, Object> body, String field) {
+        if (body == null || !body.containsKey(field) || body.get(field) == null) {
+            return null;
+        }
+        return requiredDouble(body, field);
     }
 
     private static boolean optionalBoolean(Map<String, Object> body, String field, boolean fallback) {

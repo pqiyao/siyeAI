@@ -16,6 +16,10 @@ public interface ExternalCleanupTaskMapper {
 
     ExternalCleanupTask findByTaskKey(@Param("taskKey") String taskKey);
 
+    int countBlockingCharacterStTasks(@Param("operationId") String operationId);
+
+    int countDeadCharacterStTasks(@Param("operationId") String operationId);
+
     List<ExternalCleanupTask> listDueTasks(
             @Param("now") LocalDateTime now,
             @Param("limit") int limit
@@ -34,10 +38,26 @@ public interface ExternalCleanupTaskMapper {
             @Param("completedAt") LocalDateTime completedAt
     );
 
+    int markSkipped(
+            @Param("id") String id,
+            @Param("lockToken") String lockToken,
+            @Param("status") String status,
+            @Param("lastError") String lastError,
+            @Param("completedAt") LocalDateTime completedAt
+    );
+
     int markFailed(
             @Param("id") String id,
             @Param("lockToken") String lockToken,
             @Param("status") String status,
+            @Param("nextAttemptAt") LocalDateTime nextAttemptAt,
+            @Param("lastError") String lastError,
+            @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    int deferClaim(
+            @Param("id") String id,
+            @Param("lockToken") String lockToken,
             @Param("nextAttemptAt") LocalDateTime nextAttemptAt,
             @Param("lastError") String lastError,
             @Param("updatedAt") LocalDateTime updatedAt

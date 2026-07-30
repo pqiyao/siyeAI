@@ -19,6 +19,23 @@ import static org.mockito.Mockito.when;
 class ApiV1TavernChatPresetControllerTest {
 
     @Test
+    void privatePresetCanBeCreatedWithoutPlatformSourcePreset() {
+        H5ClientUidAuthService h5Auth = mock(H5ClientUidAuthService.class);
+        AppTokenService tokenService = mock(AppTokenService.class);
+        ChatPresetService presetService = mock(ChatPresetService.class);
+        AppUser user = new AppUser();
+        user.setId(10L);
+        when(h5Auth.requireAuthenticatedTokenForClientUid("client-1")).thenReturn("token-1");
+        when(tokenService.validateAndLoadUser("token-1")).thenReturn(user);
+        ApiV1TavernChatPresetController controller = new ApiV1TavernChatPresetController(
+                h5Auth, tokenService, presetService);
+
+        controller.create(Map.of("clientUid", "client-1", "name", "我的自定义"));
+
+        verify(presetService).createPrivatePreset(10L, "我的自定义");
+    }
+
+    @Test
     void malformedPresetIdIsRejectedInsteadOfSilentlyUnbindingConversation() {
         H5ClientUidAuthService h5Auth = mock(H5ClientUidAuthService.class);
         AppTokenService tokenService = mock(AppTokenService.class);

@@ -48,7 +48,8 @@ public class ConversationMemoryLlmServiceTest {
                       "selective": false,
                       "enabled": true,
                       "confidence": 0.95,
-                      "replaces": []
+                      "replaces": [],
+                      "sourceMessageIds": [501]
                     }
                   ],
                   "disableEntryKeys": []
@@ -79,6 +80,7 @@ public class ConversationMemoryLlmServiceTest {
         assertThat(entry.constantInjection()).isTrue();
         assertThat(entry.enabled()).isTrue();
         assertThat(entry.confidence()).isEqualByComparingTo(new BigDecimal("0.95"));
+        assertThat(entry.sourceMessageIds()).containsExactly(501L);
     }
 
     @Test
@@ -126,7 +128,9 @@ public class ConversationMemoryLlmServiceTest {
     }
 
     private static AppMessage user(String content) {
-        return message("user", content, "SUCCESS");
+        AppMessage message = message("user", content, "SUCCESS");
+        message.setId(501L);
+        return message;
     }
 
     private static AppMessage assistant(String content) {

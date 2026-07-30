@@ -45,6 +45,10 @@ for (const [name, source] of [
 		/onDone:[\s\S]*prepareAssistantVoiceForRow\(/.test(source),
 		`${name} stream must prepare speech from canonical final content`,
 	);
+	assert(
+		/onDone:[\s\S]*applyAssistantSegmentsFromResponse\([^,]+,\s*data\)/.test(source),
+		`${name} stream must apply structured ensemble segments from the terminal payload`,
+	);
 }
 
 assert(

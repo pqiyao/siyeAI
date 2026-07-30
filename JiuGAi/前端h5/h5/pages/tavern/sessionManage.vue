@@ -243,8 +243,9 @@
 					}
 					const s = selected[index];
 					tavernApi
-						.postTavernSessionDelete({
+						.postTavernSessionDeleteOne({
 							characterId: Number(s.characterId),
+							conversationId: Number(s.id),
 							clientUid
 						})
 						.then(() => {

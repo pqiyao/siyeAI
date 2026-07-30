@@ -26,6 +26,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class AppChatFrontendBridgeService {
@@ -35,7 +37,9 @@ public class AppChatFrontendBridgeService {
     private final AppChatProperties chatProperties;
     private final BlockingQueue<BridgeJob> queue;
     private final ConcurrentHashMap<String, BridgeJob> activeJobs = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> cancelledJobs = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, WorkerState> workers = new ConcurrentHashMap<>();
+    private final Object dispatchLock = new Object();
 
     public AppChatFrontendBridgeService(AppChatProperties chatProperties) {
         this.chatProperties = chatProperties;
@@ -48,7 +52,7 @@ public class AppChatFrontendBridgeService {
     }
 
     public boolean hasOnlineWorker() {
-        return onlineWorkerCount() > 0;
+        return readyWorkerCount() > 0;
     }
 
     public void streamGenerate(ChatGenerateRequest request, java.util.function.Consumer<ChatGenerateChunk> onChunk, StStreamControl control) {
@@ -66,19 +70,53 @@ public class AppChatFrontendBridgeService {
         control.addOnCancel(() -> cancelJob(job.id(), "client_cancelled"));
 
         try {
-            BridgeCompletion completion = job.future().get(requestTimeoutMillis(), TimeUnit.MILLISECONDS);
+            long deadline = System.currentTimeMillis() + requestTimeoutMillis();
+            int chunkIndex = 0;
+            StringBuilder streamedText = new StringBuilder();
+            while (!job.future().isDone()) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) {
+                    throw new TimeoutException("frontend bridge request timed out");
+                }
+                BridgePartial partial = job.partials().poll(Math.min(250L, remaining), TimeUnit.MILLISECONDS);
+                if (partial != null && !control.isCancelled()) {
+                    streamedText.append(partial.text());
+                    onChunk.accept(new ChatGenerateChunk(
+                            request.conversationId(),
+                            partial.messageId(),
+                            chunkIndex++,
+                            partial.text(),
+                            false,
+                            "",
+                            bridgeChunkMetrics(job.id(), "")
+                    ));
+                }
+            }
+            BridgePartial trailing;
+            while ((trailing = job.partials().poll()) != null && !control.isCancelled()) {
+                streamedText.append(trailing.text());
+                onChunk.accept(new ChatGenerateChunk(
+                        request.conversationId(), trailing.messageId(), chunkIndex++, trailing.text(),
+                        false, "", bridgeChunkMetrics(job.id(), "")
+                ));
+            }
+            BridgeCompletion completion = job.future().get();
             if (control.isCancelled()) {
                 return;
             }
             String text = completion.text() == null ? "" : completion.text();
             String metrics = bridgeChunkMetrics(job.id(), completion.metrics());
-            int chunkIndex = 0;
-            if (!text.isBlank()) {
+            String streamed = streamedText.toString();
+            if (!text.startsWith(streamed)) {
+                throw new IllegalStateException("frontend bridge final text rewrote an already streamed prefix");
+            }
+            String remainingText = text.substring(streamed.length());
+            if (!remainingText.isEmpty()) {
                 onChunk.accept(new ChatGenerateChunk(
                         request.conversationId(),
                         completion.messageId(),
                         chunkIndex++,
-                        text,
+                        remainingText,
                         false,
                         "",
                         metrics
@@ -95,16 +133,16 @@ public class AppChatFrontendBridgeService {
             ));
         } catch (CancellationException ex) {
             if (!control.isCancelled()) {
-                throw new StUnavailableException(ex);
+                throw bridgeFailure(job, ex);
             }
         } catch (TimeoutException ex) {
             cancelJob(job.id(), "timeout");
-            throw new StUnavailableException(ex);
+            throw bridgeFailure(job, ex);
         } catch (Exception ex) {
             if (control.isCancelled()) {
                 return;
             }
-            throw new StUnavailableException(ex);
+            throw bridgeFailure(job, ex);
         } finally {
             activeJobs.remove(job.id());
         }
@@ -112,35 +150,37 @@ public class AppChatFrontendBridgeService {
 
     public BridgeJobPayload pollNext(String workerId, long requestedWaitMillis) {
         String safeWorkerId = normalizeWorkerId(workerId);
-        heartbeat(safeWorkerId);
 
         long waitMillis = Math.max(250L, Math.min(requestedWaitMillis, pollWaitMillis()));
         long deadline = System.currentTimeMillis() + waitMillis;
         while (System.currentTimeMillis() <= deadline) {
-            if (hasActiveFrontendJob()) {
-                sleepQuietly(Math.min(250L, Math.max(1L, deadline - System.currentTimeMillis())));
-                continue;
+            BridgeJobPayload payload = tryDispatchNext(safeWorkerId);
+            if (payload != null) {
+                return payload;
             }
-            BridgeJob job;
-            try {
-                long remaining = Math.max(1L, deadline - System.currentTimeMillis());
-                job = queue.poll(Math.min(remaining, 1000L), TimeUnit.MILLISECONDS);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                return null;
-            }
-            if (job == null) {
-                continue;
-            }
-            if (job.cancelled().get() || job.expired()) {
-                job.future().completeExceptionally(new CancellationException("bridge job expired or cancelled"));
-                continue;
-            }
-            job.markDispatched(safeWorkerId);
-            activeJobs.put(job.id(), job);
-            return job.payload();
+            sleepQuietly(Math.min(100L, Math.max(1L, deadline - System.currentTimeMillis())));
         }
         return null;
+    }
+
+    private BridgeJobPayload tryDispatchNext(String workerId) {
+        synchronized (dispatchLock) {
+            WorkerState worker = workers.get(workerId);
+            if (!isWorkerDispatchable(worker, System.currentTimeMillis()) || hasActiveFrontendJob()) {
+                return null;
+            }
+            BridgeJob job;
+            while ((job = queue.poll()) != null) {
+                if (job.cancelled().get() || job.expired()) {
+                    job.future().completeExceptionally(new CancellationException("bridge job expired or cancelled"));
+                    continue;
+                }
+                job.markDispatched(workerId);
+                activeJobs.put(job.id(), job);
+                return job.payload();
+            }
+            return null;
+        }
     }
 
     public boolean complete(String jobId, BridgeCompletion completion) {
@@ -154,6 +194,14 @@ public class AppChatFrontendBridgeService {
         BridgeCompletion safe = completion == null ? BridgeCompletion.empty(jobId) : completion.withJobId(jobId);
         job.future().complete(safe);
         return true;
+    }
+
+    public boolean publishPartial(BridgePartial partial) {
+        if (partial == null || !StringUtils.hasText(partial.jobId()) || !StringUtils.hasText(partial.text())) {
+            return false;
+        }
+        BridgeJob job = activeJobs.get(partial.jobId());
+        return job != null && job.acceptPartial(partial.normalized());
     }
 
     public boolean fail(String jobId, String error) {
@@ -185,18 +233,44 @@ public class AppChatFrontendBridgeService {
             return false;
         }
         job.cancelled().set(true);
+        cancelledJobs.put(job.id(), System.currentTimeMillis() + cancelledJobRetentionMillis());
         job.future().completeExceptionally(new CancellationException(reason == null ? "cancelled" : reason));
         return true;
     }
 
     public boolean isJobCancelled(String jobId) {
         BridgeJob job = activeJobs.get(jobId);
-        return job != null && job.cancelled().get();
+        if (job != null && job.cancelled().get()) {
+            return true;
+        }
+        Long retainedUntil = cancelledJobs.get(jobId);
+        if (retainedUntil == null) {
+            return false;
+        }
+        if (retainedUntil < System.currentTimeMillis()) {
+            cancelledJobs.remove(jobId, retainedUntil);
+            return false;
+        }
+        return true;
     }
 
     public void heartbeat(String workerId) {
+        heartbeat(workerId, new WorkerHeartbeat(true, true, false, false, "", List.of()));
+    }
+
+    public void heartbeat(String workerId, WorkerHeartbeat heartbeat) {
         String safeWorkerId = normalizeWorkerId(workerId);
-        workers.put(safeWorkerId, new WorkerState(safeWorkerId, System.currentTimeMillis()));
+        WorkerHeartbeat safe = heartbeat == null ? WorkerHeartbeat.notReady() : heartbeat.normalized();
+        workers.put(safeWorkerId, new WorkerState(
+                safeWorkerId,
+                System.currentTimeMillis(),
+                safe.appReady(),
+                safe.modelConnected(),
+                safe.busy(),
+                safe.generating(),
+                safe.activeJobId(),
+                safe.loadedExtensions()
+        ));
     }
 
     public boolean validToken(String token) {
@@ -221,7 +295,14 @@ public class AppChatFrontendBridgeService {
             row.put("workerId", worker.workerId());
             row.put("lastSeen", Instant.ofEpochMilli(worker.lastSeenMillis()).toString());
             row.put("ageMillis", ageMillis);
+            row.put("appReady", worker.appReady());
+            row.put("modelConnected", worker.modelConnected());
+            row.put("busy", worker.busy());
+            row.put("generating", worker.generating());
+            row.put("activeJobId", worker.activeJobId());
+            row.put("loadedExtensions", worker.loadedExtensions());
             row.put("online", ageMillis <= workerStaleMillis());
+            row.put("ready", isWorkerReady(worker, now));
             workerList.add(row);
         }
         return new BridgeStatus(
@@ -229,6 +310,7 @@ public class AppChatFrontendBridgeService {
                 queue.size(),
                 activeJobs.size(),
                 onlineWorkerCount(),
+                readyWorkerCount(),
                 requestTimeoutMillis(),
                 pollWaitMillis(),
                 workerStaleMillis(),
@@ -246,6 +328,28 @@ public class AppChatFrontendBridgeService {
             }
         }
         return count;
+    }
+
+    private int readyWorkerCount() {
+        long now = System.currentTimeMillis();
+        int count = 0;
+        for (WorkerState worker : workers.values()) {
+            if (isWorkerReady(worker, now)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private boolean isWorkerReady(WorkerState worker, long now) {
+        return worker != null
+                && now - worker.lastSeenMillis() <= workerStaleMillis()
+                && worker.appReady()
+                && worker.modelConnected();
+    }
+
+    private boolean isWorkerDispatchable(WorkerState worker, long now) {
+        return isWorkerReady(worker, now) && !worker.busy() && !worker.generating();
     }
 
     private boolean hasActiveFrontendJob() {
@@ -282,8 +386,16 @@ public class AppChatFrontendBridgeService {
         return Math.max(5, chatProperties.getCompatibility().getFrontendBridgeWorkerStaleSeconds()) * 1000L;
     }
 
+    private long cancelledJobRetentionMillis() {
+        return Math.max(5_000L, workerStaleMillis());
+    }
+
     private long pollWaitMillis() {
         return Math.max(1, chatProperties.getCompatibility().getFrontendBridgePollWaitSeconds()) * 1000L;
+    }
+
+    private static FrontendBridgeGenerationException bridgeFailure(BridgeJob job, Throwable cause) {
+        return new FrontendBridgeGenerationException(cause, job != null && job.dispatched().get());
     }
 
     private static String normalizeWorkerId(String workerId) {
@@ -325,7 +437,11 @@ public class AppChatFrontendBridgeService {
             String id,
             BridgeJobPayload payload,
             CompletableFuture<BridgeCompletion> future,
+            BlockingQueue<BridgePartial> partials,
             AtomicBoolean cancelled,
+            AtomicBoolean dispatched,
+            AtomicInteger lastPartialSequence,
+            AtomicReference<BridgePartial> lastPartial,
             long expiresAtMillis
     ) {
         static BridgeJob from(ChatGenerateRequest request, long timeoutMillis) {
@@ -339,12 +455,25 @@ public class AppChatFrontendBridgeService {
                     request.userMessage(),
                     request.stMessageRef(),
                     request.userName(),
+                    request.userPersona(),
                     request.charName(),
                     request.stWorldNames() == null ? List.of() : List.copyOf(request.stWorldNames()),
+                    request.tailSystemPrompt(),
                     request.runtimePresetBundle(),
+                    BridgeModelOverride.from(request.userModelOverride()),
                     System.currentTimeMillis()
             );
-            return new BridgeJob(id, payload, new CompletableFuture<>(), new AtomicBoolean(false), System.currentTimeMillis() + timeoutMillis);
+            return new BridgeJob(
+                    id,
+                    payload,
+                    new CompletableFuture<>(),
+                    new LinkedBlockingQueue<>(),
+                    new AtomicBoolean(false),
+                    new AtomicBoolean(false),
+                    new AtomicInteger(-1),
+                    new AtomicReference<>(),
+                    System.currentTimeMillis() + timeoutMillis
+            );
         }
 
         boolean expired() {
@@ -352,12 +481,85 @@ public class AppChatFrontendBridgeService {
         }
 
         void markDispatched(String workerId) {
+            dispatched.set(true);
             log.info("frontend bridge job dispatched jobId={} conversationId={} mode={} workerId={}",
                     id, payload.conversationId(), payload.mode(), workerId);
         }
+
+        synchronized boolean acceptPartial(BridgePartial partial) {
+            if (cancelled.get() || expired()) {
+                return false;
+            }
+            int previousSequence = lastPartialSequence.get();
+            if (partial.sequence() == previousSequence) {
+                return partial.equals(lastPartial.get());
+            }
+            if (partial.sequence() != previousSequence + 1) {
+                return false;
+            }
+            if (!partials.offer(partial)) {
+                return false;
+            }
+            lastPartialSequence.set(partial.sequence());
+            lastPartial.set(partial);
+            return true;
+        }
     }
 
-    private record WorkerState(String workerId, long lastSeenMillis) {
+    public static final class FrontendBridgeGenerationException extends StUnavailableException {
+
+        private final boolean dispatched;
+
+        private FrontendBridgeGenerationException(Throwable cause, boolean dispatched) {
+            super(cause);
+            this.dispatched = dispatched;
+        }
+
+        public boolean wasDispatched() {
+            return dispatched;
+        }
+    }
+
+    private record WorkerState(
+            String workerId,
+            long lastSeenMillis,
+            boolean appReady,
+            boolean modelConnected,
+            boolean busy,
+            boolean generating,
+            String activeJobId,
+            List<String> loadedExtensions
+    ) {
+    }
+
+    public record WorkerHeartbeat(
+            boolean appReady,
+            boolean modelConnected,
+            boolean busy,
+            boolean generating,
+            String activeJobId,
+            List<String> loadedExtensions
+    ) {
+        static WorkerHeartbeat notReady() {
+            return new WorkerHeartbeat(false, false, false, false, "", List.of());
+        }
+
+        WorkerHeartbeat normalized() {
+            String safeJobId = activeJobId == null ? "" : activeJobId.trim();
+            if (safeJobId.length() > 96) {
+                safeJobId = safeJobId.substring(0, 96);
+            }
+            List<String> safeExtensions = loadedExtensions == null
+                    ? List.of()
+                    : loadedExtensions.stream()
+                    .filter(StringUtils::hasText)
+                    .map(String::trim)
+                    .distinct()
+                    .limit(128)
+                    .toList();
+            return new WorkerHeartbeat(
+                    appReady, modelConnected, busy, generating, safeJobId, safeExtensions);
+        }
     }
 
     public record BridgeJobPayload(
@@ -369,11 +571,81 @@ public class AppChatFrontendBridgeService {
             String userMessage,
             String messageRef,
             String userName,
+            String userPersona,
             String charName,
             List<String> worldNames,
+            String tailSystemPrompt,
             String runtimePresetBundle,
+            BridgeModelOverride modelOverride,
             long createdAtMillis
     ) {
+    }
+
+    public record BridgeModelOverride(
+            String providerSource,
+            String modelName,
+            String apiKey,
+            String customUrl,
+            String reverseProxy
+    ) {
+        private static final Map<String, String> PROVIDER_BASE_URLS = Map.of(
+                "siliconflow", "https://api.siliconflow.cn/v1",
+                "deepseek", "https://api.deepseek.com",
+                "openrouter", "https://openrouter.ai/api/v1",
+                "openai", "https://api.openai.com/v1",
+                "groq", "https://api.groq.com/openai/v1",
+                "mistralai", "https://api.mistral.ai/v1",
+                "moonshot", "https://api.moonshot.cn/v1",
+                "xai", "https://api.x.ai/v1",
+                "fireworks", "https://api.fireworks.ai/inference/v1",
+                "custom", ""
+        );
+
+        static BridgeModelOverride from(com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride source) {
+            if (source == null) {
+                return null;
+            }
+            String provider = normalize(source.providerSource()).toLowerCase(java.util.Locale.ROOT);
+            String model = normalize(source.textModelOrFallback());
+            String secret = normalize(source.apiKey());
+            String customUrl = normalize(source.customUrl());
+            if (!PROVIDER_BASE_URLS.containsKey(provider)) {
+                throw new IllegalArgumentException("unsupported frontend bridge BYOK provider: " + provider);
+            }
+            if (model.isBlank() || secret.isBlank()) {
+                throw new IllegalArgumentException("frontend bridge BYOK model/key missing");
+            }
+            if ("custom".equals(provider) && customUrl.isBlank()) {
+                throw new IllegalArgumentException("frontend bridge custom BYOK URL missing");
+            }
+            return new BridgeModelOverride(
+                    provider, model, secret, "custom".equals(provider) ? customUrl : "",
+                    "custom".equals(provider) ? customUrl : PROVIDER_BASE_URLS.get(provider));
+        }
+
+        public static boolean supports(com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride source) {
+            if (source == null) {
+                return true;
+            }
+            try {
+                from(source);
+                return true;
+            } catch (IllegalArgumentException ignored) {
+                return false;
+            }
+        }
+
+        private static String normalize(String value) {
+            return value == null ? "" : value.trim();
+        }
+
+        @Override
+        public String toString() {
+            return "BridgeModelOverride[providerSource=" + providerSource
+                    + ", modelName=" + modelName
+                    + ", apiKey=[REDACTED], customUrl=" + (customUrl.isBlank() ? "" : "[CONFIGURED]")
+                    + ", reverseProxy=" + (reverseProxy.isBlank() ? "" : "[CONFIGURED]") + "]";
+        }
     }
 
     public record BridgeCompletion(
@@ -392,11 +664,26 @@ public class AppChatFrontendBridgeService {
         }
     }
 
+    public record BridgePartial(
+            String jobId,
+            int sequence,
+            String messageId,
+            String text
+    ) {
+        BridgePartial normalized() {
+            String safeJobId = jobId == null ? "" : jobId.trim();
+            String safeMessageId = messageId == null ? "" : messageId.trim();
+            String safeText = text == null ? "" : text;
+            return new BridgePartial(safeJobId, Math.max(0, sequence), safeMessageId, safeText);
+        }
+    }
+
     public record BridgeStatus(
             boolean enabled,
             int queuedJobs,
             int activeJobs,
             int onlineWorkers,
+            int readyWorkers,
             long requestTimeoutMillis,
             long pollWaitMillis,
             long workerStaleMillis,

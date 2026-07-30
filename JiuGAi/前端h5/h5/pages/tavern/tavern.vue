@@ -110,6 +110,7 @@
 <script>
 import { applyTavernTabBarLabels, syncTavernTabBar } from '@/common/tavernTabBar.js';
 const tavernListPerf = require('@/common/tavernListPerf.js');
+const authSession = require('@/common/authSession.js');
 
 const MINE_INITIAL_VISIBLE = 8;
 const MINE_BATCH_VISIBLE = 8;
@@ -222,6 +223,7 @@ export default {
 	onShow() {
 		applyTavernTabBarLabels(this.allText, this);
 		syncTavernTabBar(this, 'pages/tavern/tavern', this.allText);
+		if (!authSession.requireAuth('/pages/tavern/tavern')) return;
 		this.syncFeatureConfig(true);
 		this.refreshCreationAccess().catch(() => {});
 		this.loadMine();

@@ -57,12 +57,47 @@ public class H5TavernSessionServiceTest {
 
         assertThrows(BusinessException.class, () -> service.restartFresh(8L, conversationId));
         assertThrows(BusinessException.class, () -> service.archiveHideAndWipe(8L, conversationId));
+        assertThrows(BusinessException.class, () -> service.archiveHideWipeAndDetach(8L, conversationId));
         assertThrows(BusinessException.class, () -> service.wipeConversationMessages(8L, conversationId));
 
         verify(taskMapper, never()).softDeleteByConversationId(conversationId);
         verify(memoryCleanupService, never()).clearConversationMemory(conversationId);
         verify(messageMapper, never()).softDeleteByConversationId(conversationId, "conversation_wipe");
         verify(snapshotService, never()).saveEmptySnapshot(conversationId);
+    }
+
+    @Test
+    void archiveHideWipeAndDetachRemovesEveryPathThatCouldResurrectTheStory() {
+        long conversationId = 123L;
+        AppMessageMapper messageMapper = mock(AppMessageMapper.class);
+        AppGenerationTaskMapper taskMapper = mock(AppGenerationTaskMapper.class);
+        ConversationMemoryCleanupService memoryCleanupService = mock(ConversationMemoryCleanupService.class);
+        ChatSnapshotService snapshotService = mock(ChatSnapshotService.class);
+        AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
+        AppConversationIdempotencyMapper idempotencyMapper = mock(AppConversationIdempotencyMapper.class);
+        AppConversationStBindingMapper bindingMapper = mock(AppConversationStBindingMapper.class);
+        AppConversationArchiveMapper archiveMapper = mock(AppConversationArchiveMapper.class);
+        H5TavernSessionService service = new H5TavernSessionService(
+                messageMapper,
+                taskMapper,
+                memoryCleanupService,
+                conversationMapper,
+                idempotencyMapper,
+                bindingMapper,
+                archiveMapper,
+                snapshotService,
+                mock(StaleGenerationTaskService.class)
+        );
+        when(conversationMapper.findByIdForUser(conversationId, 7L)).thenReturn(new AppConversation());
+
+        service.archiveHideWipeAndDetach(7L, conversationId);
+
+        verify(messageMapper).softDeleteByConversationId(conversationId, "conversation_wipe");
+        verify(memoryCleanupService).clearConversationMemory(conversationId);
+        verify(snapshotService).saveEmptySnapshot(conversationId);
+        verify(archiveMapper).upsert(7L, conversationId);
+        verify(idempotencyMapper).deleteByConversationForUser(conversationId, 7L);
+        verify(bindingMapper).deleteByConversationId(conversationId);
     }
 
     private static H5TavernSessionService service(

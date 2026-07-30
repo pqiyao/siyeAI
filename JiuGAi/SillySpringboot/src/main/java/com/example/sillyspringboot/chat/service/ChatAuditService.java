@@ -43,6 +43,9 @@ public class ChatAuditService {
     @Autowired(required = false)
     private CharacterStudioMapper characterStudioMapper;
 
+    @Autowired(required = false)
+    private MessageSemanticAnnotationService semanticAnnotationService;
+
     public ChatAuditService(
             AppConversationMapper conversationMapper,
             AppMessageMapper messageMapper,
@@ -196,7 +199,8 @@ public class ChatAuditService {
         operationalStatsService.recordGenerationTaskStatus(task.getId(), "QUEUED");
 
         long userMessageId = userMsg == null ? 0L : userMsg.getId();
-        return new AuditContext(userId, userMessageId, assistantMsg.getId(), task.getId());
+        return new AuditContext(
+                userId, userMessageId, assistantMsg.getId(), task.getId(), conversation.getCharacterId());
     }
 
     private static String firstNonBlank(String preferred, String fallback) {
@@ -244,6 +248,17 @@ public class ChatAuditService {
             incrementRevisionForVisibleAssistant(message);
             triggerMemoryRefreshAfterCommit(message.getConversationId(), message.getBranchId());
         }
+        triggerSemanticAnnotationAfterCommit(assistantMessageId);
+    }
+
+    @Transactional
+    public void onHiddenVariantSuccess(long assistantMessageId, long taskId, String finalAssistantText, String traceId) {
+        if (taskMapper.updateStatus(taskId, "SUCCESS", null, null, traceId, null) <= 0) {
+            return;
+        }
+        operationalStatsService.recordGenerationTaskStatus(taskId, "SUCCESS");
+        messageMapper.updateStatusAndContent(assistantMessageId, "SUCCESS", finalAssistantText, null, traceId);
+        touchConversationByAssistantMessageId(assistantMessageId);
     }
 
     @Transactional
@@ -259,6 +274,7 @@ public class ChatAuditService {
             incrementRevisionForVisibleAssistant(message);
             triggerMemoryRefreshAfterCommit(message.getConversationId(), message.getBranchId());
         }
+        triggerSemanticAnnotationAfterCommit(assistantMessageId);
     }
 
     @Transactional
@@ -300,6 +316,12 @@ public class ChatAuditService {
     public void touchAfterAssistantContentUpdate(long assistantMessageId) {
         AppMessage message = touchConversationByAssistantMessageId(assistantMessageId);
         incrementRevisionForVisibleAssistant(message);
+        triggerSemanticAnnotationAfterCommit(assistantMessageId);
+    }
+
+    public void triggerSemanticAnnotationAfterCommit(long assistantMessageId) {
+        MessageSemanticAnnotationService service = semanticAnnotationService;
+        if (service != null) service.triggerAfterCommit(assistantMessageId);
     }
 
     private void incrementRevisionForVisibleAssistant(AppMessage message) {
@@ -341,7 +363,8 @@ public class ChatAuditService {
             String speaker = text.substring(1, end).strip();
             for (AppCharacterMember member : members) {
                 if (member != null && speaker.equalsIgnoreCase(member.getName())) {
-                    messageMapper.updateSpeakerSnapshot(message.getId(), member.getId(), member.getName());
+                    messageMapper.updateSpeakerSnapshot(
+                            message.getId(), member.getId(), member.getName(), member.getAvatarUrl());
                     return;
                 }
             }
@@ -432,5 +455,15 @@ public class ChatAuditService {
         touchConversationByAssistantMessageId(assistantMessageId);
     }
 
-    public record AuditContext(long userId, long userMessageId, long assistantMessageId, long taskId) {}
+    public record AuditContext(
+            long userId,
+            long userMessageId,
+            long assistantMessageId,
+            long taskId,
+            long characterId
+    ) {
+        public AuditContext(long userId, long userMessageId, long assistantMessageId, long taskId) {
+            this(userId, userMessageId, assistantMessageId, taskId, 0L);
+        }
+    }
 }

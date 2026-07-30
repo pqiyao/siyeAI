@@ -2,6 +2,8 @@ package com.example.sillyspringboot.admin.web;
 
 import com.example.sillyspringboot.admin.security.AdminPermitted;
 import com.example.sillyspringboot.admin.web.support.AdminAjaxResult;
+import com.example.sillyspringboot.ai.model.AiCapability;
+import com.example.sillyspringboot.ai.service.AiRoutingService;
 import com.example.sillyspringboot.ops.dto.EntitlementPolicy;
 import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.ops.service.EntitlementAuditLogService;
@@ -22,15 +24,18 @@ public class AdminJiugaiEntitlementController {
     private final EntitlementPolicyService entitlementPolicyService;
     private final EntitlementAuditLogService auditLogService;
     private final AppFeatureSettingsService featureSettingsService;
+    private final AiRoutingService aiRoutingService;
 
     public AdminJiugaiEntitlementController(
             EntitlementPolicyService entitlementPolicyService,
             EntitlementAuditLogService auditLogService,
-            AppFeatureSettingsService featureSettingsService
+            AppFeatureSettingsService featureSettingsService,
+            AiRoutingService aiRoutingService
     ) {
         this.entitlementPolicyService = entitlementPolicyService;
         this.auditLogService = auditLogService;
         this.featureSettingsService = featureSettingsService;
+        this.aiRoutingService = aiRoutingService;
     }
 
     @GetMapping
@@ -57,6 +62,13 @@ public class AdminJiugaiEntitlementController {
     public Map<String, Object> runtimeSettings() {
         Map<String, Object> result = AdminAjaxResult.ok();
         result.put("data", featureSettingsService.toMap(featureSettingsService.getSettings()));
+        return result;
+    }
+
+    @GetMapping("/semantic-chat-routes")
+    public Map<String, Object> semanticChatRoutes() {
+        Map<String, Object> result = AdminAjaxResult.ok();
+        result.put("data", aiRoutingService.routeOptions(AiCapability.CHAT));
         return result;
     }
 

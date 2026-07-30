@@ -27,6 +27,7 @@
         <result column="confidence" property="confidence"/>
         <result column="source_message_from_id" property="sourceMessageFromId"/>
         <result column="source_message_to_id" property="sourceMessageToId"/>
+        <result column="source_message_ids_json" property="sourceMessageIdsJson"/>
         <result column="last_activated_at" property="lastActivatedAt"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
@@ -159,12 +160,14 @@
             conversation_id, branch_id, entry_key, memory_type, title, content,
             keywords_json, secondary_keywords_json, priority, position,
             constant_injection, selective, enabled, manual_disabled, manual_deleted, manual_pinned,
-            retired_reason, retired_at, confidence, source_message_from_id, source_message_to_id, deleted_at
+            retired_reason, retired_at, confidence, source_message_from_id, source_message_to_id,
+            source_message_ids_json, deleted_at
         ) VALUES (
             #{conversationId}, #{branchId}, #{entryKey}, #{memoryType}, #{title}, #{content},
             #{keywordsJson}, #{secondaryKeywordsJson}, #{priority}, #{position},
             #{constantInjection}, #{selective}, #{enabled}, #{manualDisabled}, #{manualDeleted}, #{manualPinned},
-            NULL, NULL, #{confidence}, #{sourceMessageFromId}, #{sourceMessageToId}, NULL
+            NULL, NULL, #{confidence}, #{sourceMessageFromId}, #{sourceMessageToId},
+            #{sourceMessageIdsJson}, NULL
         )
         ON DUPLICATE KEY UPDATE
             memory_type = VALUES(memory_type),
@@ -184,6 +187,7 @@
             confidence = VALUES(confidence),
             source_message_from_id = VALUES(source_message_from_id),
             source_message_to_id = VALUES(source_message_to_id),
+            source_message_ids_json = VALUES(source_message_ids_json),
             retired_reason = CASE WHEN manual_deleted THEN retired_reason ELSE NULL END,
             retired_at = CASE WHEN manual_deleted THEN retired_at ELSE NULL END,
             deleted_at = CASE WHEN manual_deleted THEN deleted_at ELSE NULL END,
@@ -196,12 +200,12 @@
             conversation_id, branch_id, entry_key, memory_type, title, content,
             keywords_json, secondary_keywords_json, priority, position,
             constant_injection, selective, enabled, manual_disabled, manual_deleted, manual_pinned,
-            confidence, source_message_from_id, source_message_to_id
+            confidence, source_message_from_id, source_message_to_id, source_message_ids_json
         ) VALUES (
             #{conversationId}, #{branchId}, #{entryKey}, #{memoryType}, #{title}, #{content},
             #{keywordsJson}, #{secondaryKeywordsJson}, #{priority}, #{position},
             #{constantInjection}, #{selective}, TRUE, FALSE, FALSE, #{manualPinned},
-            #{confidence}, NULL, NULL
+            #{confidence}, NULL, NULL, '[]'
         )
     </insert>
 

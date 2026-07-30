@@ -60,7 +60,16 @@ public interface AiChatModelMapper {
             @Param("chargeStatus") String chargeStatus,
             @Param("consumeBizRef") String consumeBizRef
     );
+    int updateGenerationReservation(
+            @Param("id") long id,
+            @Param("chargeStatus") String chargeStatus,
+            @Param("consumeBizRef") String consumeBizRef,
+            @Param("diamondCost") int diamondCost,
+            @Param("goldCost") int goldCost
+    );
     int claimGenerationRefund(@Param("id") long id);
+
+    int claimGenerationRefundDiscardingContent(@Param("id") long id);
     int claimStaleGenerationRefund(
             @Param("id") long id,
             @Param("cutoff") LocalDateTime cutoff

@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.admin.mapper.CharacterCleanupMapper">
+
+    <resultMap id="memberMediaResultMap" type="com.example.sillyspringboot.character.entity.AppCharacterMember">
+        <id property="characterId" column="character_id"/>
+        <result property="avatarUrl" column="avatar_url"/>
+        <result property="imageReferenceUrl" column="image_reference_url"/>
+        <result property="voiceConfigJson" column="voice_config_json"/>
+    </resultMap>
+
+    <resultMap id="uploadAssetResultMap" type="com.example.sillyspringboot.admin.model.CharacterUploadAssetRow">
+        <id property="assetId" column="id"/>
+        <result property="assetUrl" column="asset_url"/>
+        <result property="relativePath" column="relative_path"/>
+        <result property="ownerUserId" column="owner_user_id"/>
+    </resultMap>
+
+    <sql id="characterColumns">
+        id, st_avatar_url, avatar_url, cover_url, chat_background_url, st_world_names_json,
+        owner_user_id, name, description, tagline, bio, public_summary, public_tags_json,
+        public_warnings_json, health_score, health_issues_json, persona, scenario, first_message,
+        alternate_greetings_json, mes_example, system_prompt, post_history_instructions,
+        private_card, review_status, review_reason, reviewed_at, reviewed_by, deleted_at,
+        created_at, updated_at, occupation_label, tags_json, vip_only, unlocked_default,
+        client_visible, preview_blur_vip_level, like_count, dislike_count, creator_name,
+        creator_handle, token_display, gameplay_type, chat_modes_json, sort_order,
+        creator_notes, st_extra_json
+    </sql>
+
+    <select id="lockCharacters" resultMap="com.example.sillyspringboot.character.mapper.AppCharacterMapper.AppCharacterResultMap">
+        SELECT <include refid="characterColumns"/>
+        FROM app_character
+        WHERE id IN
+        <foreach collection="characterIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY id
+        FOR UPDATE
+    </select>
+
+    <select id="listMemberMedia" resultMap="memberMediaResultMap">
+        SELECT character_id,
+               COALESCE(avatar_url, '') AS avatar_url,
+               COALESCE(image_reference_url, '') AS image_reference_url,
+               COALESCE(voice_config_json, '') AS voice_config_json
+        FROM app_character_member
+        WHERE character_id IN
+        <foreach collection="characterIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="countOtherCharacterStReferences" resultType="int">
+        SELECT COUNT(*)
+        FROM app_character
+        WHERE LOWER(TRIM(st_avatar_url)) = LOWER(TRIM(#{stAvatarUrl}))
+          AND id NOT IN
+        <foreach collection="excludedCharacterIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="countOtherBindingStReferences" resultType="int">
+        SELECT COUNT(*)
+        FROM app_conversation_st_binding
+        WHERE LOWER(TRIM(st_avatar_url)) = LOWER(TRIM(#{stAvatarUrl}))
+          AND character_id NOT IN
+        <foreach collection="excludedCharacterIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="countOtherLocalAssetReferences" resultType="int">
+        SELECT
+            (SELECT COUNT(*) FROM app_character c
+             WHERE c.id NOT IN
+             <foreach collection="excludedCharacterIds" item="id" open="(" separator="," close=")">
+                 #{id}
+             </foreach>
+               AND (c.avatar_url = #{assetUrl} OR c.cover_url = #{assetUrl} OR c.chat_background_url = #{assetUrl}))
+          + (SELECT COUNT(*) FROM app_character_member m
+             WHERE m.character_id NOT IN
+             <foreach collection="excludedCharacterIds" item="id" open="(" separator="," close=")">
+                 #{id}
+             </foreach>
+               AND (m.avatar_url = #{assetUrl} OR m.image_reference_url = #{assetUrl}
+                    OR m.voice_config_json LIKE CONCAT('%', #{assetUrl}, '%')))
+          + (SELECT COUNT(*) FROM app_user u WHERE u.photo_url = #{assetUrl})
+          + (SELECT COUNT(*) FROM app_message msg WHERE msg.voice_url = #{assetUrl})
+          + (SELECT COUNT(*) FROM app_illustration_work w WHERE w.cover_url = #{assetUrl} OR w.image_url = #{assetUrl})
+          + (SELECT COUNT(*) FROM app_inbox_ad ad WHERE ad.image_url = #{assetUrl})
+          + (SELECT COUNT(*) FROM app_tts_voice_template t
+             WHERE t.reference_audio_url = #{assetUrl} OR t.cover_image_url = #{assetUrl})
+    </select>
+
+    <select id="findUploadAsset" resultMap="uploadAssetResultMap">
+        SELECT id,
+               asset_url,
+               relative_path,
+               owner_user_id
+        FROM app_h5_upload_asset
+        WHERE asset_url = #{assetUrl}
+        LIMIT 1
+    </select>
+
+    <delete id="deleteUploadAsset">
+        DELETE FROM app_h5_upload_asset
+        WHERE id = #{assetId}
+          AND owner_user_id = #{ownerUserId}
+          AND relative_path = #{relativePath}
+    </delete>
+
+    <update id="markBindingsCharacterDeleted">
+        UPDATE app_conversation_st_binding
+        SET status = 'CHARACTER_DELETED',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE character_id IN
+        <foreach collection="characterIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <insert id="archiveConversations">
+        INSERT INTO app_conversation_archive (user_id, conversation_id, archived_at)
+        SELECT c.user_id, c.id, CURRENT_TIMESTAMP
+        FROM app_conversation c
+        LEFT JOIN app_conversation_archive a
+          ON a.user_id = c.user_id AND a.conversation_id = c.id
+        WHERE c.character_id IN
+        <foreach collection="characterIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+          AND a.id IS NULL
+    </insert>
+
+</mapper>

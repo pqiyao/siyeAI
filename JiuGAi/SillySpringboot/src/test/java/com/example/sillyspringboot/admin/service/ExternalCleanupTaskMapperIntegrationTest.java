@@ -41,6 +41,11 @@ class ExternalCleanupTaskMapperIntegrationTest {
     void claimsWithLeaseAndLockTokenThenPersistsRetryAndDeadStates() {
         LocalDateTime now = LocalDateTime.now().minusSeconds(1);
         ExternalCleanupTask task = newTask("ST_CHAT", 2, now);
+        task.setOperationId(UUID.randomUUID().toString());
+        task.setSourceType("CHARACTER_DELETION");
+        task.setSourceUserId(null);
+        task.setSourceCharacterId(123L);
+        task.setContextJson("{\"targetCharacterIds\":[123]}");
         mapper.insertOrKeep(task);
 
         List<ExternalCleanupTask> due = mapper.listDueTasks(LocalDateTime.now(), 10);
@@ -55,6 +60,11 @@ class ExternalCleanupTaskMapperIntegrationTest {
         assertThat(claimed.getStatus()).isEqualTo(ExternalCleanupTaskService.STATUS_PROCESSING);
         assertThat(claimed.getAttemptCount()).isEqualTo(1);
         assertThat(claimed.getLockToken()).isEqualTo(firstToken);
+        assertThat(claimed.getOperationId()).isEqualTo(task.getOperationId());
+        assertThat(claimed.getSourceType()).isEqualTo("CHARACTER_DELETION");
+        assertThat(claimed.getSourceUserId()).isNull();
+        assertThat(claimed.getSourceCharacterId()).isEqualTo(123L);
+        assertThat(claimed.getContextJson()).isEqualTo("{\"targetCharacterIds\":[123]}");
         assertThat(mapper.markFailed(
                 task.getId(),
                 "wrong-token",
@@ -145,6 +155,53 @@ class ExternalCleanupTaskMapperIntegrationTest {
                 sourceUserId
         );
         assertThat(count).isZero();
+    }
+
+    @Test
+    void localCharacterTaskDefersWithoutUsingAttemptWhileStTaskIsBlocking() {
+        LocalDateTime now = LocalDateTime.now().minusSeconds(1);
+        String operationId = UUID.randomUUID().toString();
+        ExternalCleanupTask stTask = newTask(ExternalCleanupTaskService.TYPE_CHARACTER_ST_BUNDLE, 3, now);
+        stTask.setOperationId(operationId);
+        stTask.setSourceType("CHARACTER_DELETION");
+        stTask.setSourceCharacterId(101L);
+        ExternalCleanupTask localTask = newTask(ExternalCleanupTaskService.TYPE_CHARACTER_LOCAL_UPLOAD, 3, now);
+        localTask.setOperationId(operationId);
+        localTask.setSourceType("CHARACTER_DELETION");
+        localTask.setSourceCharacterId(101L);
+        mapper.insertOrKeep(stTask);
+        mapper.insertOrKeep(localTask);
+
+        assertThat(mapper.countBlockingCharacterStTasks(operationId)).isEqualTo(1);
+        assertThat(mapper.countDeadCharacterStTasks(operationId)).isZero();
+
+        String localToken = UUID.randomUUID().toString();
+        LocalDateTime claimAt = LocalDateTime.now();
+        assertThat(mapper.claimTask(localTask.getId(), claimAt, claimAt.plusMinutes(5), localToken)).isEqualTo(1);
+        assertThat(mapper.deferClaim(
+                localTask.getId(),
+                localToken,
+                claimAt.plusSeconds(10),
+                "waiting for ST cleanup",
+                claimAt
+        )).isEqualTo(1);
+        ExternalCleanupTask deferred = mapper.findById(localTask.getId());
+        assertThat(deferred.getStatus()).isEqualTo(ExternalCleanupTaskService.STATUS_RETRY);
+        assertThat(deferred.getAttemptCount()).isZero();
+        assertThat(deferred.getLastError()).isEqualTo("waiting for ST cleanup");
+
+        String stToken = UUID.randomUUID().toString();
+        assertThat(mapper.claimTask(stTask.getId(), claimAt, claimAt.plusMinutes(5), stToken)).isEqualTo(1);
+        assertThat(mapper.markFailed(
+                stTask.getId(),
+                stToken,
+                ExternalCleanupTaskService.STATUS_DEAD,
+                null,
+                "ST unavailable",
+                claimAt
+        )).isEqualTo(1);
+        assertThat(mapper.countBlockingCharacterStTasks(operationId)).isZero();
+        assertThat(mapper.countDeadCharacterStTasks(operationId)).isEqualTo(1);
     }
 
     private static ExternalCleanupTask newTask(String resourceType, int maxAttempts, LocalDateTime dueAt) {

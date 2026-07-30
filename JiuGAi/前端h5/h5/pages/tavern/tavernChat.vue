@@ -17,29 +17,26 @@
 		<image class="chat-default-bg" :src="defaultChatBackgroundUrl" mode="aspectFill"></image>
 		<image v-if="hasCustomChatBackground" class="chat-role-bg" :src="chatBackgroundUrl" mode="aspectFill"></image>
 		<view v-if="chatBubbleAppearanceEnabled && normalizedChatAppearanceConfig.backdropStrength > 0" class="chat-readable-overlay" :style="chatReadableOverlayStyle"></view>
-		<tavern-nav-bar :title="title" mode="dark" @back="goBack">
+		<tavern-nav-bar class="chat-nav-bar" :title="title" mode="dark" @back="goBack">
 			<template #right>
 				<view v-if="jgOn" class="nav-right-tools">
 					<view
 						v-if="voiceFeatureEnabledGlobal !== false"
-						class="nav-voice-toggle"
-						:class="{ 'nav-voice-toggle--off': !assistantVoiceAutoEnabled }"
-						@tap="toggleAssistantVoiceAuto"
-					>
-						<image
-							class="nav-voice-toggle-icon"
-							:src="assistantVoiceAutoEnabled ? assistantVoiceOnIcon : assistantVoiceOffIcon"
-							mode="aspectFit"
-						></image>
-					</view>
-					<view
-						v-if="voiceFeatureEnabledGlobal !== false"
-						class="nav-voice-config"
-						:class="{ 'nav-voice-config--active': isCharacterVoiceConfigCustomized() }"
+						class="nav-voice-config nav-voice-config--single"
+						:class="{
+							'nav-voice-config--active': isCharacterVoiceEnabled(),
+							'nav-voice-config--auto': isCharacterVoiceEnabled() && isCharacterVoiceAutoPlayEnabled()
+						}"
 						title="角色语音"
 						@tap="openCharacterVoicePanel"
 					>
-						<u-icon class="nav-voice-config-icon" name="mic" size="30" color="#47758a"></u-icon>
+						<u-icon
+							class="nav-voice-config-icon"
+							:name="isCharacterVoiceEnabled() ? 'volume-up' : 'volume-off'"
+							size="30"
+							:color="isCharacterVoiceEnabled() ? '#236f82' : '#718797'"
+						></u-icon>
+						<view v-if="isCharacterVoiceEnabled()" class="nav-voice-state-dot"></view>
 					</view>
 					<view class="nav-appearance-config" title="聊天显示" @tap="goAppearanceSetting">
 						<u-icon name="setting" size="34" color="#ffffff"></u-icon>
@@ -72,9 +69,6 @@
 					:class="{ 'tool-i--active': replySuggest.visible }"
 					@tap="toggleReplySuggestions"
 				>{{ tx('reply_help_title', 'AI帮答') }}</text>
-			</view>
-			<view v-if="jgOn && jgChatLoadState === 'ready' && memoryBarText" class="memory-bar" @tap="onMem">
-				<text class="memory-bar-txt">{{ memoryBarText }}</text>
 			</view>
 		<scroll-view
 			class="chat-scroll"
@@ -114,6 +108,94 @@
 						}
 					]"
 				>
+					<template v-if="shouldRenderStructuredAssistant(m)">
+						<view class="ensemble-message-list">
+							<view
+								v-for="(speakerSegment, speakerIndex) in structuredAssistantSegments(m)"
+								:key="String(m.id) + '-speaker-' + speakerSegment.index"
+								class="ensemble-message-segment"
+								:class="{ 'ensemble-message-segment--narrator': speakerSegment.type === 'NARRATOR' }"
+							>
+								<image
+									v-if="speakerSegment.type === 'CHARACTER'"
+									class="chat-message-avatar chat-message-avatar--character"
+									:src="structuredSegmentAvatar(speakerSegment)"
+									mode="aspectFill"
+									lazy-load
+									@tap.stop="openStructuredSegmentAvatar(speakerSegment)"
+									@longpress.stop="applyCharacterNameToDraft(speakerSegment.speakerName)"
+								></image>
+								<view v-else class="ensemble-narrator-rail"><view class="ensemble-narrator-mark"></view></view>
+								<message-bubble
+									:bubble-style="structuredSegmentBubbleStyle(m, speakerSegment)"
+									:bubble-class="structuredSegmentBubbleClass(speakerSegment)"
+								>
+									<text class="chat-message-speaker" :class="{ 'chat-message-speaker--narrator': speakerSegment.type === 'NARRATOR' }">{{ speakerSegment.speakerName }}</text>
+									<message-content
+										:image-urls="speakerIndex === 0 ? m.imageUrls : []"
+										:local-kind="speakerIndex === 0 ? m.localKind : ''"
+										:local-prompt="speakerIndex === 0 ? m.localPrompt : ''"
+										:quote-meta="speakerIndex === 0 ? messageQuoteMeta(m) : null"
+										:is-user="false"
+										:has-text="true"
+										@preview-image="previewChatMessageImages(m, $event)"
+									>
+										<!-- #ifdef H5 -->
+										<view
+											class="chat-message-markdown"
+											:style="assistantMessageTextStyle(m)"
+						v-html="mdHtml(speakerSegment.content, semanticForStructuredSegment(m, speakerSegment, speakerIndex))"
+											@tap="onMarkdownTap"
+											@touchstart="startMessageActionPress(m, $event)"
+											@touchmove="moveMessageActionPress($event)"
+											@touchend="endMessageActionPress"
+											@touchcancel="endMessageActionPress"
+										></view>
+										<!-- #endif -->
+										<!-- #ifndef H5 -->
+										<view :class="nativeMessageContentClass()">
+											<view
+							v-for="(nativeSegment, nativeIndex) in mdSegments(speakerSegment.content, semanticForStructuredSegment(m, speakerSegment, speakerIndex))"
+												:key="nativeIndex"
+												:class="nativeSegmentClass(nativeSegment)"
+												:style="nativeSegmentWrapStyle(nativeSegment)"
+											>
+												<view :class="nativeSegmentLineClass()" :style="nativeSegmentLineStyle()">
+													<text :class="nativeSegmentTextClass(nativeSegment)" :style="nativeSegmentTextStyle(nativeSegment)">{{ nativeSegment.text }}</text>
+												</view>
+											</view>
+										</view>
+										<!-- #endif -->
+										<message-actions
+											v-if="isLastStructuredSegment(m, speakerIndex) && messageActionsVisible(m)"
+											:message-id="m.id"
+											:is-app-plus="isAppPlus"
+											:streaming="false"
+											:streaming-status-text="''"
+											:show-assistant-voice="shouldShowAssistantVoicePill(m)"
+											:assistant-voice-label="assistantVoiceLabel(m)"
+											:assistant-voice-pill-class="assistantVoicePillClass(m)"
+											:show-swipe-controls="!m.openingMessage && m.swipes && m.swipes.length > 1"
+											:swipe-label="swipeLabel(m)"
+											:recovery="recoveryForMessage(m)"
+											:recovery-primary-label="recoveryPrimaryLabel()"
+											:recovery-regen-label="tx('regen', '重新生成')"
+											:recovery-copy-label="tx('copy', '复制')"
+											:can-copy-recovery="!!String(m.text || '').trim()"
+											@assistant-voice-toggle="toggleAssistantVoice(m)"
+											@swipe-previous="swipeCharMessage(m, -1)"
+											@swipe-next="swipeCharMessage(m, 1)"
+											@recovery-primary="runGenerationRecoveryPrimary"
+											@recovery-regen="runGenerationRecoveryRegen"
+											@recovery-copy="copyGenerationRecoveryText(m)"
+											@recovery-close="clearGenerationRecovery"
+										></message-actions>
+									</message-content>
+								</message-bubble>
+							</view>
+						</view>
+					</template>
+					<template v-else>
 					<image
 						v-if="m.role !== 'user'"
 						class="chat-message-avatar chat-message-avatar--character"
@@ -151,7 +233,7 @@
 								<view
 									class="chat-message-markdown"
 									:style="assistantMessageTextStyle(m)"
-									v-html="mdHtml(chunk)"
+					v-html="mdHtml(chunk, semanticForBubbleChunk(m, chunk, chunkIndex))"
 									@tap="onMarkdownTap"
 									@touchstart="startMessageActionPress(m, $event)"
 									@touchmove="moveMessageActionPress($event)"
@@ -164,7 +246,7 @@
 							v-else-if="isAssistantMessage(m)"
 							class="chat-message-markdown"
 							:style="assistantMessageTextStyle(m)"
-							v-html="mdHtml(m.text)"
+				v-html="mdHtml(m.text, m.semantic)"
 							@tap="onMarkdownTap"
 							@touchstart="startMessageActionPress(m, $event)"
 							@touchmove="moveMessageActionPress($event)"
@@ -217,7 +299,7 @@
 							>
 								<view :class="nativeMessageContentClass()">
 									<view
-										v-for="(seg, si) in mdSegments(chunk)"
+						v-for="(seg, si) in mdSegments(chunk, semanticForBubbleChunk(m, chunk, chunkIndex))"
 										:key="si"
 										:class="nativeSegmentClass(seg)"
 										:style="nativeSegmentWrapStyle(seg)"
@@ -245,7 +327,7 @@
 							@touchcancel="endMessageActionPress"
 						>
 							<view
-								v-for="(seg, si) in mdSegments(m.text)"
+				v-for="(seg, si) in mdSegments(m.text, m.semantic)"
 								:key="si"
 								:class="nativeSegmentClass(seg)"
 								:style="nativeSegmentWrapStyle(seg)"
@@ -344,11 +426,11 @@
 						lazy-load
 						@error="handleUserAvatarError"
 					></image>
+					</template>
 				</view>
-				<view id="bottom-anchor" style="height: 24rpx;"></view>
+				<view id="bottom-anchor" class="chat-bottom-anchor"></view>
 			</view>
 		</scroll-view>
-
 		<view v-if="showTypingHintRow()" class="typing-row" :class="{ 'typing-row--app-plus': isAppPlus }">
 			<text class="typing-hint">{{ tx('ai_thinking', '思考中...') }}</text>
 			<text v-if="showStopStream" class="stop-stream" @tap="stopGeneration">{{ chatUi.stop }}</text>
@@ -529,7 +611,7 @@
 				<view class="memory-head">
 					<view class="memory-head-copy">
 						<text class="memory-title">{{ tx('memory_panel_title', '长期记忆') }}</text>
-						<text class="memory-sub">{{ memoryStatusLabel(memoryPanel.detail && memoryPanel.detail.syncStatus) }}</text>
+						<text class="memory-sub">{{ memoryBarText || memoryStatusLabel(memoryPanel.detail && memoryPanel.detail.syncStatus) }}</text>
 					</view>
 					<view
 						class="memory-close"
@@ -800,99 +882,45 @@
 						</view>
 						<view class="character-voice-head-copy">
 							<text class="character-voice-title">{{ tx('character_voice_title', '角色语音') }}</text>
-							<text class="character-voice-sub">{{ tx('character_voice_sub', '为当前角色选择音色和播放方式') }}</text>
+							<text class="character-voice-sub">{{ characterVoicePanelSummaryText() }}</text>
 						</view>
-						<view class="character-voice-wave" aria-hidden="true"><text></text><text></text><text></text><text></text><text></text></view>
+						<text class="character-voice-status" :class="{ 'character-voice-status--on': characterVoicePanel.enabled }">
+							{{ characterVoicePanel.enabled ? tx('on', '已开启') : tx('off', '已关闭') }}
+						</text>
 					</view>
 					<view class="character-voice-close" title="关闭" @tap="closeCharacterVoicePanel"><u-icon name="close" color="#526d7c" size="28"></u-icon></view>
 				</view>
 				<scroll-view class="character-voice-scroll" :style="characterVoiceScrollInlineStyle()" scroll-y :show-scrollbar="false">
 					<view class="character-voice-scroll-body">
-				<view class="character-voice-global-card">
-					<view class="character-voice-global-head">
-						<view class="character-voice-section-icon"><u-icon name="setting-fill" color="#347f97" size="24"></u-icon></view>
-						<view class="character-voice-global-copy">
-							<text class="character-voice-global-title">{{ tx('character_voice_global_title', '当前全局 TTS') }}</text>
-							<text class="character-voice-global-sub">{{ characterVoiceGlobalModeText() }}</text>
+						<view class="character-voice-control-panel">
+							<view class="character-voice-control-row">
+								<view class="character-voice-control-copy">
+									<text class="character-voice-control-title">{{ tx('character_voice_enabled', '启用角色语音') }}</text>
+									<text class="character-voice-control-desc">开启后显示台词播放按钮</text>
+								</view>
+								<switch :checked="characterVoicePanel.enabled" :disabled="characterVoicePanel.saving" color="#347f97" @change="setCharacterVoicePanelEnabled($event.detail.value)" />
+							</view>
+							<view class="character-voice-control-divider"></view>
+							<view class="character-voice-control-row" :class="{ 'character-voice-control-row--disabled': !characterVoicePanel.enabled }">
+								<view class="character-voice-control-copy">
+									<text class="character-voice-control-title">{{ tx('character_voice_auto_play', '自动播放台词') }}</text>
+									<text class="character-voice-control-desc">关闭后仍可手动点击播放</text>
+								</view>
+								<switch :checked="characterVoicePanel.autoPlayEnabled" :disabled="!characterVoicePanel.enabled || characterVoicePanel.saving" color="#347f97" @change="setCharacterVoicePanelAutoPlay($event.detail.value)" />
+							</view>
+							<view class="character-voice-speech-rule">
+								<u-icon name="chat-fill" color="#347f97" size="22"></u-icon>
+								<text>只朗读识别到的角色台词，不朗读动作、心理和状态栏。</text>
+							</view>
 						</view>
-					</view>
-					<text v-if="characterVoiceGlobalState.loading" class="character-voice-global-empty">
-						{{ tx('character_voice_global_loading', '正在读取当前全局 TTS 配置...') }}
-					</text>
-					<text v-else-if="characterVoiceGlobalState.error" class="character-voice-global-empty character-voice-global-empty--error">
-						{{ characterVoiceGlobalState.error }}
-					</text>
-					<view v-else class="character-voice-global-pills">
-						<text class="character-voice-global-pill">{{ characterVoiceGlobalProviderText() }}</text>
-						<text class="character-voice-global-pill">{{ characterVoiceGlobalTtsText() }}</text>
-						<text class="character-voice-global-pill">{{ characterVoiceGlobalVoiceText() }}</text>
-					</view>
-					<view class="character-voice-global-actions">
-						<text class="character-voice-global-action" @tap="goAiSettings">
-							{{ tx('go_ai_settings', '去 AI 设置') }}
-						</text>
-						<text
-							v-if="canManageCharacterUserVoices()"
-							class="character-voice-global-action"
-							@tap="goCharacterUserVoices"
-						>
-							{{ tx('manage_private_voices', '绑定我的音色') }}
-						</text>
-						<text
-							v-if="!characterVoiceGlobalState.loading && !characterVoiceGlobalState.error"
-							class="character-voice-global-action character-voice-global-action--primary"
-							@tap="applyCharacterVoiceGlobalDefaults"
-						>
-							{{ tx('character_voice_apply_global', '把全局 TTS / 音色带入当前角色') }}
-						</text>
-					</view>
-				</view>
-				<view class="character-voice-field">
-					<text class="character-voice-label">{{ tx('character_voice_enabled', '启用角色语音') }}</text>
-					<view class="character-voice-switch-row">
-						<text
-							class="character-voice-switch"
-							:class="{ 'character-voice-switch--active': characterVoicePanel.enabled }"
-							@tap="setCharacterVoicePanelEnabled(true)"
-						>{{ tx('on', '开启') }}</text>
-						<text
-							class="character-voice-switch"
-							:class="{ 'character-voice-switch--active': !characterVoicePanel.enabled }"
-							@tap="setCharacterVoicePanelEnabled(false)"
-						>{{ tx('off', '关闭') }}</text>
-					</view>
-				</view>
-				<view class="character-voice-field" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
-					<text class="character-voice-label">{{ tx('character_voice_auto_play', '自动播放') }}</text>
-					<view class="character-voice-switch-row">
-						<text
-							class="character-voice-switch"
-							:class="{ 'character-voice-switch--active': characterVoicePanel.autoPlayEnabled }"
-							@tap="setCharacterVoicePanelAutoPlay(true)"
-						>{{ tx('character_voice_auto', '自动') }}</text>
-						<text
-							class="character-voice-switch"
-							:class="{ 'character-voice-switch--active': !characterVoicePanel.autoPlayEnabled }"
-							@tap="setCharacterVoicePanelAutoPlay(false)"
-						>{{ tx('character_voice_manual', '手动') }}</text>
-					</view>
-				</view>
-				<view v-if="characterVoiceGlobalState.mode === 'custom'" class="character-voice-field" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
-					<text class="character-voice-label">{{ tx('character_voice_model', '角色级 TTS 模型覆盖') }}</text>
-					<input
-						class="character-voice-input"
-						v-model="characterVoicePanel.ttsModelName"
-						:disabled="!characterVoicePanel.enabled || characterVoicePanel.saving"
-						:placeholder="tx('character_voice_model_placeholder', '留空则跟随全局 TTS 模型')"
-						confirm-type="done"
-					/>
-				</view>
-				<view class="character-voice-field" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
+
+						<view class="character-voice-field character-voice-source" :class="{ 'character-voice-field--disabled': !characterVoicePanel.enabled }">
 					<view class="character-voice-label-row">
-						<text class="character-voice-label">{{ tx('character_voice_voice', '音色') }}</text>
-						<text class="character-voice-meta">
-							{{ characterVoiceCatalogState.loading ? '读取中' : (characterVoicePanelCatalogCount + ' 项') }}
-						</text>
+						<view>
+							<text class="character-voice-label">{{ tx('character_voice_voice', '这个角色的音色') }}</text>
+							<text class="character-voice-section-caption">{{ characterVoicePanelSelectionText() }}</text>
+						</view>
+						<text class="character-voice-text-action" @tap="goAiSettings">AI 设置</text>
 					</view>
 					<view v-if="characterVoiceCatalogState.error" class="character-voice-catalog-state character-voice-catalog-state--error">
 						<text>{{ characterVoiceCatalogState.error }}</text>
@@ -908,7 +936,7 @@
 						<view class="character-voice-choice-icon"><u-icon name="home-fill" color="#347f97" size="24"></u-icon></view>
 						<view class="character-voice-choice-copy">
 							<text class="character-voice-choice-title">跟随全局音色</text>
-							<text class="character-voice-choice-desc">使用 AI 设置中当前生效的音色</text>
+							<text class="character-voice-choice-desc">{{ characterVoiceGlobalModeText() }} · {{ characterVoiceGlobalVoiceText() }}</text>
 						</view>
 						<u-icon v-if="isCharacterVoiceFollowingGlobal()" name="checkbox-mark" color="#347f97" size="26"></u-icon>
 					</view>
@@ -990,7 +1018,7 @@
 					</view>
 
 					<view v-if="characterVoicePanelVoicePresets.length" class="character-voice-catalog-group">
-						<text class="character-voice-catalog-title">平台常用音色</text>
+						<text class="character-voice-catalog-title">模型内置音色</text>
 						<scroll-view class="character-voice-chip-scroll" scroll-y :show-scrollbar="false">
 							<view class="character-voice-chip-row">
 								<text
@@ -1007,12 +1035,21 @@
 					<view v-if="characterVoiceGlobalState.mode === 'custom'" class="character-voice-advanced">
 						<view class="character-voice-advanced-toggle" @tap="toggleCharacterVoiceAdvanced">
 							<view class="character-voice-choice-copy">
-								<text class="character-voice-advanced-title">其他音色 ID</text>
-								<text class="character-voice-choice-desc">仅在列表中没有目标音色时使用</text>
+								<text class="character-voice-advanced-title">高级设置</text>
+								<text class="character-voice-choice-desc">单独覆盖这个角色的 TTS 模型或音色 ID</text>
 							</view>
 							<u-icon :name="characterVoicePanel.advancedOpen ? 'arrow-up' : 'arrow-down'" color="#607b89" size="22"></u-icon>
 						</view>
 						<view v-if="characterVoicePanel.advancedOpen" class="character-voice-manual-box">
+							<text class="character-voice-manual-label">TTS 模型</text>
+							<input
+								class="character-voice-input"
+								v-model="characterVoicePanel.ttsModelName"
+								:disabled="!characterVoicePanel.enabled || characterVoicePanel.saving"
+								:placeholder="tx('character_voice_model_placeholder', '留空则跟随全局 TTS 模型')"
+								confirm-type="done"
+							/>
+							<text class="character-voice-manual-label character-voice-manual-label--voice">音色 ID</text>
 							<input
 								class="character-voice-input"
 								:value="characterVoicePanel.ttsVoiceName"
@@ -1024,6 +1061,14 @@
 						</view>
 					</view>
 					<text class="character-voice-hint">{{ characterVoiceVoiceHintText() }}</text>
+					<view v-if="canManageCharacterUserVoices()" class="character-voice-manage-row" @tap="goCharacterUserVoices">
+						<view class="character-voice-manage-icon"><u-icon name="mic" color="#7b5f73" size="24"></u-icon></view>
+						<view class="character-voice-choice-copy">
+							<text class="character-voice-choice-title">管理我的音色</text>
+							<text class="character-voice-choice-desc">创建、试听或绑定当前角色的自建音色</text>
+						</view>
+						<u-icon name="arrow-right" color="#7b8d98" size="24"></u-icon>
+					</view>
 				</view>
 					</view>
 				</scroll-view>
@@ -1036,9 +1081,6 @@
 					</text>
 				</view>
 			</view>
-		</view>
-		<view v-if="jgOn && jgChatLoadState === 'ready'" class="ai-disclaimer">
-			<text class="ai-disclaimer-txt">内容由 AI 生成</text>
 		</view>
 		<view v-if="attachmentMenuVisible" class="attach-fab-backdrop" @tap="closeChatAttachmentMenu"></view>
 		<view v-if="composerImages.length" class="composer-image-strip">
@@ -1339,6 +1381,7 @@
 			</view>
 		</view>
 		<chat-composer
+			ref="chatComposer"
 			v-model="draft"
 			:show-model-selector="jgOn && jgChatLoadState === 'ready' && chatModelCatalog.enabled"
 			:model-name="currentChatModelName"
@@ -1379,7 +1422,7 @@
 			@open-expression-panel="openExpressionPanel"
 			@open-attachment-menu="openChatAttachmentMenu"
 			@open-model-picker="openChatModelPicker"
-			@scroll-bottom="scrollChatToBottom({ immediate: true })"
+			@scroll-bottom="requestChatScrollToBottom"
 			@primary-action="onPrimaryAction"
 			@focus="onInputFocus"
 			@blur="onInputBlur"
@@ -1403,7 +1446,9 @@
 	const companionStore = require('@/common/companionStore.js');
 	const chatAppearance = require('@/common/chatAppearance.js');
 	const structuredContent = require('@/common/chatStructuredContent.js');
+	const ensembleChat = require('@/common/ensembleChat.js');
 	const viewerIdentity = require('@/common/viewerIdentity.js');
+	const chatScrollBehavior = require('@/common/chatScrollBehavior.js');
 	const DEFAULT_CHAT_BACKGROUND_URL = '/static/login.png';
 
 	function buildInlineSvgDataUrl(svg) {
@@ -1589,7 +1634,8 @@
 			selected: raw.selected === true,
 			statusCode: String(raw.statusCode || '').trim(),
 			statusText: String(raw.statusText || '').trim(),
-			lastError: String(raw.lastError || '').trim()
+			lastError: String(raw.lastError || '').trim(),
+			updatedAt: String(raw.updatedAt || '').trim()
 		};
 	}
 
@@ -1830,19 +1876,29 @@
 				streamingAssistantMessageId: '',
 				streamingAssistantMode: '',
 				stopRefreshTimer: null,
+				semanticPollTimer: null,
+				semanticPollAttempts: 0,
+				semanticPollRequestVersion: 0,
+				semanticPollPendingKey: '',
 				stopSyncVersion: 0,
 				followBottom: true,
 				atChatBottom: true,
+				chatBottomButtonVisible: false,
+				chatScrollUpIntent: 0,
+				chatScrollingToBottom: false,
 				chatUnreadCount: 0,
 				chatUnreadMessageKeyMap: {},
 				chatUserTouching: false,
+				chatTouchStartY: null,
 				lastChatScrollTop: 0,
 				chatAutoScrollAt: 0,
 				chatProgrammaticScroll: false,
 				chatProgrammaticScrollTimer: null,
+				chatScrollSettleTimer: null,
 				chatFollowScrollTimer: null,
 				chatScrollWithAnimation: true,
 				chatViewportReady: false,
+				chatViewportHeight: 0,
 				chatAnimationTimer: null,
 				chatRevealTimer: null,
 				editOverlay: createEditOverlayState(),
@@ -2301,6 +2357,14 @@
 				if (String(value || '').trim()) {
 					this.closeReplySuggestions();
 				}
+			},
+			atChatBottom() {
+				this.$nextTick(() => this.measureChatViewportHeight());
+			},
+			jgChatLoadState(value) {
+				if (value === 'ready') {
+					this.$nextTick(() => this.measureChatViewportHeight());
+				}
 			}
 		},
 			onLoad(q) {
@@ -2345,6 +2409,7 @@
 		},
 		onShow() {
 			companionStore.emitLayout({ avoidBottom: this.inputFocus ? 150 : 92, compact: this.inputFocus === true });
+			this.$nextTick(() => this.measureChatViewportHeight());
 			if (this.jgOn) {
 				const tavernApi = require('@/common/tavernApi.js');
 				const identityChanged = this.handleJgIdentityChangeOnShow(tavernApi);
@@ -2359,7 +2424,10 @@
 				this.refreshCharacterVoiceConfig();
 				this.refreshCharacterImageConfig();
 				this.refreshCharacterImageGlobalSummary(true, false);
-				if (this.characterVoicePanel && this.characterVoicePanel.visible) {
+				if (
+					this.jgChatLoadState === 'ready'
+					&& (this.isCharacterVoiceEnabled() || (this.characterVoicePanel && this.characterVoicePanel.visible))
+				) {
 					this.refreshCharacterVoiceCatalog(true, false);
 				}
 				this.refreshVoiceFeatureGlobalState(true);
@@ -2372,12 +2440,21 @@
 				}
 			}
 		},
-		onHide() {
+		onReady() {
+			this.measureChatViewportHeight();
+		},
+		onResize() {
+			this.measureChatViewportHeight();
+		},
+			onHide() {
 			companionStore.emitLayout({ avoidBottom: 92, compact: false });
+			this.flushComposerInput();
 			this.flushDraftSave();
+			this.clearSemanticPollTimer();
 		},
 		onUnload() {
 			companionStore.emitLayout({ avoidBottom: 92, compact: false });
+			this.flushComposerInput();
 			if (this.sending || this.streamAbortController) {
 				this.stopGeneration({ silent: true, skipSync: true });
 			}
@@ -2395,6 +2472,7 @@
 			this.clearJgLoadRetryTimer();
 			this.clearDraftSaveTimer();
 			this.clearStopSyncTimer();
+			this.clearSemanticPollTimer();
 			this.clearChatUiTimers();
 			this.clearMessageActionPressState();
 			this.disposeVoiceRecorder(true);
@@ -2404,6 +2482,12 @@
 			this.chatModelPicker.visible = false;
 		},
 		methods: {
+			flushComposerInput() {
+				const composer = this.$refs && this.$refs.chatComposer;
+				if (composer && typeof composer.flushInputValue === 'function') {
+					composer.flushInputValue();
+				}
+			},
 			tx(key, fallback) {
 				const extra = this.chatUi || {};
 				const extraValue = key ? extra[key] : '';
@@ -4159,7 +4243,7 @@
 				this.resetVoiceRecordingState();
 			},
 			openExpressionPanel() {
-				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing || !this.jgOn || !this.char || !this.atChatBottom) return;
+				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing || !this.jgOn || !this.char) return;
 				this.closeChatAttachmentMenu();
 				this.closeReplySuggestions();
 				this.refreshLocalExpressionLibrary();
@@ -4390,8 +4474,9 @@
 				this.scrollChatToBottom({ immediate: true });
 				return next;
 			},
-			applyCharacterNameToDraft() {
-				const name = this.currentCharacterDisplayName();
+			applyCharacterNameToDraft(explicitName) {
+				const requestedName = typeof explicitName === 'string' ? explicitName : '';
+				const name = this.normalizeCharacterVoiceText(requestedName, 64) || this.currentCharacterDisplayName();
 				if (!name) return;
 				this.closeMessageActionSheet();
 				if (typeof uni !== 'undefined' && typeof uni.setClipboardData === 'function') {
@@ -4983,10 +5068,13 @@
 				}
 				this.followBottom = false;
 				this.atChatBottom = false;
+				this.chatBottomButtonVisible = true;
+				this.chatScrollUpIntent = chatScrollBehavior.UNKNOWN_DISTANCE_SHOW_INTENT;
 				this.markChatAutoScroll();
 				this.chatScrollWithAnimation = false;
 				this.scrollTo = '';
 				this.$nextTick(() => {
+					this.measureChatViewportHeight();
 					this.markChatAutoScroll();
 					this.scrollTo = 'm-' + safeId;
 					this.chatAnimationTimer = setTimeout(() => {
@@ -5040,7 +5128,63 @@
 				if (trackIncomingUnread && incomingRows.length) {
 					this.handleIncomingChatRows(incomingRows);
 				}
+				this.scheduleSemanticAnnotationPoll();
 				return incomingRows;
+			},
+			clearSemanticPollTimer() {
+				if (this.semanticPollTimer) {
+					clearTimeout(this.semanticPollTimer);
+					this.semanticPollTimer = null;
+				}
+				this.semanticPollRequestVersion += 1;
+			},
+			semanticPendingMessageIds() {
+				return (Array.isArray(this.messages) ? this.messages : [])
+					.filter((row) => row && row.role === 'char' && !row.semantic && String(row.id || '').indexOf('db_') === 0 && String(row.text || '').trim())
+					.slice(-8)
+					.map((row) => this.normalizeDbMessageId(row.id));
+			},
+			scheduleSemanticAnnotationPoll(resetAttempts) {
+				const ids = this.semanticPendingMessageIds();
+				const pendingKey = ids.join(',');
+				if (!ids.length) {
+					this.clearSemanticPollTimer();
+					this.semanticPollAttempts = 0;
+					this.semanticPollPendingKey = '';
+					return;
+				}
+				if (resetAttempts === true || pendingKey !== this.semanticPollPendingKey) {
+					this.semanticPollAttempts = 0;
+					this.semanticPollPendingKey = pendingKey;
+				}
+				// Keep polling slightly beyond the backend's default 30-second classifier timeout.
+				if (this.semanticPollTimer || this.semanticPollAttempts >= 9) return;
+				const delay = this.semanticPollAttempts === 0 ? 900 : Math.min(5000, 1000 * Math.pow(1.65, this.semanticPollAttempts));
+				const version = ++this.semanticPollRequestVersion;
+				this.semanticPollTimer = setTimeout(() => {
+					this.semanticPollTimer = null;
+					if (version !== this.semanticPollRequestVersion) return;
+					this.pollSemanticAnnotations(ids, version);
+				}, delay);
+			},
+			pollSemanticAnnotations(messageIds, version) {
+				const tavernApi = require('@/common/tavernApi.js');
+				const cid = Number(this.char && this.char.id) || Number(this.cid);
+				if (!cid || typeof tavernApi.fetchTavernMessageSemantics !== 'function') return;
+				this.semanticPollAttempts += 1;
+				tavernApi.fetchTavernMessageSemantics(cid, tavernApi.getClientUid(), messageIds)
+					.then((payload) => {
+						if (version !== this.semanticPollRequestVersion) return;
+						const annotations = payload && payload.annotations && typeof payload.annotations === 'object' ? payload.annotations : {};
+						Object.keys(annotations).forEach((messageId) => {
+							const row = (this.messages || []).find((item) => this.normalizeDbMessageId(item && item.id) === this.normalizeDbMessageId(messageId));
+							if (row) this.$set(row, 'semantic', annotations[messageId]);
+						});
+					})
+					.catch(() => {})
+					.finally(() => {
+						if (version === this.semanticPollRequestVersion) this.scheduleSemanticAnnotationPoll();
+					});
 			},
 			currentJgViewerIdentitySignature(tavernApi) {
 				const api = tavernApi || require('@/common/tavernApi.js');
@@ -5230,6 +5374,9 @@
 				this.chatScrollWithAnimation = false;
 				this.followBottom = true;
 				this.atChatBottom = true;
+				this.chatBottomButtonVisible = false;
+				this.chatScrollUpIntent = 0;
+				this.chatScrollingToBottom = false;
 				this.resetChatUnreadState();
 				this.lastChatScrollTop = 0;
 				this.scrollTo = '';
@@ -5251,8 +5398,16 @@
 						if (!this.char || this.char.unlocked === false) {
 							return Promise.reject(new Error('vip'));
 						}
-						return tavernApi.fetchTavernMessages(this.cid, tavernApi.getClientUid(), {
-							limit: TAVERN_MESSAGES_INITIAL_LIMIT
+						const voiceProfileReady = this.isCharacterVoiceEnabled()
+							? this.refreshCharacterVoiceCatalog(false, false)
+							: Promise.resolve(null);
+						return voiceProfileReady.then(() => {
+							if (this.jgLoadRequestToken !== requestToken || !this.isJgViewerIdentityCurrent(loadIdentitySignature)) {
+								return Promise.reject({ __stale: true });
+							}
+							return tavernApi.fetchTavernMessages(this.cid, tavernApi.getClientUid(), {
+								limit: TAVERN_MESSAGES_INITIAL_LIMIT
+							});
 						});
 					})
 					.then((pack) => {
@@ -5913,13 +6068,16 @@
 			},
 			shouldAutoPrepareAssistantVoice() {
 				return this.isVoiceFeatureEnabledGlobal()
-					&& !!this.assistantVoiceAutoEnabled
 					&& this.isCharacterVoiceEnabled()
 					&& this.isCharacterVoiceAutoPlayEnabled();
 			},
+			openStructuredSegmentAvatar(segment) {
+				const imageUrl = this.structuredSegmentAvatar(segment);
+				if (!imageUrl) return;
+				uni.previewImage({ current: imageUrl, urls: [imageUrl] });
+			},
 			shouldAutoPlayAssistantVoice() {
 				return this.isVoiceFeatureEnabledGlobal()
-					&& !!this.assistantVoiceAutoEnabled
 					&& this.isCharacterVoiceEnabled()
 					&& this.isCharacterVoiceAutoPlayEnabled()
 					&& !!this.isAppPlus;
@@ -6238,6 +6396,9 @@
 					return Promise.resolve(current);
 				}
 				try {
+					const previousAudioProfileKey = current.loaded === true
+						? this.characterVoiceAudioProfileKey(this.characterVoiceConfig, this.characterVoiceCatalogState, current)
+						: '';
 					const tavernApi = require('@/common/tavernApi.js');
 					const clientUid = tavernApi && typeof tavernApi.getClientUid === 'function' ? String(tavernApi.getClientUid() || '').trim() : '';
 					if (!clientUid) {
@@ -6250,6 +6411,12 @@
 					return tavernApi.getTavernUserAiProvider(clientUid).then((data) => {
 						const next = this.normalizeCharacterVoiceGlobalState(data);
 						this.characterVoiceGlobalState = next;
+						if (
+							previousAudioProfileKey
+							&& previousAudioProfileKey !== this.characterVoiceAudioProfileKey(this.characterVoiceConfig, this.characterVoiceCatalogState, next)
+						) {
+							this.invalidateAssistantVoiceCacheForCurrentConversation();
+						}
 						return next;
 					}).catch((err) => {
 						const next = Object.assign(createCharacterVoiceGlobalState(), current, {
@@ -6280,6 +6447,9 @@
 				const current = this.characterVoiceCatalogState || createCharacterVoiceCatalogState();
 				if (current.loading) return Promise.resolve(current);
 				try {
+					const previousAudioProfileKey = current.loaded === true
+						? this.characterVoiceAudioProfileKey(this.characterVoiceConfig, current, this.characterVoiceGlobalState)
+						: '';
 					const tavernApi = require('@/common/tavernApi.js');
 					const clientUid = tavernApi && typeof tavernApi.getClientUid === 'function'
 						? String(tavernApi.getClientUid() || '').trim()
@@ -6326,6 +6496,12 @@
 							bindingLoaded
 						};
 						this.characterVoiceCatalogState = next;
+						if (
+							previousAudioProfileKey
+							&& previousAudioProfileKey !== this.characterVoiceAudioProfileKey(this.characterVoiceConfig, next, this.characterVoiceGlobalState)
+						) {
+							this.invalidateAssistantVoiceCacheForCurrentConversation();
+						}
 						const activeCharacterId = Number(this.char && this.char.id) || Number(this.cid) || 0;
 						if (
 							this.characterVoicePanel && this.characterVoicePanel.visible
@@ -6398,6 +6574,25 @@
 					uni.hideKeyboard();
 				} catch (e) {}
 			},
+			characterVoicePanelSelectionText() {
+				const panel = this.characterVoicePanel || {};
+				const privateVoiceId = Math.max(0, Math.floor(Number(panel.privateVoiceId) || 0));
+				if (privateVoiceId > 0) {
+					const voice = this.selectedCharacterVoicePanelPrivateVoice;
+					return voice && voice.displayName ? voice.displayName : '我的自建音色';
+				}
+				const template = this.selectedCharacterVoicePanelVoiceTemplate;
+				if (template) return template.displayName || template.code;
+				const voiceName = this.normalizeCharacterVoiceText(panel.ttsVoiceName, 255);
+				return voiceName || '跟随 AI 设置';
+			},
+			characterVoicePanelSummaryText() {
+				if (!this.characterVoicePanel || this.characterVoicePanel.enabled !== true) {
+					return '开启后可播放角色台词';
+				}
+				const playback = this.characterVoicePanel.autoPlayEnabled === true ? '自动播放' : '手动播放';
+				return this.characterVoicePanelSelectionText() + ' · ' + playback;
+			},
 			closeCharacterVoicePanel() {
 				if (this.characterVoicePanel && this.characterVoicePanel.saving) return;
 				this.characterVoicePanel = createCharacterVoicePanelState();
@@ -6409,6 +6604,51 @@
 			setCharacterVoicePanelAutoPlay(enabled) {
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving) return;
 				this.characterVoicePanel.autoPlayEnabled = enabled !== false;
+			},
+			characterVoiceAudioProfileKey(config, catalogState, globalState) {
+				const source = this.normalizeCharacterVoiceConfig(config || this.characterVoiceConfig);
+				const catalog = catalogState && typeof catalogState === 'object'
+					? catalogState : (this.characterVoiceCatalogState || {});
+				const global = globalState && typeof globalState === 'object'
+					? globalState : (this.characterVoiceGlobalState || {});
+				const hasPublicOverride = !!(source.ttsVoiceName || source.ttsVoiceTemplateCode);
+				const boundVoiceId = !hasPublicOverride
+					? Math.max(0, Math.floor(Number(catalog.bindingVoiceId) || 0))
+					: 0;
+				const boundVoice = boundVoiceId > 0 && Array.isArray(catalog.privateVoices)
+					? catalog.privateVoices.find((item) => Math.max(0, Math.floor(Number(item && item.id) || 0)) === boundVoiceId)
+					: null;
+				const voiceTemplateCode = source.ttsVoiceTemplateCode
+					|| (!source.ttsVoiceName ? String(global.ttsVoiceTemplateCode || '').trim() : '');
+				const voiceTemplate = voiceTemplateCode && Array.isArray(global.ttsVoiceTemplates)
+					? global.ttsVoiceTemplates.find((item) => String(item && item.code || '').trim() === voiceTemplateCode)
+					: null;
+				return this.localMediaSignature(JSON.stringify({
+					characterId: this.resolveCharacterVoiceCharacterId(),
+					mode: String(global.mode || '').trim(),
+					providerSource: source.ttsProviderSource || String(global.providerSource || '').trim().toLowerCase(),
+					modelName: source.ttsModelName || String(global.ttsModelName || global.modelName || '').trim(),
+					voiceName: source.ttsVoiceName || (!source.ttsVoiceTemplateCode ? String(global.ttsVoiceName || '').trim() : ''),
+					voiceTemplateCode,
+					voiceTemplateRevision: String(voiceTemplate && voiceTemplate.updatedAt || '').trim(),
+					boundVoiceId,
+					boundVoiceRevision: String(boundVoice && boundVoice.updatedAt || '').trim()
+				}));
+			},
+			invalidateAssistantVoiceCacheForCurrentConversation() {
+				this.stopAssistantVoicePlayback();
+				this.assistantVoiceStateMap = {};
+				this.assistantVoiceRestorePendingMap = {};
+				try {
+					const localMediaStore = require('@/common/localMediaStore.js');
+					return localMediaStore.removeByConversationKind(
+						this.resolveLocalExpressionViewerKey(),
+						this.resolveLocalChatConversationId(),
+						'assistant_tts'
+					).catch(() => false);
+				} catch (e) {
+					return Promise.resolve(false);
+				}
 			},
 			selectCharacterVoicePreset(voiceName) {
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving || this.characterVoicePanel.enabled === false) return;
@@ -6625,6 +6865,7 @@
 					}
 				}
 				const previous = this.currentCharacterVoiceConfig();
+				const previousAudioProfileKey = this.characterVoiceAudioProfileKey(previous);
 				this.characterVoicePanel.saving = true;
 				const ok = this.writeCharacterVoiceConfig(next);
 				if (!ok) {
@@ -6641,14 +6882,19 @@
 					})
 					: Promise.resolve(null);
 				return bindingPromise.then(() => {
-					this.characterVoiceCatalogState = Object.assign(createCharacterVoiceCatalogState(), catalogState, {
+					const nextCatalogState = Object.assign(createCharacterVoiceCatalogState(), catalogState, {
 						loading: false,
 						bindingLoaded: shouldSaveBinding ? true : catalogState.bindingLoaded === true,
 						bindingVoiceId: shouldSaveBinding ? desiredPrivateVoiceId : currentBindingVoiceId
 					});
+					this.characterVoiceCatalogState = nextCatalogState;
 					this.characterVoicePanel.privateBindingDirty = false;
 					this.characterVoicePanel.saving = false;
 					this.characterVoiceConfig = next;
+					const nextAudioProfileKey = this.characterVoiceAudioProfileKey(next, nextCatalogState);
+					if (nextAudioProfileKey !== previousAudioProfileKey) {
+						this.invalidateAssistantVoiceCacheForCurrentConversation();
+					}
 					if (next.enabled === false) this.stopAssistantVoicePlayback();
 					this.closeCharacterVoicePanel();
 					uni.showToast({
@@ -6715,10 +6961,12 @@
 					&& String(state.mode || '').trim() === 'custom'
 					&& String(state.providerSource || '').trim().toLowerCase() === 'siliconflow';
 			},
-			assistantVoiceSegmentSignature(segment) {
+			assistantVoiceSegmentSignature(segment, voiceProfileKey) {
 				const item = segment && typeof segment === 'object' ? segment : { text: segment, speakerMemberId: 0 };
 				return this.localMediaSignature(
-					String(Math.max(0, Math.floor(Number(item.speakerMemberId) || 0))) + '\n' + String(item.text || '')
+					String(voiceProfileKey || this.characterVoiceAudioProfileKey()) + '\n'
+					+ String(Math.max(0, Math.floor(Number(item.speakerMemberId) || 0))) + '\n'
+					+ String(item.text || '')
 				);
 			},
 			assistantVoiceLocalMediaKey(messageId, segmentIndex) {
@@ -6726,7 +6974,7 @@
 				const conversationId = this.resolveLocalChatConversationId();
 				return ['tts', ownerKey, conversationId, this.normalizeDbMessageId(messageId), segmentIndex].join(':');
 			},
-			persistAssistantVoiceSegment(messageId, segmentIndex, segment, taskId, audioDataUrl) {
+			persistAssistantVoiceSegment(messageId, segmentIndex, segment, taskId, audioDataUrl, voiceProfileKey) {
 				const safeMessageId = this.normalizeDbMessageId(messageId);
 				const ownerKey = this.resolveLocalExpressionViewerKey();
 				const conversationId = this.resolveLocalChatConversationId();
@@ -6740,7 +6988,7 @@
 					kind: 'assistant_tts',
 					taskId: String(taskId || '').trim(),
 					segmentIndex,
-					signature: this.assistantVoiceSegmentSignature(segment)
+					signature: this.assistantVoiceSegmentSignature(segment, voiceProfileKey)
 				}, audioDataUrl).then((stored) => stored && stored.url ? stored.url : audioDataUrl);
 			},
 			restoreAssistantVoiceEntry(row) {
@@ -6752,6 +7000,7 @@
 				const speechText = voiceSegments.map((item) => item.text).join('\n').trim();
 				const sentenceTexts = voiceSegments.map((item) => item.text);
 				if (!speechText || !voiceSegments.length) return Promise.resolve(null);
+				const voiceProfileKey = this.characterVoiceAudioProfileKey();
 				this.$set(this.assistantVoiceRestorePendingMap, messageId, true);
 				const localMediaStore = require('@/common/localMediaStore.js');
 				return localMediaStore.list({
@@ -6760,11 +7009,12 @@
 					messageId,
 					kind: 'assistant_tts'
 				}).then((stored) => {
+					if (voiceProfileKey !== this.characterVoiceAudioProfileKey()) return null;
 					const audioSegments = new Array(sentenceTexts.length).fill('');
 					(Array.isArray(stored) ? stored : []).forEach((item) => {
 						const index = Math.max(0, Number(item.segmentIndex) || 0);
 						if (index >= sentenceTexts.length) return;
-						if (String(item.signature || '') !== this.assistantVoiceSegmentSignature(voiceSegments[index])) return;
+						if (String(item.signature || '') !== this.assistantVoiceSegmentSignature(voiceSegments[index], voiceProfileKey)) return;
 						audioSegments[index] = String(item.url || '').trim();
 					});
 					if (!audioSegments.some((item) => item)) return null;
@@ -6772,6 +7022,7 @@
 						.map((item) => String(item && item.taskId || '').trim())
 						.find((item) => item) || ('tts_' + messageId);
 					return this.setAssistantVoiceEntry(messageId, {
+						voiceProfileKey,
 						speechText,
 						preparedSentenceKey: this.assistantVoiceSentenceKey(voiceSegments),
 						sentenceTexts,
@@ -7389,6 +7640,12 @@
 				const rows = Array.isArray(this.messages) ? this.messages : [];
 				for (let i = rows.length - 1; i >= 0; i -= 1) {
 					const row = rows[i];
+					const structured = this.structuredAssistantSegments(row);
+					for (let j = structured.length - 1; j >= 0; j -= 1) {
+						if (structured[j].type === 'CHARACTER' && structured[j].speakerMemberId > 0) {
+							return structured[j].speakerMemberId;
+						}
+					}
 					if (row && row.role === 'char' && Number(row.speakerMemberId) > 0) {
 						return Number(row.speakerMemberId);
 					}
@@ -8348,8 +8605,77 @@
 					voiceDurationMs: this.normalizeVoiceDurationMs(m.voiceDurationMs),
 					speakerMemberId: Math.max(0, Math.floor(Number(m.speakerMemberId) || 0)),
 					speakerName: this.normalizeCharacterVoiceText(m.speakerName, 64),
-					speakerAvatarUrl: this.normalizeCharacterVoiceText(m.speakerAvatarUrl, 512)
+					speakerAvatarUrl: this.normalizeCharacterVoiceText(m.speakerAvatarUrl, 512),
+					segments: ensembleChat.normalizeAssistantSegments(m.segments),
+					semantic: m.semantic && typeof m.semantic === 'object' ? m.semantic : null
 				};
+			},
+			structuredAssistantSegments(row) {
+				return ensembleChat.normalizeAssistantSegments(row && row.segments);
+			},
+			semanticForStructuredSegment(row, segment, segmentIndex) {
+				if (!row || !row.semantic || !segment) return null;
+				const source = String(row.text == null ? '' : row.text);
+				const segments = this.structuredAssistantSegments(row);
+				let cursor = 0;
+				let start = -1;
+				for (let i = 0; i <= segmentIndex && i < segments.length; i += 1) {
+					const content = String(segments[i] && segments[i].content || '');
+					start = source.indexOf(content, cursor);
+					if (start < 0) return null;
+					cursor = start + content.length;
+				}
+				try {
+					const { sliceSemanticAnnotation } = require('@/common/chatMarkdown.js');
+					return typeof sliceSemanticAnnotation === 'function'
+						? sliceSemanticAnnotation(source, row.semantic, start, cursor)
+						: null;
+				} catch (e) {
+					return null;
+				}
+			},
+			hasStructuredAssistantSegments(row) {
+				return ensembleChat.hasStructuredAssistantSegments(row);
+			},
+			shouldRenderStructuredAssistant(row) {
+				return this.hasStructuredAssistantSegments(row) && !this.isStreamingAssistantRow(row);
+			},
+			structuredSegmentAvatar(segment) {
+				return this.normalizeCharacterVoiceText(segment && segment.speakerAvatarUrl, 512) || this.charAvatar;
+			},
+			structuredSegmentBubbleClass(segment) {
+				return {
+					'chat-message-bubble--assistant': true,
+					'ensemble-message-bubble': true,
+					'ensemble-message-bubble--narrator': segment && segment.type === 'NARRATOR'
+				};
+			},
+			structuredSegmentBubbleStyle(row, segment) {
+				const style = Object.assign({}, chatAppearance.buildBubbleStyleObject({ role: 'char' }, this.chatAppearanceConfig));
+				if (segment && segment.type === 'NARRATOR') {
+					style.background = 'rgba(20, 33, 43, 0.34)';
+					style.borderColor = 'rgba(181, 203, 211, 0.18)';
+					style.boxShadow = 'none';
+				}
+				return style;
+			},
+			isLastStructuredSegment(row, index) {
+				return index === this.structuredAssistantSegments(row).length - 1;
+			},
+			applyAssistantSegmentsFromResponse(row, data) {
+				if (!row) return [];
+				const normalized = ensembleChat.normalizeAssistantSegments(data && data.segments);
+				this.$set(row, 'segments', normalized);
+				if (normalized.length) {
+					const first = normalized.find((item) => item.type === 'CHARACTER') || normalized[0];
+					this.$set(row, 'speakerMemberId', Number(first.speakerMemberId) || 0);
+					this.$set(row, 'speakerName', first.speakerName || '');
+					this.$set(row, 'speakerAvatarUrl', first.speakerAvatarUrl || '');
+				}
+				return normalized;
+			},
+			assistantProtocolDisplayText(raw) {
+				return ensembleChat.assistantProtocolDisplayText(raw);
 			},
 			clearGenerationRecovery() {
 				this.generationRecovery = {
@@ -8553,7 +8879,8 @@
 					.fetchTavernReplySuggestions({
 						characterId: cid,
 						clientUid: tavernApi.getClientUid(),
-						content: String(this.draft || '').trim()
+						content: String(this.draft || '').trim(),
+						generationRequestId: this.createChatGenerationRequestId('suggest', key)
 					})
 					.then((items) => {
 						const list = Array.isArray(items)
@@ -8603,6 +8930,7 @@
 					this.chatProgrammaticScrollTimer = null;
 				}
 				this.chatProgrammaticScroll = false;
+				this.clearChatScrollSettleTimer();
 				this.clearPendingFollowScroll();
 				this.clearPendingVoiceStart();
 				this.clearVoiceRecordTimer();
@@ -8612,6 +8940,26 @@
 					clearTimeout(this.chatFollowScrollTimer);
 					this.chatFollowScrollTimer = null;
 				}
+			},
+			clearChatScrollSettleTimer() {
+				if (this.chatScrollSettleTimer) {
+					clearTimeout(this.chatScrollSettleTimer);
+					this.chatScrollSettleTimer = null;
+				}
+			},
+			completeChatBottomArrival() {
+				this.clearChatScrollSettleTimer();
+				if (this.chatProgrammaticScrollTimer) {
+					clearTimeout(this.chatProgrammaticScrollTimer);
+					this.chatProgrammaticScrollTimer = null;
+				}
+				this.chatProgrammaticScroll = false;
+				this.chatScrollingToBottom = false;
+				this.followBottom = true;
+				this.atChatBottom = true;
+				this.chatBottomButtonVisible = false;
+				this.chatScrollUpIntent = 0;
+				this.resetChatUnreadState();
 			},
 			resetChatUnreadState() {
 				this.chatUnreadCount = 0;
@@ -8707,7 +9055,9 @@
 				const opts = options || {};
 				const immediate = opts.immediate !== false;
 				const reveal = !!opts.reveal;
+				const deferArrival = opts.deferArrival === true;
 				this.clearPendingFollowScroll();
+				this.clearChatScrollSettleTimer();
 				if (this.chatAnimationTimer) {
 					clearTimeout(this.chatAnimationTimer);
 					this.chatAnimationTimer = null;
@@ -8717,11 +9067,16 @@
 					this.chatRevealTimer = null;
 				}
 				this.followBottom = true;
-				this.atChatBottom = true;
-				this.resetChatUnreadState();
+				this.chatScrollUpIntent = 0;
+				if (!deferArrival) {
+					this.atChatBottom = true;
+					this.chatBottomButtonVisible = false;
+					this.chatScrollingToBottom = false;
+					this.resetChatUnreadState();
+				}
 				this.lastChatScrollTop = Number.MAX_SAFE_INTEGER;
 				this.markChatAutoScroll();
-				this.markChatProgrammaticScroll();
+				this.markChatProgrammaticScroll(immediate ? 480 : 900);
 				this.chatScrollWithAnimation = !immediate;
 				this.scrollTo = '';
 				this.$nextTick(() => {
@@ -8739,13 +9094,20 @@
 							this.chatRevealTimer = null;
 						}, immediate ? 56 : 220);
 					}
+					if (deferArrival) {
+						this.chatScrollSettleTimer = setTimeout(() => {
+							this.chatScrollSettleTimer = null;
+							this.completeChatBottomArrival();
+						}, 1100);
+					}
 				});
 			},
+			requestChatScrollToBottom() {
+				if (this.chatScrollingToBottom) return;
+				this.chatScrollingToBottom = true;
+				this.scrollChatToBottom({ immediate: false, deferArrival: true });
+			},
 			onPrimaryAction() {
-				if (!this.atChatBottom) {
-					this.scrollChatToBottom({ immediate: true });
-					return;
-				}
 				this.send();
 			},
 			followScrollNextTick() {
@@ -8755,7 +9117,7 @@
 					this.chatFollowScrollTimer = null;
 					if (!this.followBottom || this.chatUserTouching) return;
 					this.scrollChatToBottom({ immediate: true });
-				}, 80);
+				}, 96);
 			},
 			showTypingHintRow() {
 				return !!this.sending && !this.streamingAssistantMessageId;
@@ -8873,7 +9235,7 @@
 			markChatAutoScroll() {
 				this.chatAutoScrollAt = Date.now();
 			},
-			markChatProgrammaticScroll() {
+			markChatProgrammaticScroll(duration) {
 				this.chatProgrammaticScroll = true;
 				if (this.chatProgrammaticScrollTimer) {
 					clearTimeout(this.chatProgrammaticScrollTimer);
@@ -8881,42 +9243,137 @@
 				this.chatProgrammaticScrollTimer = setTimeout(() => {
 					this.chatProgrammaticScroll = false;
 					this.chatProgrammaticScrollTimer = null;
-				}, 240);
+				}, Math.max(240, Number(duration) || 720));
 			},
-			onChatTouchStart() {
+			chatTouchClientY(event) {
+				const source = event && (event.touches || event.changedTouches);
+				const touch = source && source.length ? source[0] : null;
+				const value = touch && touch.clientY != null ? Number(touch.clientY) : NaN;
+				return Number.isFinite(value) ? value : null;
+			},
+			measureChatViewportHeight() {
+				if (!uni || typeof uni.createSelectorQuery !== 'function') return;
+				const query = uni.createSelectorQuery().in(this);
+				query
+					.select('.chat-scroll')
+					.boundingClientRect((rect) => {
+						const height = Number(rect && rect.height);
+						if (Number.isFinite(height) && height > 0) {
+							this.chatViewportHeight = height;
+						}
+					})
+					.exec();
+			},
+			onChatTouchStart(event) {
 				this.chatUserTouching = true;
+				this.chatTouchStartY = this.chatTouchClientY(event);
+				this.clearPendingFollowScroll();
+				if (this.chatScrollingToBottom) {
+					this.clearChatScrollSettleTimer();
+					this.chatScrollingToBottom = false;
+				}
+				if (this.chatProgrammaticScrollTimer) {
+					clearTimeout(this.chatProgrammaticScrollTimer);
+					this.chatProgrammaticScrollTimer = null;
+				}
+				this.chatProgrammaticScroll = false;
+				if (this.followBottom) this.chatScrollUpIntent = 0;
 			},
 			onChatTouchMove(event) {
 				this.chatUserTouching = true;
+				const currentY = this.chatTouchClientY(event);
+				const rawStartY = this.chatTouchStartY;
+				const startY = Number(rawStartY);
+				if (
+					currentY != null &&
+					rawStartY != null &&
+					Number.isFinite(startY) &&
+					currentY - startY >= chatScrollBehavior.USER_UP_INTENT_DISTANCE
+				) {
+					this.clearPendingFollowScroll();
+					this.followBottom = false;
+					this.atChatBottom = false;
+					this.chatBottomButtonVisible = true;
+					this.chatScrollUpIntent = Math.max(
+						Number(this.chatScrollUpIntent || 0),
+						currentY - startY
+					);
+				}
 				this.moveMessageActionPress(event);
 			},
 			onChatTouchEnd() {
+				this.chatTouchStartY = null;
 				setTimeout(() => {
 					this.chatUserTouching = false;
+					if (this.followBottom && !this.atChatBottom) {
+						this.followScrollNextTick();
+					}
 				}, 120);
 			},
 			onChatScroll(e) {
 				const d = (e && e.detail) || {};
 				const top = Number(d.scrollTop);
 				const height = Number(d.scrollHeight);
-				const clientHeight = Number(d.clientHeight != null ? d.clientHeight : d.height);
+				const eventClientHeight = Number(d.clientHeight != null ? d.clientHeight : d.height);
+				const measuredClientHeight = Number(this.chatViewportHeight);
+				const clientHeight = Number.isFinite(eventClientHeight) && eventClientHeight > 0
+					? eventClientHeight
+					: measuredClientHeight;
 				const hasTop = Number.isFinite(top);
-				const movedUp = hasTop ? top < this.lastChatScrollTop - 3 : false;
-				const fallbackManualMove = !hasTop && typeof d.deltaY === 'number' && Math.abs(d.deltaY) > 2;
+				const previousTop = Number(this.lastChatScrollTop);
+				const hasPreviousTop = Number.isFinite(previousTop) && previousTop !== Number.MAX_SAFE_INTEGER;
+				const upwardDelta = hasTop && hasPreviousTop ? Math.max(0, previousTop - top) : 0;
+				const downwardDelta = hasTop && hasPreviousTop ? Math.max(0, top - previousTop) : 0;
+				const fallbackManualDelta = (!hasTop || !hasPreviousTop) && this.chatUserTouching && typeof d.deltaY === 'number'
+					? Math.abs(Number(d.deltaY) || 0)
+					: 0;
 				const isManualWindow = Date.now() - this.chatAutoScrollAt > 180;
-				const likelyUserScrollUp = this.chatUserTouching && (movedUp || fallbackManualMove);
-				if (likelyUserScrollUp || (isManualWindow && movedUp && !this.chatProgrammaticScroll)) {
-					this.followBottom = false;
-					this.atChatBottom = false;
-					this.clearPendingFollowScroll();
-					this.closeExpressionPanel();
-				}
-				if (hasTop && Number.isFinite(height) && Number.isFinite(clientHeight)) {
-					const distanceToBottom = height - clientHeight - top;
-					if (distanceToBottom <= 64) {
-						this.followBottom = true;
-						this.atChatBottom = true;
-						this.resetChatUnreadState();
+				const distanceToBottom = hasTop && Number.isFinite(height) && Number.isFinite(clientHeight) && clientHeight > 0
+					? Math.max(0, height - clientHeight - top)
+					: null;
+				const firstManualAway = hasTop && !hasPreviousTop && distanceToBottom != null
+					&& distanceToBottom >= chatScrollBehavior.BOTTOM_SHOW_DISTANCE
+					&& isManualWindow && !this.chatProgrammaticScroll;
+				const movedUp = upwardDelta > 0 || fallbackManualDelta > 2 || firstManualAway;
+				const userControlled = movedUp && (this.chatUserTouching || (isManualWindow && !this.chatProgrammaticScroll));
+				const manualTowardBottom = downwardDelta > 2 && (
+					this.chatUserTouching || (isManualWindow && !this.chatProgrammaticScroll)
+				);
+				const effectiveUpwardDelta = upwardDelta || fallbackManualDelta || (
+					firstManualAway ? chatScrollBehavior.USER_UP_INTENT_DISTANCE : 0
+				);
+				const previousFollowBottom = this.followBottom;
+				const nextState = chatScrollBehavior.decideChatScrollState(
+					{
+						atBottom: this.atChatBottom,
+						followBottom: this.followBottom,
+						buttonVisible: this.chatBottomButtonVisible,
+						upwardIntent: this.chatScrollUpIntent
+					},
+					{
+						distanceToBottom,
+						upwardDelta: effectiveUpwardDelta,
+						downwardDelta,
+						userControlled,
+						programmatic: this.chatProgrammaticScroll
+					}
+				);
+				if (
+					nextState.arrivedAtBottom &&
+					(this.followBottom || this.chatScrollingToBottom || manualTowardBottom)
+				) {
+					this.completeChatBottomArrival();
+				} else {
+					const preserveDetachedState = nextState.arrivedAtBottom && !this.followBottom;
+					this.atChatBottom = preserveDetachedState ? false : nextState.atBottom;
+					this.followBottom = preserveDetachedState ? false : nextState.followBottom;
+					this.chatBottomButtonVisible = preserveDetachedState ? true : nextState.buttonVisible;
+					this.chatScrollUpIntent = preserveDetachedState
+						? Math.max(chatScrollBehavior.USER_UP_INTENT_DISTANCE, Number(this.chatScrollUpIntent || 0))
+						: nextState.upwardIntent;
+					if (previousFollowBottom && !nextState.followBottom) {
+						this.clearPendingFollowScroll();
+						this.closeExpressionPanel();
 					}
 				}
 				if (hasTop) {
@@ -8930,9 +9387,11 @@
 				this.maybeLoadOlderMessages('upper-threshold');
 			},
 			onChatScrollToLower() {
-				this.followBottom = true;
-				this.atChatBottom = true;
-				this.resetChatUnreadState();
+				// Layout changes can emit scrolltolower with stale geometry. Normal user
+				// arrival is confirmed by onChatScroll's measured bottom distance.
+				if (this.chatScrollingToBottom) {
+					this.completeChatBottomArrival();
+				}
 			},
 			normalizeDbMessageId(id) {
 				if (id == null) return '';
@@ -10239,13 +10698,15 @@
 							messageKind: d.messageKind || m.messageKind,
 							continueFromMessageId: d.continueFromMessageId || m.continueFromMessageId,
 							swipes: d.swipes,
-							swipeIndex: d.swipeIndex
+							swipeIndex: d.swipeIndex,
+							segments: d.segments
 						});
 						this.applyAssistantExpressionForRow(row);
 						const idx = this.messages.indexOf(m);
 						if (idx >= 0) {
 							this.$set(this.messages, idx, row);
 						}
+						this.scheduleSemanticAnnotationPoll(true);
 						return true;
 					})
 					.catch((e) => {
@@ -10400,16 +10861,40 @@
 				if (this.chatAppearanceReadMode !== 'speechOnly') {
 					return chunks;
 				}
-				return chunks.filter((chunk) => this.textHasSpeechSegment(chunk) || this.textHasRichSegment(chunk));
+				return chunks.filter((chunk, index) => {
+					const semantic = this.semanticForBubbleChunk(message, chunk, index);
+					return this.textHasSpeechSegment(chunk, semantic) || this.textHasRichSegment(chunk);
+				});
 			},
-			textHasSpeechSegment(text) {
+			semanticForBubbleChunk(message, chunk, chunkIndex) {
+				if (!message || !message.semantic) return null;
+				const source = String(message.text == null ? '' : message.text);
+				const chunks = chatAppearance.splitReplyBubbleTexts(source, this.chatReplySplitMode);
+				let cursor = 0;
+				let start = -1;
+				for (let i = 0; i <= chunkIndex && i < chunks.length; i += 1) {
+					const value = String(chunks[i] == null ? '' : chunks[i]);
+					start = source.indexOf(value, cursor);
+					if (start < 0) return null;
+					cursor = start + value.length;
+				}
+				try {
+					const { sliceSemanticAnnotation } = require('@/common/chatMarkdown.js');
+					return typeof sliceSemanticAnnotation === 'function'
+						? sliceSemanticAnnotation(source, message.semantic, start, start + String(chunk || '').length)
+						: null;
+				} catch (e) {
+					return null;
+				}
+			},
+			textHasSpeechSegment(text, semantic) {
 				const source = String(text || '').trim();
 				if (!source) return false;
 				try {
 					const { extractChatSpeechSegments, splitChatSegments } = require('@/common/chatMarkdown.js');
 					const segments = typeof extractChatSpeechSegments === 'function'
-						? extractChatSpeechSegments(source)
-						: (typeof splitChatSegments === 'function' ? splitChatSegments(source) : []);
+						? extractChatSpeechSegments(source, { semantic })
+						: (typeof splitChatSegments === 'function' ? splitChatSegments(source, { semantic }) : []);
 					return segments.some((item) => item && item.type === 'speech' && String(item.text || '').trim());
 				} catch (e) {
 					return /[“"「『][^”"」』]{2,}[”"」』]/.test(source);
@@ -10432,10 +10917,13 @@
 					return true;
 				}
 				const text = this.assistantDisplayText(message.text);
-				return this.textHasSpeechSegment(text) || this.textHasRichSegment(text);
+				return this.textHasSpeechSegment(text, message.semantic) || this.textHasRichSegment(text);
 			},
 			shouldRenderSplitBubbles(message) {
 				if (this.chatReplySplitMode !== 'bubble' || !message || !this.isAssistantMessage(message)) {
+					return false;
+				}
+				if (this.isStreamingAssistantRow(message)) {
 					return false;
 				}
 				if (Array.isArray(message.imageUrls) && message.imageUrls.length) {
@@ -10448,12 +10936,14 @@
 				return chatAppearance.buildSplitHostStyleObject(config);
 			},
 			assistantSplitBubbleStyle(message, index) {
-				return chatAppearance.buildSplitBubbleStyleObject(this.chatAppearanceConfig);
+				const chunks = this.assistantBubbleChunks(message);
+				return chatAppearance.buildSplitBubbleStyleObject(this.chatAppearanceConfig, index, chunks.length);
 			},
-			mdHtml(text) {
+			mdHtml(text, semantic) {
 				const { renderChatMarkdown } = require('@/common/chatMarkdown.js');
 				const config = this.normalizedChatAppearanceConfig;
 				return renderChatMarkdown(this.assistantDisplayText(text), {
+					semantic,
 					readMode: this.chatAppearanceReadMode,
 					showSegmentLabels: this.chatAppearanceSegmentLabelsEnabled,
 					replySplitMode: this.chatReplySplitMode,
@@ -10462,12 +10952,12 @@
 					thoughtItalic: config.thoughtItalic
 				});
 			},
-			mdSegments(text) {
+			mdSegments(text, semantic) {
 				const displayText = this.assistantDisplayText(text);
 				let list = [];
 				try {
 					const { splitChatSegments } = require('@/common/chatMarkdown.js');
-					list = typeof splitChatSegments === 'function' ? splitChatSegments(displayText) : [];
+					list = typeof splitChatSegments === 'function' ? splitChatSegments(displayText, { semantic }) : [];
 				} catch (e) {
 					list = [];
 				}
@@ -10648,7 +11138,7 @@
 					display: 'block',
 					width: '100%',
 					minWidth: '0',
-					margin: '0 0 8rpx',
+					margin: '0 0 10rpx',
 					padding: rich ? '10rpx 0 0' : '0',
 					background: 'transparent',
 					borderTop: rich ? '1rpx solid rgba(255,255,255,0.18)' : '0',
@@ -10798,11 +11288,11 @@
 				}
 				return value;
 			},
-			extractAssistantSpeechText(text) {
+			extractAssistantSpeechText(text, semantic) {
 				const { extractChatSpeechSegments, splitChatSegments } = require('@/common/chatMarkdown.js');
 				const list = typeof extractChatSpeechSegments === 'function'
-					? extractChatSpeechSegments(text)
-					: (typeof splitChatSegments === 'function' ? splitChatSegments(text) : []);
+					? (semantic ? extractChatSpeechSegments(text, { semantic }) : extractChatSpeechSegments(text))
+					: (typeof splitChatSegments === 'function' ? splitChatSegments(text, { semantic }) : []);
 				if (!Array.isArray(list) || !list.length) return '';
 				return list
 					.filter((item) => item && item.type === 'speech')
@@ -10812,6 +11302,8 @@
 					.trim();
 			},
 			extractAssistantSpeakerBlocks(row) {
+				const structuredBlocks = ensembleChat.assistantVoiceBlocksFromSegments(row && row.segments);
+				if (structuredBlocks.length) return structuredBlocks;
 				const text = String(row && row.text || '').replace(/\r\n?/g, '\n');
 				const defaultSpeakerMemberId = Math.max(0, Math.floor(Number(row && row.speakerMemberId) || 0));
 				const markers = /【([^】\n]{1,64})】/g;
@@ -10847,8 +11339,22 @@
 			assistantVoiceSegmentsForRow(row, options) {
 				const opts = options || {};
 				const segments = [];
+				const rowText = String(row && row.text || '');
+				let semanticCursor = 0;
 				this.extractAssistantSpeakerBlocks(row).forEach((block) => {
-					const speechText = this.extractAssistantSpeechText(block.content);
+					const blockText = String(block && block.content || '');
+					const blockStart = rowText.indexOf(blockText, semanticCursor);
+					let blockSemantic = null;
+					if (blockStart >= 0) {
+						semanticCursor = blockStart + blockText.length;
+						try {
+							const { sliceSemanticAnnotation } = require('@/common/chatMarkdown.js');
+							blockSemantic = typeof sliceSemanticAnnotation === 'function'
+								? sliceSemanticAnnotation(rowText, row && row.semantic, blockStart, semanticCursor)
+								: null;
+						} catch (e) {}
+					}
+					const speechText = this.extractAssistantSpeechText(blockText, blockSemantic);
 					this.splitAssistantSpeechIntoSentences(speechText, opts).forEach((text) => {
 						if (text) segments.push({
 							text,
@@ -10857,7 +11363,7 @@
 					});
 				});
 				if (segments.length) return segments;
-				const fallbackText = this.extractAssistantSpeechText(row && row.text);
+				const fallbackText = this.extractAssistantSpeechText(row && row.text, row && row.semantic);
 				return this.splitAssistantSpeechIntoSentences(fallbackText, opts).map((text) => ({
 					text,
 					speakerMemberId: Math.max(0, Math.floor(Number(row && row.speakerMemberId) || 0))
@@ -11045,7 +11551,8 @@
 				if (!messageId) return null;
 				const entry = this.assistantVoiceStateMap && this.assistantVoiceStateMap[messageId];
 				if (!entry || typeof entry !== 'object') return null;
-				const speechText = this.extractAssistantSpeechText(row && row.text);
+				if (String(entry.voiceProfileKey || '') !== this.characterVoiceAudioProfileKey()) return null;
+				const speechText = this.extractAssistantSpeechText(row && row.text, row && row.semantic);
 				if (!speechText) {
 					return null;
 				}
@@ -11105,12 +11612,18 @@
 			syncAssistantVoiceEntries() {
 				const next = {};
 				const rows = Array.isArray(this.messages) ? this.messages : [];
+				const voiceProfileKey = this.characterVoiceAudioProfileKey();
 				rows.forEach((row) => {
 					const messageId = this.assistantVoiceMessageId(row);
 					if (!messageId) return;
 					const entry = this.assistantVoiceStateMap && this.assistantVoiceStateMap[messageId];
-					const speechText = this.extractAssistantSpeechText(row && row.text);
-					if (entry && speechText && speechText === String(entry.speechText || '')) {
+					const speechText = this.extractAssistantSpeechText(row && row.text, row && row.semantic);
+					if (
+						entry
+						&& String(entry.voiceProfileKey || '') === voiceProfileKey
+						&& speechText
+						&& speechText === String(entry.speechText || '')
+					) {
 						next[messageId] = entry;
 					}
 				});
@@ -11170,7 +11683,7 @@
 				if (!row || row.role !== 'char') return false;
 				if (!this.isCharacterVoiceEnabled()) return false;
 				if (this.getAssistantVoiceEntry(row)) return true;
-				return !!this.extractAssistantSpeechText(row.text);
+				return !!this.extractAssistantSpeechText(row.text, row.semantic);
 			},
 			assistantVoiceLabel(row) {
 				const entry = this.getAssistantVoiceEntry(row);
@@ -11178,7 +11691,8 @@
 				if (state === 'loading') return this.tx('assistant_voice_loading', '语音生成中');
 				if (state === 'playing') return this.tx('assistant_voice_stop', '停止语音');
 				if (state === 'partial') return this.tx('assistant_voice_complete', '补全语音');
-				if (state === 'error') return this.tx('assistant_voice_retry', '重试语音');
+				if (state === 'playback_error') return this.tx('assistant_voice_play_again', '再次播放');
+				if (state === 'generation_error' || state === 'error') return this.tx('assistant_voice_retry', '重新生成');
 				return this.tx('assistant_voice_play', '播放台词');
 			},
 			assistantVoicePillClass(row) {
@@ -11188,8 +11702,40 @@
 					'assistant-voice-pill--loading': state === 'loading',
 					'assistant-voice-pill--playing': state === 'playing',
 					'assistant-voice-pill--partial': state === 'partial',
-					'assistant-voice-pill--error': state === 'error'
+					'assistant-voice-pill--error': state === 'error' || state === 'generation_error' || state === 'playback_error'
 				};
+			},
+			handleAssistantVoicePlaybackError(payload) {
+				const messageId = this.assistantVoicePlayingMessageId;
+				this.assistantVoicePlayingMessageId = '';
+				if (!messageId || !this.assistantVoiceStateMap[messageId]) return;
+				const entry = this.assistantVoiceStateMap[messageId];
+				const hasAudio = this.assistantVoiceHasPlayableAudio(entry);
+				const rawError = payload && payload.error ? payload.error : payload;
+				const errorName = String(rawError && rawError.name || '').trim();
+				const blocked = errorName === 'NotAllowedError';
+				const message = blocked
+					? this.tx('assistant_voice_tap_again', '语音已生成，请再次点击播放')
+					: this.tx('assistant_voice_play_failed_retry', '语音播放失败，请再试一次');
+				this.setAssistantVoiceEntry(messageId, {
+					state: hasAudio ? 'playback_error' : 'generation_error',
+					errorKind: 'playback',
+					error: message,
+					playingIndex: -1,
+					waitingForSegmentIndex: -1,
+					autoPlayPending: false
+				});
+				this.showErrorToast(message);
+			},
+			primeAssistantVoicePlayback() {
+				if (this.isAppPlus) return;
+				try {
+					const player = this.getAssistantVoicePlayer();
+					if (player && typeof player.unlock === 'function') {
+						const result = player.unlock();
+						if (result && typeof result.catch === 'function') result.catch(() => false);
+					}
+				} catch (e) {}
 			},
 			getAssistantVoicePlayer() {
 				if (!this.assistantVoicePlayer) {
@@ -11219,15 +11765,8 @@
 							});
 						}
 					});
-					this.assistantVoicePlayer.onError(() => {
-						const messageId = this.assistantVoicePlayingMessageId;
-						this.assistantVoicePlayingMessageId = '';
-						if (messageId && this.assistantVoiceStateMap[messageId]) {
-							this.setAssistantVoiceEntry(messageId, {
-								state: 'error',
-								error: this.tx('assistant_voice_play_failed', '语音播放失败')
-							});
-						}
+					this.assistantVoicePlayer.onError((error) => {
+						this.handleAssistantVoicePlaybackError(error);
 					});
 					this.assistantVoicePlayerReady = true;
 				}
@@ -11239,6 +11778,11 @@
 				const endedHandlers = [];
 				const stopHandlers = [];
 				const errorHandlers = [];
+				let playAttempt = 0;
+				let failedAttempt = -1;
+				let unlocked = false;
+				let unlocking = false;
+				let unlockUrl = '';
 				const emitHandlers = (list, payload) => {
 					list.slice().forEach((fn) => {
 						try {
@@ -11246,14 +11790,65 @@
 						} catch (e) {}
 					});
 				};
-				audio.addEventListener('ended', () => emitHandlers(endedHandlers));
-				audio.addEventListener('error', (err) => emitHandlers(errorHandlers, err));
+				const revokeUnlockUrl = () => {
+					if (!unlockUrl) return;
+					try { URL.revokeObjectURL(unlockUrl); } catch (e) {}
+					unlockUrl = '';
+				};
+				const silentWavUrl = () => {
+					const sampleRate = 8000;
+					const sampleCount = 400;
+					const buffer = new ArrayBuffer(44 + sampleCount);
+					const view = new DataView(buffer);
+					const writeAscii = (offset, value) => {
+						for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i));
+					};
+					writeAscii(0, 'RIFF');
+					view.setUint32(4, 36 + sampleCount, true);
+					writeAscii(8, 'WAVE');
+					writeAscii(12, 'fmt ');
+					view.setUint32(16, 16, true);
+					view.setUint16(20, 1, true);
+					view.setUint16(22, 1, true);
+					view.setUint32(24, sampleRate, true);
+					view.setUint32(28, sampleRate, true);
+					view.setUint16(32, 1, true);
+					view.setUint16(34, 8, true);
+					writeAscii(36, 'data');
+					view.setUint32(40, sampleCount, true);
+					for (let i = 44; i < buffer.byteLength; i += 1) view.setUint8(i, 128);
+					return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+				};
+				const emitPlaybackError = (error, attempt) => {
+					if (unlocking) return;
+					const safeAttempt = Number(attempt) || playAttempt;
+					if (failedAttempt === safeAttempt) return;
+					failedAttempt = safeAttempt;
+					emitHandlers(errorHandlers, { error, attempt: safeAttempt });
+				};
+				audio.addEventListener('ended', () => {
+					if (unlockUrl && audio.src === unlockUrl) {
+						revokeUnlockUrl();
+						return;
+					}
+					emitHandlers(endedHandlers);
+				});
+				audio.addEventListener('error', (err) => {
+					if (unlocking) {
+						unlocking = false;
+						revokeUnlockUrl();
+						return;
+					}
+					emitPlaybackError(err, playAttempt);
+				});
 				return {
 					autoplay: false,
 					get src() {
 						return audio.src;
 					},
 					set src(value) {
+						unlocking = false;
+						revokeUnlockUrl();
 						audio.src = value || '';
 					},
 					onEnded(fn) {
@@ -11266,15 +11861,47 @@
 						if (typeof fn === 'function') errorHandlers.push(fn);
 					},
 					play() {
+						playAttempt += 1;
+						failedAttempt = -1;
+						unlocked = true;
+						const attempt = playAttempt;
 						const result = audio.play();
 						if (result && typeof result.catch === 'function') {
 							result.catch((err) => {
-								emitHandlers(errorHandlers, err);
+								emitPlaybackError(err, attempt);
 							});
 						}
 						return result;
 					},
+					unlock() {
+						if (unlocked || unlocking) return Promise.resolve(unlocked);
+						try {
+							unlocking = true;
+							unlockUrl = silentWavUrl();
+							audio.src = unlockUrl;
+							const result = audio.play();
+							if (result && typeof result.then === 'function') {
+								return result.then(() => {
+									unlocked = true;
+									unlocking = false;
+									return true;
+								}).catch(() => {
+									unlocking = false;
+									revokeUnlockUrl();
+									return false;
+								});
+							}
+							unlocked = true;
+							unlocking = false;
+							return Promise.resolve(true);
+						} catch (e) {
+							unlocking = false;
+							revokeUnlockUrl();
+							return Promise.resolve(false);
+						}
+					},
 					stop() {
+						playAttempt += 1;
 						try {
 							audio.pause();
 						} catch (e) {}
@@ -11284,6 +11911,7 @@
 						emitHandlers(stopHandlers);
 					},
 					destroy() {
+						revokeUnlockUrl();
 						try {
 							audio.pause();
 						} catch (e) {}
@@ -11358,6 +11986,7 @@
 				this.setAssistantVoiceEntry(safeId, {
 					state: 'playing',
 					error: '',
+					errorKind: '',
 					audioDataUrl: audioSegments[0] || audioDataUrl,
 					playingIndex: segmentIndex,
 					waitingForSegmentIndex: -1,
@@ -11373,15 +12002,7 @@
 					player.play();
 					return true;
 				} catch (e) {
-					this.assistantVoicePlayingMessageId = '';
-					this.setAssistantVoiceEntry(safeId, {
-						state: 'error',
-						error: this.tx('assistant_voice_play_failed', '语音播放失败'),
-						playingIndex: -1,
-						waitingForSegmentIndex: -1,
-						autoPlayPending: false
-					});
-					this.showErrorToast(this.tx('assistant_voice_play_failed', '语音播放失败'));
+					this.handleAssistantVoicePlaybackError(e);
 					return false;
 				}
 			},
@@ -11454,7 +12075,14 @@
 			preloadAssistantVoiceSegments(messageId, requestKey, options) {
 				const safeId = this.normalizeDbMessageId(messageId);
 				const entry = safeId && this.assistantVoiceStateMap ? this.assistantVoiceStateMap[safeId] : null;
-				if (!safeId || !entry || entry.requestKey !== requestKey) {
+				const voiceProfileKey = String(entry && entry.voiceProfileKey || '');
+				if (
+					!safeId
+					|| !entry
+					|| entry.requestKey !== requestKey
+					|| !voiceProfileKey
+					|| voiceProfileKey !== this.characterVoiceAudioProfileKey()
+				) {
 					return Promise.resolve(null);
 				}
 				const tavernApi = require('@/common/tavernApi.js');
@@ -11466,10 +12094,12 @@
 				const run = (index) => {
 					if (index >= sentenceTexts.length) {
 						const latest = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
-						if (latest && latest.requestKey === requestKey) {
+						if (latest && latest.requestKey === requestKey && latest.voiceProfileKey === voiceProfileKey) {
 							this.setAssistantVoiceEntry(safeId, {
 								requestKey: '',
 								state: this.assistantVoicePlayingMessageId === safeId ? 'playing' : this.assistantVoiceHasPlayableAudio(latest) ? 'ready' : 'idle',
+								error: '',
+								errorKind: '',
 								autoPlayPending: false,
 								missingIndexes: [],
 								failedIndex: -1,
@@ -11480,6 +12110,14 @@
 						return Promise.resolve(firstAudioDataUrl || null);
 					}
 					const latestBeforeRequest = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
+					if (
+						!latestBeforeRequest
+						|| latestBeforeRequest.requestKey !== requestKey
+						|| latestBeforeRequest.voiceProfileKey !== voiceProfileKey
+						|| voiceProfileKey !== this.characterVoiceAudioProfileKey()
+					) {
+						return Promise.resolve(firstAudioDataUrl || null);
+					}
 					const existingSegments = this.assistantVoiceAudioSegments(latestBeforeRequest);
 					const existingAudio = String(existingSegments[index] || '').trim();
 					if (this.isAssistantVoiceAudioUrl(existingAudio)) {
@@ -11499,7 +12137,12 @@
 						))
 						.then((data) => {
 							const latest = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
-							if (!latest || latest.requestKey !== requestKey) {
+							if (
+								!latest
+								|| latest.requestKey !== requestKey
+								|| latest.voiceProfileKey !== voiceProfileKey
+								|| voiceProfileKey !== this.characterVoiceAudioProfileKey()
+							) {
 								return firstAudioDataUrl || null;
 							}
 							const audioDataUrl = data && data.audioDataUrl ? String(data.audioDataUrl).trim() : '';
@@ -11509,22 +12152,23 @@
 							return this.persistAssistantVoiceSegment(safeId, index, {
 								text: sentenceTexts[index],
 								speakerMemberId: sentenceSpeakerMemberIds[index]
-							}, requestKey, audioDataUrl)
+							}, requestKey, audioDataUrl, voiceProfileKey)
 								.catch(() => audioDataUrl)
 								.then((playableAudioUrl) => {
 									const freshEntry = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
-									if (!freshEntry || freshEntry.requestKey !== requestKey) {
+									if (!freshEntry || freshEntry.requestKey !== requestKey || freshEntry.voiceProfileKey !== voiceProfileKey) {
 										return firstAudioDataUrl || null;
 									}
 									const audioSegments = this.assistantVoiceAudioSegments(freshEntry);
 									audioSegments[index] = playableAudioUrl;
 									if (!firstAudioDataUrl) firstAudioDataUrl = playableAudioUrl;
-									this.setAssistantVoiceEntry(safeId, {
-										audioDataUrl: audioSegments[0] || playableAudioUrl,
-										sentenceAudioUrls: audioSegments,
-										state: this.assistantVoicePlayingMessageId === safeId ? 'playing' : 'ready',
-										error: ''
-									});
+								this.setAssistantVoiceEntry(safeId, {
+									audioDataUrl: audioSegments[0] || playableAudioUrl,
+									sentenceAudioUrls: audioSegments,
+									state: this.assistantVoicePlayingMessageId === safeId ? 'playing' : 'ready',
+									error: '',
+									errorKind: ''
+								});
 									const fresh = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
 									if (fresh && fresh.autoPlayPending && index === 0) {
 										const latestRow = this.findMessageRowById(safeId);
@@ -11537,10 +12181,11 @@
 						})
 						.catch((error) => {
 							const latest = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
-							if (latest && latest.requestKey === requestKey) {
+							if (latest && latest.requestKey === requestKey && latest.voiceProfileKey === voiceProfileKey) {
 								this.setAssistantVoiceEntry(safeId, {
 									requestKey: '',
-									state: firstAudioDataUrl ? 'partial' : 'error',
+									state: firstAudioDataUrl ? 'partial' : 'generation_error',
+									errorKind: 'generation',
 									autoPlayPending: false,
 									waitingForSegmentIndex: -1,
 									missingIndexes: this.assistantVoiceMissingSegmentIndexes(latest),
@@ -11572,7 +12217,7 @@
 					return Promise.resolve(null);
 				}
 				const messageId = this.assistantVoiceMessageId(row);
-				const speechText = this.extractAssistantSpeechText(row.text);
+				const speechText = this.extractAssistantSpeechText(row.text, row.semantic);
 				const opts = options || {};
 				if (!messageId || (!messageId.startsWith('db_') && opts.allowStreaming !== true)) {
 					return Promise.resolve(null);
@@ -11590,7 +12235,10 @@
 					return Promise.resolve(null);
 				}
 				const preparedSentenceKey = this.assistantVoiceSentenceKey(voiceSegments);
-				const current = this.assistantVoiceStateMap && this.assistantVoiceStateMap[messageId];
+				const voiceProfileKey = this.characterVoiceAudioProfileKey();
+				const storedCurrent = this.assistantVoiceStateMap && this.assistantVoiceStateMap[messageId];
+				const current = storedCurrent && storedCurrent.voiceProfileKey === voiceProfileKey ? storedCurrent : null;
+				if (storedCurrent && !current) this.clearAssistantVoiceEntry(messageId);
 				if (current && opts.force !== true) {
 					if (current.preparedSentenceKey === preparedSentenceKey) {
 						if (current.speechText !== speechText) {
@@ -11632,6 +12280,7 @@
 				}
 				const requestKey = String(current && (current.taskId || current.requestKey) || '').trim() || ('tts_' + messageId);
 				this.setAssistantVoiceEntry(messageId, {
+					voiceProfileKey,
 					speechText,
 					preparedSentenceKey: preparedSentenceKey,
 					sentenceTexts,
@@ -11640,6 +12289,7 @@
 					state: reusableCount < sentenceTexts.length ? 'loading' : this.assistantVoiceHasPlayableAudio({ sentenceTexts, sentenceAudioUrls: nextAudioSegments }) ? 'ready' : 'idle',
 					audioDataUrl: nextAudioSegments[0] || '',
 					error: '',
+					errorKind: '',
 					taskId: requestKey,
 					requestKey: reusableCount < sentenceTexts.length ? requestKey : '',
 					autoPlayPending: !!opts.autoplay,
@@ -11681,7 +12331,8 @@
 					missingIndexes,
 					failedIndex: -1,
 					retryable: false,
-					error: ''
+					error: '',
+					errorKind: ''
 				});
 				const firstAudio = this.firstAssistantVoiceAudio(entry);
 				if (firstAudio && options && options.autoplay) {
@@ -11701,16 +12352,23 @@
 					return;
 				}
 				if (entry && (entry.state === 'partial' || this.assistantVoiceMissingSegmentIndexes(entry).length > 0) && !entry.requestKey) {
+					if (!this.assistantVoiceHasPlayableAudio(entry)) this.primeAssistantVoicePlayback();
 					this.resumeAssistantVoiceSegments(row, { autoplay: true });
 					return;
 				}
-				if (entry && entry.audioDataUrl) {
+				if (entry && this.assistantVoiceHasPlayableAudio(entry)) {
 					this.playAssistantVoice(row);
 					return;
 				}
+				this.primeAssistantVoicePlayback();
+				const generationFailed = !!(entry && (
+					entry.state === 'generation_error'
+					|| entry.errorKind === 'generation'
+					|| (entry.state === 'error' && !this.assistantVoiceHasPlayableAudio(entry))
+				));
 				this.prepareAssistantVoiceForRow(row, {
 					autoplay: true,
-					force: !!(entry && entry.state === 'error'),
+					force: generationFailed,
 					toastOnError: true
 				});
 			},
@@ -11770,7 +12428,10 @@
 
 				if (tavernApi.jgStreamEnabled()) {
 					const backup = String(last.text || '');
+					const backupSegments = this.structuredAssistantSegments(last);
+					let rawStreamText = '';
 					let started = false;
+					this.$set(last, 'segments', []);
 					this.beginAssistantStreaming(last.id, 'regenerate');
 					this.notifyCompanionReplying('regenerate');
 					const streamController = this.createStreamAbortController();
@@ -11782,13 +12443,9 @@
 							{
 								onDelta: (piece) => {
 									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
-									if (!started) {
-										started = true;
-										this.$set(last, 'text', piece);
-									} else {
-										const next = (last.text || '') + piece;
-										this.$set(last, 'text', next);
-									}
+									rawStreamText += String(piece || '');
+									started = true;
+									this.$set(last, 'text', this.assistantProtocolDisplayText(rawStreamText));
 									this.handleIncomingChatRows(last);
 								},
 								onDone: (data) => {
@@ -11797,8 +12454,10 @@
 									const c = data && data.content != null ? String(data.content).trim() : '';
 									if (cancelled && !c) {
 										this.$set(last, 'text', backup);
+										this.$set(last, 'segments', backupSegments);
 									} else if (data && data.content != null) {
 										this.$set(last, 'text', String(data.content).trim());
+										this.applyAssistantSegmentsFromResponse(last, data);
 									}
 									if (Array.isArray(data && data.swipes)) {
 										this.$set(
@@ -11832,6 +12491,7 @@
 									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									if (!started) {
 										this.$set(last, 'text', backup);
+										this.$set(last, 'segments', backupSegments);
 									}
 									this.queueStopSync(700);
 									this.finishAssistantStreaming(last.id);
@@ -11971,7 +12631,7 @@
 									acc += piece;
 									const row = this.messages.find((item) => item && item.id === rid);
 									if (row) {
-										this.$set(row, 'text', acc);
+										this.$set(row, 'text', this.assistantProtocolDisplayText(acc));
 										streamed = true;
 										this.handleIncomingChatRows(row);
 									}
@@ -11985,6 +12645,7 @@
 									if (data && data.content != null) {
 										this.$set(row, 'text', String(data.content).trim());
 									}
+									this.applyAssistantSegmentsFromResponse(row, data);
 									if (data && data.messageId) {
 										this.updateAssistantVoiceEntryId(rid, data.messageId);
 										this.moveAssistantStreamingMessageId(rid, data.messageId);
@@ -12207,11 +12868,6 @@
 				if (!this.ensureJgIdentityReadyForAction()) return false;
 				const runtimeRequestVersion = this.jgRuntimeRequestVersion;
 				const runtimeIdentitySignature = this.jgViewerIdentitySignature;
-				const allowWhenNotAtBottom = opts && opts.allowWhenNotAtBottom === true;
-				if (!this.atChatBottom && !allowWhenNotAtBottom) {
-					this.scrollChatToBottom({ immediate: true });
-					return false;
-				}
 				const text = (rawText == null ? '' : String(rawText)).trim();
 				const imageUrls = Array.isArray(rawImageUrls)
 					? rawImageUrls.map((item) => (item == null ? '' : String(item).trim())).filter((item) => item)
@@ -12310,6 +12966,7 @@
 					if (tavernApi.jgStreamEnabled()) {
 						const rid = 'r_' + Date.now();
 						let replyStreamed = false;
+						let rawStreamText = '';
 						this.beginAssistantStreaming(rid, 'generate');
 						this.notifyCompanionReplying('generate');
 						const streamController = this.createStreamAbortController();
@@ -12329,8 +12986,8 @@
 										if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 										const last = this.messages[this.messages.length - 1];
 										if (last && last.id === rid) {
-											const next = (last.text || '') + piece;
-											this.$set(last, 'text', next);
+											rawStreamText += String(piece || '');
+											this.$set(last, 'text', this.assistantProtocolDisplayText(rawStreamText));
 											replyStreamed = true;
 											this.handleIncomingChatRows(last);
 										}
@@ -12344,6 +13001,7 @@
 										if (data && data.content != null) {
 											this.$set(row, 'text', String(data.content).trim());
 										}
+										this.applyAssistantSegmentsFromResponse(row, data);
 										if (data && data.messageId) {
 											this.updateAssistantVoiceEntryId(rid, data.messageId);
 											this.moveAssistantStreamingMessageId(rid, data.messageId);
@@ -12727,6 +13385,28 @@
 		align-items: center;
 		justify-content: center;
 		opacity: 0.92;
+	}
+
+	.nav-voice-config--single {
+		position: relative;
+	}
+
+	.nav-voice-config--auto {
+		background: rgba(225, 246, 248, 0.94);
+		border-color: rgba(102, 178, 195, 0.82);
+	}
+
+	.nav-voice-state-dot {
+		position: absolute;
+		right: 8rpx;
+		bottom: 8rpx;
+		width: 12rpx;
+		height: 12rpx;
+		border-radius: 50%;
+		background: #2f9b78;
+		border: 3rpx solid rgba(246, 252, 253, 0.96);
+		box-shadow: 0 2rpx 7rpx rgba(29, 105, 84, 0.25);
+		box-sizing: content-box;
 	}
 
 	.chat-model-picker-mask {
@@ -13554,8 +14234,8 @@
 		flex-shrink: 0;
 		display: flex;
 		flex-wrap: wrap;
-		gap: 12rpx;
-		padding: 12rpx 24rpx;
+		gap: 10rpx;
+		padding: 8rpx 20rpx 10rpx;
 		background: rgba(10, 14, 28, 0.18);
 		backdrop-filter: blur(12rpx);
 		border-bottom: 1rpx solid rgba(255, 255, 255, 0.06);
@@ -13564,7 +14244,7 @@
 	.tool-i {
 		font-size: 24rpx;
 		color: #e2e8f0;
-		padding: 8rpx 20rpx;
+		padding: 7rpx 18rpx;
 		border-radius: 999rpx;
 		background: rgba(124, 58, 237, 0.2);
 	}
@@ -13598,26 +14278,11 @@
 		line-height: 1.4;
 	}
 
-	.memory-bar {
-		flex-shrink: 0;
-		padding: 10rpx 24rpx 14rpx;
-		background: rgba(10, 14, 28, 0.14);
-		backdrop-filter: blur(10rpx);
-		border-bottom: 1rpx solid rgba(148, 163, 184, 0.12);
-	}
-
-	.memory-bar-txt {
-		font-size: 22rpx;
-		color: #94a3b8;
-		line-height: 1.45;
-		display: block;
-	}
-
 	.chat-scroll {
 		flex: 1;
 		height: 0;
 		min-height: 0;
-		padding: 20rpx 24rpx;
+		padding: 14rpx 24rpx 4rpx;
 		box-sizing: border-box;
 		opacity: 1;
 		transition: opacity 0.12s ease;
@@ -13647,6 +14312,62 @@
 
 	.chat-message-row--assistant {
 		justify-content: flex-start;
+	}
+
+	.ensemble-message-list {
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 18rpx;
+		width: 100%;
+		min-width: 0;
+	}
+
+	.ensemble-message-segment {
+		display: flex;
+		align-items: flex-end;
+		gap: 10rpx;
+		width: 100%;
+		min-width: 0;
+	}
+
+	.ensemble-message-segment .ensemble-message-bubble {
+		max-width: 78%;
+	}
+
+	.ensemble-message-segment--narrator {
+		align-items: stretch;
+	}
+
+	.ensemble-message-segment--narrator .ensemble-message-bubble {
+		max-width: 82%;
+	}
+
+	.ensemble-narrator-rail {
+		display: flex;
+		flex: 0 0 72rpx;
+		align-items: flex-start;
+		justify-content: center;
+		width: 72rpx;
+		min-width: 72rpx;
+		padding-top: 24rpx;
+		box-sizing: border-box;
+	}
+
+	.chat-message-row:nth-last-child(2) {
+		margin-bottom: 6rpx;
+	}
+
+	.chat-bottom-anchor {
+		height: 6rpx;
+	}
+
+	.ensemble-narrator-mark {
+		width: 20rpx;
+		height: 2rpx;
+		border-radius: 2rpx;
+		background: rgba(208, 222, 228, 0.58);
 	}
 
 	.chat-message-row--user {
@@ -13859,6 +14580,10 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8rpx;
+	}
+
+	.memory-head-copy {
+		flex: 1 1 auto;
 	}
 
 	.branch-title,
@@ -14628,6 +15353,18 @@
 		box-sizing: border-box;
 	}
 
+	.chat-message-speaker--narrator {
+		color: rgba(210, 224, 230, 0.76);
+		font-weight: 650;
+	}
+
+	@media screen and (max-width: 480px) {
+		.ensemble-message-segment .ensemble-message-bubble,
+		.ensemble-message-segment--narrator .ensemble-message-bubble {
+			max-width: calc(100% - 82rpx);
+		}
+	}
+
 	.character-voice-sheet {
 		width: 100%;
 		max-width: 760rpx;
@@ -14798,6 +15535,83 @@
 		flex-shrink: 0;
 	}
 
+	.character-voice-status {
+		flex-shrink: 0;
+		padding: 7rpx 12rpx;
+		border-radius: 8rpx;
+		background: rgba(103, 125, 137, 0.1);
+		font-size: 20rpx;
+		font-weight: 700;
+		line-height: 1.2;
+		color: #647781;
+	}
+
+	.character-voice-status--on {
+		background: rgba(47, 155, 120, 0.12);
+		color: #22745b;
+	}
+
+	.character-voice-control-panel {
+		margin-top: 14rpx;
+		padding: 0 20rpx 18rpx;
+		border-radius: 16rpx;
+		background: rgba(255, 255, 255, 0.72);
+		border: 1rpx solid rgba(112, 158, 176, 0.14);
+		box-shadow: 0 10rpx 28rpx rgba(54, 91, 112, 0.07);
+	}
+
+	.character-voice-control-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 24rpx;
+		min-height: 102rpx;
+	}
+
+	.character-voice-control-row--disabled {
+		opacity: 0.5;
+	}
+
+	.character-voice-control-copy {
+		min-width: 0;
+		flex: 1;
+	}
+
+	.character-voice-control-title,
+	.character-voice-control-desc {
+		display: block;
+	}
+
+	.character-voice-control-title {
+		font-size: 25rpx;
+		font-weight: 700;
+		color: #203846;
+	}
+
+	.character-voice-control-desc {
+		margin-top: 5rpx;
+		font-size: 21rpx;
+		line-height: 1.45;
+		color: #70828d;
+	}
+
+	.character-voice-control-divider {
+		height: 1rpx;
+		background: rgba(93, 139, 158, 0.12);
+	}
+
+	.character-voice-speech-rule {
+		display: flex;
+		align-items: flex-start;
+		gap: 10rpx;
+		padding: 14rpx 16rpx;
+		border-radius: 10rpx;
+		background: rgba(223, 241, 246, 0.66);
+		font-size: 21rpx;
+		line-height: 1.55;
+		color: #4f6977;
+	}
+
 	.character-voice-global-card {
 		margin-top: 20rpx;
 		padding: 24rpx;
@@ -14917,6 +15731,11 @@
 		-webkit-backdrop-filter: blur(20rpx);
 	}
 
+	.character-voice-source {
+		margin-top: 16rpx;
+		border-radius: 16rpx;
+	}
+
 	.character-voice-field--disabled {
 		opacity: 0.56;
 	}
@@ -14933,6 +15752,22 @@
 		font-size: 26rpx;
 		font-weight: 700;
 		color: #203846;
+	}
+
+	.character-voice-section-caption {
+		display: block;
+		margin-top: 7rpx;
+		font-size: 21rpx;
+		line-height: 1.45;
+		color: #70828d;
+	}
+
+	.character-voice-text-action {
+		flex-shrink: 0;
+		padding: 10rpx 0 10rpx 16rpx;
+		font-size: 22rpx;
+		font-weight: 700;
+		color: #28758a;
 	}
 
 	.character-voice-meta {
@@ -15333,8 +16168,34 @@
 		display: block;
 		font-size: 22rpx;
 		font-weight: 700;
-		letter-spacing: 1rpx;
+		letter-spacing: 0;
 		color: #53656f;
+	}
+
+	.character-voice-manual-label--voice {
+		margin-top: 18rpx;
+	}
+
+	.character-voice-manage-row {
+		display: flex;
+		align-items: center;
+		gap: 14rpx;
+		min-height: 88rpx;
+		margin-top: 18rpx;
+		padding: 14rpx 18rpx;
+		border-top: 1rpx solid rgba(92, 139, 157, 0.14);
+		box-sizing: border-box;
+	}
+
+	.character-voice-manage-icon {
+		width: 48rpx;
+		height: 48rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		border-radius: 12rpx;
+		background: rgba(245, 230, 239, 0.82);
 	}
 
 	.character-voice-advanced {
@@ -15873,29 +16734,6 @@
 		word-break: break-word;
 	}
 
-	.ai-disclaimer {
-		flex-shrink: 0;
-		padding: 0 24rpx 8rpx;
-		text-align: center;
-		pointer-events: none;
-	}
-
-	.ai-disclaimer-txt {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 7rpx 18rpx;
-		border-radius: 999rpx;
-		font-size: 20rpx;
-		line-height: 1.2;
-		letter-spacing: 1rpx;
-		color: rgba(248, 252, 255, 0.82);
-		background: rgba(8, 13, 22, 0.3);
-		border: 1rpx solid rgba(255, 255, 255, 0.12);
-		backdrop-filter: blur(14rpx) saturate(116%);
-		-webkit-backdrop-filter: blur(14rpx) saturate(116%);
-	}
-
 	.image-quick-mask {
 		position: fixed;
 		left: 0;
@@ -16182,7 +17020,6 @@
 
 	.tool-bar,
 	.tool-hint,
-	.memory-bar,
 	.reply-help-panel {
 		background: rgba(255, 255, 255, 0.3) !important;
 		border-color: rgba(255, 255, 255, 0.28) !important;
@@ -16221,7 +17058,6 @@
 
 	.chat-fill-txt,
 	.tool-hint-txt,
-	.memory-bar-txt,
 	.user-edit-tag,
 	.edit-sub,
 	.commercial-sub,
@@ -16296,9 +17132,7 @@
 	}
 
 	.tool-bar,
-	.memory-bar,
-	.reply-help-panel,
-	.ai-disclaimer {
+	.reply-help-panel {
 		flex-shrink: 0;
 	}
 
@@ -16400,15 +17234,12 @@
 	}
 
 	.wrap--app-plus .tool-bar,
-	.wrap--app-plus .memory-bar,
-	.wrap--app-plus .reply-help-panel,
-	.wrap--app-plus .ai-disclaimer {
+	.wrap--app-plus .reply-help-panel {
 		backdrop-filter: none !important;
 		-webkit-backdrop-filter: none !important;
 	}
 
-	.wrap--app-plus .tool-bar,
-	.wrap--app-plus .memory-bar {
+	.wrap--app-plus .tool-bar {
 		background: rgba(255, 255, 255, 0.36) !important;
 		border-color: rgba(255, 255, 255, 0.34) !important;
 		box-shadow: 0 10rpx 24rpx rgba(66, 103, 132, 0.08) !important;
@@ -16420,7 +17251,6 @@
 		border: 1rpx solid rgba(177, 222, 238, 0.82);
 	}
 
-	.wrap--app-plus .memory-bar-txt,
 	.wrap--app-plus .chat-fill-txt,
 	.wrap--app-plus .typing-hint,
 	.wrap--app-plus .user-edit-tag {
@@ -16542,14 +17372,6 @@
 		box-shadow: 0 6rpx 16rpx rgba(53, 141, 172, 0.22);
 	}
 
-	.wrap--app-plus .ai-disclaimer-txt {
-		background: rgba(10, 16, 26, 0.24) !important;
-		border-color: rgba(255, 255, 255, 0.14) !important;
-		color: rgba(247, 251, 255, 0.84) !important;
-		backdrop-filter: none !important;
-		-webkit-backdrop-filter: none !important;
-	}
-
 	.wrap--app-plus .reply-help-trigger {
 		height: 72rpx;
 		line-height: 72rpx;
@@ -16632,6 +17454,10 @@ page {
 		background-size: cover;
 		background-position: center center;
 		background-repeat: no-repeat;
+	}
+
+	.chat-nav-bar .tnb__inner {
+		height: 76rpx;
 	}
 
 	.chat-message-markdown .st-chat-rich-block {
@@ -17343,9 +18169,7 @@ page {
 	}
 
 	.wrap--app-plus .tool-bar,
-	.wrap--app-plus .memory-bar,
-	.wrap--app-plus .reply-help-panel,
-	.wrap--app-plus .ai-disclaimer {
+	.wrap--app-plus .reply-help-panel {
 		backdrop-filter: none !important;
 		-webkit-backdrop-filter: none !important;
 	}

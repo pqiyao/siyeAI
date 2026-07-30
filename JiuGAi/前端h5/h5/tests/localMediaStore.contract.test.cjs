@@ -11,6 +11,11 @@ assert.match(store, /indexedDB\.open\(DB_NAME/);
 assert.match(store, /_doc\/tavern_media/);
 assert.match(store, /resolveLocalFileSystemURL\('_doc\/'/);
 assert.match(store, /createWriter/);
+assert.match(store, /audio\/aac[^\n]+return 'aac'/);
+assert.match(store, /audio\/flac[^\n]+return 'flac'/);
+assert.match(store, /audio\/amr[^\n]+return 'amr'/);
+assert.match(store, /app_media_write_timeout/);
+assert.match(store, /actualSize !== parts\.bytes\.byteLength/);
 assert.match(store, /removeByConversation/);
 assert.match(store, /lastAccessAt/);
 assert.match(store, /URL\.revokeObjectURL/);
@@ -30,4 +35,63 @@ const account = fs.readFileSync(path.join(root, 'pages', 'user', 'numanquan.vue'
 assert.match(account, /removeByOwner\(ownerKey\)/);
 assert.ok(account.indexOf('removeByOwner(ownerKey)') < account.indexOf('uni.clearStorageSync()'));
 
-console.log('local media store contract tests passed');
+const storage = {};
+let writtenFileName = '';
+let writtenFileSize = 0;
+global.uni = {
+	getStorageSync(key) { return storage[key]; },
+	setStorageSync(key, value) { storage[key] = value; }
+};
+global.plus = {
+	io: {
+		resolveLocalFileSystemURL(pathValue, success) {
+			assert.equal(pathValue, '_doc/');
+			success({
+				getDirectory(directoryName, options, directorySuccess) {
+					assert.equal(directoryName, 'tavern_media');
+					assert.equal(options.create, true);
+					directorySuccess({
+						getFile(fileName, fileOptions, fileSuccess) {
+							writtenFileName = fileName;
+							assert.equal(fileOptions.create, true);
+							const fileEntry = {
+								createWriter(writerSuccess) {
+									const writer = {
+										write(blob) {
+											writtenFileSize = blob.size;
+											queueMicrotask(() => writer.onwrite());
+										}
+									};
+									writerSuccess(writer);
+								},
+								file(fileSuccess) { fileSuccess({ size: writtenFileSize }); },
+								toLocalURL() { return 'file:///app/doc/tavern_media/' + fileName; }
+							};
+							fileSuccess(fileEntry);
+						}
+					});
+				}
+			});
+		}
+	}
+};
+
+const localMediaStore = require(path.join(root, 'common', 'localMediaStore.js'));
+
+(async () => {
+	const stored = await localMediaStore.putDataUrl({
+		key: 'tts:owner:chat:db_1:0',
+		ownerKey: 'owner',
+		conversationId: 'chat',
+		messageId: 'db_1',
+		kind: 'assistant_tts'
+	}, 'data:audio/aac;base64,AQID');
+	assert.match(writtenFileName, /\.aac$/);
+	assert.equal(writtenFileSize, 3);
+	assert.match(stored.url, /^file:\/\/\/app\/doc\/tavern_media\/.*\.aac$/);
+	assert.equal(storage.tavern_local_media_index_v1.entries[0].size, 3);
+	console.log('local media store contract tests passed');
+})().catch((error) => {
+	console.error(error);
+	process.exitCode = 1;
+});

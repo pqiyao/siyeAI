@@ -222,7 +222,8 @@
     <update id="updateSpeakerSnapshot">
         UPDATE app_message
         SET speaker_member_id = #{speakerMemberId},
-            speaker_name_snapshot = #{speakerNameSnapshot}
+            speaker_name_snapshot = #{speakerNameSnapshot},
+            speaker_avatar_snapshot = #{speakerAvatarSnapshot}
         WHERE id = #{id}
           AND deleted_at IS NULL
     </update>

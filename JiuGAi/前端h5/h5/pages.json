@@ -147,6 +147,12 @@
 			}
 		},
 		{
+			"path": "pages/user/voiceCache",
+			"style": {
+				"navigationStyle": "custom"
+			}
+		},
+		{
 			"path": "pages/user/aiSettings",
 			"style": {
 				"navigationStyle": "custom"

@@ -317,12 +317,145 @@ public class H5EntitlementService {
                 actionName,
                 Math.max(0, policy.getChatScoreCost()),
                 Math.max(0, policy.getChatGoldCost()),
+                EntitlementPolicyService.normalizedChatWalletMode(policy.getChatWalletMode()),
                 policy.isOverQuotaBillingEnabled(),
                 byokActive
                         ? "今日自定义 API 聊天次数已用完，请明日再试"
                         : "今日聊天次数已用完，请升级会员或明日再试",
                 "chat"
         );
+    }
+
+    /**
+     * Reserves legacy official/BYOK chat billing before generation so it has the same
+     * failure, idempotency and stale-recovery semantics as platform model billing.
+     */
+    @Transactional
+    public AccessTicket guardChat(
+            String clientUid,
+            long characterId,
+            EntitlementPolicyService.ChatQuotaAction action,
+            String generationRequestId,
+            long conversationId,
+            AiChatModelService.ResolvedChatModel selection
+    ) {
+        if (chatModelMapper == null) {
+            return guardChat(clientUid, characterId, action);
+        }
+        String requestId = normalizeGenerationRequestId(generationRequestId);
+        AppUser user = resolveUser(clientUid);
+        AppCharacter character = characterMapper.findById(characterId);
+        if (character == null || character.getDeletedAt() != null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "角色不存在或已下架");
+        }
+        assertCharacterVisibleToUser(character, user.getId());
+        AppH5UserProfileExt initialExt = ensureProfileExt(user);
+        if (Boolean.TRUE.equals(character.getVipOnly()) && !entitlementPolicyService.canAccessVipCharacter(initialExt)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "当前角色仅会员可用，请先开通会员");
+        }
+
+        boolean byokActive = selection != null && selection.byok();
+        if (selection == null) {
+            byokActive = userAiProviderService.resolveActiveOverrideForUser(user.getId()) != null;
+        }
+        QuotaBucket quotaBucket = byokActive ? QuotaBucket.BYOK_CHAT : QuotaBucket.OFFICIAL_CHAT;
+        String actionName = action == null ? "" : action.name();
+        EntitlementPolicy policy = entitlementPolicyService.getPolicy();
+        String walletMode = EntitlementPolicyService.normalizedChatWalletMode(policy.getChatWalletMode());
+        boolean actionConsumes = byokActive
+                ? entitlementPolicyService.consumesByokChatQuota(action)
+                : entitlementPolicyService.consumesChatQuota(action);
+        String billingMode = "QUOTA_THEN_" + switch (walletMode) {
+            case "DIAMOND_ONLY" -> "DIAMOND";
+            case "GOLD_ONLY" -> "GOLD";
+            case "DIAMOND_OR_GOLD" -> "DIAMOND_OR_GOLD";
+            default -> "MIXED";
+        };
+
+        ChatGenerationContext context = legacyGenerationContext(
+                user.getId(), conversationId, requestId, actionName, selection, byokActive, billingMode);
+        try {
+            if (chatModelMapper.insertGenerationContext(context) != 1) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "聊天计费上下文创建失败");
+            }
+        } catch (DuplicateKeyException ex) {
+            throw new BusinessException(ErrorCode.CONFLICT, "该生成请求已受理，请勿重复提交");
+        }
+        if (!actionConsumes) {
+            persistGenerationReservation(context.getId(), "FREE", "", 0, 0);
+            return reservedChatTicket(user, clientUid, quotaBucket, characterId, actionName, context,
+                    false, false, "", 0, 0);
+        }
+
+        AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(user.getId());
+        if (ext == null) throw new BusinessException(ErrorCode.INTERNAL_ERROR, "用户权益数据不存在");
+        boolean changed = refreshUsageWindow(ext);
+        if (entitlementPolicyService.refreshEffectiveQuota(ext)) changed = true;
+        if (changed) {
+            profileExtMapper.upsert(ext);
+            ext = profileExtMapper.findByUserIdForUpdate(user.getId());
+            if (ext == null) throw new BusinessException(ErrorCode.INTERNAL_ERROR, "用户权益数据不存在");
+        }
+
+        int quota = byokActive
+                ? entitlementPolicyService.byokChatQuotaFor(policy, entitlementPolicyService.effectiveVipLevel(ext))
+                : nvl(ext.getDailyChatQuota()) + nvl(ext.getDailyChatBonus());
+        int used = byokActive ? nvl(ext.getDailyByokChatUsed()) : nvl(ext.getDailyChatUsed());
+        if (quota > used) {
+            if (byokActive) ext.setDailyByokChatUsed(used + 1);
+            else ext.setDailyChatUsed(used + 1);
+            profileExtMapper.upsert(ext);
+            context.setQuotaUnits(1);
+            persistGenerationReservation(context.getId(), "RESERVED", "", 0, 0);
+            return reservedChatTicket(user, clientUid, quotaBucket, characterId, actionName, context,
+                    true, false, "", 0, 0);
+        }
+
+        int configuredScore = Math.max(0, policy.getChatScoreCost());
+        int configuredGold = Math.max(0, policy.getChatGoldCost());
+        int requestedScore = switch (walletMode) {
+            case "GOLD_ONLY" -> 0;
+            default -> configuredScore;
+        };
+        int requestedGold = switch (walletMode) {
+            case "DIAMOND_ONLY" -> 0;
+            default -> configuredGold;
+        };
+        if (!policy.isOverQuotaBillingEnabled() || (requestedScore <= 0 && requestedGold <= 0)) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, byokActive
+                    ? "今日自定义 API 聊天次数已用完，请明日再试"
+                    : "今日聊天次数已用完，请升级会员或明日再试");
+        }
+
+        String bizRef = hashedConsumeBizRef("chat", user.getId(), requestId + ":" + actionName);
+        boolean walletCreated;
+        int actualScore;
+        int actualGold;
+        if ("DIAMOND_OR_GOLD".equals(walletMode)) {
+            WalletLedgerService.WalletChargeResult charge = walletLedgerService.consumeDiamondOrGold(
+                    user.getId(), requestedScore, requestedGold,
+                    WalletLedgerService.BIZ_CHAT_CONSUME, bizRef,
+                    byokActive ? "自定义 API 聊天超额消费" : "聊天超额消费"
+            );
+            walletCreated = charge.created();
+            actualScore = charge.scoreCharged();
+            actualGold = charge.goldCharged();
+        } else {
+            walletCreated = walletLedgerService.consumeDiamonds(
+                    user.getId(), requestedScore, requestedGold,
+                    WalletLedgerService.BIZ_CHAT_CONSUME, bizRef,
+                    byokActive ? "自定义 API 聊天超额消费" : "聊天超额消费"
+            );
+            actualScore = requestedScore;
+            actualGold = requestedGold;
+        }
+        if (!walletCreated) {
+            throw new BusinessException(ErrorCode.CONFLICT, "该生成请求已扣费，请勿重复提交");
+        }
+        persistGenerationReservation(
+                context.getId(), "RESERVED", bizRef, actualScore, actualGold);
+        return reservedChatTicket(user, clientUid, quotaBucket, characterId, actionName, context,
+                false, true, bizRef, actualScore, actualGold);
     }
 
     /**
@@ -356,14 +489,16 @@ public class H5EntitlementService {
         ChatGenerationContext context = generationContext(
                 user.getId(), conversationId, requestId, actionName, selection);
         try {
-            chatModelMapper.insertGenerationContext(context);
+            if (chatModelMapper.insertGenerationContext(context) != 1) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "聊天计费上下文创建失败");
+            }
         } catch (DuplicateKeyException ex) {
             throw new BusinessException(ErrorCode.CONFLICT, "该生成请求已受理，请勿重复提交");
         }
 
         boolean actionConsumes = entitlementPolicyService.consumesChatQuota(action);
         if (!actionConsumes || "FREE".equals(selection.billingMode())) {
-            chatModelMapper.updateGenerationChargeStatus(context.getId(), "FREE", "");
+            persistGenerationReservation(context.getId(), "FREE", "", 0, 0);
             return modelTicket(user, clientUid, characterId, actionName, selection, context,
                     false, false, "", 0, 0);
         }
@@ -403,22 +538,43 @@ public class H5EntitlementService {
                     scoreCost = Math.max(0, selection.diamondCost());
                     goldCost = Math.max(0, selection.goldCost());
                 }
+                case "DIAMOND_OR_GOLD", "QUOTA_THEN_DIAMOND_OR_GOLD" -> {
+                    scoreCost = Math.max(0, selection.diamondCost());
+                    goldCost = Math.max(0, selection.goldCost());
+                }
                 default -> { }
             }
         }
 
         String bizRef = "";
         boolean walletCreated = false;
+        boolean eitherWalletMode = "DIAMOND_OR_GOLD".equals(mode)
+                || "QUOTA_THEN_DIAMOND_OR_GOLD".equals(mode);
         if (scoreCost > 0 || goldCost > 0) {
             bizRef = hashedConsumeBizRef("chat_model", user.getId(), requestId + ":" + actionName);
-            walletCreated = walletLedgerService.consumeDiamonds(
-                    user.getId(), scoreCost, goldCost,
-                    WalletLedgerService.BIZ_CHAT_CONSUME, bizRef,
-                    "聊天模型消费：" + selection.displayName()
-            );
+            if (eitherWalletMode) {
+                WalletLedgerService.WalletChargeResult charge = walletLedgerService.consumeDiamondOrGold(
+                        user.getId(), scoreCost, goldCost,
+                        WalletLedgerService.BIZ_CHAT_CONSUME, bizRef,
+                        "聊天模型消费：" + selection.displayName()
+                );
+                walletCreated = charge.created();
+                scoreCost = charge.scoreCharged();
+                goldCost = charge.goldCharged();
+            } else {
+                walletCreated = walletLedgerService.consumeDiamonds(
+                        user.getId(), scoreCost, goldCost,
+                        WalletLedgerService.BIZ_CHAT_CONSUME, bizRef,
+                        "聊天模型消费：" + selection.displayName()
+                );
+            }
+            if (!walletCreated) {
+                throw new BusinessException(ErrorCode.CONFLICT, "该生成请求已扣费，请勿重复提交");
+            }
         }
-        chatModelMapper.updateGenerationChargeStatus(
-                context.getId(), quotaReserved || walletCreated ? "RESERVED" : "FREE", bizRef);
+        persistGenerationReservation(
+                context.getId(), quotaReserved || walletCreated ? "RESERVED" : "FREE",
+                bizRef, scoreCost, goldCost);
         return modelTicket(user, clientUid, characterId, actionName, selection, context,
                 quotaReserved, walletCreated, bizRef, scoreCost, goldCost);
     }
@@ -824,8 +980,20 @@ public class H5EntitlementService {
             completeEmittedReservation(ticket.generationContextId());
             return;
         }
+        refundReservedChat(ticket, false);
+    }
+
+    @Transactional
+    public void refundDiscardedChat(AccessTicket ticket) {
+        if (ticket == null || !ticket.upfrontReserved()) return;
+        refundReservedChat(ticket, true);
+    }
+
+    private void refundReservedChat(AccessTicket ticket, boolean allowEmittedContent) {
         if (chatModelMapper != null && ticket.generationContextId() != null
-                && chatModelMapper.claimGenerationRefund(ticket.generationContextId()) != 1) {
+                && (allowEmittedContent
+                    ? chatModelMapper.claimGenerationRefundDiscardingContent(ticket.generationContextId())
+                    : chatModelMapper.claimGenerationRefund(ticket.generationContextId())) != 1) {
             completeEmittedReservation(ticket.generationContextId());
             return;
         }
@@ -833,8 +1001,13 @@ public class H5EntitlementService {
             AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(ticket.userId());
             if (ext != null) {
                 refreshUsageWindow(ext);
-                ext.setDailyChatUsed(Math.max(0,
-                        nvl(ext.getDailyChatUsed()) - Math.max(1, ticket.consumeAmount())));
+                if (ticket.quotaBucket() == QuotaBucket.BYOK_CHAT) {
+                    ext.setDailyByokChatUsed(Math.max(0,
+                            nvl(ext.getDailyByokChatUsed()) - Math.max(1, ticket.consumeAmount())));
+                } else {
+                    ext.setDailyChatUsed(Math.max(0,
+                            nvl(ext.getDailyChatUsed()) - Math.max(1, ticket.consumeAmount())));
+                }
                 profileExtMapper.upsert(ext);
             }
         }
@@ -844,7 +1017,7 @@ public class H5EntitlementService {
                     ticket.userId(), ticket.scoreCost(), ticket.goldCost(),
                     WalletLedgerService.BIZ_CHAT_REFUND,
                     "refund:" + ticket.consumeBizRef(),
-                    "聊天模型首个内容前失败退回"
+                    allowEmittedContent ? "聊天内容未保存失败退回" : "聊天模型首个内容前失败退回"
             );
         }
         if (chatModelMapper != null && ticket.generationContextId() != null) {
@@ -877,7 +1050,11 @@ public class H5EntitlementService {
             AppH5UserProfileExt ext = profileExtMapper.findByUserIdForUpdate(context.getUserId());
             if (ext != null) {
                 refreshUsageWindow(ext);
-                ext.setDailyChatUsed(Math.max(0, nvl(ext.getDailyChatUsed()) - quotaUnits));
+                if (AiChatModelService.SOURCE_BYOK.equalsIgnoreCase(context.getSourceType())) {
+                    ext.setDailyByokChatUsed(Math.max(0, nvl(ext.getDailyByokChatUsed()) - quotaUnits));
+                } else {
+                    ext.setDailyChatUsed(Math.max(0, nvl(ext.getDailyChatUsed()) - quotaUnits));
+                }
                 profileExtMapper.upsert(ext);
             }
         }
@@ -1227,6 +1404,75 @@ public class H5EntitlementService {
         return context;
     }
 
+    private static ChatGenerationContext legacyGenerationContext(
+            long userId,
+            long conversationId,
+            String requestId,
+            String actionName,
+            AiChatModelService.ResolvedChatModel selection,
+            boolean byokActive,
+            String billingMode
+    ) {
+        ChatGenerationContext context = new ChatGenerationContext();
+        context.setUserId(userId);
+        context.setConversationId(conversationId);
+        context.setGenerationRequestId(requestId);
+        context.setActionType(actionName);
+        context.setSourceType(byokActive
+                ? AiChatModelService.SOURCE_BYOK : AiChatModelService.SOURCE_SYSTEM);
+        context.setOfferingId(selection == null ? null : selection.offeringId());
+        context.setOfferingCode(selection == null ? "" : safeText(selection.offeringCode()));
+        context.setOfferingName(selection == null ? "默认官方模型" : safeText(selection.displayName()));
+        context.setUserModelId(selection == null ? null : selection.userModelId());
+        context.setModelNameSnapshot(selection == null ? "" : safeText(selection.modelName()));
+        context.setRouteKey(selection == null ? "" : safeText(selection.routeKey()));
+        context.setBillingMode(billingMode);
+        context.setQuotaUnits(1);
+        context.setDiamondCost(0);
+        context.setGoldCost(0);
+        context.setChargeStatus("PENDING");
+        context.setConsumeBizRef("");
+        return context;
+    }
+
+    private static AccessTicket reservedChatTicket(
+            AppUser user,
+            String clientUid,
+            QuotaBucket quotaBucket,
+            long characterId,
+            String actionName,
+            ChatGenerationContext context,
+            boolean quotaReserved,
+            boolean walletCreated,
+            String bizRef,
+            int scoreCost,
+            int goldCost
+    ) {
+        return new AccessTicket(
+                user.getId(), blankClientUid(clientUid), quotaReserved,
+                quotaReserved ? 1 : 0, quotaBucket, characterId, actionName,
+                walletCreated, scoreCost, goldCost, bizRef, walletCreated,
+                true, quotaReserved, context.getGenerationRequestId(), context.getId()
+        );
+    }
+
+    private static String safeText(String value) {
+        return value == null ? "" : value;
+    }
+
+    private void persistGenerationReservation(
+            long contextId,
+            String chargeStatus,
+            String consumeBizRef,
+            int diamondCost,
+            int goldCost
+    ) {
+        if (chatModelMapper.updateGenerationReservation(
+                contextId, chargeStatus, consumeBizRef, diamondCost, goldCost) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "聊天计费预占状态写入失败");
+        }
+    }
+
     private static AccessTicket modelTicket(
             AppUser user,
             String clientUid,
@@ -1267,6 +1513,7 @@ public class H5EntitlementService {
             String action,
             int scoreCost,
             int goldCost,
+            String walletMode,
             boolean overQuotaBillingEnabled,
             String exhaustedMessage,
             String bizPrefix
@@ -1274,7 +1521,23 @@ public class H5EntitlementService {
         if (!overQuotaBillingEnabled || (scoreCost <= 0 && goldCost <= 0)) {
             throw new BusinessException(ErrorCode.RATE_LIMITED, exhaustedMessage);
         }
-        assertWalletBalance(ext, scoreCost, goldCost);
+        int selectedScore = Math.max(0, scoreCost);
+        int selectedGold = Math.max(0, goldCost);
+        if ("DIAMOND_ONLY".equals(walletMode)) {
+            selectedGold = 0;
+        } else if ("GOLD_ONLY".equals(walletMode)) {
+            selectedScore = 0;
+        } else if ("DIAMOND_OR_GOLD".equals(walletMode)) {
+            if (selectedScore > 0 && nvl(ext.getScore()) >= selectedScore) {
+                selectedGold = 0;
+            } else if (selectedGold > 0 && nvl(ext.getGoldCoin()) >= selectedGold) {
+                selectedScore = 0;
+            }
+        }
+        if (selectedScore <= 0 && selectedGold <= 0) {
+            throw new BusinessException(ErrorCode.RATE_LIMITED, exhaustedMessage);
+        }
+        assertWalletBalance(ext, selectedScore, selectedGold, walletMode);
         String bizRef = newConsumeBizRef(bizPrefix, user.getId());
         return new AccessTicket(
                 user.getId(),
@@ -1285,15 +1548,24 @@ public class H5EntitlementService {
                 characterId,
                 action,
                 true,
-                scoreCost,
-                goldCost,
+                selectedScore,
+                selectedGold,
                 bizRef
         );
     }
 
     private void assertWalletBalance(AppH5UserProfileExt ext, int scoreCost, int goldCost) {
+        assertWalletBalance(ext, scoreCost, goldCost, "DIAMOND_AND_GOLD");
+    }
+
+    private void assertWalletBalance(AppH5UserProfileExt ext, int scoreCost, int goldCost, String walletMode) {
         if (nvl(ext.getScore()) < scoreCost || nvl(ext.getGoldCoin()) < goldCost) {
-            throw new BusinessException(ErrorCode.RATE_LIMITED, "免费次数已用完，钻石不足，请充值");
+            String message = "DIAMOND_OR_GOLD".equals(walletMode)
+                    ? "免费次数已用完，钻石或金币不足，请充值"
+                    : goldCost > 0 && scoreCost <= 0
+                    ? "免费次数已用完，金币不足，请充值"
+                    : "免费次数已用完，钻石不足，请充值";
+            throw new BusinessException(ErrorCode.RATE_LIMITED, message);
         }
     }
 

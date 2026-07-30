@@ -20,6 +20,19 @@ public interface AppConversationMemoryMapper {
 
     List<AppConversationMemory> listByConversationId(@Param("conversationId") long conversationId);
 
+    List<AppConversationMemory> listWorldbookSyncRetryCandidates(
+            @Param("retryCutoff") LocalDateTime retryCutoff,
+            @Param("leaseCutoff") LocalDateTime leaseCutoff,
+            @Param("limit") int limit
+    );
+
+    int tryClaimWorldbookSync(
+            @Param("conversationId") long conversationId,
+            @Param("branchId") long branchId,
+            @Param("retryCutoff") LocalDateTime retryCutoff,
+            @Param("leaseCutoff") LocalDateTime leaseCutoff
+    );
+
     void upsertTouch(@Param("conversationId") long conversationId);
 
     void upsertTouchForBranch(@Param("conversationId") long conversationId,
@@ -68,15 +81,6 @@ public interface AppConversationMemoryMapper {
             @Param("syncError") String syncError
     );
 
-    void updateSyncStatus(
-            @Param("conversationId") long conversationId,
-            @Param("memoryWorldName") String memoryWorldName,
-            @Param("entryCount") int entryCount,
-            @Param("enabledEntryCount") int enabledEntryCount,
-            @Param("syncStatus") String syncStatus,
-            @Param("syncError") String syncError
-    );
-
     void updateSyncStatusForBranch(
             @Param("conversationId") long conversationId,
             @Param("branchId") long branchId,
@@ -85,6 +89,17 @@ public interface AppConversationMemoryMapper {
             @Param("enabledEntryCount") int enabledEntryCount,
             @Param("syncStatus") String syncStatus,
             @Param("syncError") String syncError
+    );
+
+    int updateWorldbookSyncStatusWithRevision(
+            @Param("conversationId") long conversationId,
+            @Param("branchId") long branchId,
+            @Param("memoryWorldName") String memoryWorldName,
+            @Param("entryCount") int entryCount,
+            @Param("enabledEntryCount") int enabledEntryCount,
+            @Param("syncStatus") String syncStatus,
+            @Param("syncError") String syncError,
+            @Param("expectedMemoryRevision") long expectedMemoryRevision
     );
 
     int tryAcquireManualRefresh(

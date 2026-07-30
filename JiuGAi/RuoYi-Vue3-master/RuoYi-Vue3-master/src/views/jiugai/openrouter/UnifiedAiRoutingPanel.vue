@@ -996,7 +996,9 @@ function priceText(price) {
   const labels = {
     FREE: '免费', QUOTA_ONLY: `${q}次`, DIAMOND_ONLY: `${d}钻石/次`, GOLD_ONLY: `${g}金币/次`,
     QUOTA_THEN_DIAMOND: `${q}次，用完后${d}钻石`, QUOTA_THEN_GOLD: `${q}次，用完后${g}金币`,
-    DIAMOND_AND_GOLD: `${d}钻石 + ${g}金币/次`, QUOTA_THEN_MIXED: `${q}次，用完后${d}钻石 + ${g}金币`
+    DIAMOND_AND_GOLD: `${d}钻石 + ${g}金币/次`, QUOTA_THEN_MIXED: `${q}次，用完后${d}钻石 + ${g}金币`,
+    DIAMOND_OR_GOLD: `${d}钻石 或 ${g}金币/次`,
+    QUOTA_THEN_DIAMOND_OR_GOLD: `${q}次，用完后${d}钻石 或 ${g}金币`
   }
   return labels[mode] || '--'
 }

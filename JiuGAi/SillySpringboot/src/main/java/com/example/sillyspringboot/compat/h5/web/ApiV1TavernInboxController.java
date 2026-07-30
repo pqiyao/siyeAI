@@ -3,6 +3,7 @@ package com.example.sillyspringboot.compat.h5.web;
 import com.example.sillyspringboot.chat.entity.AppMessage;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
 import com.example.sillyspringboot.chat.service.AppChatService;
+import com.example.sillyspringboot.chat.service.MessageSemanticAnnotationService;
 import com.example.sillyspringboot.character.entity.AppCharacterMember;
 import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
 import java.util.List;
@@ -41,6 +43,9 @@ public class ApiV1TavernInboxController {
 
     @Autowired(required = false)
     private CharacterStudioMapper characterStudioMapper;
+
+    @Autowired(required = false)
+    private MessageSemanticAnnotationService semanticAnnotationService;
 
     public ApiV1TavernInboxController(
             H5ClientUidAuthService h5Auth,
@@ -131,6 +136,7 @@ public class ApiV1TavernInboxController {
     }
 
     @PostMapping("/sessions/delete-one")
+    @Transactional
     public ApiV1Result<Boolean> deleteOneSession(@RequestBody Map<String, Object> body) {
         String clientUid = requiredText(body, "clientUid");
         long characterId = requiredLong(body, "characterId");
@@ -146,11 +152,22 @@ public class ApiV1TavernInboxController {
                 token
         );
         if (activeConversationId != null && activeConversationId == conversationId) {
-            throw new BusinessException(ErrorCode.CONFLICT, "请先切换到其他故事，再删除当前故事");
+            ConversationInboxItemDto fallback = conversationService.listInboxForUser(token, 200).stream()
+                    .filter(item -> item.characterId() == characterId)
+                    .filter(item -> item.conversationId() != conversationId)
+                    .findFirst()
+                    .orElse(null);
+            if (fallback != null) {
+                conversationService.activateH5Session(
+                        clientUid,
+                        characterId,
+                        fallback.conversationId(),
+                        token
+                );
+            }
         }
         long userId = tokenService.validateAndLoadUser(token).getId();
-        tavernSessionService.archiveHideAndWipe(userId, conversationId);
-        archiveMapper.upsert(userId, conversationId);
+        tavernSessionService.archiveHideWipeAndDetach(userId, conversationId);
         return ApiV1Result.ok(true);
     }
 
@@ -192,8 +209,15 @@ public class ApiV1TavernInboxController {
         activeBranchId = chatService.requireActiveBranchId(conversationId, token);
         envelope.put("activeBranchId", activeBranchId);
         MessagePageSlice pageSlice = loadMessagePage(conversationId, activeBranchId, beforeMessageId, safeLimit);
-        List<Map<String, Object>> out = pageSlice.rows().stream()
+        List<AppMessage> visibleRows = pageSlice.rows().stream()
                 .filter(this::includeMessageForH5Chat)
+                .toList();
+        Map<Long, List<Map<String, Object>>> segmentsByMessage = chatService.messageSegmentsByIds(
+                visibleRows.stream().map(AppMessage::getId).toList());
+        Map<Long, Map<String, Object>> semanticByMessage = semanticAnnotationService == null
+                ? Map.of()
+                : semanticAnnotationService.readyAnnotationsForMessages(visibleRows);
+        List<Map<String, Object>> out = visibleRows.stream()
                 .map(m -> {
                     Map<String, Object> row = new HashMap<>();
                     row.put("id", "db_" + m.getId());
@@ -214,12 +238,56 @@ public class ApiV1TavernInboxController {
                     H5SwipeStateSupport.SwipeState swipeState = H5SwipeStateSupport.build(m, messageMapper);
                     row.put("swipes", swipeState.swipes());
                     row.put("swipeIndex", swipeState.swipeIndex());
+                    row.put("segments", segmentsByMessage.getOrDefault(m.getId(), List.of()));
+                    Map<String, Object> semantic = semanticByMessage.get(m.getId());
+                    if (semantic != null) row.put("semantic", semantic);
                     return row;
                 })
                 .toList();
         envelope.put("messages", out);
         envelope.put("page", buildPageMeta(pageSlice, safeLimit, beforeMessageId, out.size()));
+        if (semanticAnnotationService != null) {
+            visibleRows.stream()
+                    .filter(m -> "assistant".equalsIgnoreCase(m.getRole()))
+                    .skip(Math.max(0, visibleRows.stream().filter(m -> "assistant".equalsIgnoreCase(m.getRole())).count() - 8))
+                    .forEach(m -> semanticAnnotationService.triggerAfterCommit(m.getId()));
+        }
         return ApiV1Result.ok(envelope);
+    }
+
+    @GetMapping("/messages/semantic")
+    public ApiV1Result<Map<String, Object>> messageSemantics(
+            @RequestParam("characterId") long characterId,
+            @RequestParam("clientUid") String clientUid,
+            @RequestParam("messageIds") String messageIds
+    ) {
+        String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
+        long userId = tokenService.validateAndLoadUser(token).getId();
+        long conversationId = ensureConversationId(characterId, clientUid, token);
+        long activeBranchId = chatService.requireActiveBranchId(conversationId, token);
+        List<Long> requestedIds = java.util.Arrays.stream((messageIds == null ? "" : messageIds).split(","))
+                .map(ApiV1TavernInboxController::parseDbMessageId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .limit(20)
+                .toList();
+        List<AppMessage> rows = requestedIds.stream()
+                .map(messageMapper::findById)
+                .filter(java.util.Objects::nonNull)
+                .filter(m -> m.getUserId() != null && m.getUserId() == userId)
+                .filter(m -> m.getConversationId() != null && m.getConversationId() == conversationId)
+                .filter(m -> m.getBranchId() != null && m.getBranchId() == activeBranchId)
+                .filter(m -> "assistant".equalsIgnoreCase(m.getRole()))
+                .toList();
+        Map<Long, Map<String, Object>> ready = semanticAnnotationService == null
+                ? Map.of()
+                : semanticAnnotationService.readyAnnotationsForMessages(rows);
+        if (semanticAnnotationService != null) {
+            rows.forEach(m -> semanticAnnotationService.triggerAfterCommit(m.getId()));
+        }
+        Map<String, Object> annotations = new HashMap<>();
+        ready.forEach((id, semantic) -> annotations.put("db_" + id, semantic));
+        return ApiV1Result.ok(Map.of("annotations", annotations));
     }
 
     private static SpeakerDisplay resolveSpeakerDisplay(AppMessage message, List<AppCharacterMember> members) {
@@ -368,6 +436,7 @@ public class ApiV1TavernInboxController {
     }
 
     @PostMapping("/sessions/delete")
+    @Transactional
     public ApiV1Result<Boolean> delete(@RequestParam(name = "characterId", required = false) Long characterIdFromQuery,
                                        @RequestBody(required = false) Map<String, Object> body) {
         Long characterId = null;
@@ -394,8 +463,7 @@ public class ApiV1TavernInboxController {
         if (conversationId == null) {
             return ApiV1Result.ok(true);
         }
-        archiveMapper.deleteByUserAndConversation(userId, conversationId);
-        tavernSessionService.restartFresh(userId, conversationId);
+        tavernSessionService.archiveHideWipeAndDetach(userId, conversationId);
         return ApiV1Result.ok(true);
     }
 

@@ -33,6 +33,8 @@ public class EntitlementPolicy {
     private int chatScoreCost = 1;
     /** 超额聊天：金币消耗，0 表示不扣金币 */
     private int chatGoldCost = 0;
+    /** 超额聊天钱包策略；历史配置缺失此字段时保持原有的同时扣减语义。 */
+    private String chatWalletMode = "DIAMOND_AND_GOLD";
     /** 超额生图：每张图钻石消*/
     private int imageScoreCost = 5;
     private int imageGoldCost = 0;
@@ -230,6 +232,14 @@ public class EntitlementPolicy {
 
     public void setChatGoldCost(int chatGoldCost) {
         this.chatGoldCost = chatGoldCost;
+    }
+
+    public String getChatWalletMode() {
+        return chatWalletMode;
+    }
+
+    public void setChatWalletMode(String chatWalletMode) {
+        this.chatWalletMode = chatWalletMode;
     }
 
     public int getImageScoreCost() {

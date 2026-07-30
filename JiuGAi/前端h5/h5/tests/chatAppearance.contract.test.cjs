@@ -122,6 +122,13 @@ assert.strictEqual(defaultBubble['--chat-content-accent'], appearance.DEFAULT_CO
 const defaultUserBubble = appearance.buildBubbleStyleObject({ role: 'user' }, appearance.DEFAULT_CONFIG);
 assert.strictEqual(defaultUserBubble['--chat-content-accent'], appearance.DEFAULT_CONFIG.userBorderColor);
 assert.notStrictEqual(defaultBubble.background, defaultUserBubble.background, 'assistant and user surfaces must be visibly role-specific');
+const splitFirst = appearance.buildSplitBubbleStyleObject(appearance.DEFAULT_CONFIG, 0, 3);
+const splitMiddle = appearance.buildSplitBubbleStyleObject(appearance.DEFAULT_CONFIG, 1, 3);
+const splitLast = appearance.buildSplitBubbleStyleObject(appearance.DEFAULT_CONFIG, 2, 3);
+assert.strictEqual(splitFirst.width, 'auto', 'segmented bubbles must shrink to their content instead of forcing full width');
+assert.notStrictEqual(splitFirst['border-radius'], splitMiddle['border-radius'], 'the first segmented bubble must have a distinct linked corner treatment');
+assert.notStrictEqual(splitMiddle['box-shadow'], splitFirst['box-shadow'], 'middle segmented bubbles must use a lighter shadow');
+assert.notStrictEqual(splitLast['border-radius'], splitMiddle['border-radius'], 'the last segmented bubble must close the linked corner treatment');
 global.window = { innerWidth: 375 };
 assert.strictEqual(
 	appearance.buildMessageTextStyleObject('assistant', appearance.DEFAULT_CONFIG)['font-size'],
@@ -163,6 +170,10 @@ assert(chatSource.includes("'chat-message-bubble--assistant'"), 'shared assistan
 assert(chatSource.includes('buildBubbleStyleObject(message, this.chatAppearanceConfig)'), 'both runtimes must bind the shared bubble style object');
 assert(chatSource.includes('buildMessageTextStyleObject(\'assistant\', this.chatAppearanceConfig)'), 'assistant text must use the shared style object');
 assert(chatSource.includes('nativeSegmentTextStyle(seg)'), 'APP segment text settings must bind directly');
+assert(chatSource.includes('if (this.isStreamingAssistantRow(message))'), 'streaming replies must stay in one stable bubble until generation completes');
+assert(bubbleSource.includes('margin-bottom: 14rpx;'), 'segmented bubble spacing must leave visible breathing room');
+assert(bubbleSource.includes('gap: 10rpx;'), 'semantic segments inside a bubble must not be visually cramped');
+assert(settingSource.includes('margin-bottom: 14rpx;'), 'appearance preview spacing must match the real chat page');
 assert(bubbleSource.includes('class="chat-message-bubble"'), 'bubble component must expose one platform-neutral root');
 assert(/\.chat-message-row\s*\{[\s\S]*?display:\s*flex;[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;/.test(chatSource), 'the chat page must own message-row layout because the row is outside the bubble component scope');
 assert(/\.chat-message-avatar\s*\{[\s\S]*?min-width:\s*72rpx;[\s\S]*?max-width:\s*72rpx;[\s\S]*?object-fit:\s*cover;/.test(chatSource), 'the chat page must own fixed avatar sizing and cropping');
@@ -316,90 +327,57 @@ assert(
 	'H5 markdown segments must inherit the shared configured line height'
 );
 
-function legacySplitSentences(text) {
-	const source = String(text || '').replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').trim();
-	if (!source) return [];
-	const matches = source.match(/[^。！？!?；;.\n]+[。！？!?；;.]?["”」』]?/g);
-	return matches && matches.length
-		? matches.map((item) => item.trim()).filter(Boolean)
-		: [source];
-}
-
-function legacyGroupSentences(sentences, maxChars, maxCount) {
-	const groups = [];
-	let current = [];
-	let currentLength = 0;
-	(sentences || []).forEach((sentence) => {
-		const nextLength = currentLength + sentence.length;
-		if (current.length && (current.length >= maxCount || nextLength > maxChars)) {
-			groups.push(current.join(''));
-			current = [];
-			currentLength = 0;
-		}
-		current.push(sentence);
-		currentLength += sentence.length;
-	});
-	if (current.length) groups.push(current.join(''));
-	return groups;
-}
-
-function legacyMergeTinyBubbleChunks(chunks) {
-	const merged = [];
-	(chunks || []).forEach((chunk) => {
-		const text = String(chunk || '').trim();
-		if (!text) return;
-		const previous = merged.length ? merged[merged.length - 1] : '';
-		if (previous && text.length < 18 && previous.length + text.length <= 112) {
-			merged[merged.length - 1] = previous + '\n' + text;
-			return;
-		}
-		merged.push(text);
-	});
-	return merged;
-}
-
-function legacySplitReplyBubbleTexts(text, mode) {
-	const original = String(text == null ? '' : text);
-	if (mode !== 'bubble') return original.trim() ? [original] : [];
-	const source = original.replace(/\r\n?/g, '\n').trim();
-	if (!source) return [];
-	if (source.includes('```')) return [source];
-	const paragraphBlocks = source.split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
-	const hasExplicitParagraphs = paragraphBlocks.length > 1;
-	let seedBlocks = paragraphBlocks;
-	if (seedBlocks.length <= 1) {
-		const lineBlocks = source.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-		seedBlocks = lineBlocks.length > 1 ? lineBlocks : [source];
-	}
-	let chunks = [];
-	seedBlocks.forEach((block) => {
-		if (block.length <= 96) {
-			chunks.push(block);
-			return;
-		}
-		const sentences = legacySplitSentences(block);
-		chunks.push(...(sentences.length <= 1 ? [block] : legacyGroupSentences(sentences, 88, 2)));
-	});
-	chunks = hasExplicitParagraphs ? chunks : legacyMergeTinyBubbleChunks(chunks);
-	if (chunks.length > 8) chunks = chunks.slice(0, 7).concat([chunks.slice(7).join('\n\n')]);
-	return chunks.length > 1 ? chunks : [source];
-}
-
-const ordinaryReplies = [
-	'短句不会被额外拆开。',
-	'她抬起头。\n“欢迎回来。”\n（心里仍有些紧张。）',
-	'第一段保持原样。\n\n第二段也保持原来的气泡规则。',
-	'这是一个很长的自然段，用来确认超过原有长度阈值以后，仍然按照原先的句号和问号进行组合。第二句继续补足长度，不应该因为本次状态栏兼容而改变普通文本的拆分结果！第三句也是如此吗？',
-	'```html\n<div>代码示例，不是状态栏</div>\n```',
-	'行内代码 `<div>示例</div>` 也只是普通聊天内容。'
-];
-ordinaryReplies.forEach((reply) => {
-	assert.deepStrictEqual(
-		appearance.splitReplyBubbleTexts(reply, 'bubble'),
-		legacySplitReplyBubbleTexts(reply, 'bubble'),
-		'ordinary chat bubble splitting must remain byte-for-byte compatible with the previous algorithm'
-	);
-});
+assert.deepStrictEqual(
+	appearance.splitReplyBubbleTexts('今晚月色很好。', 'bubble'),
+	['今晚月色很好。'],
+	'a short semantic beat must remain one bubble'
+);
+assert.deepStrictEqual(
+	appearance.splitReplyBubbleTexts('她抬起头。\n“欢迎回来。”\n（心里仍有些紧张。）', 'bubble'),
+	['她抬起头。\n“欢迎回来。”', '（心里仍有些紧张。）'],
+	'adjacent action and dialogue should stay together while an inner thought remains independent'
+);
+assert.deepStrictEqual(
+	appearance.splitReplyBubbleTexts('她推开窗。\n\n“风有些凉。”', 'bubble'),
+	['她推开窗。', '“风有些凉。”'],
+	'blank lines must remain hard bubble boundaries'
+);
+assert.deepStrictEqual(
+	appearance.splitReplyBubbleTexts('“你来了。”\n“我等了很久。”', 'bubble'),
+	['“你来了。”', '“我等了很久。”'],
+	'consecutive dialogue lines must remain separate beats'
+);
+assert.deepStrictEqual(
+	appearance.splitReplyBubbleTexts(
+		'“第一句话说得很慢，也带着一点迟疑。第二句话继续解释她为什么一直站在门口。第三句话终于说出了真正想问的问题。第四句话则轻轻收住了整段情绪。”',
+		'bubble'
+	),
+	[
+		'“第一句话说得很慢，也带着一点迟疑。第二句话继续解释她为什么一直站在门口。”',
+		'“第三句话终于说出了真正想问的问题。第四句话则轻轻收住了整段情绪。”'
+	],
+	'long dialogue must split into balanced bubbles without losing quotation wrappers'
+);
+const longNarrationChunks = appearance.splitReplyBubbleTexts(
+	'雨水顺着屋檐一滴一滴落下，石阶已经被彻底打湿。她站在门边没有动，只是把手里的灯又往前举了一些。远处偶尔传来车轮压过水洼的声音，很快又被夜色吞没。屋里那只旧钟依旧缓慢地走着，像是在替两个人计算这段沉默。',
+	'bubble'
+);
+assert.deepStrictEqual(longNarrationChunks, [
+	'雨水顺着屋檐一滴一滴落下，石阶已经被彻底打湿。她站在门边没有动，只是把手里的灯又往前举了一些。',
+	'远处偶尔传来车轮压过水洼的声音，很快又被夜色吞没。',
+	'屋里那只旧钟依旧缓慢地走着，像是在替两个人计算这段沉默。'
+], 'long narration must split into readable semantic beats');
+const overEightReply = Array.from({ length: 11 }, (_, index) => `“第${index + 1}句独立对白。”`).join('\n');
+const limitedChunks = appearance.splitReplyBubbleTexts(overEightReply, 'bubble');
+assert.strictEqual(limitedChunks.length, 8, 'one logical reply must keep the eight-bubble display ceiling');
+assert(limitedChunks.slice(0, -1).some((chunk) => chunk.includes('\n\n')), 'overflow compaction must merge the shortest adjacent beats instead of only the tail');
+assert(!limitedChunks[limitedChunks.length - 1].includes('第8句'), 'overflow compaction must not dump all remaining beats into the final bubble');
+const markdownCodeReply = '说明如下：\n```js\nconst value = 1;\n```\n结束。';
+assert.deepStrictEqual(
+	appearance.splitReplyBubbleTexts(markdownCodeReply, 'bubble'),
+	[markdownCodeReply],
+	'Markdown code blocks must remain protected in one bubble'
+);
 assert.deepStrictEqual(
 	appearance.splitReplyBubbleTexts('  普通原文  ', 'none'),
 	['  普通原文  '],

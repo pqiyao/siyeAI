@@ -39,6 +39,12 @@ app:
     max-enabled-entries: ${APP_MEMORY_MAX_ENABLED_ENTRIES:80}
     max-constant-entries: ${APP_MEMORY_MAX_CONSTANT_ENTRIES:12}
     max-archived-entries: ${APP_MEMORY_MAX_ARCHIVED_ENTRIES:40}
+    worldbook-sync-retry-enabled: ${APP_MEMORY_WORLDBOOK_SYNC_RETRY_ENABLED:true}
+    worldbook-sync-retry-delay-seconds: ${APP_MEMORY_WORLDBOOK_SYNC_RETRY_DELAY_SECONDS:30}
+    worldbook-sync-lease-seconds: ${APP_MEMORY_WORLDBOOK_SYNC_LEASE_SECONDS:120}
+    worldbook-sync-retry-batch-size: ${APP_MEMORY_WORLDBOOK_SYNC_RETRY_BATCH_SIZE:16}
+    worldbook-sync-retry-initial-delay-ms: ${APP_MEMORY_WORLDBOOK_SYNC_RETRY_INITIAL_DELAY_MS:30000}
+    worldbook-sync-retry-interval-ms: ${APP_MEMORY_WORLDBOOK_SYNC_RETRY_INTERVAL_MS:30000}
   cors:
     allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*,http://192.168.164.102:*}
   auth:
@@ -59,10 +65,16 @@ app:
     max-queue-wait-seconds: ${APP_CHAT_MAX_QUEUE_WAIT_SECONDS:60}
     sse-timeout-seconds: ${APP_CHAT_SSE_TIMEOUT_SECONDS:600}
     generation-timeout-seconds: ${APP_CHAT_GENERATION_TIMEOUT_SECONDS:600}
+    semantic-annotation:
+      enabled: ${APP_CHAT_SEMANTIC_ANNOTATION_ENABLED:true}
+      worker-threads: ${APP_CHAT_SEMANTIC_ANNOTATION_WORKER_THREADS:2}
+      queue-capacity: ${APP_CHAT_SEMANTIC_ANNOTATION_QUEUE_CAPACITY:64}
+      timeout-seconds: ${APP_CHAT_SEMANTIC_ANNOTATION_TIMEOUT_SECONDS:30}
+      max-content-chars: ${APP_CHAT_SEMANTIC_ANNOTATION_MAX_CONTENT_CHARS:12000}
     compatibility:
-      mode: ${APP_CHAT_COMPATIBILITY_MODE:auto}
+      mode: ${APP_CHAT_COMPATIBILITY_MODE:runtime}
       frontend-bridge-enabled: ${APP_CHAT_FRONTEND_BRIDGE_ENABLED:false}
-      fallback-to-runtime: ${APP_CHAT_COMPATIBILITY_FALLBACK_TO_RUNTIME:true}
+      fallback-to-runtime: ${APP_CHAT_COMPATIBILITY_FALLBACK_TO_RUNTIME:false}
       worldbook-probe-cache-seconds: ${APP_CHAT_WORLDBOOK_PROBE_CACHE_SECONDS:300}
       frontend-bridge-token: ${APP_CHAT_FRONTEND_BRIDGE_TOKEN:}
       frontend-bridge-request-timeout-seconds: ${APP_CHAT_FRONTEND_BRIDGE_REQUEST_TIMEOUT_SECONDS:600}

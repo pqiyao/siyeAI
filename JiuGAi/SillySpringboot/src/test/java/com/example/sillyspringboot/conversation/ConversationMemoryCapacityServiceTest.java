@@ -68,6 +68,7 @@ class ConversationMemoryCapacityServiceTest {
                     confidence DECIMAL(5,2) NULL,
                     source_message_from_id BIGINT NULL,
                     source_message_to_id BIGINT NULL,
+                    source_message_ids_json TEXT NULL,
                     last_activated_at TIMESTAMP NULL,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

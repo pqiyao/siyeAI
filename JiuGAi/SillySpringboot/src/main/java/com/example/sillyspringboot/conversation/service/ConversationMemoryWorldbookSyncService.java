@@ -2,6 +2,7 @@ package com.example.sillyspringboot.conversation.service;
 
 import com.example.sillyspringboot.conversation.config.MemoryLlmProperties;
 import com.example.sillyspringboot.conversation.entity.AppConversation;
+import com.example.sillyspringboot.conversation.entity.AppConversationMemory;
 import com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntry;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntryMapper;
@@ -72,6 +73,11 @@ public class ConversationMemoryWorldbookSyncService {
 
     public String syncWorldbook(long conversationId, Long branchId) {
         String worldName = resolveWorldName(conversationId, branchId);
+        AppConversationMemory memoryState = memoryMapper.findByConversationBranchId(
+                conversationId,
+                hasBranch(branchId) ? branchId : 0L
+        );
+        Long expectedMemoryRevision = memoryState == null ? null : memoryState.getMemoryRevision();
         List<AppConversationMemoryEntry> enabled = hasBranch(branchId)
                 ? entryMapper.listEnabledByConversationBranchId(conversationId, branchId)
                 : entryMapper.listEnabledByConversationId(conversationId);
@@ -82,11 +88,11 @@ public class ConversationMemoryWorldbookSyncService {
         if (enabledCount <= 0) {
             try {
                 stAdapter.deleteWorldbook(worldName);
-                updateSyncStatus(conversationId, branchId, worldName, entryCount, 0, SYNC_SKIPPED, null);
+                updateSyncStatus(conversationId, branchId, worldName, entryCount, 0, SYNC_SKIPPED, null, expectedMemoryRevision);
                 return worldName;
             } catch (Exception e) {
                 String err = trimTo(rootCauseMessage(e), 512);
-                updateSyncStatus(conversationId, branchId, worldName, entryCount, 0, SYNC_FAILED, err);
+                updateSyncStatus(conversationId, branchId, worldName, entryCount, 0, SYNC_FAILED, err, expectedMemoryRevision);
                 log.warn("memory worldbook delete failed conversationId={} branchId={} worldName={} cause={}",
                         conversationId, branchId, worldName, err);
                 throw e;
@@ -98,11 +104,11 @@ public class ConversationMemoryWorldbookSyncService {
         Map<String, Object> data = buildWorldbookData(conversationId, branchId, worldName, selected);
         try {
             stAdapter.saveWorldbook(new StWorldbookSaveRequest(worldName, data));
-            updateSyncStatus(conversationId, branchId, worldName, entryCount, syncedEntryCount, SYNC_SUCCESS, null);
+            updateSyncStatus(conversationId, branchId, worldName, entryCount, syncedEntryCount, SYNC_SUCCESS, null, expectedMemoryRevision);
             return worldName;
         } catch (Exception e) {
             String err = trimTo(rootCauseMessage(e), 512);
-            updateSyncStatus(conversationId, branchId, worldName, entryCount, syncedEntryCount, SYNC_FAILED, err);
+            updateSyncStatus(conversationId, branchId, worldName, entryCount, syncedEntryCount, SYNC_FAILED, err, expectedMemoryRevision);
             log.warn("memory worldbook sync failed conversationId={} branchId={} worldName={} cause={}",
                     conversationId, branchId, worldName, err);
             throw e;
@@ -192,13 +198,35 @@ public class ConversationMemoryWorldbookSyncService {
             int entryCount,
             int enabledCount,
             String syncStatus,
-            String syncError
+            String syncError,
+            Long expectedMemoryRevision
     ) {
-        if (hasBranch(branchId)) {
-            memoryMapper.updateSyncStatusForBranch(conversationId, branchId, worldName, entryCount, enabledCount, syncStatus, syncError);
-        } else {
-            memoryMapper.updateSyncStatus(conversationId, worldName, entryCount, enabledCount, syncStatus, syncError);
+        if (expectedMemoryRevision != null) {
+            int updated = memoryMapper.updateWorldbookSyncStatusWithRevision(
+                    conversationId,
+                    hasBranch(branchId) ? branchId : 0L,
+                    worldName,
+                    entryCount,
+                    enabledCount,
+                    syncStatus,
+                    syncError,
+                    expectedMemoryRevision
+            );
+            if (updated == 0) {
+                log.info("memory worldbook sync status superseded conversationId={} branchId={} expectedRevision={} status={}",
+                        conversationId, branchId, expectedMemoryRevision, syncStatus);
+            }
+            return;
         }
+        memoryMapper.updateSyncStatusForBranch(
+                conversationId,
+                hasBranch(branchId) ? branchId : 0L,
+                worldName,
+                entryCount,
+                enabledCount,
+                syncStatus,
+                syncError
+        );
     }
 
     private Map<String, Object> buildWorldbookData(long conversationId, Long branchId, String worldName, List<AppConversationMemoryEntry> entries) {
@@ -223,6 +251,7 @@ public class ConversationMemoryWorldbookSyncService {
             item.put("content", buildLorebookContent(entry));
             item.put("enabled", entry.isEnabled());
             item.put("constant", entry.isConstantInjection());
+            item.put("vectorized", !entry.isConstantInjection());
             item.put("selective", entry.isSelective());
             item.put("position", entry.getPosition() == null ? "before_char" : entry.getPosition());
             item.put("priority", entry.getPriority());

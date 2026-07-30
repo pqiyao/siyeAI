@@ -3,6 +3,7 @@
  */
 var api = require('./api.js');
 var viewerIdentity = require('./viewerIdentity.js');
+var authSession = require('./authSession.js');
 var CHARACTER_ACCESS_REFRESH_FLAG_KEY = 'tavern_character_access_refresh_needed';
 var VIEWER_MEMBERSHIP_SNAPSHOT_KEY = 'tavern_viewer_membership_snapshot';
 var RUNTIME_FEATURE_CONFIG_KEY = 'tavern_runtime_feature_config';
@@ -1136,6 +1137,9 @@ function requestJson(method, path, data, timeout, requestOptions) {
 				captureResponseDeviceToken(res);
 				if (res && Number(res.statusCode) === 426) {
 					try { require('./appUpdate.js').handleHttp426(res); } catch (e) {}
+				}
+				if (res && Number(res.statusCode) === 401) {
+					authSession.handleAuthExpired();
 				}
 				var ok =
 					res.statusCode >= 200 &&
@@ -2295,6 +2299,18 @@ function fetchTavernMessages(characterId, clientUid, options) {
 	return requestJson('GET', '/api/v1/tavern/messages' + q, null, 20000);
 }
 
+function fetchTavernMessageSemantics(characterId, clientUid, messageIds) {
+	var ids = (Array.isArray(messageIds) ? messageIds : [])
+		.map(function (id) { return String(id == null ? '' : id).trim(); })
+		.filter(Boolean)
+		.slice(0, 20);
+	if (!ids.length) return Promise.resolve({ annotations: {} });
+	var q = '?characterId=' + encodeURIComponent(characterId)
+		+ '&clientUid=' + encodeURIComponent(clientUid || getClientUid())
+		+ '&messageIds=' + encodeURIComponent(ids.join(','));
+	return requestJson('GET', '/api/v1/tavern/messages/semantic' + q, null, 10000);
+}
+
 /** @returns {Promise<Array>} */
 function fetchTavernSessions(clientUid) {
 	var q = '?clientUid=' + encodeURIComponent(clientUid || '');
@@ -2424,6 +2440,13 @@ function postTavernChatPresetCopy(clientUid, sourcePresetId, name) {
 	return requestJson('POST', '/api/v1/tavern/chat-presets/copy', {
 		clientUid: clientUid || '',
 		sourcePresetId: sourcePresetId,
+		name: name || ''
+	}, 15000);
+}
+
+function postTavernPrivateChatPreset(clientUid, name) {
+	return requestJson('POST', '/api/v1/tavern/chat-presets', {
+		clientUid: clientUid || '',
 		name: name || ''
 	}, 15000);
 }
@@ -3359,6 +3382,7 @@ module.exports = {
 	fetchMyCharacterCreationAccess: fetchMyCharacterCreationAccess,
 	fetchMyCharacterEditor: fetchMyCharacterEditor,
 	fetchTavernMessages: fetchTavernMessages,
+	fetchTavernMessageSemantics: fetchTavernMessageSemantics,
 	fetchTavernSessions: fetchTavernSessions,
 	postTavernChat: postTavernChat,
 	postTavernSpeech: postTavernSpeech,
@@ -3381,6 +3405,7 @@ module.exports = {
 	fetchTavernChatPresets: fetchTavernChatPresets,
 	putTavernConversationPreset: putTavernConversationPreset,
 	postTavernChatPresetCopy: postTavernChatPresetCopy,
+	postTavernPrivateChatPreset: postTavernPrivateChatPreset,
 	putTavernPrivateChatPreset: putTavernPrivateChatPreset,
 	deleteTavernPrivateChatPreset: deleteTavernPrivateChatPreset,
 	getTavernUserAiProvider: getTavernUserAiProvider,

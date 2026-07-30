@@ -44,6 +44,14 @@ public class MemoryLlmProperties {
 
     private int maxKeywords = 8;
 
+    private boolean worldbookSyncRetryEnabled = true;
+
+    private int worldbookSyncRetryDelaySeconds = 30;
+
+    private int worldbookSyncLeaseSeconds = 120;
+
+    private int worldbookSyncRetryBatchSize = 16;
+
     public boolean isLlmEnabled() {
         return llmEnabled;
     }
@@ -178,5 +186,37 @@ public class MemoryLlmProperties {
 
     public void setMaxKeywords(int maxKeywords) {
         this.maxKeywords = maxKeywords;
+    }
+
+    public boolean isWorldbookSyncRetryEnabled() {
+        return worldbookSyncRetryEnabled;
+    }
+
+    public void setWorldbookSyncRetryEnabled(boolean worldbookSyncRetryEnabled) {
+        this.worldbookSyncRetryEnabled = worldbookSyncRetryEnabled;
+    }
+
+    public int getWorldbookSyncRetryDelaySeconds() {
+        return worldbookSyncRetryDelaySeconds;
+    }
+
+    public void setWorldbookSyncRetryDelaySeconds(int worldbookSyncRetryDelaySeconds) {
+        this.worldbookSyncRetryDelaySeconds = worldbookSyncRetryDelaySeconds;
+    }
+
+    public int getWorldbookSyncLeaseSeconds() {
+        return worldbookSyncLeaseSeconds;
+    }
+
+    public void setWorldbookSyncLeaseSeconds(int worldbookSyncLeaseSeconds) {
+        this.worldbookSyncLeaseSeconds = worldbookSyncLeaseSeconds;
+    }
+
+    public int getWorldbookSyncRetryBatchSize() {
+        return worldbookSyncRetryBatchSize;
+    }
+
+    public void setWorldbookSyncRetryBatchSize(int worldbookSyncRetryBatchSize) {
+        this.worldbookSyncRetryBatchSize = worldbookSyncRetryBatchSize;
     }
 }

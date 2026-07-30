@@ -74,6 +74,36 @@
         ORDER BY branch_id ASC
     </select>
 
+    <select id="listWorldbookSyncRetryCandidates" resultMap="MemMap">
+        SELECT conversation_id, branch_id, summary_preview, facts_count, memory_world_name,
+               entry_count, enabled_entry_count, manual_revision, memory_revision, applied_source_revision, last_source_message_id,
+               last_refreshed_message_count, last_manual_refresh_at,
+               manual_refresh_started_at, manual_refresh_token, last_synced_at,
+               sync_status, sync_error, updated_at
+        FROM app_conversation_memory
+        WHERE enabled_entry_count &gt; 0
+          AND (
+              (sync_status IN ('PENDING', 'FAILED') AND updated_at &lt;= #{retryCutoff})
+              OR (sync_status = 'SYNCING' AND updated_at &lt;= #{leaseCutoff})
+          )
+        ORDER BY updated_at ASC, conversation_id ASC, branch_id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="tryClaimWorldbookSync">
+        UPDATE app_conversation_memory
+        SET sync_status = 'SYNCING',
+            sync_error = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND enabled_entry_count &gt; 0
+          AND (
+              (sync_status IN ('PENDING', 'FAILED') AND updated_at &lt;= #{retryCutoff})
+              OR (sync_status = 'SYNCING' AND updated_at &lt;= #{leaseCutoff})
+          )
+    </update>
+
     <insert id="upsertTouch">
         INSERT INTO app_conversation_memory (conversation_id, branch_id, summary_preview, facts_count, updated_at)
         VALUES (#{conversationId}, 0, NULL, 0, CURRENT_TIMESTAMP)
@@ -158,18 +188,6 @@
             updated_at = CURRENT_TIMESTAMP
     </insert>
 
-    <update id="updateSyncStatus">
-        UPDATE app_conversation_memory
-        SET memory_world_name = #{memoryWorldName},
-            entry_count = #{entryCount},
-            enabled_entry_count = #{enabledEntryCount},
-            sync_status = #{syncStatus},
-            sync_error = #{syncError},
-            last_synced_at = CASE WHEN #{syncStatus} = 'SUCCESS' THEN CURRENT_TIMESTAMP ELSE last_synced_at END,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE conversation_id = #{conversationId}
-    </update>
-
     <update id="updateSyncStatusForBranch">
         UPDATE app_conversation_memory
         SET memory_world_name = #{memoryWorldName},
@@ -181,6 +199,20 @@
             updated_at = CURRENT_TIMESTAMP
         WHERE conversation_id = #{conversationId}
           AND branch_id = #{branchId}
+    </update>
+
+    <update id="updateWorldbookSyncStatusWithRevision">
+        UPDATE app_conversation_memory
+        SET memory_world_name = #{memoryWorldName},
+            entry_count = #{entryCount},
+            enabled_entry_count = #{enabledEntryCount},
+            sync_status = #{syncStatus},
+            sync_error = #{syncError},
+            last_synced_at = CASE WHEN #{syncStatus} = 'SUCCESS' THEN CURRENT_TIMESTAMP ELSE last_synced_at END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+          AND memory_revision = #{expectedMemoryRevision}
     </update>
 
     <update id="tryAcquireManualRefresh">

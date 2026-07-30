@@ -8,6 +8,7 @@ import com.example.sillyspringboot.chat.dto.AppChatListSwipesRequest;
 import com.example.sillyspringboot.chat.dto.AppChatSwitchSwipeRequest;
 import com.example.sillyspringboot.chat.dto.ChatSseEvent;
 import com.example.sillyspringboot.chat.service.AppChatService;
+import com.example.sillyspringboot.chat.service.AssistantProtocolStreamFilter;
 import com.example.sillyspringboot.chat.service.ChatAuditService;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
 import com.example.sillyspringboot.chat.service.ChatGenerationDispatcher;
@@ -199,11 +200,20 @@ public class AppChatController {
 
                 StringBuilder assistant = new StringBuilder();
                 boolean[] frontendBridgeGenerated = {false};
+                AssistantProtocolStreamFilter displayFilter =
+                        chatService.assistantProtocolStreamFilter(audit.characterId());
+                if (displayFilter == null) {
+                    displayFilter = AssistantProtocolStreamFilter.passthrough();
+                }
+                AssistantProtocolStreamFilter activeDisplayFilter = displayFilter;
                 String userRef = audit.userMessageId() > 0 ? ("root:" + audit.userMessageId()) : "";
                 chatService.streamGenerate(request, token, userRef, (ChatGenerateChunk c) -> {
-                    if (isFrontendBridgeChunk(c)) frontendBridgeGenerated[0] = true;
+                    boolean frontendBridgeChunk = isFrontendBridgeChunk(c);
+                    if (frontendBridgeChunk) frontendBridgeGenerated[0] = true;
                     if (c.delta() != null) assistant.append(c.delta());
-                    sendQuietly(emitter, control, "chunk", ChatSseEvent.chunk(conversationId, clientMessageId, c.chunkIndex(), c.delta(), c.done()));
+                    String displayDelta = activeDisplayFilter.accept(c.delta());
+                    sendQuietly(emitter, control, "chunk", ChatSseEvent.chunk(
+                            conversationId, clientMessageId, c.chunkIndex(), displayDelta, c.done()));
                 }, control);
 
                 if (timeout.isTimedOut()) {
@@ -219,7 +229,12 @@ public class AppChatController {
                     AppChatService.AssistantOutputNormalization normalization = frontendBridgeGenerated[0]
                             ? AppChatService.AssistantOutputNormalization.passthrough(assistant.toString())
                             : chatService.normalizeAssistantOutput(conversationId, assistant.toString(), token);
-                    String finalContent = normalization.content();
+                    String finalContent = chatService.finalizeEnsembleOutput(
+                            conversationId,
+                            audit.assistantMessageId(),
+                            normalization.content(),
+                            token
+                    );
                     if (timeout.isTimedOut()) {
                         auditService.onFailed(
                                 audit.assistantMessageId(),
@@ -262,7 +277,8 @@ public class AppChatController {
                                 conversationId,
                                 clientMessageId,
                                 cancelled ? "STOPPED" : "SUCCESS",
-                                finalContent
+                                finalContent,
+                                chatService.messageSegments(audit.assistantMessageId())
                         ));
                     }
                 }
@@ -301,7 +317,7 @@ public class AppChatController {
         return ApiResult.ok(Map.of("url", uploadService.saveOwnedImageAndGetUrl(file, userId)));
     }
 
-    // ===== Phase 5 endpoints (stubs until ST snapshot/swipe wiring is implemented) =====
+    // ===== Continue, regenerate, and swipe endpoints =====
 
     @PostMapping(value = "/continue", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter continueStream(
@@ -375,7 +391,8 @@ public class AppChatController {
                         );
                         return finalText;
                     },
-                    null));
+                    null,
+                    0L));
         } catch (RejectedExecutionException ex) {
             chatService.unregisterControl(conversationId, control);
             auditService.onFailed(
@@ -459,10 +476,12 @@ public class AppChatController {
                                 !generatedByFrontendBridge,
                                 outputRegexApplied
                         );
-                        auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), finalText, traceId);
+                        auditService.onHiddenVariantSuccess(
+                                audit.assistantMessageId(), audit.taskId(), finalText, traceId);
                         return finalText;
                     },
-                    () -> snapshotService.saveSnapshotFromDb(conversationId, 800)));
+                    () -> snapshotService.saveSnapshotFromDb(conversationId, 800),
+                    safeParseLong(request.getTargetMessageId())));
         } catch (RejectedExecutionException ex) {
             chatService.unregisterControl(conversationId, control);
             auditService.onFailed(
@@ -503,7 +522,8 @@ public class AppChatController {
             String clientMessageId,
             Phase5Runner runner,
             Phase5OnFinalize onFinalize,
-            Runnable restoreRuntimeState
+            Runnable restoreRuntimeState,
+            long terminalSegmentMessageId
     ) {
         long start = System.nanoTime();
         long maxWaitNanos = Duration.ofSeconds(chatService.maxQueueWaitSeconds()).toNanos();
@@ -543,7 +563,11 @@ public class AppChatController {
                         conversationId,
                         clientMessageId,
                         "STOPPED",
-                        terminalContent == null ? "" : terminalContent
+                        terminalContent == null ? "" : terminalContent,
+                        chatService.messageSegments(
+                                terminalSegmentMessageId > 0
+                                        ? terminalSegmentMessageId
+                                        : audit.assistantMessageId())
                 ));
                 emitter.complete();
                 return;
@@ -557,10 +581,19 @@ public class AppChatController {
 
                 StringBuilder assistant = new StringBuilder();
                 boolean[] frontendBridgeGenerated = {false};
+                AssistantProtocolStreamFilter displayFilter =
+                        chatService.assistantProtocolStreamFilter(audit.characterId());
+                if (displayFilter == null) {
+                    displayFilter = AssistantProtocolStreamFilter.passthrough();
+                }
+                AssistantProtocolStreamFilter activeDisplayFilter = displayFilter;
                 runner.run((ChatGenerateChunk c) -> {
-                    if (isFrontendBridgeChunk(c)) frontendBridgeGenerated[0] = true;
+                    boolean frontendBridgeChunk = isFrontendBridgeChunk(c);
+                    if (frontendBridgeChunk) frontendBridgeGenerated[0] = true;
                     if (c.delta() != null) assistant.append(c.delta());
-                    sendQuietly(emitter, control, "chunk", ChatSseEvent.chunk(conversationId, clientMessageId, c.chunkIndex(), c.delta(), c.done()));
+                    String displayDelta = activeDisplayFilter.accept(c.delta());
+                    sendQuietly(emitter, control, "chunk", ChatSseEvent.chunk(
+                            conversationId, clientMessageId, c.chunkIndex(), displayDelta, c.done()));
                 });
 
                 if (timeout.isTimedOut()) {
@@ -587,6 +620,8 @@ public class AppChatController {
                     }
                     cancelled = control.isCancelled();
                     String finalContent = normalization.content();
+                    finalContent = chatService.finalizeEnsembleOutput(
+                            conversationId, audit.assistantMessageId(), finalContent, token);
                     if (onFinalize == null) {
                         throw new IllegalStateException("phase5 finalizer is required");
                     }
@@ -600,7 +635,11 @@ public class AppChatController {
                             conversationId,
                             clientMessageId,
                             cancelled ? "STOPPED" : "SUCCESS",
-                            terminalContent == null ? "" : terminalContent
+                            terminalContent == null ? "" : terminalContent,
+                            chatService.messageSegments(
+                                    terminalSegmentMessageId > 0
+                                            ? terminalSegmentMessageId
+                                            : audit.assistantMessageId())
                     ));
                 }
                 emitter.complete();

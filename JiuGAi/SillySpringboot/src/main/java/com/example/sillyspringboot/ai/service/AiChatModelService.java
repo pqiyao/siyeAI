@@ -39,7 +39,8 @@ public class AiChatModelService {
 
     private static final Set<String> BILLING_MODES = Set.of(
             "FREE", "QUOTA_ONLY", "DIAMOND_ONLY", "GOLD_ONLY",
-            "QUOTA_THEN_DIAMOND", "QUOTA_THEN_GOLD", "DIAMOND_AND_GOLD", "QUOTA_THEN_MIXED"
+            "QUOTA_THEN_DIAMOND", "QUOTA_THEN_GOLD", "DIAMOND_AND_GOLD", "QUOTA_THEN_MIXED",
+            "DIAMOND_OR_GOLD", "QUOTA_THEN_DIAMOND_OR_GOLD"
     );
 
     public record ResolvedChatModel(
@@ -645,7 +646,9 @@ public class AiChatModelService {
                 Map.of("value", "QUOTA_THEN_DIAMOND", "label", "次数优先，后扣钻石", "description", "次数不足时改扣钻石"),
                 Map.of("value", "QUOTA_THEN_GOLD", "label", "次数优先，后扣金币", "description", "次数不足时改扣金币"),
                 Map.of("value", "DIAMOND_AND_GOLD", "label", "钻石和金币", "description", "每次同时扣两种余额"),
-                Map.of("value", "QUOTA_THEN_MIXED", "label", "次数优先，后扣混合余额", "description", "次数不足时同时扣钻石和金币")
+                Map.of("value", "QUOTA_THEN_MIXED", "label", "次数优先，后扣混合余额", "description", "次数不足时同时扣钻石和金币"),
+                Map.of("value", "DIAMOND_OR_GOLD", "label", "钻石或金币", "description", "优先扣钻石，钻石不足时整笔改扣金币"),
+                Map.of("value", "QUOTA_THEN_DIAMOND_OR_GOLD", "label", "次数优先，后扣钻石或金币", "description", "次数不足后优先扣钻石，钻石不足时整笔改扣金币")
         );
     }
 
@@ -689,7 +692,9 @@ public class AiChatModelService {
                 || (mode.contains("DIAMOND") && diamonds <= 0)
                 || (mode.contains("GOLD") && gold <= 0)
                 || ("DIAMOND_AND_GOLD".equals(mode) && (diamonds <= 0 || gold <= 0))
-                || ("QUOTA_THEN_MIXED".equals(mode) && (quota <= 0 || diamonds <= 0 || gold <= 0))) {
+                || ("DIAMOND_OR_GOLD".equals(mode) && (diamonds <= 0 || gold <= 0))
+                || ("QUOTA_THEN_MIXED".equals(mode) && (quota <= 0 || diamonds <= 0 || gold <= 0))
+                || ("QUOTA_THEN_DIAMOND_OR_GOLD".equals(mode) && (quota <= 0 || diamonds <= 0 || gold <= 0))) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "计费模式与次数/钻石/金币数值不匹配");
         }
     }
@@ -710,6 +715,8 @@ public class AiChatModelService {
             case "QUOTA_THEN_GOLD" -> q + "次，用完后" + g + "金币";
             case "DIAMOND_AND_GOLD" -> d + "钻石 + " + g + "金币/次";
             case "QUOTA_THEN_MIXED" -> q + "次，用完后" + d + "钻石 + " + g + "金币";
+            case "DIAMOND_OR_GOLD" -> d + "钻石 或 " + g + "金币/次";
+            case "QUOTA_THEN_DIAMOND_OR_GOLD" -> q + "次，用完后" + d + "钻石 或 " + g + "金币";
             default -> "--";
         };
     }

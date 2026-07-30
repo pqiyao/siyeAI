@@ -4,10 +4,34 @@
 
     <sql id="RiskJoin">
         LEFT JOIN (
-            SELECT device_id, COUNT(*) AS risk_score
+            SELECT
+                device_id,
+                SUM(CASE
+                    WHEN event_type = 'USER_CHANGED' THEN 8
+                    WHEN event_type = 'CLIENT_UID_CHANGED' THEN 5
+                    WHEN event_type = 'RATE_LIMIT_HIT' THEN 10
+                    WHEN event_type IN (
+                        'ANONYMOUS_CHAT_BLOCKED',
+                        'ANONYMOUS_CONVERSATION_BLOCKED',
+                        'ANONYMOUS_CHARACTER_BLOCKED'
+                    ) THEN 3
+                    WHEN event_type = 'IP_CHANGED' THEN 1
+                    ELSE 0
+                END) AS risk_score,
+                SUM(CASE WHEN event_type = 'USER_CHANGED' THEN 1 ELSE 0 END) AS user_changes,
+                SUM(CASE WHEN event_type = 'CLIENT_UID_CHANGED' THEN 1 ELSE 0 END) AS client_uid_changes,
+                SUM(CASE WHEN event_type = 'RATE_LIMIT_HIT' THEN 1 ELSE 0 END) AS rate_limit_hits,
+                SUM(CASE WHEN event_type = 'IP_CHANGED' THEN 1 ELSE 0 END) AS ip_changes,
+                SUM(CASE WHEN event_type LIKE 'ANONYMOUS\_%\_BLOCKED' THEN 1 ELSE 0 END) AS anonymous_blocks,
+                MAX(created_at) AS last_risk_at
             FROM app_h5_security_event
             WHERE created_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 24 HOUR)
-              AND event_type IN ('USER_CHANGED', 'CLIENT_UID_CHANGED', 'RATE_LIMIT_HIT')
+              AND event_type IN (
+                  'USER_CHANGED', 'CLIENT_UID_CHANGED', 'RATE_LIMIT_HIT', 'IP_CHANGED',
+                  'ANONYMOUS_CHAT_BLOCKED',
+                  'ANONYMOUS_CONVERSATION_BLOCKED',
+                  'ANONYMOUS_CHARACTER_BLOCKED'
+              )
               AND device_id IS NOT NULL
             GROUP BY device_id
         ) risk ON risk.device_id = d.id
@@ -36,10 +60,32 @@
             (SELECT COUNT(*) FROM app_h5_security_event
              WHERE created_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 24 HOUR)
                AND event_type = 'RATE_LIMIT_HIT') AS limitHitsDay,
-            (SELECT COUNT(DISTINCT device_id) FROM app_h5_security_event
+            (SELECT COUNT(*) FROM app_h5_security_event
              WHERE created_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 24 HOUR)
-               AND event_type IN ('USER_CHANGED', 'CLIENT_UID_CHANGED', 'RATE_LIMIT_HIT')
-               AND device_id IS NOT NULL) AS riskyDay
+               AND event_type IN (
+                   'ANONYMOUS_CHAT_BLOCKED',
+                   'ANONYMOUS_CONVERSATION_BLOCKED',
+                   'ANONYMOUS_CHARACTER_BLOCKED'
+               )) AS anonymousBlockedDay,
+            (SELECT COUNT(*) FROM (
+                SELECT device_id
+                FROM app_h5_security_event
+                WHERE created_at &gt; DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 24 HOUR)
+                  AND device_id IS NOT NULL
+                GROUP BY device_id
+                HAVING SUM(CASE
+                    WHEN event_type = 'USER_CHANGED' THEN 8
+                    WHEN event_type = 'CLIENT_UID_CHANGED' THEN 5
+                    WHEN event_type = 'RATE_LIMIT_HIT' THEN 10
+                    WHEN event_type IN (
+                        'ANONYMOUS_CHAT_BLOCKED',
+                        'ANONYMOUS_CONVERSATION_BLOCKED',
+                        'ANONYMOUS_CHARACTER_BLOCKED'
+                    ) THEN 3
+                    WHEN event_type = 'IP_CHANGED' THEN 1
+                    ELSE 0
+                END) &gt;= 5
+            ) risky_devices) AS riskyDay
         FROM app_h5_visitor_device
     </select>
 
@@ -59,9 +105,20 @@
             d.latest_ip AS ip,
             d.user_agent AS userAgent,
             d.anonymous_chat_attempt_count AS anonymousChats,
+            d.anonymous_conversation_create_count AS anonymousConversations,
+            d.anonymous_character_create_count AS anonymousCharacters,
+            (d.anonymous_chat_attempt_count
+                + d.anonymous_conversation_create_count
+                + d.anonymous_character_create_count) AS anonymousBlocksTotal,
             DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
             DATE_FORMAT(d.last_seen_at, '%Y-%m-%d %H:%i:%s') AS lastSeenAt,
-            COALESCE(risk.risk_score, 0) AS riskScore
+            COALESCE(risk.risk_score, 0) AS riskScore,
+            COALESCE(risk.user_changes, 0) AS userChanges,
+            COALESCE(risk.client_uid_changes, 0) AS clientUidChanges,
+            COALESCE(risk.rate_limit_hits, 0) AS rateLimitHits,
+            COALESCE(risk.ip_changes, 0) AS ipChanges,
+            COALESCE(risk.anonymous_blocks, 0) AS anonymousBlocksDay,
+            DATE_FORMAT(risk.last_risk_at, '%Y-%m-%d %H:%i:%s') AS lastRiskAt
         FROM app_h5_visitor_device d
         <include refid="RiskJoin"/>
         <include refid="WhereClause"/>

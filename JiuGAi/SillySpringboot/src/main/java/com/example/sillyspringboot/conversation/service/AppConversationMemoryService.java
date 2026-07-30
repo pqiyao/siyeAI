@@ -494,7 +494,18 @@ public class AppConversationMemoryService {
                     }
                 }
                 AppConversationMemoryEntry entity =
-                        memorySanitizer.toEntity(conversationId, extracted, sourceRange.firstMessageId(), sourceRange.lastMessageId());
+                        memorySanitizer.toEntity(
+                                conversationId,
+                                extracted,
+                                sourceRange.firstMessageId(),
+                                sourceRange.lastMessageId(),
+                                expectedVersion.rows().stream()
+                                        .filter(java.util.Objects::nonNull)
+                                        .map(AppMessage::getId)
+                                        .filter(java.util.Objects::nonNull)
+                                        .distinct()
+                                        .toList()
+                        );
                 if (entity != null) {
                     if (hasBranch(branchId)) {
                         entity.setBranchId(branchId);
@@ -1077,6 +1088,7 @@ public class AppConversationMemoryService {
         out.put("confidence", entry.getConfidence() == null ? null : entry.getConfidence().doubleValue());
         out.put("sourceMessageFromId", entry.getSourceMessageFromId());
         out.put("sourceMessageToId", entry.getSourceMessageToId());
+        out.put("sourceMessageIds", memorySanitizer.readMessageIds(entry.getSourceMessageIdsJson()));
         if (entry.getCreatedAt() != null) {
             out.put("createdAt", entry.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant().toString());
         }

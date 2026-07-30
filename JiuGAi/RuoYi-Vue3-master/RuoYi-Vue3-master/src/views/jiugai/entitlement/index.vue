@@ -115,6 +115,38 @@
 
         <div class="runtime-item runtime-item--stack">
           <div class="runtime-item__meta">
+            <div class="runtime-item__title">AI 回复语义标注</div>
+            <div class="runtime-item__desc">默认关闭。开启后仅使用下方独立 CHAT 路由分类本轮回复；未配置可用路由时不会回退到正文模型。</div>
+          </div>
+          <div class="runtime-limits">
+            <div class="runtime-limit runtime-limit--inline">
+              <span class="runtime-limit__label">全局开关</span>
+              <el-switch v-model="runtimeSettings.semanticAnnotationEnabled" />
+            </div>
+            <div class="runtime-limit">
+              <span class="runtime-limit__label">专用模型路由</span>
+              <el-select
+                v-model="runtimeSettings.semanticAnnotationRouteKey"
+                :loading="semanticRouteLoading"
+                filterable
+                clearable
+                placeholder="选择独立 CHAT 模型路由"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="route in semanticChatRoutes"
+                  :key="route.routeKey"
+                  :label="semanticRouteLabel(route)"
+                  :value="route.routeKey"
+                  :disabled="route.enabled !== true"
+                />
+              </el-select>
+            </div>
+          </div>
+        </div>
+
+        <div class="runtime-item runtime-item--stack">
+          <div class="runtime-item__meta">
             <div class="runtime-item__title">匿名试玩限制</div>
             <div class="runtime-item__desc">0 表示禁止匿名用户继续使用；按服务端 device_token 计数，用于控制匿名聊天次数、可开新会话数量和创建角色次数。</div>
           </div>
@@ -282,7 +314,7 @@
           type="info"
           :closable="false"
           show-icon
-          title="免费每日额度用完后，按此处单价扣钻/币；单价为 0 表示该货币不参与扣费。两项都为 0 且超额计费关闭时，用完即不可用。"
+          title="免费每日额度用完后，按此处单价和聊天钱包方式扣费；单价为 0 表示该货币不参与扣费。两项都为 0 或超额计费关闭时，用完即不可用。"
         />
 
         <el-form-item label="开启超额扣费">
@@ -293,6 +325,14 @@
         </el-form-item>
 
         <el-divider content-position="left">聊天</el-divider>
+        <el-form-item label="聊天钱包方式">
+          <el-select v-model="form.chatWalletMode" style="width: 360px">
+            <el-option label="钻石或金币（优先钻石，余额不足再扣金币）" value="DIAMOND_OR_GOLD" />
+            <el-option label="钻石和金币（同时扣两种余额）" value="DIAMOND_AND_GOLD" />
+            <el-option label="仅钻石" value="DIAMOND_ONLY" />
+            <el-option label="仅金币" value="GOLD_ONLY" />
+          </el-select>
+        </el-form-item>
         <el-row :gutter="24">
           <el-col :xs="24" :md="12">
             <el-form-item label="聊天扣钻">
@@ -373,6 +413,7 @@
 import {
   getEntitlementPolicy,
   getEntitlementRuntimeSettings,
+  getSemanticChatRoutes,
   updateEntitlementPolicy,
   updateEntitlementRuntimeSettings
 } from '@/api/jiugai/entitlement'
@@ -383,6 +424,11 @@ const { proxy } = getCurrentInstance()
 const policySubmitting = ref(false)
 const runtimeLoading = ref(false)
 const runtimeSubmitting = ref(false)
+const semanticRouteLoading = ref(false)
+const aiRoutes = ref([])
+const semanticChatRoutes = computed(() => aiRoutes.value.filter((route) => (
+  String(route?.capability || '').toUpperCase() === 'CHAT' && route?.routeKey
+)))
 
 const emptyForm = () => ({
   guestDailyChatQuota: 20,
@@ -409,6 +455,7 @@ const emptyForm = () => ({
   byokContinueConsumesQuota: true,
   byokRegenerateConsumesQuota: true,
   overQuotaBillingEnabled: false,
+  chatWalletMode: 'DIAMOND_OR_GOLD',
   chatScoreCost: 0,
   chatGoldCost: 0,
   imageScoreCost: 0,
@@ -436,6 +483,8 @@ const runtimeSettings = reactive({
   checkinEntryVisible: true,
   systemChatPresetEntryVisible: true,
   userChatPresetEntryVisible: true,
+  semanticAnnotationEnabled: false,
+  semanticAnnotationRouteKey: '',
   userByokVipMinLevel: 0,
   anonymousTrialChatLimit: 30,
   anonymousTrialConversationLimit: 6,
@@ -458,6 +507,10 @@ function applyRuntimeSettings(data) {
   runtimeSettings.checkinEntryVisible = data.checkinEntryVisible !== false
   runtimeSettings.systemChatPresetEntryVisible = data.systemChatPresetEntryVisible !== false
   runtimeSettings.userChatPresetEntryVisible = data.userChatPresetEntryVisible !== false
+  runtimeSettings.semanticAnnotationEnabled = data.semanticAnnotationEnabled === true
+  runtimeSettings.semanticAnnotationRouteKey = typeof data.semanticAnnotationRouteKey === 'string'
+    ? data.semanticAnnotationRouteKey
+    : ''
   runtimeSettings.userByokVipMinLevel = normalizeLimit(data.userByokVipMinLevel, 0)
   runtimeSettings.anonymousTrialChatLimit = normalizeLimit(data.anonymousTrialChatLimit, 30)
   runtimeSettings.anonymousTrialConversationLimit = normalizeLimit(data.anonymousTrialConversationLimit, 6)
@@ -472,6 +525,9 @@ function loadPolicy() {
         ...emptyForm(),
         ...data,
         overQuotaBillingEnabled: data.overQuotaBillingEnabled === true,
+        chatWalletMode: ['DIAMOND_ONLY', 'GOLD_ONLY', 'DIAMOND_OR_GOLD', 'DIAMOND_AND_GOLD'].includes(data.chatWalletMode)
+          ? data.chatWalletMode
+          : 'DIAMOND_AND_GOLD',
         chatScoreCost: normalizeLimit(data.chatScoreCost, 0),
         chatGoldCost: normalizeLimit(data.chatGoldCost, 0),
         imageScoreCost: normalizeLimit(data.imageScoreCost, 0),
@@ -503,6 +559,28 @@ function loadRuntimeSettings() {
     })
 }
 
+function semanticRouteLabel(route) {
+  const name = String(route?.displayName || '').trim()
+  const routeKey = String(route?.routeKey || '').trim()
+  const label = name && name !== routeKey ? `${name} (${routeKey})` : routeKey
+  return route?.enabled === true ? label : `${label} [已停用]`
+}
+
+function loadSemanticRoutes() {
+  semanticRouteLoading.value = true
+  return getSemanticChatRoutes()
+    .then((res) => {
+      aiRoutes.value = Array.isArray(res?.data) ? res.data : []
+    })
+    .catch((e) => {
+      aiRoutes.value = []
+      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '加载语义标注模型路由失败'))
+    })
+    .finally(() => {
+      semanticRouteLoading.value = false
+    })
+}
+
 function submitPolicy() {
   policySubmitting.value = true
   updateEntitlementPolicy({ ...form.value })
@@ -531,6 +609,8 @@ function submitRuntimeSettings() {
     checkinEntryVisible: runtimeSettings.checkinEntryVisible,
     systemChatPresetEntryVisible: runtimeSettings.systemChatPresetEntryVisible,
     userChatPresetEntryVisible: runtimeSettings.userChatPresetEntryVisible,
+    semanticAnnotationEnabled: runtimeSettings.semanticAnnotationEnabled,
+    semanticAnnotationRouteKey: runtimeSettings.semanticAnnotationRouteKey,
     userByokVipMinLevel: runtimeSettings.userByokVipMinLevel,
     anonymousTrialChatLimit: runtimeSettings.anonymousTrialChatLimit,
     anonymousTrialConversationLimit: runtimeSettings.anonymousTrialConversationLimit,
@@ -550,6 +630,7 @@ function submitRuntimeSettings() {
 
 loadPolicy()
 loadRuntimeSettings()
+loadSemanticRoutes()
 </script>
 
 <style scoped>

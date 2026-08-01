@@ -47,11 +47,16 @@ test('用户自建音色页签按权限加载并支持结束异常创建任务',
   assert.match(api, /finish-provisioning/)
 })
 
-test('媒体中心保留用户自定义通道并将官方平台配置统一交给模型路由', () => {
+test('媒体中心明确系统 NovelAI、实验性自定义通道与显式 Comfy 接管', () => {
   assert.match(media, /用户自定义 API/)
-  assert.match(media, /配置 IMAGE 路由/)
-  assert.match(media, /openModelRouting\('IMAGE'\)/)
+  assert.match(media, /系统 NovelAI/)
+  assert.match(media, /novelAiStatus\.tokenConfigured/)
+  assert.match(media, /Token 已配置/)
+  assert.match(media, /缺少 Token/)
+  assert.match(media, /本地 Comfy 兼容通道/)
   assert.match(media, /comfyFallbackEnabled/)
+  assert.doesNotMatch(media, /配置 IMAGE 路由/)
+  assert.doesNotMatch(media, /openModelRouting\('IMAGE'\)/)
   assert.doesNotMatch(media, /v-model="imageForm\.managed(?:ProviderSource|ImageModelName|ApiKey|CustomUrl)"/)
 })
 

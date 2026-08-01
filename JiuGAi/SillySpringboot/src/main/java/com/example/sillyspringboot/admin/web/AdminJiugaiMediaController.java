@@ -11,6 +11,7 @@ import com.example.sillyspringboot.ops.service.AppMediaRuntimeSettingsService;
 import com.example.sillyspringboot.ops.service.EntitlementAuditLogService;
 import com.example.sillyspringboot.ops.service.EntitlementPolicyService;
 import com.example.sillyspringboot.ops.service.ImageGenerationPolicyService;
+import com.example.sillyspringboot.ops.service.ImageGenerationReadinessService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,6 +32,7 @@ public class AdminJiugaiMediaController {
     private final AppFeatureSettingsService featureSettingsService;
     private final AppImageGenerationSettingsService imageSettingsService;
     private final ImageGenerationPolicyService imagePolicyService;
+    private final ImageGenerationReadinessService imageReadinessService;
     private final AppMediaRuntimeSettingsService mediaRuntimeSettingsService;
     private final EntitlementPolicyService entitlementPolicyService;
     private final EntitlementAuditLogService auditLogService;
@@ -40,6 +42,7 @@ public class AdminJiugaiMediaController {
             AppFeatureSettingsService featureSettingsService,
             AppImageGenerationSettingsService imageSettingsService,
             ImageGenerationPolicyService imagePolicyService,
+            ImageGenerationReadinessService imageReadinessService,
             AppMediaRuntimeSettingsService mediaRuntimeSettingsService,
             EntitlementPolicyService entitlementPolicyService,
             EntitlementAuditLogService auditLogService,
@@ -48,6 +51,7 @@ public class AdminJiugaiMediaController {
         this.featureSettingsService = featureSettingsService;
         this.imageSettingsService = imageSettingsService;
         this.imagePolicyService = imagePolicyService;
+        this.imageReadinessService = imageReadinessService;
         this.mediaRuntimeSettingsService = mediaRuntimeSettingsService;
         this.entitlementPolicyService = entitlementPolicyService;
         this.auditLogService = auditLogService;
@@ -152,6 +156,7 @@ public class AdminJiugaiMediaController {
         data.put("userByokEnabled", feature.isUserByokEnabled());
         data.put("userByokVipMinLevel", feature.getUserByokVipMinLevel());
         data.put("imageRouting", aiRoutingService.capabilitySummary(AiCapability.IMAGE));
+        data.put("systemRuntime", imageReadinessService.toMap(imageReadinessService.systemSnapshot()));
         return data;
     }
 }

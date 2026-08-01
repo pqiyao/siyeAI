@@ -10,6 +10,8 @@ public class H5MyCharacterSaveRequest {
     private String bio;
     private String persona;
     private String scenario;
+    private String visualPrompt;
+    private String visualNegativePrompt;
     private String firstMessage;
     private List<String> alternateGreetings;
     private String mesExample;
@@ -90,6 +92,11 @@ public class H5MyCharacterSaveRequest {
     public void setScenario(String scenario) {
         this.scenario = scenario;
     }
+
+    public String getVisualPrompt() { return visualPrompt; }
+    public void setVisualPrompt(String visualPrompt) { this.visualPrompt = visualPrompt; }
+    public String getVisualNegativePrompt() { return visualNegativePrompt; }
+    public void setVisualNegativePrompt(String visualNegativePrompt) { this.visualNegativePrompt = visualNegativePrompt; }
 
     public String getFirstMessage() {
         return firstMessage;
@@ -260,6 +267,8 @@ public class H5MyCharacterSaveRequest {
         private String name;
         private String tagline;
         private String persona;
+        private String visualPrompt;
+        private String visualNegativePrompt;
         private String avatarUrl;
         private String voiceConfigJson;
         private String imageReferenceUrl;
@@ -277,6 +286,10 @@ public class H5MyCharacterSaveRequest {
         public void setTagline(String tagline) { this.tagline = tagline; }
         public String getPersona() { return persona; }
         public void setPersona(String persona) { this.persona = persona; }
+        public String getVisualPrompt() { return visualPrompt; }
+        public void setVisualPrompt(String visualPrompt) { this.visualPrompt = visualPrompt; }
+        public String getVisualNegativePrompt() { return visualNegativePrompt; }
+        public void setVisualNegativePrompt(String visualNegativePrompt) { this.visualNegativePrompt = visualNegativePrompt; }
         public String getAvatarUrl() { return avatarUrl; }
         public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
         public String getVoiceConfigJson() { return voiceConfigJson; }

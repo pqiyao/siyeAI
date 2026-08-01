@@ -24,6 +24,8 @@ public class AppCharacter {
     private String healthIssuesJson;
     private String persona;
     private String scenario;
+    private String visualPrompt;
+    private String visualNegativePrompt;
     private String firstMessage;
     private String alternateGreetingsJson;
     private String mesExample;
@@ -197,6 +199,22 @@ public class AppCharacter {
 
     public void setScenario(String scenario) {
         this.scenario = scenario;
+    }
+
+    public String getVisualPrompt() {
+        return visualPrompt;
+    }
+
+    public void setVisualPrompt(String visualPrompt) {
+        this.visualPrompt = visualPrompt;
+    }
+
+    public String getVisualNegativePrompt() {
+        return visualNegativePrompt;
+    }
+
+    public void setVisualNegativePrompt(String visualNegativePrompt) {
+        this.visualNegativePrompt = visualNegativePrompt;
     }
 
     public String getFirstMessage() {

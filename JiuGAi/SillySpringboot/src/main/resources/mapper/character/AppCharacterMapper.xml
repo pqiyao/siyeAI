@@ -23,6 +23,8 @@
         <result column="health_issues_json" property="healthIssuesJson"/>
         <result column="persona" property="persona"/>
         <result column="scenario" property="scenario"/>
+        <result column="visual_prompt" property="visualPrompt"/>
+        <result column="visual_negative_prompt" property="visualNegativePrompt"/>
         <result column="first_message" property="firstMessage"/>
         <result column="alternate_greetings_json" property="alternateGreetingsJson"/>
         <result column="mes_example" property="mesExample"/>
@@ -57,7 +59,7 @@
     <sql id="AllColumns">
         id, st_avatar_url, avatar_url, cover_url, chat_background_url, st_world_names_json, owner_user_id, name, description,
         tagline, bio, public_summary, public_tags_json, public_warnings_json, health_score, health_issues_json,
-        persona, scenario, first_message, alternate_greetings_json,
+        persona, scenario, visual_prompt, visual_negative_prompt, first_message, alternate_greetings_json,
         mes_example, system_prompt, post_history_instructions,
         private_card, review_status, review_reason, reviewed_at, reviewed_by, deleted_at, created_at, updated_at,
         occupation_label, tags_json, vip_only, unlocked_default, client_visible, preview_blur_vip_level,
@@ -186,7 +188,7 @@
         INSERT INTO app_character (
             st_avatar_url, name, description, owner_user_id,
             tagline, bio, public_summary, public_tags_json, public_warnings_json, health_score, health_issues_json,
-            persona, scenario, first_message, alternate_greetings_json,
+            persona, scenario, visual_prompt, visual_negative_prompt, first_message, alternate_greetings_json,
             mes_example, system_prompt, post_history_instructions,
             avatar_url, cover_url, chat_background_url, st_world_names_json, private_card,
             review_status, review_reason, reviewed_at, reviewed_by,
@@ -196,7 +198,7 @@
         ) VALUES (
             #{stAvatarUrl}, #{name}, #{description}, #{ownerUserId},
             #{tagline}, #{bio}, #{publicSummary}, #{publicTagsJson}, #{publicWarningsJson}, COALESCE(#{healthScore}, 0), #{healthIssuesJson},
-            #{persona}, #{scenario}, #{firstMessage}, #{alternateGreetingsJson},
+            #{persona}, #{scenario}, #{visualPrompt}, #{visualNegativePrompt}, #{firstMessage}, #{alternateGreetingsJson},
             #{mesExample}, #{systemPrompt}, #{postHistoryInstructions},
             #{avatarUrl}, #{coverUrl}, #{chatBackgroundUrl}, #{stWorldNamesJson}, #{privateCard},
             #{reviewStatus}, #{reviewReason}, #{reviewedAt}, #{reviewedBy},
@@ -225,6 +227,8 @@
             health_issues_json = #{healthIssuesJson},
             persona = #{persona},
             scenario = #{scenario},
+            visual_prompt = #{visualPrompt},
+            visual_negative_prompt = #{visualNegativePrompt},
             first_message = #{firstMessage},
             alternate_greetings_json = #{alternateGreetingsJson},
             mes_example = #{mesExample},

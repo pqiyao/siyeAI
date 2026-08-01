@@ -113,18 +113,23 @@
               <article class="channel-item">
                 <div class="channel-item__icon channel-item__icon--official"><el-icon><Cpu /></el-icon></div>
                 <div class="channel-item__body">
-                  <div class="channel-item__title"><strong>官方平台 API</strong><el-tag :type="routingTagType(imageRouting)" effect="plain">{{ routingStatusLabel(imageRouting) }}</el-tag></div>
-                  <p>系统模式统一使用模型路由中的 IMAGE 供应商池、执行顺序、故障切换和熔断状态。</p>
-                  <span>{{ routingNodeSummary(imageRouting) }}</span>
+                  <div class="channel-item__title"><strong>系统 NovelAI</strong><el-tag :type="novelAiStatus.tokenConfigured ? 'success' : 'danger'" effect="plain">{{ novelAiStatus.tokenConfigured ? 'Token 已配置' : '缺少 Token' }}</el-tag></div>
+                  <p>系统模式固定由 Spring 直连 NovelAI，不依赖 SillyTavern 会话或 IMAGE 模型路由。</p>
+                  <span>{{ novelAiStatus.model || '未配置模型' }} · {{ novelAiStatus.sampler || '未配置采样器' }} · {{ novelAiStatus.steps || 0 }} steps</span>
+                  <div class="tag-list">
+                    <el-tag :type="systemImageRuntime.redisReachable ? 'success' : 'danger'" size="small" effect="plain">Redis {{ systemImageRuntime.redisReachable ? '正常' : '异常' }}</el-tag>
+                    <el-tag :type="systemImageRuntime.storageReady ? 'success' : 'danger'" size="small" effect="plain">媒体存储 {{ systemImageRuntime.storageReady ? '正常' : '异常' }}</el-tag>
+                    <el-tag :type="systemImageRuntime.ready ? 'success' : 'danger'" size="small" effect="plain">系统生图 {{ systemImageRuntime.ready ? '可用' : '不可用' }}</el-tag>
+                  </div>
+                  <p v-if="!systemImageRuntime.ready && systemImageRuntime.message">{{ systemImageRuntime.message }}</p>
                 </div>
-                <el-button :icon="Connection" @click="openModelRouting('IMAGE')">配置 IMAGE 路由</el-button>
               </article>
             </div>
 
             <div class="compatibility-band">
               <div>
                 <strong>本地 Comfy 兼容通道</strong>
-                <span>仅在用户选择系统模式且官方 IMAGE 路由未启用时接管；不会覆盖用户自定义 API。</span>
+                <span>仅由管理员显式启用时接管系统模式；不会随机回退，也不会覆盖用户自定义 API。</span>
               </div>
               <el-switch v-model="imageForm.comfyFallbackEnabled" active-text="启用" inactive-text="关闭" />
             </div>
@@ -349,11 +354,12 @@ const referenceOptions = ref([
 const imageLoading = ref(false)
 const imageSaving = ref(false)
 const emptyRouting = (capability) => ({ capability, routeKey: `${capability.toLowerCase()}.default`, runtimeEnabled: false, routeDefined: false, routeEnabled: false, routeConfigured: false, ready: false, status: 'runtime_disabled', deploymentCount: 0, configuredNodeCount: 0, availableNodeCount: 0, nodes: [] })
-const imageRouting = reactive(emptyRouting('IMAGE'))
+const novelAiStatus = reactive({ tokenConfigured: false, model: '', sampler: '', scheduler: '', steps: 0, scale: 0, requestTimeoutSeconds: 0 })
+const systemImageRuntime = reactive({ ready: false, statusCode: '', message: '', engine: 'novelai', tokenConfigured: false, redisConfigured: false, redisReachable: false, storageReady: false, production: false })
 const imageForm = reactive({
   featureEnabled: true, userByokEnabled: false, userByokVipMinLevel: 0, comfyFallbackEnabled: false, globalConcurrentLimit: 2,
   perUserConcurrentLimit: 1, counterTtlSeconds: 600, requestTimeoutSeconds: 90,
-  defaultConsistencyMode: 'balanced', allowedConsistencyModes: ['free', 'balanced', 'strong'],
+  defaultConsistencyMode: 'balanced', allowedConsistencyModes: ['free', 'balanced'],
   defaultReferenceSourceMode: 'latest_generated_first', allowedReferenceSourceModes: ['latest_generated_first', 'avatar_only'],
   referenceImagesEnabled: true, recentSceneContextEnabled: true, negativePrompt: '',
   comfyUrl: 'http://127.0.0.1:8188', workflow: 'Default_Comfy_Workflow.json',
@@ -366,11 +372,12 @@ function applyImagePolicy(data) {
     if (Object.prototype.hasOwnProperty.call(data, key)) imageForm[key] = data[key]
   })
   imageForm.featureEnabled = data.featureEnabled !== false
-  imageForm.allowedConsistencyModes = Array.isArray(data.allowedConsistencyModes) ? data.allowedConsistencyModes : ['free', 'balanced', 'strong']
+  imageForm.allowedConsistencyModes = Array.isArray(data.allowedConsistencyModes) ? data.allowedConsistencyModes : ['free', 'balanced']
   imageForm.allowedReferenceSourceModes = Array.isArray(data.allowedReferenceSourceModes) ? data.allowedReferenceSourceModes : ['latest_generated_first', 'avatar_only']
   if (Array.isArray(data.modeOptions)) modeOptions.value = data.modeOptions
   if (Array.isArray(data.referenceSourceOptions)) referenceOptions.value = data.referenceSourceOptions
-  Object.assign(imageRouting, emptyRouting('IMAGE'), data.imageRouting || {})
+  Object.assign(novelAiStatus, { tokenConfigured: false, model: '', sampler: '', scheduler: '', steps: 0, scale: 0, requestTimeoutSeconds: 0 }, data.novelAi || {})
+  Object.assign(systemImageRuntime, { ready: false, statusCode: '', message: '', engine: 'novelai', tokenConfigured: false, redisConfigured: false, redisReachable: false, storageReady: false, production: false }, data.systemRuntime || {})
 }
 
 async function loadImagePolicy() {

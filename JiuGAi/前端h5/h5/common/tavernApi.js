@@ -11,9 +11,12 @@ var VISITOR_DEVICE_TOKEN_KEY = 'tavern_device_token';
 var RUNTIME_FEATURE_CONFIG_CACHE_MS = 15000;
 var RESOLVED_ASSET_URL_CACHE_LIMIT = 800;
 var H5_UPLOAD_MAX_FILE_BYTES = 28 * 1024 * 1024;
+var LOCAL_CHAT_IMAGE_SOURCE_MAX_BYTES = 10 * 1024 * 1024;
+var LOCAL_CHAT_IMAGE_DATA_URL_MAX_LENGTH = 1200 * 1024;
 var H5_AUDIO_UPLOAD_MAX_FILE_BYTES = 15 * 1024 * 1024;
 var H5_BROWSER_UPLOAD_TIMEOUT = 120000;
 var CHAT_GENERATION_TIMEOUT = 600000;
+var TTS_REQUEST_TIMEOUT = 120000;
 var LOCAL_CHAT_IMAGE_CACHE_PREFIX = 'tavern_local_chat_images_';
 var LOCAL_USER_VOICE_CACHE_PREFIX = 'tavern_local_user_voice_';
 var LOCAL_EXPRESSION_LIBRARY_PREFIX = 'tavern_local_expressions_';
@@ -275,6 +278,10 @@ function cleanupLocalCharacterArtifacts(context) {
 	removeStoredValueQuietly(localCharacterCacheKey(LOCAL_CHARACTER_VOICE_CONFIG_PREFIX, clientUid, characterId));
 	removeStoredValueQuietly(localCharacterCacheKey(LOCAL_CHARACTER_IMAGE_CONFIG_PREFIX, clientUid, characterId));
 	removeStoredValueQuietly(localCharacterCacheKey(LOCAL_EXPRESSION_LIBRARY_PREFIX, clientUid, characterId));
+	try {
+		var localMediaStore = require('./localMediaStore.js');
+		localMediaStore.removeByConversationKind(clientUid, 'expression_char_' + characterId, 'local_expression').catch(function () {});
+	} catch (e) {}
 	return true;
 }
 
@@ -364,6 +371,10 @@ function buildRequestHeaders(extraHeaders, requestSession) {
 
 function getUploadMaxFileBytes() {
 	return H5_UPLOAD_MAX_FILE_BYTES;
+}
+
+function getLocalChatImageMaxFileBytes() {
+	return LOCAL_CHAT_IMAGE_SOURCE_MAX_BYTES;
 }
 
 function canUseBrowserFilePicker() {
@@ -1594,11 +1605,67 @@ function transcribeTavernAudio(filePath, clientUid, onProgress) {
 	});
 }
 
-function prepareLocalChatImage(filePath, onProgress) {
+function compressStaticImageDataUrl(dataUrl, maxDataUrlLength) {
+	return new Promise(function (resolve, reject) {
+		if (typeof document === 'undefined' || typeof Image === 'undefined') {
+			reject(new Error('\u5f53\u524d\u73af\u5883\u4e0d\u652f\u6301\u56fe\u7247\u538b\u7f29'));
+			return;
+		}
+		var image = new Image();
+		image.onload = function () {
+			try {
+				var maxDimension = 2048;
+				var width = Math.max(1, Number(image.naturalWidth || image.width) || 1);
+				var height = Math.max(1, Number(image.naturalHeight || image.height) || 1);
+				var initialScale = Math.min(1, maxDimension / Math.max(width, height));
+				var scales = [initialScale, initialScale * 0.82, initialScale * 0.68, initialScale * 0.54];
+				var qualities = [0.82, 0.68, 0.52, 0.38];
+				var best = '';
+				for (var scaleIndex = 0; scaleIndex < scales.length; scaleIndex += 1) {
+					var canvas = document.createElement('canvas');
+					canvas.width = Math.max(1, Math.round(width * scales[scaleIndex]));
+					canvas.height = Math.max(1, Math.round(height * scales[scaleIndex]));
+					var context = canvas.getContext('2d');
+					if (!context) continue;
+					context.drawImage(image, 0, 0, canvas.width, canvas.height);
+					for (var qualityIndex = 0; qualityIndex < qualities.length; qualityIndex += 1) {
+						var encoded = canvas.toDataURL('image/jpeg', qualities[qualityIndex]);
+						if (!best || encoded.length < best.length) best = encoded;
+						if (encoded.length <= maxDataUrlLength) {
+							resolve(encoded);
+							return;
+						}
+					}
+				}
+				if (best) {
+					resolve(best);
+					return;
+				}
+				reject(new Error('\u804a\u5929\u56fe\u7247\u538b\u7f29\u5931\u8d25'));
+			} catch (error) {
+				reject(error);
+			}
+		};
+		image.onerror = function () {
+			reject(new Error('\u804a\u5929\u56fe\u7247\u538b\u7f29\u5931\u8d25'));
+		};
+		image.src = dataUrl;
+	});
+}
+
+function prepareLocalChatImage(filePath, onProgress, options) {
 	return new Promise(function (resolve, reject) {
 		if (!jgEnabled() || !filePath) {
 			reject(new Error('invalid'));
 			return;
+		}
+		var source = options && typeof options === 'object' ? options : {};
+		var maxDataUrlLength = Math.max(1024, Number(source.maxDataUrlLength) || LOCAL_CHAT_IMAGE_DATA_URL_MAX_LENGTH);
+		var sourceMaxBytes = Math.max(1024, Number(source.sourceMaxBytes) || LOCAL_CHAT_IMAGE_SOURCE_MAX_BYTES);
+		var preserveAnimation = source.preserveAnimation === true;
+		function acceptDataUrl(safeDataUrl) {
+			notifyUploadProgress(onProgress, 100);
+			resolve({ url: safeDataUrl });
 		}
 		function finishWithDataUrl(dataUrl) {
 			var safeDataUrl = dataUrl == null ? '' : String(dataUrl).trim();
@@ -1606,8 +1673,23 @@ function prepareLocalChatImage(filePath, onProgress) {
 				reject(new Error('\u804a\u5929\u56fe\u7247\u5904\u7406\u5931\u8d25'));
 				return;
 			}
-			notifyUploadProgress(onProgress, 100);
-			resolve({ url: safeDataUrl });
+			if (safeDataUrl.length <= maxDataUrlLength) {
+				acceptDataUrl(safeDataUrl);
+				return;
+			}
+			if (preserveAnimation && /^data:image\/gif;/i.test(safeDataUrl)) {
+				reject(new Error('\u52a8\u6001\u8868\u60c5\u8fc7\u5927\uff0c\u8bf7\u9009\u62e9\u66f4\u5c0f\u7684 GIF'));
+				return;
+			}
+			notifyUploadProgress(onProgress, 94);
+			compressStaticImageDataUrl(safeDataUrl, maxDataUrlLength)
+				.then(function (compressed) {
+					if (!compressed || compressed.length > maxDataUrlLength) {
+						throw new Error('\u56fe\u7247\u538b\u7f29\u540e\u4ecd\u8fc7\u5927\uff0c\u8bf7\u88c1\u526a\u540e\u518d\u8bd5');
+					}
+					acceptDataUrl(compressed);
+				})
+				.catch(reject);
 		}
 		function inferMimeTypeFromPath(pathValue) {
 			var raw = pathValue == null ? '' : String(pathValue).trim().toLowerCase();
@@ -1726,10 +1808,69 @@ function prepareLocalChatImage(filePath, onProgress) {
 			}
 			return Promise.reject(new Error('\u5f53\u524d\u73af\u5883\u4e0d\u652f\u6301\u672c\u5730\u56fe\u7247\u5904\u7406'));
 		}
+		function compressLocalPath(pathValue, quality) {
+			return new Promise(function (resolveCompressed, rejectCompressed) {
+				if (typeof uni === 'undefined' || typeof uni.compressImage !== 'function') {
+					rejectCompressed(new Error('compress_image_unavailable'));
+					return;
+				}
+				uni.compressImage({
+					src: pathValue,
+					quality: quality,
+					compressedWidth: 2048,
+					success: function (result) {
+						var outputPath = result && result.tempFilePath ? String(result.tempFilePath).trim() : '';
+						if (!outputPath) {
+							rejectCompressed(new Error('\u804a\u5929\u56fe\u7247\u538b\u7f29\u5931\u8d25'));
+							return;
+						}
+						resolveCompressed(outputPath);
+					},
+					fail: function (error) {
+						rejectCompressed(error || new Error('\u804a\u5929\u56fe\u7247\u538b\u7f29\u5931\u8d25'));
+					}
+				});
+			});
+		}
+		function prepareLocalPath(pathValue) {
+			var safePath = pathValue == null ? '' : String(pathValue).trim();
+			var cannotUseNativeCompression = preserveAnimation
+				|| !safePath
+				|| safePath.indexOf('data:image/') === 0
+				|| isRemoteHttpUrl(safePath)
+				|| typeof uni === 'undefined'
+				|| typeof uni.compressImage !== 'function';
+			if (cannotUseNativeCompression) {
+				readLocalPathAsDataUrl(pathValue).then(finishWithDataUrl).catch(reject);
+				return;
+			}
+			var qualities = [78, 58, 38, 24];
+			var attempt = function (index) {
+				notifyUploadProgress(onProgress, Math.min(88, 8 + index * 18));
+				compressLocalPath(safePath, qualities[index])
+					.then(readLocalPathAsDataUrl)
+					.then(function (dataUrl) {
+						var value = dataUrl == null ? '' : String(dataUrl).trim();
+						if (value && value.length <= maxDataUrlLength) {
+							acceptDataUrl(value);
+							return;
+						}
+						if (index + 1 < qualities.length) {
+							attempt(index + 1);
+							return;
+						}
+						finishWithDataUrl(value);
+					})
+					.catch(function () {
+						readLocalPathAsDataUrl(safePath).then(finishWithDataUrl).catch(reject);
+					});
+			};
+			attempt(0);
+		}
 		notifyUploadProgress(onProgress, 1);
 		if (isBrowserFileObject(filePath)) {
 			try {
-				ensureBrowserUploadFileSize(filePath);
+				ensureBrowserUploadFileSize(filePath, sourceMaxBytes);
 			} catch (error) {
 				reject(error);
 				return;
@@ -1737,7 +1878,7 @@ function prepareLocalChatImage(filePath, onProgress) {
 			readBlobAsDataUrl(filePath).then(finishWithDataUrl).catch(reject);
 			return;
 		}
-		readLocalPathAsDataUrl(filePath).then(finishWithDataUrl).catch(reject);
+		prepareLocalPath(filePath);
 	});
 }
 
@@ -1904,23 +2045,29 @@ function persistGeneratedRemoteImageViaUni(imageUrl, options) {
 
 function persistGeneratedChatImage(imageUrl, options) {
 	return new Promise(function (resolve, reject) {
+		var persistOptions = options || {};
 		var safeUrl = imageUrl == null ? '' : String(imageUrl).trim();
 		if (!safeUrl) {
 			reject(new Error('invalid'));
 			return;
 		}
 		if (safeUrl.indexOf('data:image/') !== 0) {
-			persistGeneratedRemoteImageViaUni(safeUrl, options || {})
+			var resolvedRemoteUrl = resolveJgAssetUrl(safeUrl);
+			persistGeneratedRemoteImageViaUni(resolvedRemoteUrl, persistOptions)
 				.then(resolve)
-				.catch(function () {
+				.catch(function (error) {
+					if (persistOptions.requirePersisted === true) {
+						reject(error || new Error('persist_failed'));
+						return;
+					}
 					resolve({
-						url: safeUrl,
+						url: resolvedRemoteUrl || safeUrl,
 						persisted: false
 					});
 				});
 			return;
 		}
-		persistGeneratedChatImageViaPlus(safeUrl, options || {})
+		persistGeneratedChatImageViaPlus(safeUrl, persistOptions)
 			.then(resolve)
 			.catch(function (error) {
 				reject(error || new Error('persist_failed'));
@@ -1933,7 +2080,14 @@ function postMockImageGenerate(payload) {
 }
 
 function postImageGenerate(payload) {
-	return requestJson('POST', '/api/v1/image/generate', payload, 90000);
+	return requestJson('POST', '/api/v1/image/generate', payload, 135000);
+}
+
+function fetchImageGenerateResult(clientUid, imageRequestId) {
+	var query =
+		'?clientUid=' + encodeURIComponent(clientUid || getClientUid()) +
+		'&imageRequestId=' + encodeURIComponent(String(imageRequestId || '').trim());
+	return requestJson('GET', '/api/v1/image/result' + query, null, 15000);
 }
 
 function fetchMeFavorites(clientUid, limit, sortBy) {
@@ -2345,7 +2499,7 @@ function postTavernChat(payload) {
 }
 
 function postTavernSpeech(payload) {
-	return requestJson('POST', '/api/v1/tavern/chat/tts', payload, 120000);
+	return requestJson('POST', '/api/v1/tavern/chat/tts', payload, TTS_REQUEST_TIMEOUT);
 }
 
 function isAppRuntime() {
@@ -3310,6 +3464,7 @@ module.exports = {
 	getDeviceToken: getDeviceToken,
 	getStoredAuthToken: getStoredAuthToken,
 	getUploadMaxFileBytes: getUploadMaxFileBytes,
+	getLocalChatImageMaxFileBytes: getLocalChatImageMaxFileBytes,
 	canUseBrowserFilePicker: canUseBrowserFilePicker,
 	pickBrowserImageFile: pickBrowserImageFile,
 	pickBrowserPngFile: pickBrowserPngFile,
@@ -3370,6 +3525,7 @@ module.exports = {
 	postSupportCharacterReport: postSupportCharacterReport,
 	postMockImageGenerate: postMockImageGenerate,
 	postImageGenerate: postImageGenerate,
+	fetchImageGenerateResult: fetchImageGenerateResult,
 	postMeFavoritesUnfavoriteBatch: postMeFavoritesUnfavoriteBatch,
 	uploadChatImage: uploadChatImage,
 	transcribeTavernAudio: transcribeTavernAudio,

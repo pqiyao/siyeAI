@@ -43,6 +43,8 @@ public class ChatAudioSpeechService {
     private static final String DEFAULT_VOICE_NAME = "alloy";
     private static final String DEFAULT_SILICONFLOW_VOICE_NAME = "alex";
     private static final String DEFAULT_RESPONSE_FORMAT = "mp3";
+    private static final int TTS_TOTAL_TIMEOUT_SECONDS = 105;
+    private static final long NANOS_PER_SECOND = 1_000_000_000L;
     private static final Set<String> OPENAI_VOICE_NAMES = Set.of("alloy", "nova", "shimmer", "echo", "fable", "onyx");
     private static final Set<String> SILICONFLOW_VOICE_NAMES = Set.of("alex", "benjamin", "charles", "david", "anna", "bella", "claire", "diana");
 
@@ -149,11 +151,15 @@ public class ChatAudioSpeechService {
 
         List<SpeechRuntime> runtimes = prioritizeTemplateCompatibleRuntimes(
                 resolveRuntimes(userId), ttsVoiceTemplateCodeOverride, ttsOverrideProviderSource);
+        long deadlineNanos = System.nanoTime() + TTS_TOTAL_TIMEOUT_SECONDS * NANOS_PER_SECOND;
         BusinessException last = null;
         int attemptNo = 0;
         String telemetryRequestId = attemptTelemetry == null
                 ? "" : attemptTelemetry.newRequestId(AiCapability.TTS);
         for (SpeechRuntime runtime : runtimes) {
+            if (remainingDeadlineSeconds(deadlineNanos) <= 0) {
+                throw ttsDeadlineExceeded();
+            }
             attemptNo++;
             AiMediaAttemptTelemetry.Attempt attempt = startTelemetry(telemetryRequestId, runtime, attemptNo);
             try {
@@ -166,8 +172,12 @@ public class ChatAudioSpeechService {
                         applyScopedOverride ? ttsVoiceNameOverride : "",
                         applyScopedOverride ? ttsVoiceTemplateCodeOverride : "",
                         ttsUserVoiceId,
-                        runtime
+                        runtime,
+                        deadlineNanos
                 );
+                if (remainingDeadlineSeconds(deadlineNanos) <= 0) {
+                    throw ttsDeadlineExceeded();
+                }
                 recordSuccessQuietly(runtime.deploymentId());
                 successTelemetry(attempt);
                 return result;
@@ -180,6 +190,9 @@ public class ChatAudioSpeechService {
                 }
                 if (AiProviderFailurePolicy.shouldCountCircuitFailure(ex)) {
                     recordFailureQuietly(runtime.deploymentId(), ex.getMessage());
+                }
+                if (remainingDeadlineSeconds(deadlineNanos) <= 0) {
+                    throw ttsDeadlineExceeded();
                 }
             }
         }
@@ -205,7 +218,9 @@ public class ChatAudioSpeechService {
                 || !"siliconflow".equalsIgnoreCase(safe(runtime.providerSource()))) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "自建音色试听必须使用你自己的硅基流动 API Key");
         }
-        return synthesizeAttempt(userId, safeText, "", "", "", userVoiceId, runtime);
+        long deadlineNanos = System.nanoTime() + TTS_TOTAL_TIMEOUT_SECONDS * NANOS_PER_SECOND;
+        return synthesizeAttempt(
+                userId, safeText, "", "", "", userVoiceId, runtime, deadlineNanos);
     }
 
     private List<SpeechRuntime> prioritizeTemplateCompatibleRuntimes(
@@ -283,8 +298,10 @@ public class ChatAudioSpeechService {
             String voiceOverride,
             String templateOverride,
             Long userVoiceId,
-            SpeechRuntime runtime
+            SpeechRuntime runtime,
+            long deadlineNanos
     ) {
+        requireRemainingDeadline(deadlineNanos);
         SpeechSelection selection = selectSpeechSettings(
                 runtime.customModeActive(), runtime.modelName(), runtime.voiceName(), runtime.voiceTemplateCode(),
                 modelOverride, voiceOverride, templateOverride);
@@ -315,7 +332,7 @@ public class ChatAudioSpeechService {
             if (runtime.customModeActive()
                     || ttsVoiceProvisionService.isTemplateCompatible(configuredTemplateCode, runtimeContext)) {
                 TtsVoiceProvisionService.ResolvedVoice resolvedVoice = ttsVoiceProvisionService.resolveVoiceForUser(
-                        userId, configuredTemplateCode, runtimeContext);
+                        userId, configuredTemplateCode, runtimeContext, deadlineNanos);
                 configuredVoice = safe(resolvedVoice.voiceUri());
                 modelName = safe(resolvedVoice.modelName());
             } else {
@@ -332,9 +349,11 @@ public class ChatAudioSpeechService {
         if (StringUtils.hasText(voiceName)) payload.put("voice", voiceName);
         payload.put("response_format", DEFAULT_RESPONSE_FORMAT);
         try {
+            int remainingSeconds = requireRemainingDeadline(deadlineNanos);
             RawSpeechResponse raw = buildRestClient(
                     runtime.baseUrl(), runtime.apiKey(),
-                    runtime.connectTimeoutSeconds(), runtime.requestTimeoutSeconds()).post()
+                    boundedAttemptTimeoutSeconds(runtime.connectTimeoutSeconds(), remainingSeconds),
+                    boundedAttemptTimeoutSeconds(runtime.requestTimeoutSeconds(), remainingSeconds)).post()
                     .uri("/audio/speech")
                     .contentType(MediaType.APPLICATION_JSON)
                     .accept(MediaType.parseMediaType("audio/mpeg"), MediaType.parseMediaType("audio/mp3"), MediaType.APPLICATION_OCTET_STREAM)
@@ -356,6 +375,7 @@ public class ChatAudioSpeechService {
             if (body == null || body.length == 0) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "语音合成结果为空");
             }
+            requireRemainingDeadline(deadlineNanos);
             String contentType = MediaPayloadValidator.requireAudio(body, raw.contentType());
             return new AudioSpeechResult(body, contentType, modelName, voiceName);
         } catch (BusinessException ex) {
@@ -472,16 +492,43 @@ public class ChatAudioSpeechService {
         String safeBaseUrl = OutboundUrlGuard.requirePublicHttpUrl(
                 baseUrl, "TTS 服务地址不安全，请使用可公开访问的 HTTP(S) 地址").toString();
         HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(clamp(connectTimeoutSeconds, 1, 60, 10)))
+                .connectTimeout(Duration.ofSeconds(clamp(connectTimeoutSeconds, 1, TTS_TOTAL_TIMEOUT_SECONDS, 10)))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(client);
-        factory.setReadTimeout(Duration.ofSeconds(clamp(requestTimeoutSeconds, 5, 600, 90)));
+        factory.setReadTimeout(Duration.ofSeconds(clamp(requestTimeoutSeconds, 1, TTS_TOTAL_TIMEOUT_SECONDS, 90)));
         return RestClient.builder()
                 .baseUrl(safeBaseUrl)
                 .requestFactory(factory)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
                 .build();
+    }
+
+    static int totalTimeoutSeconds() {
+        return TTS_TOTAL_TIMEOUT_SECONDS;
+    }
+
+    static int boundedAttemptTimeoutSeconds(int configuredSeconds, int remainingSeconds) {
+        int remaining = Math.max(1, Math.min(TTS_TOTAL_TIMEOUT_SECONDS, remainingSeconds));
+        int configured = configuredSeconds > 0 ? configuredSeconds : 90;
+        return Math.max(1, Math.min(configured, remaining));
+    }
+
+    private static int remainingDeadlineSeconds(long deadlineNanos) {
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) return 0;
+        long roundedUp = (remainingNanos + NANOS_PER_SECOND - 1) / NANOS_PER_SECOND;
+        return (int) Math.max(1, Math.min(TTS_TOTAL_TIMEOUT_SECONDS, roundedUp));
+    }
+
+    private static int requireRemainingDeadline(long deadlineNanos) {
+        int remainingSeconds = remainingDeadlineSeconds(deadlineNanos);
+        if (remainingSeconds <= 0) throw ttsDeadlineExceeded();
+        return remainingSeconds;
+    }
+
+    private static BusinessException ttsDeadlineExceeded() {
+        return new BusinessException(ErrorCode.UPSTREAM_ERROR, "语音合成等待超时，请重试");
     }
 
     private String safeProviderErrorMessage(String responseBody, boolean customModeActive) {

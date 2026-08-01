@@ -1,5 +1,6 @@
 package com.example.sillyspringboot.ops.service;
 
+import com.example.sillyspringboot.ops.config.AppImageGenerationProperties;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 
@@ -11,12 +12,21 @@ import java.util.UUID;
 public class InMemoryImageGenerationConcurrencyGate implements ImageGenerationConcurrencyGate {
 
     private final AppImageGenerationSettingsService settingsService;
+    private final AppImageGenerationProperties properties;
     private final AtomicInteger global = new AtomicInteger(0);
     private final ConcurrentHashMap<Long, AtomicInteger> perUser = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, RequestState> requests = new ConcurrentHashMap<>();
 
     public InMemoryImageGenerationConcurrencyGate(AppImageGenerationSettingsService settingsService) {
+        this(settingsService, new AppImageGenerationProperties());
+    }
+
+    public InMemoryImageGenerationConcurrencyGate(
+            AppImageGenerationSettingsService settingsService,
+            AppImageGenerationProperties properties
+    ) {
         this.settingsService = settingsService;
+        this.properties = properties;
     }
 
     @Override
@@ -53,7 +63,7 @@ public class InMemoryImageGenerationConcurrencyGate implements ImageGenerationCo
         String token = UUID.randomUUID().toString();
         RequestState state = requests.compute(key, (ignored, current) -> {
             if (current == null || current.expiresAt() <= now) {
-                return new RequestState("RUNNING", token, now + 5 * 60_000L);
+                return new RequestState("RUNNING", token, now + requestRunningTtlSeconds() * 1000L);
             }
             return current;
         });
@@ -70,7 +80,8 @@ public class InMemoryImageGenerationConcurrencyGate implements ImageGenerationCo
             public void markSucceeded() {
                 if (succeeded.compareAndSet(false, true)) {
                     requests.computeIfPresent(key, (ignored, current) -> token.equals(current.token())
-                            ? new RequestState("DONE", token, System.currentTimeMillis() + 24 * 60 * 60_000L)
+                            ? new RequestState("DONE", token,
+                            System.currentTimeMillis() + resultTtlSeconds() * 1000L)
                             : current);
                 }
             }
@@ -82,6 +93,16 @@ public class InMemoryImageGenerationConcurrencyGate implements ImageGenerationCo
                 }
             }
         };
+    }
+
+    private int requestRunningTtlSeconds() {
+        long novel = properties.getNovelAi().getRequestTimeout().toSeconds();
+        long comfy = properties.getStComfy().getRequestTimeout().toSeconds();
+        return (int) Math.max(300L, Math.min(Integer.MAX_VALUE, Math.max(novel, comfy) + 60L));
+    }
+
+    private int resultTtlSeconds() {
+        return Math.max(60, properties.getResultTtlSeconds());
     }
 
     private record RequestState(String status, String token, long expiresAt) {}

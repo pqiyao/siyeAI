@@ -539,7 +539,7 @@ public class AppChatService {
         String tailSystemPrompt = combineSystemPrompts(
                 studioPrompt.tail(),
                 tailMemoryPrompt,
-                buildExpressionTailPrompt(attachmentMode, expressionHints, avoidExpressionHints),
+                buildExpressionTailPrompt(expressionHints, avoidExpressionHints),
                 buildReplySplitTailPrompt(req.getReplySplitMode())
         );
         boolean forwardInlineImages = useInlineImages && !ATTACHMENT_MODE_PHOTO.equals(attachmentMode);
@@ -633,6 +633,7 @@ public class AppChatService {
         String tailSystemPrompt = combineSystemPrompts(
                 studioPrompt.tail(),
                 tailMemoryPrompt,
+                buildExpressionTailPrompt(req.getExpressionHints(), req.getAvoidExpressionHints()),
                 buildReplySplitTailPrompt(req.getReplySplitMode())
         );
         ChatGenerateRequest stReq = new ChatGenerateRequest(
@@ -723,6 +724,7 @@ public class AppChatService {
         String tailSystemPrompt = combineSystemPrompts(
                 studioPrompt.tail(),
                 tailMemoryPrompt,
+                buildExpressionTailPrompt(req.getExpressionHints(), req.getAvoidExpressionHints()),
                 buildReplySplitTailPrompt(req.getReplySplitMode())
         );
         ChatGenerateRequest stReq = new ChatGenerateRequest(
@@ -1131,13 +1133,9 @@ public class AppChatService {
     }
 
     private String buildExpressionTailPrompt(
-            String attachmentMode,
             List<String> expressionHints,
             List<String> avoidExpressionHints
     ) {
-        if (!ATTACHMENT_MODE_EXPRESSION.equals(attachmentMode)) {
-            return "";
-        }
         List<String> safeHints = normalizeExpressionHints(expressionHints);
         if (safeHints.isEmpty()) {
             return "";

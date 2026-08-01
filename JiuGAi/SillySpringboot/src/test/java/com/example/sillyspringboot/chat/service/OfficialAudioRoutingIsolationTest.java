@@ -114,6 +114,16 @@ class OfficialAudioRoutingIsolationTest {
     }
 
     @Test
+    void ttsAttemptTimeoutNeverExceedsTheRequestDeadline() {
+        assertThat(ChatAudioSpeechService.totalTimeoutSeconds()).isEqualTo(105);
+        assertThat(ChatAudioSpeechService.totalTimeoutSeconds()).isLessThan(120);
+        assertThat(ChatAudioSpeechService.boundedAttemptTimeoutSeconds(600, 105)).isEqualTo(105);
+        assertThat(ChatAudioSpeechService.boundedAttemptTimeoutSeconds(90, 14)).isEqualTo(14);
+        assertThat(ChatAudioSpeechService.boundedAttemptTimeoutSeconds(5, 14)).isEqualTo(5);
+        assertThat(ChatAudioSpeechService.boundedAttemptTimeoutSeconds(0, 7)).isEqualTo(7);
+    }
+
+    @Test
     void invalidCustomTtsNeverFallsBackToOfficialRoute() {
         H5UserAiProviderService byok = mock(H5UserAiProviderService.class);
         AiRoutingService routing = mock(AiRoutingService.class);

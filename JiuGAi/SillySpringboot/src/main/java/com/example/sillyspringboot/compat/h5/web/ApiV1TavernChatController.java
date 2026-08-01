@@ -142,7 +142,7 @@ public class ApiV1TavernChatController {
         long characterId = requireCharacterId(payload);
         String clientUid = requireClientUid(payload);
         String userText = payload.getContent() == null ? "" : payload.getContent().trim();
-        if (userText.isBlank() && !hasImageUrls(payload)) {
+        if (userText.isBlank() && !hasImageUrls(payload) && !hasExpressionAttachment(payload)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "消息内容不能为空");
         }
 
@@ -179,7 +179,7 @@ public class ApiV1TavernChatController {
         long characterId = requireCharacterId(payload);
         String clientUid = requireClientUid(payload);
         String userText = payload.getContent() == null ? "" : payload.getContent().trim();
-        if (userText.isBlank() && !hasImageUrls(payload)) {
+        if (userText.isBlank() && !hasImageUrls(payload) && !hasExpressionAttachment(payload)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "消息内容不能为空");
         }
 
@@ -766,7 +766,7 @@ public class ApiV1TavernChatController {
         chatService.registerControl(conversationId, control);
         boolean ensureUserMessage = kind == StreamKind.GENERATE
                 && request instanceof AppChatStreamRequest streamRequest
-                && hasImageUrls(streamRequest);
+                && (hasImageUrls(streamRequest) || hasExpressionAttachment(streamRequest));
         String voiceUrl = request instanceof AppChatStreamRequest streamRequest
                 ? normalizeVoiceUrl(streamRequest.getVoiceUrl())
                 : null;
@@ -1128,7 +1128,7 @@ public class ApiV1TavernChatController {
 
         boolean ensureUserMessage = kind == StreamKind.GENERATE
                 && request instanceof AppChatStreamRequest streamRequest
-                && hasImageUrls(streamRequest);
+                && (hasImageUrls(streamRequest) || hasExpressionAttachment(streamRequest));
         String voiceUrl = request instanceof AppChatStreamRequest streamRequest
                 ? normalizeVoiceUrl(streamRequest.getVoiceUrl())
                 : null;
@@ -1683,6 +1683,20 @@ public class ApiV1TavernChatController {
             return false;
         }
         return request.getImageUrls().stream().anyMatch(url -> url != null && !url.isBlank());
+    }
+
+    private static boolean hasExpressionAttachment(H5ChatPayload payload) {
+        return payload != null
+                && "expression".equalsIgnoreCase(payload.getAttachmentMode() == null ? "" : payload.getAttachmentMode().trim())
+                && payload.getAttachmentHint() != null
+                && !payload.getAttachmentHint().isBlank();
+    }
+
+    private static boolean hasExpressionAttachment(AppChatStreamRequest request) {
+        return request != null
+                && "expression".equalsIgnoreCase(request.getAttachmentMode() == null ? "" : request.getAttachmentMode().trim())
+                && request.getAttachmentHint() != null
+                && !request.getAttachmentHint().isBlank();
     }
 
     private static String normalizeVoiceUrl(String voiceUrl) {

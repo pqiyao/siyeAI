@@ -14,6 +14,8 @@ public class H5MyCharacter {
     private String bio;
     private String persona;
     private String scenario;
+    private String visualPrompt;
+    private String visualNegativePrompt;
     private String firstMessage;
     private List<String> alternateGreetings;
     private String mesExample;
@@ -122,6 +124,22 @@ public class H5MyCharacter {
 
     public void setScenario(String scenario) {
         this.scenario = scenario;
+    }
+
+    public String getVisualPrompt() {
+        return visualPrompt;
+    }
+
+    public void setVisualPrompt(String visualPrompt) {
+        this.visualPrompt = visualPrompt;
+    }
+
+    public String getVisualNegativePrompt() {
+        return visualNegativePrompt;
+    }
+
+    public void setVisualNegativePrompt(String visualNegativePrompt) {
+        this.visualNegativePrompt = visualNegativePrompt;
     }
 
     public String getFirstMessage() {

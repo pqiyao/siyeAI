@@ -146,6 +146,8 @@ public class CharacterSystemPromotionService {
             target.setName(source.getName());
             target.setTagline(source.getTagline());
             target.setPersona(source.getPersona());
+            target.setVisualPrompt(source.getVisualPrompt());
+            target.setVisualNegativePrompt(source.getVisualNegativePrompt());
             target.setAvatarUrl(mediaCopies.copy(source.getAvatarUrl()));
             target.setVoiceConfigJson(null);
             target.setImageReferenceUrl(mediaCopies.copy(source.getImageReferenceUrl()));
@@ -229,6 +231,8 @@ public class CharacterSystemPromotionService {
         target.setHealthIssuesJson(source.getHealthIssuesJson());
         target.setPersona(source.getPersona());
         target.setScenario(source.getScenario());
+        target.setVisualPrompt(source.getVisualPrompt());
+        target.setVisualNegativePrompt(source.getVisualNegativePrompt());
         target.setFirstMessage(source.getFirstMessage());
         target.setAlternateGreetingsJson(source.getAlternateGreetingsJson());
         target.setMesExample(source.getMesExample());

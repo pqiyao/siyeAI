@@ -392,6 +392,8 @@ public class AdminJiugaiCharacterService {
         row.setBio(payload.getBio());
         row.setPersona(payload.getPersona());
         row.setScenario(payload.getScenario());
+        row.setVisualPrompt(payload.getVisualPrompt());
+        row.setVisualNegativePrompt(payload.getVisualNegativePrompt());
         row.setFirstMessage(payload.getFirstMessage());
         row.setAlternateGreetingsJson(normalizeJsonArray(payload.getAlternateGreetingsJson()));
         row.setMesExample(payload.getMesExample());

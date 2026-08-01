@@ -24,6 +24,8 @@
         <result column="name" property="name"/>
         <result column="tagline" property="tagline"/>
         <result column="persona" property="persona"/>
+        <result column="visual_prompt" property="visualPrompt"/>
+        <result column="visual_negative_prompt" property="visualNegativePrompt"/>
         <result column="avatar_url" property="avatarUrl"/>
         <result column="voice_config_json" property="voiceConfigJson"/>
         <result column="image_reference_url" property="imageReferenceUrl"/>
@@ -89,17 +91,18 @@
     <insert id="insertMember" parameterType="com.example.sillyspringboot.character.entity.AppCharacterMember"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO app_character_member (
-            character_id, name, tagline, persona, avatar_url, voice_config_json,
+            character_id, name, tagline, persona, visual_prompt, visual_negative_prompt, avatar_url, voice_config_json,
             image_reference_url, is_primary, sort_order, enabled
         ) VALUES (
-            #{characterId}, #{name}, #{tagline}, #{persona}, #{avatarUrl}, #{voiceConfigJson},
+            #{characterId}, #{name}, #{tagline}, #{persona}, #{visualPrompt}, #{visualNegativePrompt}, #{avatarUrl}, #{voiceConfigJson},
             #{imageReferenceUrl}, #{primaryMember}, #{sortOrder}, #{enabled}
         )
     </insert>
 
     <update id="updateMember" parameterType="com.example.sillyspringboot.character.entity.AppCharacterMember">
         UPDATE app_character_member
-        SET name = #{name}, tagline = #{tagline}, persona = #{persona}, avatar_url = #{avatarUrl},
+        SET name = #{name}, tagline = #{tagline}, persona = #{persona},
+            visual_prompt = #{visualPrompt}, visual_negative_prompt = #{visualNegativePrompt}, avatar_url = #{avatarUrl},
             voice_config_json = #{voiceConfigJson}, image_reference_url = #{imageReferenceUrl},
             is_primary = #{primaryMember}, sort_order = #{sortOrder}, enabled = #{enabled},
             updated_at = CURRENT_TIMESTAMP

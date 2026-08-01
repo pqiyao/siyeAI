@@ -6,6 +6,7 @@ var STORE_NAME = 'media';
 var H5_MAX_BYTES = 128 * 1024 * 1024;
 var APP_MAX_BYTES = 256 * 1024 * 1024;
 var mutationQueue = Promise.resolve();
+var mediaWriteQueue = Promise.resolve();
 var objectUrls = {};
 
 function revokeObjectUrl(key) {
@@ -52,6 +53,11 @@ function writeIndex(entries) {
 function serializeMutation(action) {
 	mutationQueue = mutationQueue.catch(function () {}).then(action);
 	return mutationQueue;
+}
+
+function serializeMediaWrite(action) {
+	mediaWriteQueue = mediaWriteQueue.catch(function () {}).then(action);
+	return mediaWriteQueue;
 }
 
 function dataUrlParts(dataUrl) {
@@ -151,25 +157,48 @@ function appWrite(key, parts) {
 		var relativePath = '_doc/tavern_media/' + fileName;
 		var mediaBlob = new Blob([parts.bytes], { type: parts.mimeType });
 		var settled = false;
+		var createdFileEntry = null;
+		var cleanupCreatedFile = function () {
+			if (!createdFileEntry || typeof createdFileEntry.remove !== 'function') return;
+			try { createdFileEntry.remove(function () {}, function () {}); } catch (e) {}
+		};
 		var timeoutId = setTimeout(function () {
 			if (settled) return;
 			settled = true;
+			cleanupCreatedFile();
 			reject(new Error('app_media_write_timeout'));
 		}, 15000);
 		var finish = function (error, value) {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timeoutId);
-			if (error) reject(error);
+			if (error) {
+				cleanupCreatedFile();
+				reject(error);
+			}
 			else resolve(value);
 		};
 		try {
 			plus.io.resolveLocalFileSystemURL('_doc/', function (docEntry) {
+				if (settled) return;
 				docEntry.getDirectory('tavern_media', { create: true }, function (mediaDir) {
+					if (settled) return;
 					mediaDir.getFile(fileName, { create: true, exclusive: false }, function (fileEntry) {
+						createdFileEntry = fileEntry;
+						if (settled) {
+							cleanupCreatedFile();
+							return;
+						}
 						fileEntry.createWriter(function (writer) {
+							if (settled) {
+								cleanupCreatedFile();
+								return;
+							}
 							writer.onwrite = function () {
-								if (settled) return;
+								if (settled) {
+									cleanupCreatedFile();
+									return;
+								}
 								fileEntry.file(function (file) {
 									var actualSize = Number(file && file.size);
 									if (Number.isFinite(actualSize) && actualSize !== parts.bytes.byteLength) {
@@ -267,12 +296,76 @@ function upsertIndex(entry) {
 	});
 }
 
-function putDataUrl(meta, dataUrl) {
+function reserveStorageCapacity(key, requiredBytes) {
+	var safeKey = text(key);
+	var required = Math.max(0, Number(requiredBytes) || 0);
+	var maxBytes = maxStorageBytes();
+	if (required > maxBytes) return Promise.reject(new Error('media_exceeds_local_cache_limit'));
+	return serializeMutation(function () {
+		var entries = readIndex();
+		var total = entries.reduce(function (sum, item) {
+			return sum + Math.max(0, Number(item.size) || 0);
+		}, 0);
+		if (total + required <= maxBytes) return false;
+		var candidates = entries.slice().sort(function (left, right) {
+			if (left.key === safeKey && right.key !== safeKey) return -1;
+			if (right.key === safeKey && left.key !== safeKey) return 1;
+			return Number(left.lastAccessAt || left.createdAt || 0) - Number(right.lastAccessAt || right.createdAt || 0);
+		});
+		var removed = [];
+		while (candidates.length && total + required > maxBytes) {
+			var entry = candidates.shift();
+			removed.push(entry);
+			total -= Math.max(0, Number(entry.size) || 0);
+		}
+		var removedKeys = {};
+		removed.forEach(function (item) { removedKeys[item.key] = true; });
+		writeIndex(entries.filter(function (item) { return !removedKeys[item.key]; }));
+		return Promise.all(removed.map(removeLocation)).then(function () { return removed.length > 0; });
+	});
+}
+
+function evictOldestForRetry(kind, excludedKey) {
+	var safeKind = text(kind);
+	var safeExcludedKey = text(excludedKey);
+	return serializeMutation(function () {
+		var entries = readIndex();
+		var candidates = entries.filter(function (item) {
+			return item.key !== safeExcludedKey && (!safeKind || item.kind === safeKind);
+		}).sort(function (left, right) {
+			return Number(left.lastAccessAt || left.createdAt || 0) - Number(right.lastAccessAt || right.createdAt || 0);
+		});
+		if (!candidates.length) return false;
+		var removed = candidates[0];
+		writeIndex(entries.filter(function (item) { return item.key !== removed.key; }));
+		return removeLocation(removed).then(function () { return true; });
+	});
+}
+
+function rollbackStoredEntry(entry) {
+	return serializeMutation(function () {
+		try {
+			writeIndex(readIndex().filter(function (item) { return item.key !== entry.key; }));
+		} catch (e) {}
+		return removeLocation(entry);
+	});
+}
+
+function putDataUrlNow(meta, dataUrl) {
 	var normalized = normalizeMeta(meta);
 	var parts = dataUrlParts(dataUrl);
 	var now = Date.now();
 	if (isAppPlus()) {
-		return appWrite(normalized.key, parts).then(function (location) {
+		return reserveStorageCapacity(normalized.key, parts.bytes.byteLength).then(function () {
+			return appWrite(normalized.key, parts).catch(function (firstError) {
+				return evictOldestForRetry(normalized.kind, normalized.key).then(function () {
+					return appWrite(normalized.key, parts);
+				}).catch(function (retryError) {
+					retryError.cause = firstError;
+					throw retryError;
+				});
+			});
+		}).then(function (location) {
 			var entry = Object.assign({}, normalized, {
 				mimeType: parts.mimeType,
 				size: parts.bytes.byteLength,
@@ -281,11 +374,17 @@ function putDataUrl(meta, dataUrl) {
 				createdAt: now,
 				lastAccessAt: now
 			});
-			return upsertIndex(entry).then(function () { return Object.assign({ url: location }, entry); });
+			return upsertIndex(entry)
+				.then(function () { return Object.assign({ url: location }, entry); })
+				.catch(function (error) {
+					return rollbackStoredEntry(entry).then(function () { throw error; });
+				});
 		});
 	}
 	var blob = new Blob([parts.bytes], { type: parts.mimeType });
-	return idbPut(normalized.key, blob).then(function () {
+	return reserveStorageCapacity(normalized.key, parts.bytes.byteLength).then(function () {
+		return idbPut(normalized.key, blob);
+	}).then(function () {
 		var entry = Object.assign({}, normalized, {
 			mimeType: parts.mimeType,
 			size: parts.bytes.byteLength,
@@ -299,8 +398,14 @@ function putDataUrl(meta, dataUrl) {
 			var url = URL.createObjectURL(blob);
 			objectUrls[normalized.key] = url;
 			return Object.assign({ url: url }, entry);
+		}).catch(function (error) {
+			return rollbackStoredEntry(entry).then(function () { throw error; });
 		});
 	});
+}
+
+function putDataUrl(meta, dataUrl) {
+	return serializeMediaWrite(function () { return putDataUrlNow(meta, dataUrl); });
 }
 
 function registerLocalUrl(meta, url, size, mimeType) {
@@ -327,9 +432,11 @@ function get(key) {
 		writeIndex(entries);
 	});
 	if (entry.storage === 'idb') {
+		if (objectUrls[safeKey]) {
+			return Promise.resolve(Object.assign({ url: objectUrls[safeKey] }, entry));
+		}
 		return idbGet(safeKey).then(function (blob) {
 			if (!blob) return dropStaleEntry(entry).then(function () { return null; });
-			revokeObjectUrl(safeKey);
 			objectUrls[safeKey] = URL.createObjectURL(blob);
 			return Object.assign({ url: objectUrls[safeKey] }, entry);
 		});

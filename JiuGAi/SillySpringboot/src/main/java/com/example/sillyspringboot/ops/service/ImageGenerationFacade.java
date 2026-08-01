@@ -1,16 +1,10 @@
 package com.example.sillyspringboot.ops.service;
 
-import com.example.sillyspringboot.ai.model.AiCapability;
-import com.example.sillyspringboot.ai.service.AiRoutingService;
 import com.example.sillyspringboot.auth.entity.AppUser;
-import com.example.sillyspringboot.character.entity.AppCharacterMember;
-import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,30 +21,34 @@ public class ImageGenerationFacade {
 
     private final AppImageGenerationSettingsService settingsService;
     private final H5UserAiProviderService userAiProviderService;
-    private final AiRoutingService routingService;
     private final H5EntitlementService entitlementService;
     private final ImageGenerationConcurrencyGate concurrencyGate;
     private final ImageGenerationPolicyService policyService;
+    private final ImageGenerationResultStore resultStore;
+    private final ImageGenerationAssetStorageService assetStorageService;
+    private final ImageGenerationReadinessService readinessService;
     private final Map<String, ImageGenerationEngine> engines;
-
-    @Autowired(required = false)
-    private CharacterStudioMapper characterStudioMapper;
 
     public ImageGenerationFacade(
             AppImageGenerationSettingsService settingsService,
             H5UserAiProviderService userAiProviderService,
-            AiRoutingService routingService,
+            com.example.sillyspringboot.ai.service.AiRoutingService routingService,
             H5EntitlementService entitlementService,
             ImageGenerationConcurrencyGate concurrencyGate,
             ImageGenerationPolicyService policyService,
+            ImageGenerationResultStore resultStore,
+            ImageGenerationAssetStorageService assetStorageService,
+            ImageGenerationReadinessService readinessService,
             List<ImageGenerationEngine> engines
     ) {
         this.settingsService = settingsService;
         this.userAiProviderService = userAiProviderService;
-        this.routingService = routingService;
         this.entitlementService = entitlementService;
         this.concurrencyGate = concurrencyGate;
         this.policyService = policyService;
+        this.resultStore = resultStore;
+        this.assetStorageService = assetStorageService;
+        this.readinessService = readinessService;
         this.engines = engines.stream().collect(Collectors.toMap(
                 engine -> normalizeEngine(engine.engineName()),
                 engine -> engine,
@@ -61,7 +59,18 @@ public class ImageGenerationFacade {
 
     public Map<String, Object> generate(String clientUid, Map<String, Object> payload) {
         Map<String, Object> safePayload = payload == null ? new LinkedHashMap<>() : new LinkedHashMap<>(payload);
+        int count = 1;
+        long characterId = longValue(safePayload.get("characterId"));
+        String requestId = normalizeRequestId(safePayload.get("imageRequestId"));
+        safePayload.put("imageRequestId", requestId);
+        entitlementService.guardImageCharacterAccess(clientUid, characterId);
+        AppUser user = entitlementService.resolveUser(clientUid);
+        Map<String, Object> cached = resultStore.get(user.getId(), requestId).orElse(null);
+        if (cached != null) {
+            return cached;
+        }
         String engineName = resolveEngine(clientUid);
+        readinessService.guardReady(engineName);
         ImageGenerationEngine engine = engines.get(engineName);
         if (engine == null) {
             throw new BusinessException(
@@ -69,30 +78,28 @@ public class ImageGenerationFacade {
                     "生图服务暂不可用，请联系管理员检查配置"
             );
         }
-        int count = 1;
-        long characterId = longValue(safePayload.get("characterId"));
-        String requestId = normalizeRequestId(safePayload.get("imageRequestId"));
-        safePayload.put("imageRequestId", requestId);
-        entitlementService.guardImageCharacterAccess(clientUid, characterId);
-        applyMemberReferenceImage(characterId, safePayload);
         ImageGenerationPolicyService.Resolution policy = policyService.resolve(characterId, engineName, safePayload);
         safePayload = new LinkedHashMap<>(policy.payload());
-        AppUser user = entitlementService.resolveUser(clientUid);
-        try (ImageGenerationConcurrencyGate.RequestLease requestLease =
-                     concurrencyGate.claimRequest(user.getId(), requestId)) {
+        ImageGenerationConcurrencyGate.RequestLease claimedRequest;
+        try {
+            claimedRequest = concurrencyGate.claimRequest(user.getId(), requestId);
+        } catch (BusinessException ex) {
+            Map<String, Object> completed = resultStore.get(user.getId(), requestId).orElse(null);
+            if (completed != null) {
+                return completed;
+            }
+            throw ex;
+        }
+        try (ImageGenerationConcurrencyGate.RequestLease requestLease = claimedRequest) {
             H5EntitlementService.AccessTicket ticket =
                     entitlementService.guardImage(clientUid, count, characterId, requestId);
             boolean confirmed = false;
             try (ImageGenerationConcurrencyGate.Lease ignored = concurrencyGate.acquire(user.getId())) {
                 Map<String, Object> generated = engine.generate(clientUid, safePayload);
-                entitlementService.recordSuccessfulImage(ticket, count);
-                confirmed = true;
-                try {
-                    requestLease.markSucceeded();
-                } catch (RuntimeException ex) {
-                    log.warn("Failed to mark image request complete: userId={}, requestId={}", user.getId(), requestId, ex);
-                }
-                Map<String, Object> result = generated == null ? new LinkedHashMap<>() : new LinkedHashMap<>(generated);
+                Map<String, Object> result = new LinkedHashMap<>(assetStorageService.externalize(
+                        user.getId(), requestId,
+                        generated == null ? new LinkedHashMap<>() : generated
+                ));
                 result.put("remainingCount", entitlementService.currentRemainingImageQuota(user.getId()));
                 result.put("imageRequestId", requestId);
                 result.put("effectiveConsistencyMode", policy.effectiveMode());
@@ -104,6 +111,24 @@ public class ImageGenerationFacade {
                     String engineWarning = safe(result.get("warning"));
                     result.put("warning", engineWarning.isBlank() ? policyWarning : policyWarning + "；" + engineWarning);
                 }
+                result.put("status", "DONE");
+                resultStore.validate(result);
+                resultStore.put(user.getId(), requestId, result);
+                // At this point the user-visible result is durably recoverable.
+                // Audit failures must not turn a completed, cached image into a refund.
+                confirmed = true;
+                try {
+                    entitlementService.recordSuccessfulImage(ticket, count);
+                } catch (RuntimeException ex) {
+                    log.warn("Failed to record image success audit: userId={}, requestId={}",
+                            user.getId(), requestId, ex);
+                }
+                try {
+                    requestLease.markSucceeded();
+                } catch (RuntimeException ex) {
+                    log.warn("Failed to mark cached image request complete: userId={}, requestId={}",
+                            user.getId(), requestId, ex);
+                }
                 return result;
             } catch (RuntimeException ex) {
                 if (!confirmed) {
@@ -114,40 +139,34 @@ public class ImageGenerationFacade {
         }
     }
 
+    public Map<String, Object> findResult(String clientUid, String requestId) {
+        String normalizedRequestId = normalizeRequestId(requestId);
+        AppUser user = entitlementService.resolveUser(clientUid);
+        return resultStore.get(user.getId(), normalizedRequestId)
+                .map(LinkedHashMap::new)
+                .map(result -> {
+                    result.put("status", "DONE");
+                    return (Map<String, Object>) result;
+                })
+                .orElseGet(() -> {
+                    Map<String, Object> pending = new LinkedHashMap<>();
+                    pending.put("status", "PENDING");
+                    pending.put("imageRequestId", normalizedRequestId);
+                    return pending;
+                });
+    }
+
     private String resolveEngine(String clientUid) {
         if (userAiProviderService.isCustomModeSelectedForClientUid(clientUid)) {
             return "openai_compatible";
-        }
-        if (routingService.isCapabilityEnabled(AiCapability.IMAGE)) {
-            return "managed_openai_compatible";
         }
         String compatibilityEngine = normalizeEngine(safe(settingsService.getSettings().getEngine()));
         if ("st_comfy".equals(compatibilityEngine)) {
             return compatibilityEngine;
         }
-        throw new BusinessException(
-                ErrorCode.SERVICE_BUSY,
-                "系统生图尚未配置，请在模型路由启用 IMAGE，或在 AI 媒体中心启用 Comfy 兼容通道"
-        );
-    }
-
-    private void applyMemberReferenceImage(long characterId, Map<String, Object> payload) {
-        if (characterStudioMapper == null || characterId <= 0) {
-            return;
-        }
-        long memberId = longValue(payload.get("speakerMemberId"));
-        if (memberId <= 0) return;
-        try {
-            for (AppCharacterMember member : characterStudioMapper.listMembers(characterId)) {
-                if (member != null && member.getId() != null && member.getId().longValue() == memberId
-                        && StringUtils.hasText(member.getImageReferenceUrl())) {
-                    payload.put("referenceImageUrl", member.getImageReferenceUrl().trim());
-                    return;
-                }
-            }
-        } catch (RuntimeException ex) {
-            log.warn("member image reference skipped characterId={} memberId={}", characterId, memberId, ex);
-        }
+        // System mode is deliberately pinned to the tested NovelAI adapter.
+        // Legacy managed/OpenAI settings are not allowed to select a random provider pool.
+        return "novelai";
     }
 
     private static String normalizeEngine(String value) {
@@ -170,13 +189,16 @@ public class ImageGenerationFacade {
                 || "platform_openai_compatible".equals(text)) {
             return "managed_openai_compatible";
         }
-        if ("comfy".equals(text) || "st_comfyui".equals(text)) {
+        if ("comfy".equals(text) || "st_comfy".equals(text) || "st_comfyui".equals(text)) {
             return "st_comfy";
+        }
+        if ("novel".equals(text) || "nai".equals(text) || "novelai".equals(text)) {
+            return "novelai";
         }
         if ("sd_webui".equals(text) || "webui".equals(text)) {
             return "st_sd_webui";
         }
-        return StringUtils.hasText(text) ? text : "openai_compatible";
+        return "novelai";
     }
 
     private static String safe(Object value) {

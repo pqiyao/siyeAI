@@ -1,8 +1,11 @@
 package com.example.sillyspringboot.ops.service;
 
 import com.example.sillyspringboot.character.entity.AppCharacter;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.ops.dto.AppImageGenerationSettings;
+import com.example.sillyspringboot.ops.config.AppImageGenerationProperties;
 import com.example.sillyspringboot.ops.entity.AppCharacterImagePolicy;
 import com.example.sillyspringboot.ops.mapper.AppCharacterImagePolicyMapper;
 import com.example.sillyspringboot.shared.error.BusinessException;
@@ -31,17 +34,23 @@ public class ImageGenerationPolicyService {
     private final AppImageGenerationSettingsService settingsService;
     private final AppCharacterImagePolicyMapper policyMapper;
     private final AppCharacterMapper characterMapper;
+    private final CharacterStudioMapper characterStudioMapper;
     private final ObjectMapper objectMapper;
+    private final AppImageGenerationProperties imageGenerationProperties;
 
     public ImageGenerationPolicyService(
             AppImageGenerationSettingsService settingsService,
             AppCharacterImagePolicyMapper policyMapper,
             AppCharacterMapper characterMapper,
+            CharacterStudioMapper characterStudioMapper,
+            AppImageGenerationProperties imageGenerationProperties,
             ObjectMapper objectMapper
     ) {
         this.settingsService = settingsService;
         this.policyMapper = policyMapper;
         this.characterMapper = characterMapper;
+        this.characterStudioMapper = characterStudioMapper;
+        this.imageGenerationProperties = imageGenerationProperties;
         this.objectMapper = objectMapper;
     }
 
@@ -49,6 +58,7 @@ public class ImageGenerationPolicyService {
     public Resolution resolve(long characterId, String engineName, Map<String, Object> payload) {
         AppImageGenerationSettings global = settingsService.getSettings();
         AppCharacter character = characterId > 0 ? characterMapper.findById(characterId) : null;
+        AppCharacterMember member = resolveMember(characterId, payload);
         AppCharacterImagePolicy override = characterId > 0 ? policyMapper.findByCharacterId(characterId) : null;
         EffectivePolicy policy = effectivePolicy(global, override);
         if (!policy.imageEnabled()) {
@@ -87,6 +97,9 @@ public class ImageGenerationPolicyService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "请先填写生图提示词");
         }
         String referenceImageUrl = safe(value(payload, "referenceImageUrl"));
+        if (member != null && StringUtils.hasText(member.getImageReferenceUrl())) {
+            referenceImageUrl = member.getImageReferenceUrl().trim();
+        }
         String referencePolicy = "prompt_first";
         if ("avatar_only".equals(referenceSource)) {
             referenceImageUrl = "";
@@ -110,17 +123,29 @@ public class ImageGenerationPolicyService {
             referenceImageUrl = "";
         }
 
-        String prompt = buildPrompt(userPrompt, mode, character, payload, policy, global);
+        // The system NovelAI adapter currently has no verified image-reference
+        // input. Keep balanced mode prompt-based and avoid forwarding a large,
+        // unused data URL through the multi-user request path.
+        if ("novelai".equalsIgnoreCase(safe(engineName))
+                && "balanced".equals(mode)
+                && StringUtils.hasText(referenceImageUrl)) {
+            referenceImageUrl = "";
+            warnings.add("系统 NovelAI 当前按角色视觉设定保持一致性，参考图能力尚未启用");
+        }
+
+        String prompt = buildPrompt(userPrompt, mode, character, member, payload, global);
+        String negativePrompt = buildNegativePrompt(mode, character, member, policy.negativePrompt());
         Map<String, Object> resolvedPayload = payload == null ? new LinkedHashMap<>() : new LinkedHashMap<>(payload);
         resolvedPayload.put("prompt", prompt);
         resolvedPayload.put("userPrompt", userPrompt);
         resolvedPayload.put("characterId", characterId > 0 ? characterId : 0L);
-        resolvedPayload.put("characterName", character == null ? "" : safe(character.getName()));
+        resolvedPayload.put("characterName", member != null ? safe(member.getName())
+                : character == null ? "" : safe(character.getName()));
         resolvedPayload.put("referenceImageUrl", referenceImageUrl);
         resolvedPayload.put("referenceMode", mode);
         resolvedPayload.put("referenceSourceMode", referenceSource);
         resolvedPayload.put("referencePolicy", referencePolicy);
-        resolvedPayload.put("negativePrompt", policy.negativePrompt());
+        resolvedPayload.put("negativePrompt", negativePrompt);
 
         return new Resolution(resolvedPayload, mode, referenceSource, referencePolicy, warnings);
     }
@@ -139,6 +164,17 @@ public class ImageGenerationPolicyService {
                 option("avatar_only", "仅角色头像", "始终使用角色卡头像或立绘作为身份参考")
         ));
         result.put("engineCapabilities", engineCapabilities(settings));
+        AppImageGenerationProperties.NovelAi novelAi = imageGenerationProperties.getNovelAi();
+        Map<String, Object> novelAiStatus = new LinkedHashMap<>();
+        novelAiStatus.put("tokenConfigured", StringUtils.hasText(novelAi.getToken()));
+        novelAiStatus.put("model", safe(novelAi.getModel()));
+        novelAiStatus.put("sampler", safe(novelAi.getSampler()));
+        novelAiStatus.put("scheduler", safe(novelAi.getScheduler()));
+        novelAiStatus.put("steps", novelAi.getSteps());
+        novelAiStatus.put("scale", novelAi.getScale());
+        novelAiStatus.put("requestTimeoutSeconds", novelAi.getRequestTimeout().toSeconds());
+        result.put("systemEngine", "st_comfy".equals(safe(settings.getEngine())) ? "st_comfy" : "novelai");
+        result.put("novelAi", novelAiStatus);
         return result;
     }
 
@@ -234,28 +270,69 @@ public class ImageGenerationPolicyService {
             String userPrompt,
             String mode,
             AppCharacter character,
+            AppCharacterMember member,
             Map<String, Object> payload,
-            EffectivePolicy policy,
             AppImageGenerationSettings global
     ) {
         List<String> lines = new ArrayList<>();
-        lines.add(userPrompt);
         if (!"free".equals(mode) && character != null) {
-            lines.add("Character identity: " + trim(character.getName(), 120));
-            addContext(lines, "Visual description", character.getDescription(), 900);
-            addContext(lines, "Persona appearance cues", character.getPersona(), 700);
-            addContext(lines, "Scene setting", character.getScenario(), 500);
-            String tags = String.join(", ", mergeTags(character.getPublicTagsJson(), character.getTagsJson()));
-            addContext(lines, "Visual tags", tags, 240);
+            lines.add("masterpiece, best quality, highly detailed");
+            lines.add(userPrompt);
+            String identityName = member != null ? member.getName() : character.getName();
+            addContext(lines, "Character", identityName, 120);
+            String visualPrompt = firstNonBlank(
+                    member == null ? "" : member.getVisualPrompt(),
+                    character.getVisualPrompt(),
+                    character.getDescription()
+            );
+            addContext(lines, "Character visual profile", visualPrompt, 1600);
+            if (!StringUtils.hasText(visualPrompt)) {
+                String tags = String.join(", ", mergeTags(character.getPublicTagsJson(), character.getTagsJson()));
+                addContext(lines, "Visual tags", tags, 300);
+            }
             if (global.isRecentSceneContextEnabled()) {
                 addContext(lines, "Recent scene continuity", value(payload, "recentSceneHint"), 420);
             }
             lines.add("Keep the same identity, facial features, hairstyle and signature appearance while following the requested scene.");
-        }
-        if (!"free".equals(mode) && StringUtils.hasText(policy.negativePrompt())) {
-            lines.add("Avoid: " + policy.negativePrompt());
+        } else {
+            lines.add(userPrompt);
         }
         return trim(String.join("\n", lines), MAX_PROMPT_CHARS);
+    }
+
+    private static String buildNegativePrompt(
+            String mode,
+            AppCharacter character,
+            AppCharacterMember member,
+            String policyNegativePrompt
+    ) {
+        if ("free".equals(mode)) {
+            return trim(policyNegativePrompt, 2000);
+        }
+        String visualNegative = firstNonBlank(
+                member == null ? "" : member.getVisualNegativePrompt(),
+                character == null ? "" : character.getVisualNegativePrompt()
+        );
+        if (!StringUtils.hasText(visualNegative)) {
+            return trim(policyNegativePrompt, 2000);
+        }
+        if (!StringUtils.hasText(policyNegativePrompt)) {
+            return trim(visualNegative, 2000);
+        }
+        return trim(visualNegative + ", " + policyNegativePrompt, 2000);
+    }
+
+    private AppCharacterMember resolveMember(long characterId, Map<String, Object> payload) {
+        long memberId = longValue(value(payload, "speakerMemberId"));
+        if (characterId <= 0 || memberId <= 0) {
+            return null;
+        }
+        for (AppCharacterMember member : characterStudioMapper.listMembers(characterId)) {
+            if (member != null && member.getId() != null && member.getId() == memberId) {
+                return member;
+            }
+        }
+        return null;
     }
 
     private void ensureStrongReferenceAvailable(
@@ -268,6 +345,12 @@ public class ImageGenerationPolicyService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "强一致性模式需要可用的角色头像或最近生成图片");
         }
         String engine = safe(engineName).toLowerCase(Locale.ROOT);
+        if ("novelai".equals(engine)) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_FAILED,
+                    "NovelAI 强一致性参考图能力尚未验证，请先使用自由或平衡模式"
+            );
+        }
         if ("st_comfy".equals(engine) && !StringUtils.hasText(settings.getReferenceWorkflow())) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "当前 Comfy 工作流未配置参考图能力，不能使用强一致性模式");
         }
@@ -283,8 +366,7 @@ public class ImageGenerationPolicyService {
 
     private List<Map<String, Object>> engineCapabilities(AppImageGenerationSettings settings) {
         return List.of(
-                capability("user_openai_compatible", "用户自定义 API", true, "按用户所选模型自动尝试，强一致性不允许静默降级"),
-                capability("managed_openai_compatible", "平台统一 API", true, "按后台路由模型自动尝试，强一致性不允许静默降级"),
+                capability("novelai", "系统 NovelAI", false, "自由与平衡模式已开放，强一致性待真实参考图能力验证"),
                 capability("st_comfy", "Comfy 工作流", StringUtils.hasText(settings.getReferenceWorkflow()),
                         StringUtils.hasText(settings.getReferenceWorkflow()) ? "已配置参考图工作流" : "缺少参考图工作流"),
                 capability("st_sd_webui", "SD WebUI", false, "当前项目未接入可靠的参考图工作流")

@@ -17,16 +17,18 @@ public class AppImageGenerationConfiguration {
     @ConditionalOnBean(StringRedisTemplate.class)
     public ImageGenerationConcurrencyGate redisImageGenerationConcurrencyGate(
             StringRedisTemplate redisTemplate,
-            AppImageGenerationSettingsService settingsService
+            AppImageGenerationSettingsService settingsService,
+            AppImageGenerationProperties properties
     ) {
-        return new RedisImageGenerationConcurrencyGate(redisTemplate, settingsService);
+        return new RedisImageGenerationConcurrencyGate(redisTemplate, settingsService, properties);
     }
 
     @Bean
     @ConditionalOnMissingBean(ImageGenerationConcurrencyGate.class)
     public ImageGenerationConcurrencyGate inMemoryImageGenerationConcurrencyGate(
-            AppImageGenerationSettingsService settingsService
+            AppImageGenerationSettingsService settingsService,
+            AppImageGenerationProperties properties
     ) {
-        return new InMemoryImageGenerationConcurrencyGate(settingsService);
+        return new InMemoryImageGenerationConcurrencyGate(settingsService, properties);
     }
 }

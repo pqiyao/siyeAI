@@ -235,7 +235,7 @@ function makeClientKey(prefix) {
 }
 
 function emptyMember(primary) {
-	return { clientKey: makeClientKey('member'), name: '', tagline: '', persona: '', avatarUrl: '', voiceConfigJson: '', imageReferenceUrl: '', primaryMember: primary !== false };
+	return { clientKey: makeClientKey('member'), name: '', tagline: '', persona: '', visualPrompt: '', visualNegativePrompt: '', avatarUrl: '', voiceConfigJson: '', imageReferenceUrl: '', primaryMember: primary !== false };
 }
 
 function emptyOpening(memberKey) {
@@ -319,6 +319,8 @@ function emptyForm() {
 		bio: '',
 		persona: '',
 		scenario: '',
+		visualPrompt: '',
+		visualNegativePrompt: '',
 		firstMessage: '',
 		alternateGreetings: [''],
 		mesExample: '',
@@ -426,6 +428,8 @@ export default {
 				member.name = next.name || '';
 				member.tagline = next.tagline || '';
 				member.persona = next.persona || '';
+				member.visualPrompt = next.visualPrompt || '';
+				member.visualNegativePrompt = next.visualNegativePrompt || '';
 				member.avatarUrl = next.avatarUrl || '';
 				members = [member];
 			}
@@ -832,6 +836,8 @@ export default {
 				bio: String(this.form.bio || ''),
 				persona: String(primaryMember.persona || this.form.persona || ''),
 				scenario: String(this.form.scenario || ''),
+				visualPrompt: String(primaryMember.visualPrompt || this.form.visualPrompt || ''),
+				visualNegativePrompt: String(primaryMember.visualNegativePrompt || this.form.visualNegativePrompt || ''),
 				firstMessage: legacyGreetings[0] || '',
 				alternateGreetings: legacyGreetings.slice(1),
 				mesExample: String(this.form.mesExample || ''),

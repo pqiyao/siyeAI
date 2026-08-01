@@ -1251,6 +1251,49 @@
 							:show-confirm-bar="false"
 							:placeholder="tx('character_image_prompt_placeholder', '描述你想生成的图片')"
 						/>
+						<view class="image-quick-field">
+							<text class="image-quick-label">{{ tx('character_image_consistency', '角色一致性') }}</text>
+							<view class="image-quick-segments">
+								<view
+									class="image-quick-segment"
+									:class="{ 'image-quick-segment--active': characterImagePanel.consistencyMode === 'free' }"
+									@tap="setCharacterImagePanelConsistencyMode('free')"
+								>自由</view>
+								<view
+									class="image-quick-segment"
+									:class="{ 'image-quick-segment--active': characterImagePanel.consistencyMode === 'balanced' }"
+									@tap="setCharacterImagePanelConsistencyMode('balanced')"
+								>平衡</view>
+								<view
+									class="image-quick-segment"
+									:class="{
+										'image-quick-segment--active': characterImagePanel.consistencyMode === 'strong',
+										'image-quick-segment--disabled': !isCharacterImageStrongModeAvailable()
+									}"
+									@tap="setCharacterImagePanelConsistencyMode('strong')"
+								>强一致性</view>
+							</view>
+						</view>
+						<view class="image-quick-field">
+							<text class="image-quick-label">{{ tx('character_image_aspect_ratio', '画幅') }}</text>
+							<view class="image-quick-segments">
+								<view
+									class="image-quick-segment"
+									:class="{ 'image-quick-segment--active': characterImagePanel.aspectRatio === 'portrait' }"
+									@tap="setCharacterImagePanelAspectRatio('portrait')"
+								>竖图 2:3</view>
+								<view
+									class="image-quick-segment"
+									:class="{ 'image-quick-segment--active': characterImagePanel.aspectRatio === 'square' }"
+									@tap="setCharacterImagePanelAspectRatio('square')"
+								>方图 1:1</view>
+								<view
+									class="image-quick-segment"
+									:class="{ 'image-quick-segment--active': characterImagePanel.aspectRatio === 'landscape' }"
+									@tap="setCharacterImagePanelAspectRatio('landscape')"
+								>横图 3:2</view>
+							</view>
+						</view>
 						<view class="image-quick-actions">
 							<text class="image-quick-link" @tap="goAiSettings">{{ tx('go_ai_settings', 'AI 设置') }}</text>
 							<text
@@ -1517,12 +1560,12 @@
 	const LOCAL_USER_VOICE_CACHE_MAX_TOTAL_LENGTH = 4 * 1024 * 1024;
 	const LOCAL_USER_VOICE_DATA_URL_MAX_LENGTH = 3 * 1024 * 1024;
 	const LOCAL_EXPRESSION_LIBRARY_PREFIX = 'tavern_local_expressions_';
-	const LOCAL_EXPRESSION_LIBRARY_VERSION = 1;
+	const LOCAL_EXPRESSION_LIBRARY_VERSION = 2;
 	const LOCAL_EXPRESSION_LIBRARY_LIMIT = 40;
 	const LOCAL_EXPRESSION_LABEL_MAX = 20;
 	const LOCAL_EXPRESSION_HINT_LIMIT = 12;
-	const LOCAL_EXPRESSION_PICK_MAX_BYTES = 2 * 1024 * 1024;
-	const LOCAL_EXPRESSION_DATA_URL_MAX_LENGTH = 900 * 1024;
+	const LOCAL_EXPRESSION_PICK_MAX_BYTES = 6 * 1024 * 1024;
+	const LOCAL_EXPRESSION_DATA_URL_MAX_LENGTH = 8200 * 1024;
 	const LOCAL_ASSISTANT_VOICE_PREF_PREFIX = 'tavern_assistant_voice_pref_';
 	const LOCAL_CHARACTER_VOICE_CONFIG_PREFIX = 'tavern_character_voice_cfg_';
 	const LOCAL_CHARACTER_VOICE_CONFIG_VERSION = 2;
@@ -1660,7 +1703,10 @@
 			error: '',
 			privateVoices: [],
 			bindingVoiceId: 0,
-			bindingLoaded: false
+			bindingLoaded: false,
+			globalBindingVoiceId: 0,
+			memberBindingVoiceIds: {},
+			bindingSnapshotComplete: false
 		};
 	}
 
@@ -1705,7 +1751,11 @@
 		return {
 			visible: false,
 			generating: false,
-			prompt: ''
+			prompt: '',
+			consistencyMode: 'balanced',
+			aspectRatio: 'portrait',
+			imageRequestId: '',
+			requestFingerprint: ''
 		};
 	}
 
@@ -1728,7 +1778,7 @@
 			imageEnabledGlobal: true,
 			imageCanUse: false,
 			imageDenyReason: '',
-			imageCharacterConsistencyMode: 'free',
+			imageCharacterConsistencyMode: 'balanced',
 			imageReferenceSourceMode: 'latest_generated_first',
 			providerOptions: []
 		};
@@ -1956,6 +2006,7 @@
 					retryText: ''
 				},
 				expressionLibrary: [],
+				expressionLibraryHydrateVersion: 0,
 				expressionEditor: {
 					visible: false,
 					id: '',
@@ -4284,7 +4335,7 @@
 				const maxBytes = LOCAL_EXPRESSION_PICK_MAX_BYTES;
 				uni.chooseImage({
 					count: 1,
-					sizeType: ['compressed'],
+					sizeType: ['original'],
 					sourceType: [sourceType === 'camera' ? 'camera' : 'album'],
 					success: (res) => {
 						const picked = this.extractPickedChatImages(res, maxBytes);
@@ -4301,7 +4352,10 @@
 				const tavernApi = require('@/common/tavernApi.js');
 				this.expressionUploadBusy = true;
 				tavernApi
-					.prepareLocalChatImage(item.uploadFile)
+					.prepareLocalChatImage(item.uploadFile, null, {
+						preserveAnimation: true,
+						maxDataUrlLength: LOCAL_EXPRESSION_DATA_URL_MAX_LENGTH
+					})
 					.then((data) => {
 						const imageUrl = data && data.url ? String(data.url).trim() : '';
 						if (!imageUrl || imageUrl.indexOf('data:image/') !== 0) {
@@ -4322,7 +4376,8 @@
 			submitExpressionEditor() {
 				const label = String(this.expressionEditor.draft || '').replace(/\s+/g, ' ').trim();
 				const imageUrl = String(this.expressionEditor.imageUrl || '').trim();
-				if (!imageUrl || imageUrl.indexOf('data:image/') !== 0) {
+				const current = this.expressionLibrary.find((item) => item && item.id === this.expressionEditor.id) || null;
+				if (!imageUrl) {
 					this.showErrorToast(this.tx('expression_failed', '表情加载失败'));
 					return;
 				}
@@ -4332,30 +4387,43 @@
 				}
 				this.expressionEditor.saving = true;
 				const now = Date.now();
-				const current = this.expressionLibrary.find((item) => item && item.id === this.expressionEditor.id) || null;
-				const saved = this.upsertLocalExpressionEntry({
-					id: current && current.id ? current.id : 'expr_' + now + '_' + Math.random().toString(36).slice(2, 8),
-					label: label.slice(0, LOCAL_EXPRESSION_LABEL_MAX),
-					content: label.slice(0, LOCAL_EXPRESSION_LABEL_MAX),
-					imageUrl,
-					createdAt: current && current.createdAt ? current.createdAt : now,
-					updatedAt: now,
-					lastUsedAt: current && current.lastUsedAt ? current.lastUsedAt : 0,
-					useCount: current && current.useCount ? current.useCount : 0
-				});
-				this.expressionEditor.saving = false;
-				if (!saved) {
-					this.showErrorToast(this.tx('expression_save_failed', '表情保存失败，请换更小的图片试试'));
-					return;
-				}
-				const successText = current
-					? this.tx('expression_rename_success', '表情名字已更新')
-					: this.tx('expression_save_success', '表情已保存');
-				this.closeExpressionEditor();
-				uni.showToast({
-					title: successText,
-					icon: 'none'
-				});
+				const id = current && current.id ? current.id : 'expr_' + now + '_' + Math.random().toString(36).slice(2, 8);
+				const mediaKey = current && current.mediaKey ? current.mediaKey : this.localExpressionMediaKey(id);
+				const localMediaStore = require('@/common/localMediaStore.js');
+				const mediaTask = imageUrl.indexOf('data:image/') === 0
+					? localMediaStore.putDataUrl(this.localExpressionMediaMeta(id, mediaKey), imageUrl)
+					: Promise.resolve({ key: mediaKey, url: imageUrl });
+				mediaTask
+					.then((stored) => {
+						const saved = this.upsertLocalExpressionEntry({
+							id,
+							label: label.slice(0, LOCAL_EXPRESSION_LABEL_MAX),
+							content: label.slice(0, LOCAL_EXPRESSION_LABEL_MAX),
+							mediaKey: String((stored && stored.key) || mediaKey || '').trim(),
+							imageUrl: String((stored && stored.url) || imageUrl || '').trim(),
+							createdAt: current && current.createdAt ? current.createdAt : now,
+							updatedAt: now,
+							lastUsedAt: current && current.lastUsedAt ? current.lastUsedAt : 0,
+							useCount: current && current.useCount ? current.useCount : 0
+						});
+						if (!saved) {
+							throw new Error(this.tx('expression_save_failed', '表情保存失败，请换更小的图片试试'));
+						}
+						this.expressionEditor.saving = false;
+						this.closeExpressionEditor();
+						uni.showToast({
+							title: current
+								? this.tx('expression_rename_success', '表情名字已更新')
+								: this.tx('expression_save_success', '表情已保存'),
+							icon: 'none'
+						});
+					})
+					.catch((error) => {
+						this.showErrorToast(this.jgErrMsg(error, this.tx('expression_save_failed', '表情保存失败，请换更小的图片试试')));
+					})
+					.finally(() => {
+						this.expressionEditor.saving = false;
+					});
 			},
 			sendLocalExpression(item) {
 				const imageUrl = item && item.imageUrl ? String(item.imageUrl).trim() : '';
@@ -4367,13 +4435,13 @@
 					});
 					return;
 				}
-				if (!this.ensureCanUseChatImages()) return;
 				const sent = this.submitOutgoingMessage('', [imageUrl], {
 					clearDraft: false,
 					clearComposerImages: false,
 					checkUploading: false,
 					attachmentMode: 'expression',
-					attachmentHint
+					attachmentHint,
+					expressionMediaKey: item && item.mediaKey ? String(item.mediaKey).trim() : ''
 				});
 				if (sent && item && item.id) {
 					this.touchLocalExpressionUsage(item.id);
@@ -5103,6 +5171,9 @@
 				} else {
 					this.messages = this.mergeLocalChatImagesIntoRows(normalizedRows);
 				}
+				if (Array.isArray(this.expressionLibrary) && this.expressionLibrary.length) {
+					this.restoreMarkedAssistantExpressions(this.messages);
+				}
 				if (trackIncomingUnread) {
 					incomingRows = (Array.isArray(this.messages) ? this.messages : []).filter((row) => {
 						return this.shouldCountUnreadChatRow(row) && !this.chatUnreadRowExistsInMap(row, previousChatMessageKeyMap);
@@ -5643,7 +5714,10 @@
 				const messageId = this.normalizeDbMessageId(entry.messageId);
 				const assistantMessageId = this.normalizeDbMessageId(entry.assistantMessageId);
 				const imageUrls = this.normalizeChatImageUrls(entry.imageUrls);
-				if (!imageUrls.length) return null;
+				const mediaKeys = Array.isArray(entry.mediaKeys)
+					? entry.mediaKeys.map((item) => String(item || '').trim()).filter(Boolean)
+					: [];
+				if (!imageUrls.length && !mediaKeys.length) return null;
 				if (
 					imageUrls.some(
 						(item) =>
@@ -5663,9 +5737,6 @@
 				const now = Date.now();
 				const createdAt = isFinite(createdAtRaw) && createdAtRaw > 0 ? createdAtRaw : now;
 				const updatedAt = isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : createdAt;
-				const mediaKeys = Array.isArray(entry.mediaKeys)
-					? entry.mediaKeys.map((item) => String(item || '').trim()).filter(Boolean)
-					: [];
 				return {
 					messageId: messageId || (assistantMessageId ? 'local_' + assistantMessageId : ''),
 					assistantMessageId: assistantMessageId && assistantMessageId.startsWith('db_') ? assistantMessageId : '',
@@ -5728,7 +5799,7 @@
 							messageId: item.messageId,
 							assistantMessageId: item.assistantMessageId,
 							text: item.text,
-							imageUrls: item.imageUrls,
+							imageUrls: item.mediaKeys.length ? [] : item.imageUrls,
 							mediaKeys: item.mediaKeys,
 							role: item.role,
 							kind: item.kind,
@@ -5870,7 +5941,10 @@
 					}
 				});
 				return (Array.isArray(entries) ? entries : []).filter((entry) => {
-					if (!entry || !entry.imageUrls || !entry.imageUrls.length) return false;
+					if (
+						!entry ||
+						((!entry.imageUrls || !entry.imageUrls.length) && (!entry.mediaKeys || !entry.mediaKeys.length))
+					) return false;
 					if (entry._used) return true;
 					if (entry.messageId && rowIds[entry.messageId]) return true;
 					if (entry.assistantMessageId && rowIds[entry.assistantMessageId]) return true;
@@ -6079,8 +6153,7 @@
 			shouldAutoPlayAssistantVoice() {
 				return this.isVoiceFeatureEnabledGlobal()
 					&& this.isCharacterVoiceEnabled()
-					&& this.isCharacterVoiceAutoPlayEnabled()
-					&& !!this.isAppPlus;
+					&& this.isCharacterVoiceAutoPlayEnabled();
 			},
 			toggleAssistantVoiceAuto() {
 				if (!this.isVoiceFeatureEnabledGlobal()) return;
@@ -6464,6 +6537,14 @@
 					const settle = (promise) => Promise.resolve(promise)
 						.then((data) => ({ data, error: null }))
 						.catch((error) => ({ data: null, error }));
+					const studioMembers = this.characterStudioMembers();
+					const memberBindingRequests = studioMembers.map((member) => settle(
+						tavernApi.getUserTtsVoiceBinding(clientUid, {
+							scopeType: 'MEMBER',
+							characterId,
+							memberId: member.id
+						})
+					));
 					return Promise.all([
 						this.refreshCharacterVoiceGlobalSummary(force === true, false),
 						settle(tavernApi.getUserTtsVoices(clientUid)),
@@ -6471,7 +6552,8 @@
 							scopeType: 'CHARACTER',
 							characterId,
 							memberId: 0
-						}))
+						})),
+						...memberBindingRequests
 					]).then((results) => {
 						const voiceResult = results[1] || {};
 						const bindingResult = results[2] || {};
@@ -6484,16 +6566,44 @@
 						const bindingVoiceId = bindingResult.error
 							? Math.max(0, Math.floor(Number(current.bindingVoiceId) || 0))
 							: Math.max(0, Math.floor(Number(bindingResult.data && bindingResult.data.voiceId) || 0));
+						const globalBindingVoiceId = voiceResult.error
+							? Math.max(0, Math.floor(Number(current.globalBindingVoiceId) || 0))
+							: Math.max(0, Math.floor(Number(voiceData.globalVoiceId) || 0));
+						const previousMemberBindings = current.memberBindingVoiceIds && typeof current.memberBindingVoiceIds === 'object'
+							? current.memberBindingVoiceIds : {};
+						const memberBindingVoiceIds = {};
+						let memberBindingFailed = false;
+						studioMembers.forEach((member, index) => {
+							const memberId = Math.max(0, Math.floor(Number(member && member.id) || 0));
+							if (!memberId) return;
+							const memberResult = results[3 + index] || {};
+							if (memberResult.error) {
+								memberBindingFailed = true;
+								memberBindingVoiceIds[String(memberId)] = Math.max(
+									0,
+									Math.floor(Number(previousMemberBindings[String(memberId)]) || 0)
+								);
+								return;
+							}
+							memberBindingVoiceIds[String(memberId)] = Math.max(
+								0,
+								Math.floor(Number(memberResult.data && memberResult.data.voiceId) || 0)
+							);
+						});
 						const errors = [];
 						if (voiceResult.error) errors.push(this.jgErrMsg(voiceResult.error, '我的音色读取失败'));
 						if (bindingResult.error) errors.push(this.jgErrMsg(bindingResult.error, '当前角色音色绑定读取失败'));
+						if (memberBindingFailed) errors.push('部分成员音色绑定读取失败');
 						const next = {
 							loading: false,
 							loaded: true,
 							error: errors.join('；'),
 							privateVoices,
 							bindingVoiceId,
-							bindingLoaded
+							bindingLoaded,
+							globalBindingVoiceId,
+							memberBindingVoiceIds,
+							bindingSnapshotComplete: !voiceResult.error && !bindingResult.error && !memberBindingFailed
 						};
 						this.characterVoiceCatalogState = next;
 						if (
@@ -6600,10 +6710,16 @@
 			setCharacterVoicePanelEnabled(enabled) {
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving) return;
 				this.characterVoicePanel.enabled = enabled !== false;
+				if (this.characterVoicePanel.enabled && this.characterVoicePanel.autoPlayEnabled) {
+					this.primeAssistantVoicePlayback();
+				}
 			},
 			setCharacterVoicePanelAutoPlay(enabled) {
 				if (!this.characterVoicePanel || this.characterVoicePanel.saving) return;
 				this.characterVoicePanel.autoPlayEnabled = enabled !== false;
+				if (this.characterVoicePanel.autoPlayEnabled && this.characterVoicePanel.enabled) {
+					this.primeAssistantVoicePlayback();
+				}
 			},
 			characterVoiceAudioProfileKey(config, catalogState, globalState) {
 				const source = this.normalizeCharacterVoiceConfig(config || this.characterVoiceConfig);
@@ -6611,28 +6727,55 @@
 					? catalogState : (this.characterVoiceCatalogState || {});
 				const global = globalState && typeof globalState === 'object'
 					? globalState : (this.characterVoiceGlobalState || {});
-				const hasPublicOverride = !!(source.ttsVoiceName || source.ttsVoiceTemplateCode);
+				const mode = String(global.mode || '').trim() === 'custom' ? 'custom' : 'system';
+				const activeProviderSource = String(global.providerSource || '').trim().toLowerCase();
+				const configuredProviderSource = String(source.ttsProviderSource || '').trim().toLowerCase();
+				const roleOverrideActive = !configuredProviderSource
+					|| configuredProviderSource === activeProviderSource;
+				const effectiveModelName = roleOverrideActive ? source.ttsModelName : '';
+				const effectiveVoiceName = roleOverrideActive ? source.ttsVoiceName : '';
+				const effectiveTemplateCode = roleOverrideActive ? source.ttsVoiceTemplateCode : '';
+				const hasPublicOverride = !!(effectiveVoiceName || effectiveTemplateCode);
 				const boundVoiceId = !hasPublicOverride
 					? Math.max(0, Math.floor(Number(catalog.bindingVoiceId) || 0))
 					: 0;
-				const boundVoice = boundVoiceId > 0 && Array.isArray(catalog.privateVoices)
-					? catalog.privateVoices.find((item) => Math.max(0, Math.floor(Number(item && item.id) || 0)) === boundVoiceId)
-					: null;
-				const voiceTemplateCode = source.ttsVoiceTemplateCode
-					|| (!source.ttsVoiceName ? String(global.ttsVoiceTemplateCode || '').trim() : '');
+				const privateVoices = Array.isArray(catalog.privateVoices) ? catalog.privateVoices : [];
+				const voiceRevision = (voiceId) => {
+					const safeVoiceId = Math.max(0, Math.floor(Number(voiceId) || 0));
+					if (!safeVoiceId) return '';
+					const voice = privateVoices.find(
+						(item) => Math.max(0, Math.floor(Number(item && item.id) || 0)) === safeVoiceId
+					);
+					return String(voice && voice.updatedAt || '').trim();
+				};
+				const voiceTemplateCode = effectiveTemplateCode
+					|| (!effectiveVoiceName ? String(global.ttsVoiceTemplateCode || '').trim() : '');
 				const voiceTemplate = voiceTemplateCode && Array.isArray(global.ttsVoiceTemplates)
 					? global.ttsVoiceTemplates.find((item) => String(item && item.code || '').trim() === voiceTemplateCode)
 					: null;
+				const globalBindingVoiceId = Math.max(0, Math.floor(Number(catalog.globalBindingVoiceId) || 0));
+				const memberBindingSource = catalog.memberBindingVoiceIds && typeof catalog.memberBindingVoiceIds === 'object'
+					? catalog.memberBindingVoiceIds : {};
+				const memberBindings = Object.keys(memberBindingSource).map((memberId) => ({
+					memberId: Math.max(0, Math.floor(Number(memberId) || 0)),
+					voiceId: Math.max(0, Math.floor(Number(memberBindingSource[memberId]) || 0))
+				})).filter((item) => item.memberId > 0).sort((left, right) => left.memberId - right.memberId)
+					.map((item) => Object.assign(item, { voiceRevision: voiceRevision(item.voiceId) }));
 				return this.localMediaSignature(JSON.stringify({
 					characterId: this.resolveCharacterVoiceCharacterId(),
-					mode: String(global.mode || '').trim(),
-					providerSource: source.ttsProviderSource || String(global.providerSource || '').trim().toLowerCase(),
-					modelName: source.ttsModelName || String(global.ttsModelName || global.modelName || '').trim(),
-					voiceName: source.ttsVoiceName || (!source.ttsVoiceTemplateCode ? String(global.ttsVoiceName || '').trim() : ''),
+					mode,
+					providerSource: activeProviderSource,
+					roleOverrideActive,
+					modelName: effectiveModelName || String(global.ttsModelName || global.modelName || '').trim(),
+					voiceName: effectiveVoiceName || (!effectiveTemplateCode ? String(global.ttsVoiceName || '').trim() : ''),
 					voiceTemplateCode,
 					voiceTemplateRevision: String(voiceTemplate && voiceTemplate.updatedAt || '').trim(),
 					boundVoiceId,
-					boundVoiceRevision: String(boundVoice && boundVoice.updatedAt || '').trim()
+					boundVoiceRevision: voiceRevision(boundVoiceId),
+					globalBindingVoiceId,
+					globalBindingVoiceRevision: voiceRevision(globalBindingVoiceId),
+					memberBindings,
+					bindingSnapshotComplete: catalog.bindingSnapshotComplete === true
 				}));
 			},
 			invalidateAssistantVoiceCacheForCurrentConversation() {
@@ -6978,7 +7121,12 @@
 				const safeMessageId = this.normalizeDbMessageId(messageId);
 				const ownerKey = this.resolveLocalExpressionViewerKey();
 				const conversationId = this.resolveLocalChatConversationId();
-				if (!safeMessageId || !ownerKey || !conversationId) return Promise.resolve(audioDataUrl);
+				const storageError = () => new Error(
+					this.tx('assistant_voice_store_failed', '语音已生成，但保存到本机失败，请清理语音缓存后重试')
+				);
+				if (!safeMessageId || !ownerKey || !conversationId) {
+					return this.isAppPlus ? Promise.reject(storageError()) : Promise.resolve(audioDataUrl);
+				}
 				const localMediaStore = require('@/common/localMediaStore.js');
 				return localMediaStore.putDataUrl({
 					key: this.assistantVoiceLocalMediaKey(safeMessageId, segmentIndex),
@@ -6989,7 +7137,16 @@
 					taskId: String(taskId || '').trim(),
 					segmentIndex,
 					signature: this.assistantVoiceSegmentSignature(segment, voiceProfileKey)
-				}, audioDataUrl).then((stored) => stored && stored.url ? stored.url : audioDataUrl);
+				}, audioDataUrl).then((stored) => {
+					if (stored && stored.url) return stored.url;
+					if (this.isAppPlus) throw storageError();
+					return audioDataUrl;
+				}).catch((error) => {
+					if (!this.isAppPlus) return audioDataUrl;
+					const next = storageError();
+					next.cause = error;
+					throw next;
+				});
 			},
 			restoreAssistantVoiceEntry(row) {
 				const messageId = this.assistantVoiceMessageId(row);
@@ -7337,14 +7494,45 @@
 				if (this.characterImageGlobalState && this.characterImageGlobalState.imageEnabledGlobal === false) {
 					return;
 				}
+				if (
+					this.characterImageGlobalState &&
+					this.characterImageGlobalState.loaded &&
+					this.characterImageGlobalState.imageCanUse === false
+				) {
+					this.showErrorToast(
+						this.characterImageGlobalState.imageDenyReason ||
+						this.tx('character_image_unavailable', '当前系统生图暂不可用')
+					);
+					return;
+				}
 				this.closeChatAttachmentMenu();
+				const currentState = this.characterImageGlobalState || createCharacterImageGlobalState();
+				const currentConfig = this.currentCharacterImageConfig();
+				let consistencyMode = this.normalizeCharacterImageConsistencyMode(currentState.imageCharacterConsistencyMode);
+				if (String(currentState.mode || '').trim() !== 'custom' && consistencyMode === 'strong') {
+					consistencyMode = 'balanced';
+				}
 				this.characterImagePanel = Object.assign(createCharacterImagePanelState(), {
 					visible: true,
 					generating: false,
-					prompt: ''
+					prompt: '',
+					consistencyMode,
+					aspectRatio: this.normalizeCharacterImageAspectRatio(currentConfig.aspectRatio)
 				});
 				this.inputFocus = false;
-				this.refreshCharacterImageGlobalSummary(false, false);
+				this.refreshCharacterImageGlobalSummary(false, false).then((next) => {
+					if (!this.characterImagePanel || !this.characterImagePanel.visible || this.characterImagePanel.generating) return;
+					if (next && next.imageCanUse === false) {
+						this.closeCharacterImagePanel();
+						this.showErrorToast(
+							next.imageDenyReason || this.tx('character_image_unavailable', '当前系统生图暂不可用')
+						);
+						return;
+					}
+					if (String((next && next.mode) || '').trim() !== 'custom' && this.characterImagePanel.consistencyMode === 'strong') {
+						this.$set(this.characterImagePanel, 'consistencyMode', 'balanced');
+					}
+				});
 				try {
 					uni.hideKeyboard();
 				} catch (e) {}
@@ -7360,6 +7548,18 @@
 			setCharacterImagePanelAspectRatio(value) {
 				if (!this.characterImagePanel || this.characterImagePanel.generating || this.characterImagePanel.enabled === false) return;
 				this.characterImagePanel.aspectRatio = this.normalizeCharacterImageAspectRatio(value);
+			},
+			isCharacterImageStrongModeAvailable() {
+				return String((this.characterImageGlobalState && this.characterImageGlobalState.mode) || '').trim() === 'custom';
+			},
+			setCharacterImagePanelConsistencyMode(value) {
+				if (!this.characterImagePanel || this.characterImagePanel.generating) return;
+				const mode = this.normalizeCharacterImageConsistencyMode(value);
+				if (mode === 'strong' && !this.isCharacterImageStrongModeAvailable()) {
+					uni.showToast({ title: '系统强一致性验证完成后开放', icon: 'none' });
+					return;
+				}
+				this.$set(this.characterImagePanel, 'consistencyMode', mode);
 			},
 			resetCharacterImagePanelToDefault() {
 				if (!this.characterImagePanel || this.characterImagePanel.generating) return;
@@ -7652,6 +7852,37 @@
 				}
 				return 0;
 			},
+			shouldRecoverCharacterImageRequest(error) {
+				const status = Number(error && (error.statusCode || error.status || error.code));
+				return !(status >= 400 && status < 500 && status !== 408 && status !== 429);
+			},
+			recoverCharacterImageResult(tavernApi, imageRequestId, attemptsLeft) {
+				return tavernApi.fetchImageGenerateResult(tavernApi.getClientUid(), imageRequestId).then((data) => {
+					const images = Array.isArray(data && data.images) ? data.images : [];
+					if (String((data && data.status) || '').toUpperCase() === 'DONE' && images.length) {
+						return data;
+					}
+					if (attemptsLeft <= 0) {
+						throw new Error(this.tx('character_image_result_pending', '图片仍在生成，可稍后使用同一请求继续查询'));
+					}
+					return new Promise((resolve) => setTimeout(resolve, 2000)).then(() =>
+						this.recoverCharacterImageResult(tavernApi, imageRequestId, attemptsLeft - 1)
+					);
+				}, (error) => {
+					if (attemptsLeft <= 0) throw error;
+					return new Promise((resolve) => setTimeout(resolve, 2000)).then(() =>
+						this.recoverCharacterImageResult(tavernApi, imageRequestId, attemptsLeft - 1)
+					);
+				});
+			},
+			postCharacterImageWithRecovery(tavernApi, payload) {
+				return tavernApi.postImageGenerate(payload).catch((originalError) => {
+					if (!this.shouldRecoverCharacterImageRequest(originalError)) throw originalError;
+					return this.recoverCharacterImageResult(tavernApi, payload.imageRequestId, 6).catch(() => {
+						throw originalError;
+					});
+				});
+			},
 			generateCharacterImage() {
 				if (!this.characterImagePanel || this.characterImagePanel.generating) return;
 				if (this.imageGenerationEnabledGlobal === false) {
@@ -7699,21 +7930,48 @@
 							throw new Error(this.tx('character_image_need_image_model', '当前选择的模型不是生图模型，请先去 AI 设置页点“获取列表”，再从返回列表里选文生图模型'));
 						}
 					}
-					const aspectRatio = this.normalizeCharacterImageAspectRatio(this.currentCharacterImageConfig().aspectRatio);
+					const aspectRatio = this.normalizeCharacterImageAspectRatio(this.characterImagePanel.aspectRatio);
 					const consistencyMode = this.normalizeCharacterImageConsistencyMode(
-						state.imageCharacterConsistencyMode
+						this.characterImagePanel.consistencyMode
 					);
+					if (!customMode && consistencyMode === 'strong') {
+						throw new Error(this.tx('character_image_strong_unavailable', '系统强一致性验证完成后开放'));
+					}
 					const referenceSourceMode = this.normalizeCharacterImageReferenceSourceMode(
 						state.imageReferenceSourceMode
 					);
 					const characterId = Number(this.char && this.char.id) || Number(this.cid) || 0;
-					const referenceTask = consistencyMode === 'free'
+					const speakerMemberId = this.currentEnsembleSpeakerMemberId();
+					const referenceTask = consistencyMode === 'free' || (!customMode && consistencyMode === 'balanced')
 						? Promise.resolve('')
 						: this.prepareCharacterImageReferencePayload(false, state);
 					return referenceTask.then((referenceImageUrl) => {
+						const referenceText = String(referenceImageUrl || '');
+						const referenceMarker = referenceText.length + ':' + referenceText.slice(-96);
+						const requestFingerprint = JSON.stringify({
+							prompt: displayPrompt,
+							aspectRatio,
+							consistencyMode,
+							referenceSourceMode,
+							characterId,
+							speakerMemberId,
+							model: resolvedModelName,
+							providerSource: customMode ? this.normalizeCharacterImageText(state.providerSource, 80) : '',
+							referenceMarker
+						});
+						const previousRequestId = this.normalizeCharacterImageText(
+							this.characterImagePanel.imageRequestId,
+							160
+						);
+						const previousFingerprint = String(this.characterImagePanel.requestFingerprint || '');
+						const imageRequestId = previousRequestId && previousFingerprint === requestFingerprint
+							? previousRequestId
+							: ('image_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10));
+						this.$set(this.characterImagePanel, 'imageRequestId', imageRequestId);
+						this.$set(this.characterImagePanel, 'requestFingerprint', requestFingerprint);
 						const payload = {
 							clientUid: tavernApi.getClientUid(),
-							imageRequestId: 'image_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10),
+							imageRequestId,
 							prompt: this.buildCharacterImageGenerationPrompt(displayPrompt),
 							userPrompt: displayPrompt,
 							recentSceneHint: this.resolveCharacterImageRecentSceneHint(displayPrompt),
@@ -7725,7 +7983,7 @@
 							} : {}),
 							characterId,
 							characterName: this.normalizeCharacterImageText(this.char && this.char.name, 120),
-							speakerMemberId: this.currentEnsembleSpeakerMemberId(),
+							speakerMemberId,
 							referenceImageUrl: referenceImageUrl || '',
 							referenceMode: consistencyMode,
 							referenceSourceMode,
@@ -7733,7 +7991,7 @@
 								? 'reference_only'
 								: consistencyMode === 'balanced' ? 'balanced' : 'prompt_first'
 						};
-						return tavernApi.postImageGenerate(payload).then((data) => ({
+						return this.postCharacterImageWithRecovery(tavernApi, payload).then((data) => ({
 							data,
 							aspectRatio,
 							fallbackWarning: this.normalizeCharacterImageText(data && data.warning, 200)
@@ -7749,7 +8007,8 @@
 					const localMessageId = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 					return Promise.resolve(
 						tavernApi.persistGeneratedChatImage(imageUrl, {
-							fileNamePrefix: 'tavern_image_' + Date.now()
+							fileNamePrefix: 'tavern_image_' + Date.now(),
+							requirePersisted: this.isAppPlus
 						})
 					).catch((error) => {
 						if (this.isAppPlus) {
@@ -7856,6 +8115,28 @@
 				const safeCharacterId = this.resolveLocalExpressionCharacterId(characterId);
 				return safeViewerKey && safeCharacterId ? LOCAL_EXPRESSION_LIBRARY_PREFIX + safeViewerKey + '_' + safeCharacterId : '';
 			},
+			localExpressionMediaScope(characterId) {
+				const safeCharacterId = this.resolveLocalExpressionCharacterId(characterId);
+				return safeCharacterId ? 'expression_char_' + safeCharacterId : '';
+			},
+			localExpressionMediaKey(expressionId, viewerKey, characterId) {
+				const safeViewerKey = viewerKey == null ? this.resolveLocalExpressionViewerKey() : String(viewerKey).trim();
+				const safeCharacterId = this.resolveLocalExpressionCharacterId(characterId);
+				const safeExpressionId = expressionId == null ? '' : String(expressionId).trim();
+				return safeViewerKey && safeCharacterId && safeExpressionId
+					? 'expression:' + safeViewerKey + ':' + safeCharacterId + ':' + safeExpressionId
+					: '';
+			},
+			localExpressionMediaMeta(expressionId, mediaKey, viewerKey, characterId) {
+				const safeExpressionId = expressionId == null ? '' : String(expressionId).trim();
+				return {
+					key: String(mediaKey || this.localExpressionMediaKey(safeExpressionId, viewerKey, characterId)).trim(),
+					ownerKey: viewerKey == null ? this.resolveLocalExpressionViewerKey() : String(viewerKey).trim(),
+					conversationId: this.localExpressionMediaScope(characterId),
+					messageId: safeExpressionId,
+					kind: 'local_expression'
+				};
+			},
 			legacyLocalExpressionStorageKey(viewerKey) {
 				const safeViewerKey = viewerKey == null ? this.resolveLocalExpressionViewerKey() : String(viewerKey).trim();
 				return safeViewerKey ? LOCAL_EXPRESSION_LIBRARY_PREFIX + safeViewerKey : '';
@@ -7870,14 +8151,17 @@
 			normalizeLocalExpressionEntry(entry) {
 				if (!entry || typeof entry !== 'object') return null;
 				const id = entry.id == null ? '' : String(entry.id).trim();
-				const imageUrl = entry.imageUrl == null ? '' : String(entry.imageUrl).trim();
+				const mediaKey = entry.mediaKey == null ? '' : String(entry.mediaKey).trim();
+				let imageUrl = entry.imageUrl == null ? '' : String(entry.imageUrl).trim();
 				const label = String(entry.label != null ? entry.label : entry.content || '').replace(/\s+/g, ' ').trim();
-				if (!id || !imageUrl || imageUrl.indexOf('data:image/') !== 0 || !label) {
+				if (!id || !label) {
 					return null;
 				}
-				if (imageUrl.length > LOCAL_EXPRESSION_DATA_URL_MAX_LENGTH) {
+				if (imageUrl.indexOf('data:image/') === 0 && imageUrl.length > LOCAL_EXPRESSION_DATA_URL_MAX_LENGTH) {
 					return null;
 				}
+				if (!mediaKey && imageUrl.indexOf('data:image/') !== 0) return null;
+				if (mediaKey && imageUrl.indexOf('data:image/') === 0) imageUrl = '';
 				const now = Date.now();
 				const createdAtRaw = Number(entry.createdAt);
 				const updatedAtRaw = Number(entry.updatedAt != null ? entry.updatedAt : createdAtRaw);
@@ -7886,6 +8170,7 @@
 					id,
 					label: label.slice(0, LOCAL_EXPRESSION_LABEL_MAX),
 					content: label.slice(0, LOCAL_EXPRESSION_LABEL_MAX),
+					mediaKey,
 					imageUrl,
 					createdAt: isFinite(createdAtRaw) && createdAtRaw > 0 ? createdAtRaw : now,
 					updatedAt: isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : now,
@@ -7956,16 +8241,22 @@
 					uni.setStorageSync(key, {
 						version: LOCAL_EXPRESSION_LIBRARY_VERSION,
 						updatedAt: Date.now(),
-						entries: normalized.map((item) => ({
-							id: item.id,
-							label: item.label,
-							content: item.content,
-							imageUrl: item.imageUrl,
-							createdAt: item.createdAt,
-							updatedAt: item.updatedAt,
-							lastUsedAt: item.lastUsedAt,
-							useCount: item.useCount
-						}))
+						entries: normalized.map((item) => {
+							const stored = {
+								id: item.id,
+								label: item.label,
+								content: item.content,
+								mediaKey: item.mediaKey,
+								createdAt: item.createdAt,
+								updatedAt: item.updatedAt,
+								lastUsedAt: item.lastUsedAt,
+								useCount: item.useCount
+							};
+							if (!item.mediaKey && item.imageUrl.indexOf('data:image/') === 0) {
+								stored.imageUrl = item.imageUrl;
+							}
+							return stored;
+						})
 					});
 					return true;
 				} catch (e) {
@@ -7973,8 +8264,66 @@
 				}
 			},
 			refreshLocalExpressionLibrary(characterId) {
-				this.expressionLibrary = this.readLocalExpressionEntries(null, characterId);
+				const currentById = {};
+				(Array.isArray(this.expressionLibrary) ? this.expressionLibrary : []).forEach((item) => {
+					if (item && item.id && item.imageUrl) currentById[item.id] = item;
+				});
+				const entries = this.readLocalExpressionEntries(null, characterId).map((item) => {
+					const current = currentById[item.id];
+					return current && current.mediaKey === item.mediaKey
+						? Object.assign({}, item, { imageUrl: current.imageUrl })
+						: item;
+				});
+				this.expressionLibrary = entries;
+				this.hydrateLocalExpressionLibrary(entries, characterId);
 				return this.expressionLibrary;
+			},
+			hydrateLocalExpressionLibrary(entries, characterId) {
+				const source = Array.isArray(entries) ? entries.slice() : [];
+				const hydrateVersion = ++this.expressionLibraryHydrateVersion;
+				if (!source.length) return Promise.resolve([]);
+				const localMediaStore = require('@/common/localMediaStore.js');
+				return Promise.all(source.map((entry) => {
+					if (entry.mediaKey) {
+						return localMediaStore.get(entry.mediaKey).then((stored) => {
+							if (!stored || !stored.url) return null;
+							return Object.assign({}, entry, { imageUrl: String(stored.url).trim() });
+						}).catch(() => entry);
+					}
+					if (String(entry.imageUrl || '').indexOf('data:image/') !== 0) return Promise.resolve(null);
+					const mediaKey = this.localExpressionMediaKey(entry.id, null, characterId);
+					return localMediaStore
+						.putDataUrl(this.localExpressionMediaMeta(entry.id, mediaKey, null, characterId), entry.imageUrl)
+						.then((stored) => Object.assign({}, entry, {
+							mediaKey: String((stored && stored.key) || mediaKey).trim(),
+							imageUrl: String((stored && stored.url) || '').trim(),
+							updatedAt: Date.now()
+						}))
+						.catch(() => entry);
+				})).then((resolved) => {
+					if (hydrateVersion !== this.expressionLibraryHydrateVersion) return this.expressionLibrary;
+					const persisted = this.sortLocalExpressionEntries(resolved.filter(Boolean));
+					this.writeLocalExpressionEntries(persisted, null, characterId);
+					const available = persisted.filter((item) => item.imageUrl);
+					this.expressionLibrary = available;
+					if (available.length) this.restoreMarkedAssistantExpressions(this.messages);
+					return available;
+				});
+			},
+			restoreMarkedAssistantExpressions(rows) {
+				(Array.isArray(rows) ? rows : []).forEach((row) => {
+					if (!row || row.role !== 'char') return;
+					const selectedKeywords = Array.isArray(row.assistantExpressionKeywords)
+						? row.assistantExpressionKeywords
+						: [];
+					const hasSwipeKeywords = Array.isArray(row.assistantExpressionKeywordsBySwipe)
+						&& row.assistantExpressionKeywordsBySwipe.some((items) => Array.isArray(items) && items.length);
+					if (!selectedKeywords.length && !hasSwipeKeywords) return;
+					this.applyAssistantExpressionForRow(row, {
+						touchUsage: false,
+						voice: false
+					});
+				});
 			},
 			upsertLocalExpressionEntry(entry) {
 				const normalized = this.normalizeLocalExpressionEntry(entry);
@@ -7997,10 +8346,20 @@
 			deleteLocalExpressionEntry(id) {
 				const safeId = id == null ? '' : String(id).trim();
 				if (!safeId) return false;
-				const entries = this.readLocalExpressionEntries().filter((item) => item && item.id !== safeId);
+				const source = this.readLocalExpressionEntries();
+				const entries = source.filter((item) => item && item.id !== safeId);
 				const ok = this.writeLocalExpressionEntries(entries);
 				if (ok) {
 					this.refreshLocalExpressionLibrary();
+					try {
+						const localMediaStore = require('@/common/localMediaStore.js');
+						localMediaStore.removeMatching({
+							ownerKey: this.resolveLocalExpressionViewerKey(),
+							conversationId: this.localExpressionMediaScope(),
+							messageId: safeId,
+							kind: 'local_expression'
+						}).catch(() => {});
+					} catch (e) {}
 				}
 				return ok;
 			},
@@ -8229,7 +8588,14 @@
 					Array.isArray(this.expressionLibrary) && this.expressionLibrary.length
 						? this.expressionLibrary
 						: this.readLocalExpressionEntries();
-				const payload = this.extractAssistantExpressionPayload(text);
+				const extractedPayload = this.extractAssistantExpressionPayload(text);
+				const preservedKeywords = Array.isArray(opts.keywords)
+					? opts.keywords.map((item) => this.normalizeAssistantExpressionHint(item)).filter(Boolean)
+					: [];
+				const payload = {
+					text: extractedPayload.text,
+					keywords: preservedKeywords.length ? preservedKeywords : extractedPayload.keywords
+				};
 				const recentPenaltyMap = this.buildRecentAssistantExpressionPenaltyMap(
 					opts.recentLimit,
 					opts.excludeMessageId
@@ -8306,7 +8672,8 @@
 				if (!row || row.role !== 'char') return null;
 				const opts = options || {};
 				const messageId = this.normalizeDbMessageId(row.id);
-				if (!messageId || !messageId.startsWith('db_')) return null;
+				if (!messageId) return null;
+				const persistMessageMedia = messageId.startsWith('db_');
 				const expressionAllowed = this.isCharacterAiExpressionEnabled();
 				const enqueueAssistantVoice = () => {
 					if (opts.voice === false) return;
@@ -8318,10 +8685,34 @@
 						toastOnError: !!opts.toastVoiceError
 					});
 				};
+				const swipeIndex = Array.isArray(row.swipes) && row.swipes.length
+					? Math.max(0, Math.min(Math.floor(Number(row.swipeIndex) || 0), row.swipes.length - 1))
+					: 0;
+				const swipePayloads = Array.isArray(row.swipes)
+					? row.swipes.map((item) => this.extractAssistantExpressionPayload(item))
+					: [];
+				const preservedBySwipe = Array.isArray(row.assistantExpressionKeywordsBySwipe)
+					? row.assistantExpressionKeywordsBySwipe
+					: [];
+				const rawSwipeKeywords = swipePayloads[swipeIndex] && swipePayloads[swipeIndex].keywords.length
+					? swipePayloads[swipeIndex].keywords
+					: [];
+				const preservedSwipeKeywords = Array.isArray(preservedBySwipe[swipeIndex]) && preservedBySwipe[swipeIndex].length
+					? preservedBySwipe[swipeIndex]
+					: [];
+				const rowKeywords = Array.isArray(row.assistantExpressionKeywords) && row.assistantExpressionKeywords.length
+					? row.assistantExpressionKeywords
+					: [];
+				const selectedKeywords = rawSwipeKeywords.length
+					? rawSwipeKeywords
+					: preservedSwipeKeywords.length
+						? preservedSwipeKeywords
+						: rowKeywords;
 				const matchedResult = expressionAllowed
 					? this.pickAssistantExpressionForText(row.text, {
 						excludeMessageId: messageId,
-						recentLimit: opts.recentLimit
+						recentLimit: opts.recentLimit,
+						keywords: selectedKeywords
 					})
 					: {
 						entry: null,
@@ -8335,34 +8726,70 @@
 					this.$set(row, 'text', cleanText);
 				}
 				if (Array.isArray(row.swipes) && row.swipes.length) {
-					const nextSwipes = row.swipes.map((item) => this.extractAssistantExpressionPayload(item).text);
+					const nextSwipes = swipePayloads.map((item) => item.text);
+					const nextKeywords = swipePayloads.map((item, index) =>
+						item.keywords.length ? item.keywords : (Array.isArray(preservedBySwipe[index]) ? preservedBySwipe[index] : [])
+					);
 					this.$set(row, 'swipes', nextSwipes);
+					this.$set(row, 'assistantExpressionKeywordsBySwipe', nextKeywords);
+					this.$set(row, 'assistantExpressionKeywords', nextKeywords[swipeIndex] || []);
+				} else {
+					this.$set(row, 'assistantExpressionKeywords', Array.isArray(selectedKeywords) ? selectedKeywords : []);
 				}
 				if (!matched || !matched.imageUrl) {
-					this.deleteLocalChatImageEntryByMessageId(messageId);
+					if (persistMessageMedia) this.deleteLocalChatImageEntryByMessageId(messageId);
+					const currentImageUrls = Array.isArray(row.imageUrls) ? row.imageUrls : [];
+					const onlyLocalExpressionImages = currentImageUrls.length > 0 && currentImageUrls.every(
+						(item) => this.isLocalInlineImageUrl(item) || !!this.findLocalExpressionByImageUrl(item)
+					);
 					if (
-						Array.isArray(row.imageUrls) &&
-						row.imageUrls.length &&
-						row.imageUrls.every((item) => this.isLocalInlineImageUrl(item))
+						onlyLocalExpressionImages
 					) {
 						this.$set(row, 'imageUrls', []);
 					}
 					enqueueAssistantVoice();
 					return null;
 				}
-				this.upsertLocalChatImageEntry({
-					messageId,
-					assistantMessageId: '',
-					text: '',
-					imageUrls: [matched.imageUrl],
-					createdAt: Date.now()
-				});
+				if (persistMessageMedia) {
+					this.upsertLocalChatImageEntry({
+						messageId,
+						assistantMessageId: '',
+						text: '',
+						imageUrls: [matched.imageUrl],
+						mediaKeys: matched.mediaKey ? [matched.mediaKey] : [],
+						createdAt: Date.now()
+					});
+				}
 				this.$set(row, 'imageUrls', [matched.imageUrl]);
 				if (opts.touchUsage !== false) {
 					this.touchLocalExpressionUsage(matched.id);
 				}
 				enqueueAssistantVoice();
 				return matched;
+			},
+			applyAssistantExpressionFromRawStream(row, rawText) {
+				if (!row || row.role !== 'char') return null;
+				const protocolText = ensembleChat.assistantProtocolDisplayText(rawText);
+				const payload = this.extractAssistantExpressionPayload(protocolText);
+				this.$set(row, 'text', payload.text);
+				this.$set(row, 'assistantExpressionKeywords', payload.keywords);
+				if (Array.isArray(row.swipes) && row.swipes.length) {
+					const swipeIndex = Math.max(0, Math.min(Math.floor(Number(row.swipeIndex) || 0), row.swipes.length - 1));
+					const nextSwipes = row.swipes.slice();
+					nextSwipes.splice(swipeIndex, 1, payload.text);
+					const nextKeywords = Array.isArray(row.assistantExpressionKeywordsBySwipe)
+						? row.assistantExpressionKeywordsBySwipe.slice()
+						: [];
+					while (nextKeywords.length < nextSwipes.length) nextKeywords.push([]);
+					nextKeywords.splice(swipeIndex, 1, payload.keywords);
+					this.$set(row, 'swipes', nextSwipes);
+					this.$set(row, 'assistantExpressionKeywordsBySwipe', nextKeywords);
+				}
+				if (!payload.keywords.length || !this.isCharacterAiExpressionEnabled()) return null;
+				return this.applyAssistantExpressionForRow(row, {
+					voice: false,
+					touchUsage: false
+				});
 			},
 			normalizeChatImageUrls(list) {
 				if (!Array.isArray(list) || !list.length) return [];
@@ -8410,7 +8837,11 @@
 					return;
 				}
 				const tavernApi = require('@/common/tavernApi.js');
-			const maxBytes = Number(tavernApi.getUploadMaxFileBytes ? tavernApi.getUploadMaxFileBytes() : 28 * 1024 * 1024);
+				const maxBytes = Number(
+					tavernApi.getLocalChatImageMaxFileBytes
+						? tavernApi.getLocalChatImageMaxFileBytes()
+						: 10 * 1024 * 1024
+				);
 				uni.chooseImage({
 					count: maxCount,
 					sizeType: ['compressed'],
@@ -8501,6 +8932,7 @@
 						previewUrl: entry.previewUrl,
 						uploadFile: entry.uploadFile,
 						uploadedUrl: '',
+						mediaKey: '',
 						progress: 0,
 						uploading: true,
 						error: ''
@@ -8525,6 +8957,11 @@
 						this.updateComposerImage(id, {
 							progress: Number(progress) || 0
 						});
+					}, {
+						maxDataUrlLength: LOCAL_CHAT_IMAGE_DATA_URL_MAX_LENGTH,
+						sourceMaxBytes: tavernApi.getLocalChatImageMaxFileBytes
+							? tavernApi.getLocalChatImageMaxFileBytes()
+							: 10 * 1024 * 1024
 					})
 					.then((data) => {
 						const uploadedUrl = data && data.url ? String(data.url).trim() : '';
@@ -8537,11 +8974,25 @@
 						) {
 							throw new Error(this.tx('chat_image_too_large_cache', '图片过大，建议裁剪后再试'));
 						}
-						this.updateComposerImage(id, {
-							uploadedUrl,
-							progress: 100,
-							uploading: false,
-							error: ''
+						const ownerKey = this.resolveLocalExpressionViewerKey();
+						const conversationId = this.resolveLocalChatConversationId();
+						const mediaKey = 'chat-photo:' + ownerKey + ':' + conversationId + ':' + id;
+						const localMediaStore = require('@/common/localMediaStore.js');
+						return localMediaStore.putDataUrl({
+							key: mediaKey,
+							ownerKey,
+							conversationId,
+							messageId: id,
+							kind: 'chat_photo'
+						}, uploadedUrl).then((stored) => {
+							this.updateComposerImage(id, {
+								uploadedUrl,
+								previewUrl: String((stored && stored.url) || '').trim(),
+								mediaKey: String((stored && stored.key) || mediaKey).trim(),
+								progress: 100,
+								uploading: false,
+								error: ''
+							});
 						});
 					})
 					.catch((error) => {
@@ -8561,11 +9012,33 @@
 				this.uploadComposerImage(item.id, item.uploadFile);
 			},
 			removeComposerImage(id) {
+				const removed = this.composerImages.find((item) => item && item.id === id) || null;
 				this.composerImages = this.composerImages.filter((item) => item && item.id !== id);
+				if (removed && removed.mediaKey) {
+					try {
+						const localMediaStore = require('@/common/localMediaStore.js');
+						localMediaStore.removeMatching({
+							ownerKey: this.resolveLocalExpressionViewerKey(),
+							conversationId: this.resolveLocalChatConversationId(),
+							messageId: id,
+							kind: 'chat_photo'
+						}).catch(() => {});
+					} catch (e) {}
+				}
 			},
 			pendingChatImageUrls() {
 				return this.composerImages
 					.map((item) => (item && item.uploadedUrl ? String(item.uploadedUrl).trim() : ''))
+					.filter((item) => item);
+			},
+			pendingChatImageDisplayUrls() {
+				return this.composerImages
+					.map((item) => (item && item.uploadedUrl && item.mediaKey && item.previewUrl ? String(item.previewUrl).trim() : ''))
+					.filter((item) => item);
+			},
+			pendingChatImageMediaKeys() {
+				return this.composerImages
+					.map((item) => (item && item.uploadedUrl && item.mediaKey ? String(item.mediaKey).trim() : ''))
 					.filter((item) => item);
 			},
 			hasUploadingComposerImages() {
@@ -8574,17 +9047,30 @@
 			normalizeChatRow(m) {
 				if (!m) return m;
 				const quotePayload = this.extractQuotedMessagePayload(m.text, m.role);
-				const swipes =
-					Array.isArray(m.swipes) && m.swipes.length
-						? m.swipes.map((s) => this.extractAssistantExpressionPayload(String(s)).text)
-						: quotePayload.text != null && String(quotePayload.text) !== ''
-							? [this.extractAssistantExpressionPayload(String(quotePayload.text)).text]
-							: [];
+				const fallbackExpressionPayload = this.extractAssistantExpressionPayload(String(quotePayload.text || ''));
+				const swipePayloads = Array.isArray(m.swipes) && m.swipes.length
+					? m.swipes.map((s) => this.extractAssistantExpressionPayload(String(s)))
+					: quotePayload.text != null && String(quotePayload.text) !== ''
+						? [fallbackExpressionPayload]
+						: [];
+				const preservedBySwipe = Array.isArray(m.assistantExpressionKeywordsBySwipe)
+					? m.assistantExpressionKeywordsBySwipe
+					: [];
+				const swipes = swipePayloads.map((item) => item.text);
+				const expressionKeywordsBySwipe = swipePayloads.map((item, index) =>
+					item.keywords.length ? item.keywords : (Array.isArray(preservedBySwipe[index]) ? preservedBySwipe[index] : [])
+				);
 				let si = typeof m.swipeIndex === 'number' ? m.swipeIndex : 0;
+				if (si < 0) si = 0;
 				if (swipes.length && si >= swipes.length) si = swipes.length - 1;
 				const text = swipes.length
 					? String(swipes[si] != null ? swipes[si] : '')
-					: this.extractAssistantExpressionPayload(String(quotePayload.text || '')).text;
+					: fallbackExpressionPayload.text;
+				const assistantExpressionKeywords = expressionKeywordsBySwipe[si] && expressionKeywordsBySwipe[si].length
+					? expressionKeywordsBySwipe[si]
+					: (Array.isArray(m.assistantExpressionKeywords) && m.assistantExpressionKeywords.length
+						? m.assistantExpressionKeywords
+						: fallbackExpressionPayload.keywords);
 				const imageUrls = this.normalizeChatImageUrls(m.imageUrls || m.images || []);
 				return {
 					id: this.normalizeDbMessageId(m.id),
@@ -8597,6 +9083,8 @@
 					continueFromMessageId: this.normalizeDbMessageId(m.continueFromMessageId),
 					swipes,
 					swipeIndex: si,
+					assistantExpressionKeywords,
+					assistantExpressionKeywordsBySwipe: expressionKeywordsBySwipe,
 					imageUrls,
 					localKind: this.normalizeCharacterImageText(m.localKind, 40),
 					localPrompt: this.normalizeCharacterImageText(m.localPrompt || m.prompt, 300),
@@ -8675,7 +9163,10 @@
 				return normalized;
 			},
 			assistantProtocolDisplayText(raw) {
-				return ensembleChat.assistantProtocolDisplayText(raw);
+				const protocolText = ensembleChat.assistantProtocolDisplayText(raw);
+				return this.extractAssistantExpressionPayload(protocolText).text
+					.replace(/\[\[\s*expr(?:\s*:\s*[^\]]*)?$/i, '')
+					.replace(/[ \t]+$/g, '');
 			},
 			clearGenerationRecovery() {
 				this.generationRecovery = {
@@ -12153,7 +12644,6 @@
 								text: sentenceTexts[index],
 								speakerMemberId: sentenceSpeakerMemberIds[index]
 							}, requestKey, audioDataUrl, voiceProfileKey)
-								.catch(() => audioDataUrl)
 								.then((playableAudioUrl) => {
 									const freshEntry = this.assistantVoiceStateMap && this.assistantVoiceStateMap[safeId];
 									if (!freshEntry || freshEntry.requestKey !== requestKey || freshEntry.voiceProfileKey !== voiceProfileKey) {
@@ -12388,6 +12878,7 @@
 			onRegen() {
 				if (!this.ensureJgIdentityReadyForAction()) return;
 				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing || !this.jgOn || !this.char) return;
+				if (this.shouldAutoPlayAssistantVoice()) this.primeAssistantVoicePlayback();
 				this.closeReplySuggestions();
 				const tavernApi = require('@/common/tavernApi.js');
 				const runtimeRequestVersion = this.jgRuntimeRequestVersion;
@@ -12474,6 +12965,7 @@
 										this.queueStopSync(700);
 									}
 									this.finishAssistantStreaming(last.id);
+									this.applyAssistantExpressionForRow(last);
 									if (!cancelled) {
 										this.prepareAssistantVoiceForRow(last, {
 											autoplay: this.shouldAutoPlayAssistantVoice(),
@@ -12484,7 +12976,6 @@
 										}).catch(() => {});
 									}
 									this.notifyCompanionReply(last.text);
-									this.applyAssistantExpressionForRow(last);
 									this.handleIncomingChatRows(last, { alreadyCounted: started });
 								},
 								onAbort: () => {
@@ -12492,6 +12983,8 @@
 									if (!started) {
 										this.$set(last, 'text', backup);
 										this.$set(last, 'segments', backupSegments);
+									} else {
+										this.applyAssistantExpressionFromRawStream(last, rawStreamText);
 									}
 									this.queueStopSync(700);
 									this.finishAssistantStreaming(last.id);
@@ -12566,6 +13059,7 @@
 			onContinue() {
 				if (!this.ensureJgIdentityReadyForAction()) return;
 				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing || !this.jgOn || !this.char) return;
+				if (this.shouldAutoPlayAssistantVoice()) this.primeAssistantVoicePlayback();
 				this.closeReplySuggestions();
 				const tavernApi = require('@/common/tavernApi.js');
 				const runtimeRequestVersion = this.jgRuntimeRequestVersion;
@@ -12668,6 +13162,7 @@
 										this.queueStopSync(700);
 									}
 									this.finishAssistantStreaming(row.id);
+									this.applyAssistantExpressionForRow(row);
 									this.prepareAssistantVoiceForRow(row, {
 										autoplay: this.shouldAutoPlayAssistantVoice(),
 										force: true,
@@ -12676,7 +13171,6 @@
 										includeTrailingPartial: true
 									}).catch(() => {});
 									this.notifyCompanionReply(row.text);
-									this.applyAssistantExpressionForRow(row);
 									// 商用一致性：流式续写完成后也刷新一次消息列表，避免本地临时文本被状态刷新覆盖
 									this.refreshJgMessages().catch(() => {});
 									this.handleIncomingChatRows(row, { alreadyCounted: streamed });
@@ -12684,8 +13178,12 @@
 								onAbort: () => {
 									if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 									const row = this.messages.find((item) => item && item.id === rid);
-									if (row && !String(row.text || '').trim()) {
-										this.messages = this.messages.filter((item) => item && item.id !== rid);
+									if (row) {
+										if (String(acc || '').trim()) {
+											this.applyAssistantExpressionFromRawStream(row, acc);
+										} else {
+											this.messages = this.messages.filter((item) => item && item.id !== rid);
+										}
 									}
 									this.queueStopSync(700);
 									this.finishAssistantStreaming(rid);
@@ -12701,12 +13199,14 @@
 										this.showErrorToast(result.message);
 									}
 									const row = this.messages.find((item) => item && item.id === rid);
+									let recoveryPartial = acc;
 									if (row) {
-										this.$set(row, 'text', acc);
+										this.applyAssistantExpressionFromRawStream(row, acc);
+										recoveryPartial = String(row.text || '');
 									}
 									this.markGenerationRecovery(rid, {
 										message: result.message,
-										partialText: acc,
+										partialText: recoveryPartial,
 										canRegen: true
 									});
 									this.finishAssistantStreaming(rid);
@@ -12878,7 +13378,18 @@
 				const attachmentMode = opts && opts.attachmentMode === 'expression' ? 'expression' : imageUrls.length ? 'photo' : '';
 				const attachmentHint =
 					attachmentMode === 'expression' ? this.normalizeLocalExpressionHint(opts && opts.attachmentHint) : '';
-				if ((!text && !imageUrls.length && !quoteMeta.visible) || !this.char || this.sending) return false;
+				const expressionMediaKey =
+					attachmentMode === 'expression' ? String((opts && opts.expressionMediaKey) || '').trim() : '';
+				const serverImageUrls = attachmentMode === 'expression' ? [] : imageUrls.slice();
+				const requestedOptimisticImages = Array.isArray(opts.optimisticImageUrls)
+					? opts.optimisticImageUrls.map((item) => String(item || '').trim()).filter(Boolean)
+					: [];
+				const imageMediaKeys = attachmentMode === 'expression'
+					? (expressionMediaKey ? [expressionMediaKey] : [])
+					: (Array.isArray(opts.imageMediaKeys)
+						? opts.imageMediaKeys.map((item) => String(item || '').trim()).filter(Boolean)
+						: []);
+				if ((!text && !imageUrls.length && !quoteMeta.visible && !attachmentHint) || !this.char || this.sending) return false;
 				if (opts.checkUploading !== false && this.hasUploadingComposerImages()) {
 					uni.showToast({
 						title: this.tx('chat_image_uploading', '图片还在上传中，请稍等'),
@@ -12896,7 +13407,7 @@
 				this.closeExpressionPanel();
 				const uid = 'u_' + Date.now();
 				const generationRequestId = this.createChatGenerationRequestId('send', uid);
-				const optimisticImages = imageUrls.slice();
+				const optimisticImages = requestedOptimisticImages.length ? requestedOptimisticImages : imageUrls.slice();
 				this.messages = this.messages.concat({
 					id: uid,
 					role: 'user',
@@ -12921,6 +13432,7 @@
 						assistantMessageId: '',
 						text,
 						imageUrls: optimisticImages,
+						mediaKeys: imageMediaKeys,
 						createdAt: Date.now()
 					});
 				}
@@ -12950,8 +13462,8 @@
 							characterId: cid,
 							clientUid,
 							content: payloadText,
-							imageUrls,
-							visionRequestId: imageUrls.length ? 'vision_' + uid : '',
+							imageUrls: serverImageUrls,
+							visionRequestId: serverImageUrls.length ? 'vision_' + uid : '',
 							attachmentMode,
 							attachmentHint,
 							voiceUrl: userVoiceMeta.voiceUrl,
@@ -13023,6 +13535,7 @@
 											this.showGenerationStopToast('stopped', '已停止');
 										}
 										this.finishAssistantStreaming(row.id);
+										this.applyAssistantExpressionForRow(row);
 										this.notifyCompanionReply(row.text);
 									this.prepareAssistantVoiceForRow(row, {
 										autoplay: this.shouldAutoPlayAssistantVoice(),
@@ -13031,14 +13544,17 @@
 										allowStreaming: true,
 										includeTrailingPartial: true
 									}).catch(() => {});
-										this.applyAssistantExpressionForRow(row);
 										this.handleIncomingChatRows(row, { alreadyCounted: replyStreamed });
 									},
 									onAbort: () => {
 										if (!this.isJgRuntimeRequestCurrent(runtimeRequestVersion, runtimeIdentitySignature)) return;
 										const last = this.messages[this.messages.length - 1];
-										if (last && last.id === rid && !String(last.text || '').trim()) {
-											this.messages = this.messages.filter((x) => x.id !== rid);
+										if (last && last.id === rid) {
+											if (String(rawStreamText || '').trim()) {
+												this.applyAssistantExpressionFromRawStream(last, rawStreamText);
+											} else {
+												this.messages = this.messages.filter((x) => x.id !== rid);
+											}
 										}
 										this.queueStopSync(700);
 										this.finishAssistantStreaming(rid);
@@ -13056,6 +13572,7 @@
 										}
 										const last = this.messages[this.messages.length - 1];
 										if (last && last.id === rid) {
+											this.applyAssistantExpressionFromRawStream(last, rawStreamText);
 											const partial = String(last.text || '').trim();
 											if (!partial) {
 												this.$set(last, 'text', '');
@@ -13177,9 +13694,12 @@
 				return false;
 			},
 			send() {
+				if (this.shouldAutoPlayAssistantVoice()) this.primeAssistantVoicePlayback();
 				return this.submitOutgoingMessage(this.draft, this.pendingChatImageUrls(), {
 					clearDraft: true,
-					clearComposerImages: true
+					clearComposerImages: true,
+					optimisticImageUrls: this.pendingChatImageDisplayUrls(),
+					imageMediaKeys: this.pendingChatImageMediaKeys()
 				});
 			}
 		}
@@ -16820,6 +17340,53 @@
 		line-height: 1.65;
 		color: #1f2937;
 		box-sizing: border-box;
+	}
+
+	.image-quick-field {
+		margin-top: 16rpx;
+	}
+
+	.image-quick-label {
+		display: block;
+		margin-bottom: 10rpx;
+		font-size: 22rpx;
+		font-weight: 650;
+		color: #48616d;
+	}
+
+	.image-quick-segments {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: 8rpx;
+		padding: 6rpx;
+		border-radius: 16rpx;
+		background: rgba(230, 238, 242, 0.92);
+	}
+
+	.image-quick-segment {
+		min-width: 0;
+		height: 58rpx;
+		padding: 0 8rpx;
+		border-radius: 12rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		font-size: 21rpx;
+		line-height: 1.2;
+		color: #526b77;
+		box-sizing: border-box;
+	}
+
+	.image-quick-segment--active {
+		background: #fff;
+		color: #216275;
+		font-weight: 700;
+		box-shadow: 0 4rpx 12rpx rgba(45, 88, 101, 0.12);
+	}
+
+	.image-quick-segment--disabled {
+		opacity: 0.42;
 	}
 
 	.image-quick-actions {

@@ -38,6 +38,8 @@ assert.ok(account.indexOf('removeByOwner(ownerKey)') < account.indexOf('uni.clea
 const storage = {};
 let writtenFileName = '';
 let writtenFileSize = 0;
+let activeWrites = 0;
+let maxActiveWrites = 0;
 global.uni = {
 	getStorageSync(key) { return storage[key]; },
 	setStorageSync(key, value) { storage[key] = value; }
@@ -56,10 +58,15 @@ global.plus = {
 							assert.equal(fileOptions.create, true);
 							const fileEntry = {
 								createWriter(writerSuccess) {
-									const writer = {
-										write(blob) {
-											writtenFileSize = blob.size;
-											queueMicrotask(() => writer.onwrite());
+					const writer = {
+						write(blob) {
+							writtenFileSize = blob.size;
+							activeWrites += 1;
+							maxActiveWrites = Math.max(maxActiveWrites, activeWrites);
+							queueMicrotask(() => {
+								activeWrites -= 1;
+								writer.onwrite();
+							});
 										}
 									};
 									writerSuccess(writer);
@@ -90,6 +97,17 @@ const localMediaStore = require(path.join(root, 'common', 'localMediaStore.js'))
 	assert.equal(writtenFileSize, 3);
 	assert.match(stored.url, /^file:\/\/\/app\/doc\/tavern_media\/.*\.aac$/);
 	assert.equal(storage.tavern_local_media_index_v1.entries[0].size, 3);
+	await Promise.all([
+		localMediaStore.putDataUrl({
+			key: 'tts:owner:chat:db_2:0', ownerKey: 'owner', conversationId: 'chat',
+			messageId: 'db_2', kind: 'assistant_tts'
+		}, 'data:audio/aac;base64,AQID'),
+		localMediaStore.putDataUrl({
+			key: 'tts:owner:chat:db_3:0', ownerKey: 'owner', conversationId: 'chat',
+			messageId: 'db_3', kind: 'assistant_tts'
+		}, 'data:audio/aac;base64,AQID')
+	]);
+	assert.equal(maxActiveWrites, 1, 'App media writes must stay serialized');
 	console.log('local media store contract tests passed');
 })().catch((error) => {
 	console.error(error);

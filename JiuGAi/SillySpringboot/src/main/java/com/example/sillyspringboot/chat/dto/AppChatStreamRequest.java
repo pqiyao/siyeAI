@@ -45,7 +45,12 @@ public class AppChatStreamRequest {
         if (userMessage != null && !userMessage.isBlank()) {
             return true;
         }
-        return imageUrls != null && imageUrls.stream().anyMatch(url -> url != null && !url.isBlank());
+        if (imageUrls != null && imageUrls.stream().anyMatch(url -> url != null && !url.isBlank())) {
+            return true;
+        }
+        return "expression".equalsIgnoreCase(attachmentMode == null ? "" : attachmentMode.trim())
+                && attachmentHint != null
+                && !attachmentHint.isBlank();
     }
 
     public Long getConversationId() {

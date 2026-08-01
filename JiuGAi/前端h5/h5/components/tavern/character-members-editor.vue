@@ -50,6 +50,32 @@
 				:placeholder="ensemble ? '性格、说话方式、经历、习惯，以及与其他成员的关系' : '写清楚角色的性格、说话方式、经历、习惯和行为边界'"
 			></textarea>
 
+			<view v-if="imageGenerationEnabled" class="persona-head visual-profile-head">
+				<text class="field-label">生图外貌设定</text>
+				<text class="persona-count">{{ (member.visualPrompt || '').length }}/4000</text>
+			</view>
+			<textarea
+				v-if="imageGenerationEnabled"
+				v-model="member.visualPrompt"
+				maxlength="4000"
+				auto-height
+				class="member-persona"
+				placeholder="发型、发色、眼睛、服装、体型与固定配饰；建议使用清晰的视觉标签"
+			></textarea>
+
+			<view v-if="imageGenerationEnabled" class="persona-head visual-profile-head">
+				<text class="field-label">生图排除项</text>
+				<text class="persona-count">{{ (member.visualNegativePrompt || '').length }}/2000</text>
+			</view>
+			<textarea
+				v-if="imageGenerationEnabled"
+				v-model="member.visualNegativePrompt"
+				maxlength="2000"
+				auto-height
+				class="member-persona"
+				placeholder="不希望出现的发型、颜色、服装或身份特征"
+			></textarea>
+
 			<view v-if="imageGenerationEnabled || voiceFeatureEnabled" class="member-tools">
 				<view v-if="imageGenerationEnabled" class="member-reference" @tap="pickReference(index)">
 					<image v-if="member.imageReferenceUrl || member.avatarUrl" :src="resolveUrl(member.imageReferenceUrl || member.avatarUrl)" mode="aspectFill"></image>
@@ -244,7 +270,7 @@ export default {
 		newMember() {
 			return {
 				clientKey: 'member_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-				name: '', tagline: '', persona: '', avatarUrl: '', voiceConfigJson: '',
+				name: '', tagline: '', persona: '', visualPrompt: '', visualNegativePrompt: '', avatarUrl: '', voiceConfigJson: '',
 				imageReferenceUrl: '', primaryMember: false
 			};
 		},

@@ -1442,9 +1442,10 @@ public class OpenAiCompatibleImageGenerationService implements ImageGenerationEn
         return "balanced".equals(policy) || "auto".equals(policy);
     }
 
-    private static boolean shouldFallbackToWeakConsistency(String referencePolicy, BusinessException ex) {
+    static boolean shouldFallbackToWeakConsistency(String referencePolicy, BusinessException ex) {
         String policy = safe(referencePolicy).toLowerCase();
-        if ("prompt_first".equals(policy)) {
+        // Strong/reference_only is a hard contract. Never turn it into plain text-to-image.
+        if ("prompt_first".equals(policy) || "reference_only".equals(policy)) {
             return false;
         }
         return shouldFailAsUnsupportedReferenceEdit(ex);

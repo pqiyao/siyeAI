@@ -465,6 +465,8 @@ public class ApiV1MyCharactersController {
         data.put("bio", c.getBio());
         data.put("persona", c.getPersona());
         data.put("scenario", c.getScenario());
+        data.put("visualPrompt", c.getVisualPrompt());
+        data.put("visualNegativePrompt", c.getVisualNegativePrompt());
         data.put("first_message", c.getFirstMessage());
         data.put("mes_example", c.getMesExample());
         data.put("system_prompt", c.getSystemPrompt());
@@ -516,6 +518,8 @@ public class ApiV1MyCharactersController {
         data.put("bio", c.getBio());
         data.put("persona", c.getPersona());
         data.put("scenario", c.getScenario());
+        data.put("visualPrompt", c.getVisualPrompt());
+        data.put("visualNegativePrompt", c.getVisualNegativePrompt());
         data.put("firstMessage", c.getFirstMessage());
         data.put("alternateGreetings", c.getAlternateGreetings() == null ? List.of() : c.getAlternateGreetings());
         data.put("mesExample", c.getMesExample());
@@ -552,6 +556,8 @@ public class ApiV1MyCharactersController {
         row.setBio(req.getBio());
         row.setPersona(req.getPersona());
         row.setScenario(req.getScenario());
+        row.setVisualPrompt(clip(req.getVisualPrompt(), 4000));
+        row.setVisualNegativePrompt(clip(req.getVisualNegativePrompt(), 2000));
         row.setFirstMessage(req.getFirstMessage());
         row.setAlternateGreetings(req.getAlternateGreetings());
         row.setMesExample(req.getMesExample());

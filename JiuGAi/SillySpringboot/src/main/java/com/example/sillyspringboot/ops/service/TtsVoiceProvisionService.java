@@ -38,6 +38,9 @@ import java.util.Map;
 public class TtsVoiceProvisionService {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final int DEFAULT_PROVISION_TIMEOUT_SECONDS = 90;
+    private static final int REFERENCE_AUDIO_TIMEOUT_SECONDS = 30;
+    private static final long NANOS_PER_SECOND = 1_000_000_000L;
     private static final int MAX_REFERENCE_AUDIO_BYTES = 8 * 1024 * 1024;
     private static final int MAX_VOICE_API_RESPONSE_BYTES = 2 * 1024 * 1024;
     private static final long OFFICIAL_TEMPLATE_OWNER_ID = 0L;
@@ -103,6 +106,17 @@ public class TtsVoiceProvisionService {
     }
 
     public ResolvedVoice resolveVoiceForUser(long userId, String templateCode, TtsRuntimeContext runtimeContext) {
+        long deadlineNanos = System.nanoTime() + DEFAULT_PROVISION_TIMEOUT_SECONDS * NANOS_PER_SECOND;
+        return resolveVoiceForUser(userId, templateCode, runtimeContext, deadlineNanos);
+    }
+
+    public ResolvedVoice resolveVoiceForUser(
+            long userId,
+            String templateCode,
+            TtsRuntimeContext runtimeContext,
+            long deadlineNanos
+    ) {
+        requireRemainingSeconds(deadlineNanos);
         AppTtsVoiceTemplate template = templateService.findEnabledTemplate(templateCode);
         if (template == null) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "当前选择的音色模板已失效");
@@ -135,8 +149,9 @@ public class TtsVoiceProvisionService {
         String lockKey = instanceOwnerId + ":" + blank(template.getTemplateCode()) + ":" + fingerprint;
         Object lock = TEMPLATE_PROVISION_LOCKS[Math.floorMod(lockKey.hashCode(), TEMPLATE_PROVISION_LOCKS.length)];
         synchronized (lock) {
+            requireRemainingSeconds(deadlineNanos);
             return resolveOrProvisionVoice(
-                    instanceOwnerId, template, runtimeContext, effectiveModelName, fingerprint);
+                    instanceOwnerId, template, runtimeContext, effectiveModelName, fingerprint, deadlineNanos);
         }
     }
 
@@ -163,8 +178,10 @@ public class TtsVoiceProvisionService {
             AppTtsVoiceTemplate template,
             TtsRuntimeContext runtimeContext,
             String effectiveModelName,
-            String fingerprint
+            String fingerprint,
+            long deadlineNanos
     ) {
+        requireRemainingSeconds(deadlineNanos);
         AppUserTtsVoiceInstance instance = instanceMapper.findByUserIdAndTemplateCode(
                 instanceOwnerId, blank(template.getTemplateCode()));
         if (instance != null
@@ -187,8 +204,10 @@ public class TtsVoiceProvisionService {
         instance.setStatus("pending");
         instance.setLastError("");
         try {
-            ReferenceAudio referenceAudio = loadReferenceAudio(template);
-            String voiceUri = uploadDynamicVoice(template, runtimeContext, effectiveModelName, referenceAudio);
+            ReferenceAudio referenceAudio = loadReferenceAudio(template, deadlineNanos);
+            String voiceUri = uploadDynamicVoice(
+                    template, runtimeContext, effectiveModelName, referenceAudio, deadlineNanos);
+            requireRemainingSeconds(deadlineNanos);
             if (!StringUtils.hasText(voiceUri)) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "平台没有返回可用的音色标识");
             }
@@ -368,7 +387,20 @@ public class TtsVoiceProvisionService {
             String effectiveModelName,
             ReferenceAudio referenceAudio
     ) {
-        RestClient client = buildRestClient(blank(runtimeContext.baseUrl()), blank(runtimeContext.apiKey()));
+        long deadlineNanos = System.nanoTime() + DEFAULT_PROVISION_TIMEOUT_SECONDS * NANOS_PER_SECOND;
+        return uploadDynamicVoice(template, runtimeContext, effectiveModelName, referenceAudio, deadlineNanos);
+    }
+
+    private String uploadDynamicVoice(
+            AppTtsVoiceTemplate template,
+            TtsRuntimeContext runtimeContext,
+            String effectiveModelName,
+            ReferenceAudio referenceAudio,
+            long deadlineNanos
+    ) {
+        RestClient client = buildRestClient(
+                blank(runtimeContext.baseUrl()), blank(runtimeContext.apiKey()),
+                requireRemainingSeconds(deadlineNanos));
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("model", effectiveModelName);
         payload.put("customName", buildCustomVoiceName(template));
@@ -390,6 +422,7 @@ public class TtsVoiceProvisionService {
                         }
                         return responseText;
                     });
+            requireRemainingSeconds(deadlineNanos);
             return extractVoiceUri(raw);
         } catch (RestClientResponseException ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, providerErrorMessage(ex.getResponseBodyAsString()));
@@ -399,10 +432,19 @@ public class TtsVoiceProvisionService {
     }
 
     private RestClient buildRestClient(String baseUrl, String apiKey) {
+        return buildRestClient(baseUrl, apiKey, DEFAULT_PROVISION_TIMEOUT_SECONDS);
+    }
+
+    private RestClient buildRestClient(String baseUrl, String apiKey, int timeoutSeconds) {
         String safeBaseUrl = OutboundUrlGuard.requirePublicHttpUrl(
                 baseUrl, "音色服务地址不安全，请使用可公开访问的 HTTP(S) 地址").toString();
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(this.httpClient);
-        factory.setReadTimeout(Duration.ofSeconds(90));
+        int safeTimeoutSeconds = Math.max(1, Math.min(DEFAULT_PROVISION_TIMEOUT_SECONDS, timeoutSeconds));
+        HttpClient requestHttpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(Math.min(CONNECT_TIMEOUT.toSeconds(), safeTimeoutSeconds)))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(requestHttpClient);
+        factory.setReadTimeout(Duration.ofSeconds(safeTimeoutSeconds));
         return RestClient.builder()
                 .baseUrl(safeBaseUrl)
                 .requestFactory(factory)
@@ -560,13 +602,15 @@ public class TtsVoiceProvisionService {
         return trim("jg-" + base, 64);
     }
 
-    private ReferenceAudio loadReferenceAudio(AppTtsVoiceTemplate template) {
+    private ReferenceAudio loadReferenceAudio(AppTtsVoiceTemplate template, long deadlineNanos) {
+        requireRemainingSeconds(deadlineNanos);
         String url = blank(template.getReferenceAudioUrl());
         if (!StringUtils.hasText(url)) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "模板还没有配置参考音频");
         }
         if (url.startsWith("/uploads/h5/")) {
             byte[] bytes = uploadService.readUploadedFileBytes(url);
+            requireRemainingSeconds(deadlineNanos);
             validateReferenceAudioSize(bytes);
             String mimeType = MediaPayloadValidator.requireAudio(
                     bytes, uploadService.detectUploadedFileContentType(url));
@@ -577,9 +621,11 @@ public class TtsVoiceProvisionService {
         }
         try {
             URI safeUri = OutboundUrlGuard.requirePublicHttpUrl(url, "参考音频地址不安全");
+            int timeoutSeconds = Math.min(
+                    REFERENCE_AUDIO_TIMEOUT_SECONDS, requireRemainingSeconds(deadlineNanos));
             HttpRequest request = HttpRequest.newBuilder(safeUri)
                     .GET()
-                    .timeout(Duration.ofSeconds(30))
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
                     .build();
             HttpResponse<byte[]> response = httpClient.send(
                     request, BoundedHttpBodyHandlers.ofByteArray(MAX_REFERENCE_AUDIO_BYTES));
@@ -587,6 +633,7 @@ public class TtsVoiceProvisionService {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, "参考音频下载失败");
             }
             byte[] bytes = response.body() == null ? new byte[0] : response.body();
+            requireRemainingSeconds(deadlineNanos);
             validateReferenceAudioSize(bytes);
             String contentType = MediaPayloadValidator.requireAudio(
                     bytes, response.headers().firstValue("Content-Type").orElse(""));
@@ -596,6 +643,21 @@ public class TtsVoiceProvisionService {
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "参考音频下载失败");
         }
+    }
+
+    static int remainingSeconds(long deadlineNanos, long nowNanos) {
+        long remainingNanos = deadlineNanos - nowNanos;
+        if (remainingNanos <= 0) return 0;
+        long roundedUp = (remainingNanos + NANOS_PER_SECOND - 1) / NANOS_PER_SECOND;
+        return (int) Math.max(1, Math.min(DEFAULT_PROVISION_TIMEOUT_SECONDS, roundedUp));
+    }
+
+    private static int requireRemainingSeconds(long deadlineNanos) {
+        int remainingSeconds = remainingSeconds(deadlineNanos, System.nanoTime());
+        if (remainingSeconds <= 0) {
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "语音合成等待超时，请重试");
+        }
+        return remainingSeconds;
     }
 
     private void validateReferenceAudioSize(byte[] bytes) {

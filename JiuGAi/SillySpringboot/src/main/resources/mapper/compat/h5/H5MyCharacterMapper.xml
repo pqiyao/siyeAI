@@ -15,6 +15,8 @@
         <result column="bio" property="bio"/>
         <result column="persona" property="persona"/>
         <result column="scenario" property="scenario"/>
+        <result column="visual_prompt" property="visualPrompt"/>
+        <result column="visual_negative_prompt" property="visualNegativePrompt"/>
         <result column="first_message" property="firstMessage"/>
         <result column="alternate_greetings" property="alternateGreetings" javaType="java.util.List"
                 typeHandler="com.example.sillyspringboot.compat.h5.mybatis.JsonStringListTypeHandler"/>
@@ -49,6 +51,7 @@
 
     <sql id="BaseColumns">
         id, st_avatar_url, st_world_names_json, owner_user_id, name, description, tagline, bio, persona, scenario,
+        visual_prompt, visual_negative_prompt,
         first_message,
         alternate_greetings_json AS alternate_greetings,
         mes_example, system_prompt, post_history_instructions,
@@ -121,7 +124,7 @@
         INSERT INTO app_character (
             st_avatar_url, st_world_names_json, name, description,
             owner_user_id,
-            tagline, bio, persona, scenario,
+            tagline, bio, persona, scenario, visual_prompt, visual_negative_prompt,
             first_message, alternate_greetings_json,
             mes_example, system_prompt, post_history_instructions,
             avatar_url, cover_url, private_card,
@@ -132,7 +135,7 @@
         ) VALUES (
             #{stAvatarUrl}, #{stWorldNamesJson}, #{name}, #{description},
             #{ownerUserId},
-            #{tagline}, #{bio}, #{persona}, #{scenario},
+            #{tagline}, #{bio}, #{persona}, #{scenario}, #{visualPrompt}, #{visualNegativePrompt},
             #{firstMessage},
             #{alternateGreetings, typeHandler=com.example.sillyspringboot.compat.h5.mybatis.JsonStringListTypeHandler},
             #{mesExample}, #{systemPrompt}, #{postHistoryInstructions},
@@ -153,6 +156,8 @@
             bio = #{bio},
             persona = #{persona},
             scenario = #{scenario},
+            visual_prompt = #{visualPrompt},
+            visual_negative_prompt = #{visualNegativePrompt},
             first_message = #{firstMessage},
             alternate_greetings_json = #{alternateGreetings, typeHandler=com.example.sillyspringboot.compat.h5.mybatis.JsonStringListTypeHandler},
             mes_example = #{mesExample},

@@ -175,6 +175,8 @@ public class CharacterStudioService {
             member.setName(clip(input.getName(), 64));
             member.setTagline(clip(input.getTagline(), 255));
             member.setPersona(clip(input.getPersona(), 12000));
+            member.setVisualPrompt(clip(input.getVisualPrompt(), 4000));
+            member.setVisualNegativePrompt(clip(input.getVisualNegativePrompt(), 2000));
             member.setAvatarUrl(clip(input.getAvatarUrl(), 512));
             member.setImageReferenceUrl(clip(input.getImageReferenceUrl(), 512));
             boolean primary = !primaryAssigned && (Boolean.TRUE.equals(input.getPrimaryMember()) || i == 0);
@@ -438,6 +440,8 @@ public class CharacterStudioService {
         out.put("name", member.getName());
         out.put("tagline", nullToEmpty(member.getTagline()));
         out.put("persona", nullToEmpty(member.getPersona()));
+        out.put("visualPrompt", nullToEmpty(member.getVisualPrompt()));
+        out.put("visualNegativePrompt", nullToEmpty(member.getVisualNegativePrompt()));
         out.put("avatarUrl", nullToEmpty(member.getAvatarUrl()));
         out.put("voiceConfigJson", nullToEmpty(member.getVoiceConfigJson()));
         out.put("imageReferenceUrl", nullToEmpty(member.getImageReferenceUrl()));

@@ -12,6 +12,7 @@ import com.example.sillyspringboot.integration.sillytavern.dto.UserModelOverride
 import com.example.sillyspringboot.ops.dto.AppFeatureSettings;
 import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.ops.service.EntitlementPolicyService;
+import com.example.sillyspringboot.ops.service.ImageGenerationReadinessService;
 import com.example.sillyspringboot.ops.dto.EntitlementPolicy;
 import com.example.sillyspringboot.ops.service.TtsVoiceProvisionService;
 import com.example.sillyspringboot.ops.service.TtsVoiceTemplateService;
@@ -292,6 +293,7 @@ public class H5UserAiProviderService {
     private final EntitlementPolicyService entitlementPolicyService;
     private final AiRoutingService aiRoutingService;
     private final TtsVoiceTemplateService ttsVoiceTemplateService;
+    private final ImageGenerationReadinessService imageGenerationReadinessService;
     private final SensitiveTextCrypto sensitiveTextCrypto;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -306,6 +308,7 @@ public class H5UserAiProviderService {
             EntitlementPolicyService entitlementPolicyService,
             AiRoutingService aiRoutingService,
             TtsVoiceTemplateService ttsVoiceTemplateService,
+            ImageGenerationReadinessService imageGenerationReadinessService,
             SensitiveTextCrypto sensitiveTextCrypto,
             ObjectMapper objectMapper
     ) {
@@ -317,6 +320,7 @@ public class H5UserAiProviderService {
         this.entitlementPolicyService = entitlementPolicyService;
         this.aiRoutingService = aiRoutingService;
         this.ttsVoiceTemplateService = ttsVoiceTemplateService;
+        this.imageGenerationReadinessService = imageGenerationReadinessService;
         this.sensitiveTextCrypto = sensitiveTextCrypto;
         this.objectMapper = objectMapper;
         this.httpClient = HttpClient.newBuilder()
@@ -342,7 +346,10 @@ public class H5UserAiProviderService {
         EntitlementPolicy entitlementPolicy = entitlementPolicyService.getPolicy();
         String mode = normalizeMode(row == null ? null : row.getProviderMode());
         boolean customMode = "custom".equals(mode);
-        boolean imageCanUse = imageEnabledGlobal && (!customMode || canUse);
+        ImageGenerationReadinessService.Snapshot systemImageReadiness = customMode
+                ? null : imageGenerationReadinessService.systemSnapshot();
+        boolean imageCanUse = imageEnabledGlobal
+                && (customMode ? canUse : systemImageReadiness.ready());
         boolean voiceCanUse = voiceEnabledGlobal && (!customMode || canUse);
         String providerSource = normalizeSourceOrDefault(row == null ? null : row.getProviderSource(), "siliconflow");
         boolean ttsUseSeparateConfig = hasSeparateTtsConfig(row);
@@ -438,7 +445,11 @@ public class H5UserAiProviderService {
                 effectiveImageCustomUrl,
                 imageEnabledGlobal,
                 imageCanUse,
-                imageCanUse ? "" : (!imageEnabledGlobal ? "当前已关闭生图功能" : denyReason(enabledGlobal, currentVipLevel, settings.getUserByokVipMinLevel())),
+                imageCanUse ? "" : (!imageEnabledGlobal
+                        ? "当前已关闭生图功能"
+                        : customMode
+                                ? denyReason(enabledGlobal, currentVipLevel, settings.getUserByokVipMinLevel())
+                                : systemImageReadiness.message()),
                 voiceEnabledGlobal,
                 voiceCanUse,
                 voiceCanUse ? "" : (!voiceEnabledGlobal ? "当前已关闭语音功能" : denyReason(enabledGlobal, currentVipLevel, settings.getUserByokVipMinLevel())),

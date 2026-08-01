@@ -93,10 +93,13 @@ app:
       per-user-concurrent-limit: ${APP_STT_PER_USER_CONCURRENT_LIMIT:1}
       per-user-requests-per-window: ${APP_STT_PER_USER_REQUESTS_PER_WINDOW:6}
   image-generation:
-    engine: ${APP_IMAGE_GENERATION_ENGINE:user_openai_compatible}
+    engine: ${APP_IMAGE_GENERATION_ENGINE:novelai}
     global-concurrent-limit: ${APP_IMAGE_GENERATION_GLOBAL_CONCURRENT_LIMIT:2}
     per-user-concurrent-limit: ${APP_IMAGE_GENERATION_PER_USER_CONCURRENT_LIMIT:1}
     counter-ttl-seconds: ${APP_IMAGE_GENERATION_COUNTER_TTL_SECONDS:600}
+    result-ttl-seconds: ${APP_IMAGE_GENERATION_RESULT_TTL_SECONDS:86400}
+    max-cached-result-bytes: ${APP_IMAGE_GENERATION_MAX_CACHED_RESULT_BYTES:1048576}
+    max-stored-image-bytes: ${APP_IMAGE_GENERATION_MAX_STORED_IMAGE_BYTES:33554432}
     st-comfy:
       comfy-url: ${APP_IMAGE_GENERATION_COMFY_URL:http://127.0.0.1:8188}
       workflow: ${APP_IMAGE_GENERATION_COMFY_WORKFLOW:Default_Comfy_Workflow.json}
@@ -110,6 +113,21 @@ app:
       seed: ${APP_IMAGE_GENERATION_SEED:-1}
       denoise: ${APP_IMAGE_GENERATION_DENOISE:1.0}
       request-timeout: ${APP_IMAGE_GENERATION_REQUEST_TIMEOUT:90s}
+    novel-ai:
+      base-url: ${APP_IMAGE_GENERATION_NOVELAI_BASE_URL:https://image.novelai.net}
+      token: ${APP_IMAGE_GENERATION_NOVELAI_TOKEN:}
+      model: ${APP_IMAGE_GENERATION_NOVELAI_MODEL:nai-diffusion-4-5-full}
+      sampler: ${APP_IMAGE_GENERATION_NOVELAI_SAMPLER:k_dpmpp_2m}
+      scheduler: ${APP_IMAGE_GENERATION_NOVELAI_SCHEDULER:karras}
+      steps: ${APP_IMAGE_GENERATION_NOVELAI_STEPS:28}
+      scale: ${APP_IMAGE_GENERATION_NOVELAI_SCALE:9.0}
+      seed: ${APP_IMAGE_GENERATION_NOVELAI_SEED:-1}
+      sm: ${APP_IMAGE_GENERATION_NOVELAI_SM:false}
+      sm-dyn: ${APP_IMAGE_GENERATION_NOVELAI_SM_DYN:false}
+      decrisper: ${APP_IMAGE_GENERATION_NOVELAI_DECRISPER:false}
+      variety-boost: ${APP_IMAGE_GENERATION_NOVELAI_VARIETY_BOOST:false}
+      request-timeout: ${APP_IMAGE_GENERATION_NOVELAI_REQUEST_TIMEOUT:120s}
+      max-response-bytes: ${APP_IMAGE_GENERATION_NOVELAI_MAX_RESPONSE_BYTES:25165824}
   api-rate-limit:
     enabled: ${APP_API_RATE_LIMIT_ENABLED:true}
     window-seconds: ${APP_API_RATE_LIMIT_WINDOW_SECONDS:60}

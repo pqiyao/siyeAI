@@ -10,7 +10,10 @@ assert.match(chat, /referenceImageUrl:\s*referenceImageUrl \|\| ''/);
 assert.match(chat, /referenceMode:\s*consistencyMode/);
 assert.match(chat, /referenceSourceMode,/);
 assert.match(chat, /recentSceneHint:\s*this\.resolveCharacterImageRecentSceneHint/);
-assert.match(chat, /consistencyMode === 'free'\s*\? Promise\.resolve\(''\)/s);
+assert.match(
+	chat,
+	/consistencyMode === 'free' \|\| \(!customMode && consistencyMode === 'balanced'\)[\s\S]{0,80}\? Promise\.resolve\(''\)/
+);
 
 assert.match(chat, /state:\s*firstAudioDataUrl \? 'partial' : 'generation_error'/);
 assert.match(chat, /errorKind:\s*'generation'/);

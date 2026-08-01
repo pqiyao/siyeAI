@@ -1,8 +1,11 @@
 package com.example.sillyspringboot.ops.service;
 
 import com.example.sillyspringboot.character.entity.AppCharacter;
+import com.example.sillyspringboot.character.entity.AppCharacterMember;
 import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
+import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.ops.dto.AppImageGenerationSettings;
+import com.example.sillyspringboot.ops.config.AppImageGenerationProperties;
 import com.example.sillyspringboot.ops.entity.AppCharacterImagePolicy;
 import com.example.sillyspringboot.ops.mapper.AppCharacterImagePolicyMapper;
 import com.example.sillyspringboot.shared.error.BusinessException;
@@ -23,6 +26,7 @@ class ImageGenerationPolicyServiceTest {
     private AppImageGenerationSettingsService settingsService;
     private AppCharacterImagePolicyMapper policyMapper;
     private AppCharacterMapper characterMapper;
+    private CharacterStudioMapper characterStudioMapper;
     private ImageGenerationPolicyService service;
     private AppImageGenerationSettings global;
     private AppCharacter character;
@@ -32,8 +36,10 @@ class ImageGenerationPolicyServiceTest {
         settingsService = mock(AppImageGenerationSettingsService.class);
         policyMapper = mock(AppCharacterImagePolicyMapper.class);
         characterMapper = mock(AppCharacterMapper.class);
+        characterStudioMapper = mock(CharacterStudioMapper.class);
         service = new ImageGenerationPolicyService(
-                settingsService, policyMapper, characterMapper, new ObjectMapper());
+                settingsService, policyMapper, characterMapper, characterStudioMapper,
+                new AppImageGenerationProperties(), new ObjectMapper());
 
         global = new AppImageGenerationSettings();
         global.setDefaultConsistencyMode("balanced");
@@ -52,6 +58,8 @@ class ImageGenerationPolicyServiceTest {
         character.setDescription("silver hair and green eyes");
         character.setPersona("quiet swordswoman");
         character.setScenario("rainy station");
+        character.setVisualPrompt("1girl, long silver hair, green eyes, black coat");
+        character.setVisualNegativePrompt("short hair, blue eyes");
         character.setAvatarUrl("https://assets.example/lin.png");
         character.setPublicTagsJson("[\"anime\",\"swordswoman\"]");
         when(characterMapper.findById(12L)).thenReturn(character);
@@ -84,10 +92,54 @@ class ImageGenerationPolicyServiceTest {
         assertThat(result.referencePolicy()).isEqualTo("balanced");
         assertThat(String.valueOf(result.payload().get("prompt")))
                 .contains("holding an umbrella")
-                .contains("Character identity: Lin")
-                .contains("silver hair and green eyes")
+                .contains("Character: Lin")
+                .contains("long silver hair, green eyes, black coat")
                 .contains("waiting for the last train")
+                .doesNotContain("quiet swordswoman")
+                .doesNotContain("rainy station")
                 .doesNotContain("system prompt");
+        assertThat(String.valueOf(result.payload().get("negativePrompt")))
+                .isEqualTo("short hair, blue eyes, watermark");
+    }
+
+    @Test
+    void speakerMemberVisualProfileOverridesCharacterProfile() {
+        AppCharacterMember member = new AppCharacterMember();
+        member.setId(41L);
+        member.setCharacterId(12L);
+        member.setName("Mira");
+        member.setVisualPrompt("1girl, short red hair, amber eyes, white uniform");
+        member.setVisualNegativePrompt("silver hair, green eyes");
+        member.setImageReferenceUrl("https://assets.example/mira.png");
+        when(characterStudioMapper.listMembers(12L)).thenReturn(List.of(member));
+
+        ImageGenerationPolicyService.Resolution result = service.resolve(12L, "st_comfy", Map.of(
+                "prompt", "standing on a bridge",
+                "referenceMode", "balanced",
+                "speakerMemberId", 41L,
+                "referenceImageUrl", "data:image/png;base64,old"
+        ));
+
+        assertThat(String.valueOf(result.payload().get("prompt")))
+                .contains("Character: Mira")
+                .contains("short red hair, amber eyes")
+                .doesNotContain("long silver hair, green eyes");
+        assertThat(result.payload())
+                .containsEntry("characterName", "Mira")
+                .containsEntry("referenceImageUrl", "https://assets.example/mira.png")
+                .containsEntry("negativePrompt", "silver hair, green eyes, watermark");
+    }
+
+    @Test
+    void systemNovelAiBalancedModeDoesNotForwardUnusedReferenceImage() {
+        ImageGenerationPolicyService.Resolution result = service.resolve(12L, "novelai", Map.of(
+                "prompt", "standing on a bridge",
+                "referenceMode", "balanced",
+                "referenceImageUrl", "data:image/png;base64,large"
+        ));
+
+        assertThat(result.payload().get("referenceImageUrl")).isEqualTo("");
+        assertThat(result.warnings()).anyMatch(message -> message.contains("参考图能力尚未启用"));
     }
 
     @Test

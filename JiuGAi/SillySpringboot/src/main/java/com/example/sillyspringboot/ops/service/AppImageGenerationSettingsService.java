@@ -57,7 +57,7 @@ public class AppImageGenerationSettingsService {
         if (body != null) {
             if (body.containsKey("comfyFallbackEnabled")) {
                 settings.setEngine(boolVal(body.get("comfyFallbackEnabled"), false)
-                        ? "st_comfy" : "user_openai_compatible");
+                        ? "st_comfy" : "novelai");
             } else if (body.containsKey("engine")) {
                 settings.setEngine(normalizeEngine(str(body.get("engine"), settings.getEngine())));
             }
@@ -142,7 +142,7 @@ public class AppImageGenerationSettingsService {
     private AppImageGenerationSettings sanitize(AppImageGenerationSettings settings, AppImageGenerationSettings defaults) {
         AppImageGenerationSettings safe = settings == null ? new AppImageGenerationSettings() : settings;
         AppImageGenerationSettings fallback = defaults == null ? new AppImageGenerationSettings() : defaults;
-        safe.setEngine(normalizeEngine(firstNonBlank(safe.getEngine(), fallback.getEngine(), "openai_compatible")));
+        safe.setEngine(normalizeEngine(firstNonBlank(safe.getEngine(), fallback.getEngine(), "novelai")));
         safe.setGlobalConcurrentLimit(clamp(safe.getGlobalConcurrentLimit(), 1, 64, fallback.getGlobalConcurrentLimit()));
         safe.setPerUserConcurrentLimit(clamp(safe.getPerUserConcurrentLimit(), 1, 8, fallback.getPerUserConcurrentLimit()));
         safe.setCounterTtlSeconds(clamp(safe.getCounterTtlSeconds(), 10, 7200, fallback.getCounterTtlSeconds()));
@@ -159,8 +159,14 @@ public class AppImageGenerationSettingsService {
         List<String> consistencyModes = normalizeValues(
                 safe.getAllowedConsistencyModes(),
                 Set.of("free", "balanced", "strong"),
-                List.of("free", "balanced", "strong")
+                List.of("free", "balanced")
         );
+        if (!"st_comfy".equals(safe.getEngine())) {
+            consistencyModes = consistencyModes.stream().filter(mode -> !"strong".equals(mode)).toList();
+            if (consistencyModes.isEmpty()) {
+                consistencyModes = List.of("free", "balanced");
+            }
+        }
         safe.setAllowedConsistencyModes(consistencyModes);
         String defaultMode = normalizeChoice(safe.getDefaultConsistencyMode(), consistencyModes, "balanced");
         safe.setDefaultConsistencyMode(defaultMode);
@@ -209,10 +215,14 @@ public class AppImageGenerationSettingsService {
         if ("sd_webui".equals(text) || "webui".equals(text)) {
             return "st_sd_webui";
         }
+        if ("novel".equals(text) || "nai".equals(text) || "novelai".equals(text)) {
+            return "novelai";
+        }
         if ("st_comfy".equals(text) || "st_sd_webui".equals(text)) {
             return text;
         }
-        return "user_openai_compatible";
+        // Historical managed/user OpenAI values are no longer system engines.
+        return "novelai";
     }
 
     private static String str(Object value, String fallback) {

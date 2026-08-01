@@ -6,6 +6,8 @@ import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -53,6 +55,14 @@ public class ApiV1ImageController {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "prompt 不能为空");
         }
         return ApiV1Result.ok(mockImageGenerationService.generate(clientUid, prompt, count));
+    }
+
+    @GetMapping("/result")
+    public ApiV1Result<Map<String, Object>> result(
+            @RequestParam String clientUid,
+            @RequestParam String imageRequestId
+    ) {
+        return ApiV1Result.ok(imageGenerationFacade.findResult(clientUid, imageRequestId));
     }
 
     private static String str(Object value) {

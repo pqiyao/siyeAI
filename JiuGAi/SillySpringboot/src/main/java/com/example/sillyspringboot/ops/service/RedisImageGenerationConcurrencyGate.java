@@ -1,5 +1,6 @@
 package com.example.sillyspringboot.ops.service;
 
+import com.example.sillyspringboot.ops.config.AppImageGenerationProperties;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -18,15 +19,21 @@ public class RedisImageGenerationConcurrencyGate implements ImageGenerationConcu
 
     private final StringRedisTemplate redis;
     private final AppImageGenerationSettingsService settingsService;
+    private final AppImageGenerationProperties properties;
     private final DefaultRedisScript<List> acquireScript;
     private final DefaultRedisScript<List> releaseScript;
     private final DefaultRedisScript<List> claimRequestScript;
     private final DefaultRedisScript<Long> completeRequestScript;
     private final DefaultRedisScript<Long> cancelRequestScript;
 
-    public RedisImageGenerationConcurrencyGate(StringRedisTemplate redis, AppImageGenerationSettingsService settingsService) {
+    public RedisImageGenerationConcurrencyGate(
+            StringRedisTemplate redis,
+            AppImageGenerationSettingsService settingsService,
+            AppImageGenerationProperties properties
+    ) {
         this.redis = redis;
         this.settingsService = settingsService;
+        this.properties = properties;
         this.acquireScript = new DefaultRedisScript<>(ACQUIRE_LUA, List.class);
         this.releaseScript = new DefaultRedisScript<>(RELEASE_LUA, List.class);
         this.claimRequestScript = new DefaultRedisScript<>(CLAIM_REQUEST_LUA, List.class);
@@ -62,7 +69,7 @@ public class RedisImageGenerationConcurrencyGate implements ImageGenerationConcu
     public RequestLease claimRequest(long userId, String requestId) {
         String key = "image:request:" + userId + ":" + sha256(requestId);
         String token = UUID.randomUUID().toString();
-        List<?> result = redis.execute(claimRequestScript, List.of(key), token, "300");
+        List<?> result = redis.execute(claimRequestScript, List.of(key), token, String.valueOf(requestRunningTtlSeconds()));
         if (result == null || result.isEmpty() || toLong(result.get(0)) != 1L) {
             String status = result != null && result.size() > 1 ? String.valueOf(result.get(1)) : "RUNNING";
             if ("DONE".equals(status)) {
@@ -72,11 +79,22 @@ public class RedisImageGenerationConcurrencyGate implements ImageGenerationConcu
         }
         AtomicBoolean closed = new AtomicBoolean(false);
         AtomicBoolean succeeded = new AtomicBoolean(false);
+        AtomicBoolean completing = new AtomicBoolean(false);
         return new RequestLease() {
             @Override
             public void markSucceeded() {
-                if (succeeded.compareAndSet(false, true)) {
-                    redis.execute(completeRequestScript, List.of(key), token, "86400");
+                if (succeeded.get() || !completing.compareAndSet(false, true)) {
+                    return;
+                }
+                try {
+                    Long completed = redis.execute(
+                            completeRequestScript, List.of(key), token, String.valueOf(resultTtlSeconds()));
+                    if (completed == null || completed != 1L) {
+                        throw new IllegalStateException("Image request completion token no longer owns the request");
+                    }
+                    succeeded.set(true);
+                } finally {
+                    completing.set(false);
                 }
             }
 
@@ -87,6 +105,16 @@ public class RedisImageGenerationConcurrencyGate implements ImageGenerationConcu
                 }
             }
         };
+    }
+
+    private int requestRunningTtlSeconds() {
+        long novel = properties.getNovelAi().getRequestTimeout().toSeconds();
+        long comfy = properties.getStComfy().getRequestTimeout().toSeconds();
+        return (int) Math.max(300L, Math.min(Integer.MAX_VALUE, Math.max(novel, comfy) + 60L));
+    }
+
+    private int resultTtlSeconds() {
+        return Math.max(60, properties.getResultTtlSeconds());
     }
 
     private static String sha256(String value) {

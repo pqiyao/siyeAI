@@ -104,8 +104,13 @@
 			}
 		},
 		methods: {
+			imageSourceToken(src) {
+				const value = String(src || '');
+				if (!value) return 'empty';
+				return value.length + ':' + value.slice(0, 24) + ':' + value.slice(-24);
+			},
 			imageStateKey(index) {
-				return String(index) + '::' + String(this.safeImageUrls[index] || '');
+				return String(index) + '::' + this.imageSourceToken(this.safeImageUrls[index]);
 			},
 			imageFailed(index) {
 				return this.imageFailedMap[this.imageStateKey(index)] === true;
@@ -114,7 +119,7 @@
 				return Number(this.imageRetryMap[this.imageStateKey(index)] || 0);
 			},
 			imageRenderKey(img, index) {
-				return String(index) + '_' + String(img || '') + '_' + this.imageRetryVersion(index);
+				return String(index) + '_' + this.imageSourceToken(img) + '_' + this.imageRetryVersion(index);
 			},
 			imageDisplaySrc(img, index) {
 				const src = String(img || '');

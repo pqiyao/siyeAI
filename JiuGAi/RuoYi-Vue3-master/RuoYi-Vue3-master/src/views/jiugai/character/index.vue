@@ -652,6 +652,12 @@
               <el-form-item label="情景 scenario">
                 <el-input v-model="form.scenario" type="textarea" :rows="4" placeholder="ST: scenario — 当前世界/背景" />
               </el-form-item>
+              <el-form-item label="生图外貌设定">
+                <el-input v-model="form.visualPrompt" type="textarea" :rows="4" maxlength="4000" show-word-limit placeholder="发型、发色、眼睛、服装、体型与固定配饰；仅用于角色生图" />
+              </el-form-item>
+              <el-form-item label="生图排除项">
+                <el-input v-model="form.visualNegativePrompt" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="不希望出现的外貌、服装或身份特征" />
+              </el-form-item>
               <el-form-item label="第一条消息">
                 <el-input v-model="form.firstMessage" type="textarea" :rows="4" placeholder="ST: first_mes — 开场白（与随机开场二选一逻辑在后端）" />
               </el-form-item>
@@ -1232,6 +1238,8 @@ const emptyForm = () => ({
   bio: '',
   persona: '',
   scenario: '',
+  visualPrompt: '',
+  visualNegativePrompt: '',
   firstMessage: '',
   alternateGreetingsJson: '[]',
   mesExample: '',

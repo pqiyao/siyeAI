@@ -30,7 +30,7 @@ public class AppImageGenerationSettings {
     private double denoise = 1.0d;
     private long requestTimeoutSeconds = 90L;
     private String defaultConsistencyMode = "balanced";
-    private List<String> allowedConsistencyModes = new ArrayList<>(List.of("free", "balanced", "strong"));
+    private List<String> allowedConsistencyModes = new ArrayList<>(List.of("free", "balanced"));
     private String defaultReferenceSourceMode = "latest_generated_first";
     private List<String> allowedReferenceSourceModes = new ArrayList<>(List.of("latest_generated_first", "avatar_only"));
     private boolean referenceImagesEnabled = true;

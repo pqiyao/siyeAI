@@ -20,6 +20,7 @@
 		"test:character-studio-v2": "node tests/characterStudioV2.contract.test.cjs",
 		"test:chat-settings-preset": "node tests/chatPresetForm.unit.test.cjs && node tests/chatSettingsPreset.contract.test.cjs"
 		,"test:chat-model-selection": "node tests/chatModelSelection.contract.test.cjs"
+		,"test:image-generation": "node tests/imageGenerationExperience.contract.test.cjs"
 		,"test:official-voice-selection": "node tests/officialVoiceSelection.contract.test.cjs"
 		,"test:voice-experience": "node tests/voiceExperience.contract.test.cjs"
 		,"test:user-ai-credential": "node tests/userAiCredential.contract.test.cjs"

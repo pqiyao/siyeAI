@@ -11,6 +11,7 @@ import com.example.sillyspringboot.ops.dto.AppFeatureSettings;
 import com.example.sillyspringboot.ops.dto.EntitlementPolicy;
 import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.ops.service.EntitlementPolicyService;
+import com.example.sillyspringboot.ops.service.ImageGenerationReadinessService;
 import com.example.sillyspringboot.ops.service.TtsVoiceTemplateService;
 import com.example.sillyspringboot.shared.crypto.SensitiveTextCrypto;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -62,6 +63,29 @@ class H5UserAiProviderPersistenceTest {
         assertThat(view.apiKeyMask()).isEqualTo("****cret");
     }
 
+    @Test
+    void systemModeReportsImageUnavailableWhenRuntimeReadinessFails() {
+        Fixture fixture = fixture("cipher-old", "stored-secret");
+        fixture.row.setProviderMode("system");
+        fixture.settings.setImageGenerationEnabled(true);
+        when(fixture.readiness.systemSnapshot()).thenReturn(new ImageGenerationReadinessService.Snapshot(
+                false,
+                "REDIS_UNAVAILABLE",
+                "系统生图 Redis 当前不可用",
+                "novelai",
+                true,
+                true,
+                false,
+                true,
+                false
+        ));
+
+        H5UserAiProviderService.UserAiProviderView view = fixture.service.getView("client");
+
+        assertThat(view.imageCanUse()).isFalse();
+        assertThat(view.imageDenyReason()).contains("Redis");
+    }
+
     private static Fixture fixture(String cipherText, String clearText) {
         H5ClientUidAuthService h5Auth = mock(H5ClientUidAuthService.class);
         AppTokenService tokenService = mock(AppTokenService.class);
@@ -71,6 +95,7 @@ class H5UserAiProviderPersistenceTest {
         EntitlementPolicyService entitlementPolicyService = mock(EntitlementPolicyService.class);
         AiRoutingService aiRoutingService = mock(AiRoutingService.class);
         TtsVoiceTemplateService ttsVoiceTemplateService = mock(TtsVoiceTemplateService.class);
+        ImageGenerationReadinessService imageGenerationReadinessService = mock(ImageGenerationReadinessService.class);
         SensitiveTextCrypto crypto = mock(SensitiveTextCrypto.class);
 
         AppUser user = new AppUser();
@@ -108,16 +133,19 @@ class H5UserAiProviderPersistenceTest {
                 entitlementPolicyService,
                 aiRoutingService,
                 ttsVoiceTemplateService,
+                imageGenerationReadinessService,
                 crypto,
                 new ObjectMapper()
         );
-        return new Fixture(service, mapper, row, crypto);
+        return new Fixture(service, mapper, row, settings, imageGenerationReadinessService, crypto);
     }
 
     private record Fixture(
             H5UserAiProviderService service,
             AppH5UserAiProviderMapper mapper,
             AppH5UserAiProvider row,
+            AppFeatureSettings settings,
+            ImageGenerationReadinessService readiness,
             SensitiveTextCrypto crypto
     ) {
     }

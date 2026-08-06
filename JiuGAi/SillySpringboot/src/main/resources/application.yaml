@@ -39,6 +39,8 @@ app:
     max-enabled-entries: ${APP_MEMORY_MAX_ENABLED_ENTRIES:80}
     max-constant-entries: ${APP_MEMORY_MAX_CONSTANT_ENTRIES:12}
     max-archived-entries: ${APP_MEMORY_MAX_ARCHIVED_ENTRIES:40}
+    max-entry-content-chars: ${APP_MEMORY_MAX_ENTRY_CONTENT_CHARS:300}
+    max-manual-entry-content-chars: ${APP_MEMORY_MAX_MANUAL_ENTRY_CONTENT_CHARS:1200}
     worldbook-sync-retry-enabled: ${APP_MEMORY_WORLDBOOK_SYNC_RETRY_ENABLED:true}
     worldbook-sync-retry-delay-seconds: ${APP_MEMORY_WORLDBOOK_SYNC_RETRY_DELAY_SECONDS:30}
     worldbook-sync-lease-seconds: ${APP_MEMORY_WORLDBOOK_SYNC_LEASE_SECONDS:120}
@@ -57,10 +59,10 @@ app:
       request-cooldown-seconds: ${APP_AUTH_PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS:60}
       max-attempts: ${APP_AUTH_PASSWORD_RESET_MAX_ATTEMPTS:5}
   chat:
-    global-concurrent-limit: ${APP_CHAT_GLOBAL_CONCURRENT_LIMIT:8}
+    global-concurrent-limit: ${APP_CHAT_GLOBAL_CONCURRENT_LIMIT:16}
     per-user-concurrent-limit: ${APP_CHAT_PER_USER_CONCURRENT_LIMIT:1}
     counter-ttl-seconds: ${APP_CHAT_COUNTER_TTL_SECONDS:300}
-    generation-worker-threads: ${APP_CHAT_GENERATION_WORKER_THREADS:8}
+    generation-worker-threads: ${APP_CHAT_GENERATION_WORKER_THREADS:16}
     generation-queue-capacity: ${APP_CHAT_GENERATION_QUEUE_CAPACITY:64}
     max-queue-wait-seconds: ${APP_CHAT_MAX_QUEUE_WAIT_SECONDS:60}
     sse-timeout-seconds: ${APP_CHAT_SSE_TIMEOUT_SECONDS:600}

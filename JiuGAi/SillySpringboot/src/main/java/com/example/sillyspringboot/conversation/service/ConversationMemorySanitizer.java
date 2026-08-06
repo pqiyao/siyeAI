@@ -85,7 +85,11 @@ public class ConversationMemorySanitizer {
         e.setConfidence(confidence);
         e.setSourceMessageFromId(fromId);
         e.setSourceMessageToId(toId);
-        e.setSourceMessageIdsJson(toJson(sanitizeSourceMessageIds(src.sourceMessageIds(), availableMessageIds)));
+        List<Long> sourceMessageIds = sanitizeSourceMessageIds(src.sourceMessageIds(), availableMessageIds);
+        if (sourceMessageIds.isEmpty()) {
+            return null;
+        }
+        e.setSourceMessageIdsJson(toJson(sourceMessageIds));
         return e;
     }
 
@@ -102,7 +106,10 @@ public class ConversationMemorySanitizer {
             boolean constantInjection,
             boolean manualPinned
     ) {
-        String safeContent = trimTo(normalizeText(content), Math.max(80, properties.getMaxEntryContentChars()));
+        String safeContent = trimTo(
+                normalizeText(content),
+                Math.max(80, properties.getMaxManualEntryContentChars())
+        );
         if (safeContent.isBlank() || isTrivialContent(safeContent)) {
             throw new IllegalArgumentException("记忆内容不能为空或过于简单");
         }

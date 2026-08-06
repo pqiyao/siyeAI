@@ -170,24 +170,24 @@
             #{sourceMessageIdsJson}, NULL
         )
         ON DUPLICATE KEY UPDATE
-            memory_type = VALUES(memory_type),
-            title = VALUES(title),
-            content = VALUES(content),
-            keywords_json = VALUES(keywords_json),
-            secondary_keywords_json = VALUES(secondary_keywords_json),
-            priority = VALUES(priority),
-            position = VALUES(position),
-            constant_injection = VALUES(constant_injection),
-            selective = VALUES(selective),
+            memory_type = CASE WHEN manual_pinned THEN memory_type ELSE VALUES(memory_type) END,
+            title = CASE WHEN manual_pinned THEN title ELSE VALUES(title) END,
+            content = CASE WHEN manual_pinned THEN content ELSE VALUES(content) END,
+            keywords_json = CASE WHEN manual_pinned THEN keywords_json ELSE VALUES(keywords_json) END,
+            secondary_keywords_json = CASE WHEN manual_pinned THEN secondary_keywords_json ELSE VALUES(secondary_keywords_json) END,
+            priority = CASE WHEN manual_pinned THEN priority ELSE VALUES(priority) END,
+            position = CASE WHEN manual_pinned THEN position ELSE VALUES(position) END,
+            constant_injection = CASE WHEN manual_pinned THEN constant_injection ELSE VALUES(constant_injection) END,
+            selective = CASE WHEN manual_pinned THEN selective ELSE VALUES(selective) END,
             enabled = CASE
                 WHEN manual_deleted OR manual_disabled THEN FALSE
                 WHEN manual_pinned THEN TRUE
                 ELSE VALUES(enabled)
             END,
-            confidence = VALUES(confidence),
-            source_message_from_id = VALUES(source_message_from_id),
-            source_message_to_id = VALUES(source_message_to_id),
-            source_message_ids_json = VALUES(source_message_ids_json),
+            confidence = CASE WHEN manual_pinned THEN confidence ELSE VALUES(confidence) END,
+            source_message_from_id = CASE WHEN manual_pinned THEN source_message_from_id ELSE VALUES(source_message_from_id) END,
+            source_message_to_id = CASE WHEN manual_pinned THEN source_message_to_id ELSE VALUES(source_message_to_id) END,
+            source_message_ids_json = CASE WHEN manual_pinned THEN source_message_ids_json ELSE VALUES(source_message_ids_json) END,
             retired_reason = CASE WHEN manual_deleted THEN retired_reason ELSE NULL END,
             retired_at = CASE WHEN manual_deleted THEN retired_at ELSE NULL END,
             deleted_at = CASE WHEN manual_deleted THEN deleted_at ELSE NULL END,
@@ -236,21 +236,21 @@
     <update id="disableByKey">
         UPDATE app_conversation_memory_entry
         SET enabled = 0,
-            manual_pinned = 0,
             updated_at = CURRENT_TIMESTAMP
         WHERE conversation_id = #{conversationId}
           AND entry_key = #{entryKey}
+          AND manual_pinned = FALSE
           AND deleted_at IS NULL
     </update>
 
     <update id="disableByKeyForBranch">
         UPDATE app_conversation_memory_entry
         SET enabled = 0,
-            manual_pinned = 0,
             updated_at = CURRENT_TIMESTAMP
         WHERE conversation_id = #{conversationId}
           AND branch_id = #{branchId}
           AND entry_key = #{entryKey}
+          AND manual_pinned = FALSE
           AND deleted_at IS NULL
     </update>
 

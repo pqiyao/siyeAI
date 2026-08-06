@@ -42,6 +42,9 @@ public class MemoryLlmProperties {
 
     private int maxEntryContentChars = 300;
 
+    /** 用户手工记忆完整保存上限；注入 Prompt 时由独立 token 预算再次裁剪。 */
+    private int maxManualEntryContentChars = 1200;
+
     private int maxKeywords = 8;
 
     private boolean worldbookSyncRetryEnabled = true;
@@ -178,6 +181,14 @@ public class MemoryLlmProperties {
 
     public void setMaxEntryContentChars(int maxEntryContentChars) {
         this.maxEntryContentChars = maxEntryContentChars;
+    }
+
+    public int getMaxManualEntryContentChars() {
+        return maxManualEntryContentChars;
+    }
+
+    public void setMaxManualEntryContentChars(int maxManualEntryContentChars) {
+        this.maxManualEntryContentChars = maxManualEntryContentChars;
     }
 
     public int getMaxKeywords() {

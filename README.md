@@ -159,13 +159,11 @@ SILLYTAVERN_API_KEY
 
 ## 社区
 
-欢迎通过 [Issues](https://github.com/pqiyao/siyeAI/issues) 提交问题和建议。
+欢迎通过 [Issues](https://github.com/pqiyao/siyeAI/issues) 提交问题和建议，也欢迎加入四叶酒馆官方群：**1083699002**。
 
-<details>
-  <summary>加入官方群</summary>
-  <br>
-  <img src="docs/images/official-qq-group.jpg" alt="四叶酒馆官方群" width="280">
-</details>
+<p align="center">
+  <img src="docs/images/official-qq-group.jpg" alt="四叶酒馆官方群二维码，QQ群号 1083699002" width="360">
+</p>
 
 ## 许可证
 

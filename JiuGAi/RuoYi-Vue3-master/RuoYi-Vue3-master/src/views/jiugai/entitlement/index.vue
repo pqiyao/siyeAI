@@ -113,6 +113,14 @@
           <el-switch v-model="runtimeSettings.userChatPresetEntryVisible" />
         </div>
 
+        <div class="runtime-item">
+          <div class="runtime-item__meta">
+            <div class="runtime-item__title">长期记忆功能</div>
+            <div class="runtime-item__desc">默认关闭。关闭后隐藏用户端入口，停止自动与手动整理，并禁止已有记忆进入聊天 Prompt；数据库中的记忆会保留，重新开启后恢复使用。</div>
+          </div>
+          <el-switch v-model="runtimeSettings.longTermMemoryEnabled" />
+        </div>
+
         <div class="runtime-item runtime-item--stack">
           <div class="runtime-item__meta">
             <div class="runtime-item__title">AI 回复语义标注</div>
@@ -483,6 +491,7 @@ const runtimeSettings = reactive({
   checkinEntryVisible: true,
   systemChatPresetEntryVisible: true,
   userChatPresetEntryVisible: true,
+  longTermMemoryEnabled: false,
   semanticAnnotationEnabled: false,
   semanticAnnotationRouteKey: '',
   userByokVipMinLevel: 0,
@@ -507,6 +516,7 @@ function applyRuntimeSettings(data) {
   runtimeSettings.checkinEntryVisible = data.checkinEntryVisible !== false
   runtimeSettings.systemChatPresetEntryVisible = data.systemChatPresetEntryVisible !== false
   runtimeSettings.userChatPresetEntryVisible = data.userChatPresetEntryVisible !== false
+  runtimeSettings.longTermMemoryEnabled = data.longTermMemoryEnabled === true
   runtimeSettings.semanticAnnotationEnabled = data.semanticAnnotationEnabled === true
   runtimeSettings.semanticAnnotationRouteKey = typeof data.semanticAnnotationRouteKey === 'string'
     ? data.semanticAnnotationRouteKey
@@ -609,6 +619,7 @@ function submitRuntimeSettings() {
     checkinEntryVisible: runtimeSettings.checkinEntryVisible,
     systemChatPresetEntryVisible: runtimeSettings.systemChatPresetEntryVisible,
     userChatPresetEntryVisible: runtimeSettings.userChatPresetEntryVisible,
+    longTermMemoryEnabled: runtimeSettings.longTermMemoryEnabled,
     semanticAnnotationEnabled: runtimeSettings.semanticAnnotationEnabled,
     semanticAnnotationRouteKey: runtimeSettings.semanticAnnotationRouteKey,
     userByokVipMinLevel: runtimeSettings.userByokVipMinLevel,

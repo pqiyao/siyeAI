@@ -5,8 +5,11 @@ import com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntr
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntryMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper;
 import com.example.sillyspringboot.conversation.config.MemoryLlmProperties;
+import com.example.sillyspringboot.integration.sillytavern.StWorldbookCatalogService;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -22,17 +25,34 @@ public class ConversationMemoryAttachService {
     private final AppConversationMemoryEntryMapper entryMapper;
     private final ConversationMemoryWorldbookSyncService syncService;
     private final MemoryLlmProperties properties;
+    private final StWorldbookCatalogService worldbookCatalogService;
+    private final AppFeatureSettingsService featureSettingsService;
 
     public ConversationMemoryAttachService(
             AppConversationMemoryMapper memoryMapper,
             AppConversationMemoryEntryMapper entryMapper,
             ConversationMemoryWorldbookSyncService syncService,
-            MemoryLlmProperties properties
+            MemoryLlmProperties properties,
+            StWorldbookCatalogService worldbookCatalogService
+    ) {
+        this(memoryMapper, entryMapper, syncService, properties, worldbookCatalogService, null);
+    }
+
+    @Autowired
+    public ConversationMemoryAttachService(
+            AppConversationMemoryMapper memoryMapper,
+            AppConversationMemoryEntryMapper entryMapper,
+            ConversationMemoryWorldbookSyncService syncService,
+            MemoryLlmProperties properties,
+            StWorldbookCatalogService worldbookCatalogService,
+            AppFeatureSettingsService featureSettingsService
     ) {
         this.memoryMapper = memoryMapper;
         this.entryMapper = entryMapper;
         this.syncService = syncService;
         this.properties = properties;
+        this.worldbookCatalogService = worldbookCatalogService;
+        this.featureSettingsService = featureSettingsService;
     }
 
     public List<String> attachMemoryWorldbookIfAvailable(long conversationId, List<String> worldNames) {
@@ -47,6 +67,9 @@ public class ConversationMemoryAttachService {
                     out.add(name.trim());
                 }
             }
+        }
+        if (!isLongTermMemoryEnabled()) {
+            return out.isEmpty() ? List.of() : List.copyOf(out);
         }
         AppConversationMemory memory = hasBranch(branchId)
                 ? memoryMapper.findByConversationBranchId(conversationId, branchId)
@@ -70,6 +93,10 @@ public class ConversationMemoryAttachService {
                     conversationId, branchId);
             return out.isEmpty() ? List.of() : List.copyOf(out);
         }
+        if (!worldbookExists(worldName)) {
+            markMissingWorldbook(conversationId, branchId, memory, worldName);
+            return out.isEmpty() ? List.of() : List.copyOf(out);
+        }
         out.add(worldName.trim());
         return List.copyOf(new ArrayList<>(out));
     }
@@ -79,12 +106,18 @@ public class ConversationMemoryAttachService {
     }
 
     public boolean hasSyncedMemoryWorldbook(long conversationId, Long branchId) {
+        if (!isLongTermMemoryEnabled()) {
+            return false;
+        }
         AppConversationMemory memory = hasBranch(branchId)
                 ? memoryMapper.findByConversationBranchId(conversationId, branchId)
                 : memoryMapper.findByConversationId(conversationId);
         return memory != null
                 && memory.getEnabledEntryCount() > 0
-                && ConversationMemoryWorldbookSyncService.SYNC_SUCCESS.equalsIgnoreCase(memory.getSyncStatus());
+                && ConversationMemoryWorldbookSyncService.SYNC_SUCCESS.equalsIgnoreCase(memory.getSyncStatus())
+                && memory.getMemoryWorldName() != null
+                && !memory.getMemoryWorldName().isBlank()
+                && worldbookExists(memory.getMemoryWorldName());
     }
 
     public String buildTailMemoryPromptFallbackIfWorldbookUnavailable(long conversationId) {
@@ -92,6 +125,9 @@ public class ConversationMemoryAttachService {
     }
 
     public String buildTailMemoryPromptFallbackIfWorldbookUnavailable(long conversationId, Long branchId) {
+        if (!isLongTermMemoryEnabled()) {
+            return "";
+        }
         if (hasSyncedMemoryWorldbook(conversationId, branchId)) {
             return "";
         }
@@ -103,6 +139,9 @@ public class ConversationMemoryAttachService {
     }
 
     public String buildTailMemoryPromptIfAvailable(long conversationId, Long branchId) {
+        if (!isLongTermMemoryEnabled()) {
+            return "";
+        }
         AppConversationMemory memory = hasBranch(branchId)
                 ? memoryMapper.findByConversationBranchId(conversationId, branchId)
                 : memoryMapper.findByConversationId(conversationId);
@@ -167,5 +206,38 @@ public class ConversationMemoryAttachService {
 
     private static boolean hasBranch(Long branchId) {
         return branchId != null && branchId > 0;
+    }
+
+    private boolean isLongTermMemoryEnabled() {
+        return featureSettingsService == null || featureSettingsService.isLongTermMemoryEnabled();
+    }
+
+    private boolean worldbookExists(String worldName) {
+        try {
+            return worldbookCatalogService.resolveWorldNames(List.of(worldName)).missing().isEmpty();
+        } catch (RuntimeException e) {
+            log.warn("memory worldbook availability check failed worldName={} cause={}",
+                    worldName, e.getMessage());
+            return false;
+        }
+    }
+
+    private void markMissingWorldbook(
+            long conversationId,
+            Long branchId,
+            AppConversationMemory memory,
+            String worldName
+    ) {
+        log.warn("memory worldbook is missing; database fallback enabled conversationId={} branchId={} worldName={}",
+                conversationId, branchId, worldName);
+        memoryMapper.updateSyncStatusForBranch(
+                conversationId,
+                hasBranch(branchId) ? branchId : 0L,
+                worldName,
+                memory.getEntryCount(),
+                memory.getEnabledEntryCount(),
+                ConversationMemoryWorldbookSyncService.SYNC_FAILED,
+                "memory worldbook missing from SillyTavern"
+        );
     }
 }

@@ -72,12 +72,13 @@ public class ConversationMemoryWorldbookSyncService {
     }
 
     public String syncWorldbook(long conversationId, Long branchId) {
-        String worldName = resolveWorldName(conversationId, branchId);
+        String baseWorldName = resolveWorldName(conversationId, branchId);
         AppConversationMemory memoryState = memoryMapper.findByConversationBranchId(
                 conversationId,
                 hasBranch(branchId) ? branchId : 0L
         );
         Long expectedMemoryRevision = memoryState == null ? null : memoryState.getMemoryRevision();
+        String worldName = versionedWorldName(baseWorldName, expectedMemoryRevision);
         List<AppConversationMemoryEntry> enabled = hasBranch(branchId)
                 ? entryMapper.listEnabledByConversationBranchId(conversationId, branchId)
                 : entryMapper.listEnabledByConversationId(conversationId);
@@ -87,8 +88,13 @@ public class ConversationMemoryWorldbookSyncService {
         int enabledCount = enabled == null ? 0 : enabled.size();
         if (enabledCount <= 0) {
             try {
-                stAdapter.deleteWorldbook(worldName);
-                updateSyncStatus(conversationId, branchId, worldName, entryCount, 0, SYNC_SKIPPED, null, expectedMemoryRevision);
+                boolean current = updateSyncStatus(
+                        conversationId, branchId, baseWorldName, entryCount, 0,
+                        SYNC_SKIPPED, null, expectedMemoryRevision
+                );
+                if (current) {
+                    deleteBranchWorldbooks(conversationId, branchId, Set.of(baseWorldName));
+                }
                 return worldName;
             } catch (Exception e) {
                 String err = trimTo(rootCauseMessage(e), 512);
@@ -104,7 +110,15 @@ public class ConversationMemoryWorldbookSyncService {
         Map<String, Object> data = buildWorldbookData(conversationId, branchId, worldName, selected);
         try {
             stAdapter.saveWorldbook(new StWorldbookSaveRequest(worldName, data));
-            updateSyncStatus(conversationId, branchId, worldName, entryCount, syncedEntryCount, SYNC_SUCCESS, null, expectedMemoryRevision);
+            boolean current = updateSyncStatus(
+                    conversationId, branchId, worldName, entryCount, syncedEntryCount,
+                    SYNC_SUCCESS, null, expectedMemoryRevision
+            );
+            if (!current) {
+                deleteWorldbookQuietly(conversationId, worldName);
+                return worldName;
+            }
+            deleteSupersededVersions(conversationId, branchId, baseWorldName, worldName);
             return worldName;
         } catch (Exception e) {
             String err = trimTo(rootCauseMessage(e), 512);
@@ -178,6 +192,42 @@ public class ConversationMemoryWorldbookSyncService {
         }
     }
 
+    public void deleteBranchWorldbooks(
+            long conversationId,
+            Long branchId,
+            Collection<String> knownWorldNames
+    ) {
+        String baseWorldName = resolveWorldName(conversationId, branchId);
+        Set<String> candidates = new LinkedHashSet<>();
+        if (knownWorldNames != null) {
+            knownWorldNames.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(String::trim)
+                    .filter(name -> !name.isBlank())
+                    .forEach(candidates::add);
+        }
+        try {
+            List<StWorldbookOptionDto> options = stAdapter.listWorldbooks();
+            if (options != null) {
+                for (StWorldbookOptionDto option : options) {
+                    if (option == null) {
+                        continue;
+                    }
+                    addIfVersionOf(candidates, option.fileId(), baseWorldName);
+                    addIfVersionOf(candidates, option.name(), baseWorldName);
+                }
+            }
+            for (String candidate : candidates) {
+                if (isVersionOf(candidate, baseWorldName)) {
+                    deleteWorldbookQuietly(conversationId, candidate);
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("memory branch worldbook cleanup deferred conversationId={} branchId={} cause={}",
+                    conversationId, branchId, rootCauseMessage(e));
+        }
+    }
+
     private static void validateWorldName(long conversationId, String worldName) {
         String expectedPrefix = "jg_memory_conv_" + conversationId + "_";
         if (worldName == null || worldName.isBlank() || !worldName.startsWith(expectedPrefix)) {
@@ -191,7 +241,7 @@ public class ConversationMemoryWorldbookSyncService {
         }
     }
 
-    private void updateSyncStatus(
+    private boolean updateSyncStatus(
             long conversationId,
             Long branchId,
             String worldName,
@@ -216,7 +266,7 @@ public class ConversationMemoryWorldbookSyncService {
                 log.info("memory worldbook sync status superseded conversationId={} branchId={} expectedRevision={} status={}",
                         conversationId, branchId, expectedMemoryRevision, syncStatus);
             }
-            return;
+            return updated > 0;
         }
         memoryMapper.updateSyncStatusForBranch(
                 conversationId,
@@ -227,6 +277,77 @@ public class ConversationMemoryWorldbookSyncService {
                 syncStatus,
                 syncError
         );
+        return true;
+    }
+
+    private void deleteSupersededVersions(
+            long conversationId,
+            Long branchId,
+            String baseWorldName,
+            String currentWorldName
+    ) {
+        try {
+            List<StWorldbookOptionDto> options = stAdapter.listWorldbooks();
+            if (options == null) {
+                return;
+            }
+            Set<String> stale = new LinkedHashSet<>();
+            for (StWorldbookOptionDto option : options) {
+                if (option == null) {
+                    continue;
+                }
+                addIfSuperseded(stale, option.fileId(), baseWorldName, currentWorldName);
+                addIfSuperseded(stale, option.name(), baseWorldName, currentWorldName);
+            }
+            for (String candidate : stale) {
+                deleteWorldbookQuietly(conversationId, candidate);
+            }
+        } catch (RuntimeException e) {
+            log.warn("memory superseded worldbook cleanup deferred conversationId={} branchId={} cause={}",
+                    conversationId, branchId, rootCauseMessage(e));
+        }
+    }
+
+    private void deleteWorldbookQuietly(long conversationId, String worldName) {
+        try {
+            validateWorldName(conversationId, worldName);
+            stAdapter.deleteWorldbook(worldName);
+        } catch (RuntimeException e) {
+            log.warn("memory worldbook cleanup deferred conversationId={} worldName={} cause={}",
+                    conversationId, worldName, rootCauseMessage(e));
+        }
+    }
+
+    private static void addIfVersionOf(Set<String> out, String candidate, String baseWorldName) {
+        if (isVersionOf(candidate, baseWorldName)) {
+            out.add(candidate.trim());
+        }
+    }
+
+    private static void addIfSuperseded(
+            Set<String> out,
+            String candidate,
+            String baseWorldName,
+            String currentWorldName
+    ) {
+        if (isVersionOf(candidate, baseWorldName) && !candidate.trim().equals(currentWorldName)) {
+            out.add(candidate.trim());
+        }
+    }
+
+    private static boolean isVersionOf(String candidate, String baseWorldName) {
+        if (candidate == null || baseWorldName == null) {
+            return false;
+        }
+        String value = candidate.trim();
+        return value.equals(baseWorldName) || value.startsWith(baseWorldName + "_r");
+    }
+
+    private static String versionedWorldName(String baseWorldName, Long revision) {
+        if (revision == null || revision < 0) {
+            return baseWorldName;
+        }
+        return baseWorldName + "_r" + revision;
     }
 
     private Map<String, Object> buildWorldbookData(long conversationId, Long branchId, String worldName, List<AppConversationMemoryEntry> entries) {

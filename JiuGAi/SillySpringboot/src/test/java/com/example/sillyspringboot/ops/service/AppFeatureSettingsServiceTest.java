@@ -31,11 +31,27 @@ class AppFeatureSettingsServiceTest {
         assertTrue((Boolean) service.toMap(service.getSettings()).get("systemChatPresetEntryVisible"));
         assertTrue(service.getSettings().isUserChatPresetEntryVisible());
         assertTrue((Boolean) service.toMap(service.getSettings()).get("userChatPresetEntryVisible"));
+        assertFalse(service.getSettings().isLongTermMemoryEnabled());
+        assertFalse((Boolean) service.toMap(service.getSettings()).get("longTermMemoryEnabled"));
         assertFalse(service.getSettings().isUserCharacterPromotionEnabled());
         assertFalse((Boolean) service.toMap(service.getSettings()).get("userCharacterPromotionEnabled"));
         assertFalse(service.getSettings().isSemanticAnnotationEnabled());
         assertFalse((Boolean) service.toMap(service.getSettings()).get("semanticAnnotationEnabled"));
         assertTrue(service.getSettings().getSemanticAnnotationRouteKey().isEmpty());
+    }
+
+    @Test
+    void longTermMemorySwitchCanBeDisabledAndIsSerialized() {
+        AppRuntimeSettingMapper mapper = mock(AppRuntimeSettingMapper.class);
+        AppFeatureSettingsService service = new AppFeatureSettingsService(mapper);
+
+        AppFeatureSettings saved = service.saveSettings(Map.of("longTermMemoryEnabled", false));
+
+        assertFalse(saved.isLongTermMemoryEnabled());
+        assertFalse((Boolean) service.toMap(saved).get("longTermMemoryEnabled"));
+        ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+        verify(mapper).upsert(eq("app_feature_settings"), json.capture());
+        assertTrue(json.getValue().contains("\"longTermMemoryEnabled\":false"));
     }
 
     @Test

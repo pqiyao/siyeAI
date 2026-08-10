@@ -61,4 +61,19 @@ class ApiV1AppRuntimeConfigTest {
                 .containsEntry("systemChatPresetEntryVisible", false)
                 .containsEntry("userChatPresetEntryVisible", false);
     }
+
+    @Test
+    void runtimeConfigExposesLongTermMemoryAsDisabledByDefault() {
+        AppFeatureSettingsService featureSettingsService = mock(AppFeatureSettingsService.class);
+        AppFeatureSettings settings = new AppFeatureSettings();
+        when(featureSettingsService.getSettings()).thenReturn(settings);
+        when(featureSettingsService.toMap(settings)).thenReturn(Map.of("longTermMemoryEnabled", false));
+        ApiV1AppController controller = new ApiV1AppController(
+                null, null, null, null, null, null, null, null, null, null, featureSettingsService
+        );
+
+        ApiV1Result<Map<String, Object>> result = controller.runtimeConfig();
+
+        assertThat(result.data()).containsEntry("longTermMemoryEnabled", false);
+    }
 }

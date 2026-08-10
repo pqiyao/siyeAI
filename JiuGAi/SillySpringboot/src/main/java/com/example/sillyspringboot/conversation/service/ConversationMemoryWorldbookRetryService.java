@@ -3,8 +3,10 @@ package com.example.sillyspringboot.conversation.service;
 import com.example.sillyspringboot.conversation.config.MemoryLlmProperties;
 import com.example.sillyspringboot.conversation.entity.AppConversationMemory;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -19,15 +21,27 @@ public class ConversationMemoryWorldbookRetryService {
     private final AppConversationMemoryMapper memoryMapper;
     private final ConversationMemoryWorldbookSyncService syncService;
     private final MemoryLlmProperties properties;
+    private final AppFeatureSettingsService featureSettingsService;
 
     public ConversationMemoryWorldbookRetryService(
             AppConversationMemoryMapper memoryMapper,
             ConversationMemoryWorldbookSyncService syncService,
             MemoryLlmProperties properties
     ) {
+        this(memoryMapper, syncService, properties, null);
+    }
+
+    @Autowired
+    public ConversationMemoryWorldbookRetryService(
+            AppConversationMemoryMapper memoryMapper,
+            ConversationMemoryWorldbookSyncService syncService,
+            MemoryLlmProperties properties,
+            AppFeatureSettingsService featureSettingsService
+    ) {
         this.memoryMapper = memoryMapper;
         this.syncService = syncService;
         this.properties = properties;
+        this.featureSettingsService = featureSettingsService;
     }
 
     @Scheduled(
@@ -35,7 +49,7 @@ public class ConversationMemoryWorldbookRetryService {
             fixedDelayString = "${app.memory.worldbook-sync-retry-interval-ms:30000}"
     )
     public void retryDueWorldbooks() {
-        if (!properties.isWorldbookSyncRetryEnabled()) {
+        if (!isLongTermMemoryEnabled() || !properties.isWorldbookSyncRetryEnabled()) {
             return;
         }
         LocalDateTime now = LocalDateTime.now();
@@ -81,5 +95,9 @@ public class ConversationMemoryWorldbookRetryService {
             cursor = cursor.getCause();
         }
         return cursor == null || cursor.getMessage() == null ? "" : cursor.getMessage();
+    }
+
+    private boolean isLongTermMemoryEnabled() {
+        return featureSettingsService == null || featureSettingsService.isLongTermMemoryEnabled();
     }
 }

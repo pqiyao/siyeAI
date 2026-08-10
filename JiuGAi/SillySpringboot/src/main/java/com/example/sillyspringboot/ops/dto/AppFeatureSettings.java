@@ -17,6 +17,7 @@ public class AppFeatureSettings {
     private boolean checkinEntryVisible = true;
     private boolean systemChatPresetEntryVisible = true;
     private boolean userChatPresetEntryVisible = true;
+    private boolean longTermMemoryEnabled = false;
     private boolean semanticAnnotationEnabled = false;
     private String semanticAnnotationRouteKey = "";
     private int userByokVipMinLevel = 0;
@@ -118,6 +119,14 @@ public class AppFeatureSettings {
 
     public void setUserChatPresetEntryVisible(boolean userChatPresetEntryVisible) {
         this.userChatPresetEntryVisible = userChatPresetEntryVisible;
+    }
+
+    public boolean isLongTermMemoryEnabled() {
+        return longTermMemoryEnabled;
+    }
+
+    public void setLongTermMemoryEnabled(boolean longTermMemoryEnabled) {
+        this.longTermMemoryEnabled = longTermMemoryEnabled;
     }
 
     public boolean isSemanticAnnotationEnabled() {

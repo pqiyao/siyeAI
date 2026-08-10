@@ -286,7 +286,7 @@ class ConversationMemoryStep13AcceptanceTest {
                 true,
                 "0.95",
                 List.of()
-        ), 1L, 2L);
+        ), 1L, 2L, List.of(1L, 2L));
 
         assertThat(source).isNotNull();
         String injected = "Long-term memory: " + source.getContent()
@@ -365,7 +365,8 @@ class ConversationMemoryStep13AcceptanceTest {
                 false,
                 enabled,
                 new BigDecimal(confidence),
-                replaces
+                replaces,
+                List.of(1L)
         );
     }
 

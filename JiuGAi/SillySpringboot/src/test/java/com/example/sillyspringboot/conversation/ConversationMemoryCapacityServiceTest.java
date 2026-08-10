@@ -402,7 +402,7 @@ class ConversationMemoryCapacityServiceTest {
                 .satisfies(restored -> {
                     assertThat(restored.isEnabled()).isTrue();
                     assertThat(restored.isManualPinned()).isTrue();
-                    assertThat(restored.getContent()).isEqualTo("重新整理后确认的身份事实。");
+                    assertThat(restored.getContent()).isEqualTo(entry.getContent());
                     assertThat(restored.getRetiredReason()).isNull();
                     assertThat(restored.getRetiredAt()).isNull();
                     assertThat(restored.getDeletedAt()).isNull();

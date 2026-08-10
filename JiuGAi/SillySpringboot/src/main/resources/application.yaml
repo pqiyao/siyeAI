@@ -30,7 +30,16 @@ app:
     llm-enabled: ${APP_MEMORY_LLM_ENABLED:true}
     max-messages: ${APP_MEMORY_MAX_MESSAGES:80}
     max-transcript-chars: ${APP_MEMORY_MAX_TRANSCRIPT_CHARS:14000}
+    incremental-extraction-enabled: ${APP_MEMORY_INCREMENTAL_EXTRACTION_ENABLED:true}
+    incremental-rollout-percent: ${APP_MEMORY_INCREMENTAL_ROLLOUT_PERCENT:10}
+    incremental-overlap-messages: ${APP_MEMORY_INCREMENTAL_OVERLAP_MESSAGES:12}
+    full-recalibration-message-interval: ${APP_MEMORY_FULL_RECALIBRATION_MESSAGE_INTERVAL:80}
+    incremental-max-relevant-entries: ${APP_MEMORY_INCREMENTAL_MAX_RELEVANT_ENTRIES:40}
     fallback-to-heuristic: ${APP_MEMORY_FALLBACK_HEURISTIC:true}
+    auto-every-messages: ${APP_MEMORY_AUTO_EVERY_MESSAGES:20}
+    auto-min-minutes-between: ${APP_MEMORY_AUTO_MIN_MINUTES_BETWEEN:60}
+    auto-min-visible-messages: ${APP_MEMORY_AUTO_MIN_VISIBLE_MESSAGES:6}
+    history-rebuild-cooldown-minutes: ${APP_MEMORY_HISTORY_REBUILD_COOLDOWN_MINUTES:10}
     auto-refresh-worker-threads: ${APP_MEMORY_AUTO_REFRESH_WORKER_THREADS:2}
     auto-refresh-queue-capacity: ${APP_MEMORY_AUTO_REFRESH_QUEUE_CAPACITY:64}
     auto-refresh-lease-seconds: ${APP_MEMORY_AUTO_REFRESH_LEASE_SECONDS:900}

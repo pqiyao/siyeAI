@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.conversation.mapper.ConversationMemoryRefreshMetricMapper">
+
+    <insert id="insert">
+        INSERT INTO app_conversation_memory_refresh_metric (
+            request_id, conversation_id, branch_id, refresh_mode, extraction_mode, outcome,
+            input_message_count, visible_message_count, existing_entry_count,
+            model_output_entry_count, accepted_entry_count, rejected_entry_count,
+            conflict_count, disable_requested_count, duration_ms
+        ) VALUES (
+            #{requestId}, #{conversationId}, #{branchId}, #{refreshMode}, #{extractionMode}, #{outcome},
+            #{inputMessageCount}, #{visibleMessageCount}, #{existingEntryCount},
+            #{modelOutputEntryCount}, #{acceptedEntryCount}, #{rejectedEntryCount},
+            #{conflictCount}, #{disableRequestedCount}, #{durationMs}
+        )
+    </insert>
+</mapper>

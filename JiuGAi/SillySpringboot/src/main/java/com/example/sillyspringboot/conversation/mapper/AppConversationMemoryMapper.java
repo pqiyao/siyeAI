@@ -155,4 +155,7 @@ public interface AppConversationMemoryMapper {
     );
 
     void deleteByConversationId(@Param("conversationId") long conversationId);
+
+    int deleteByConversationBranchId(@Param("conversationId") long conversationId,
+                                     @Param("branchId") long branchId);
 }

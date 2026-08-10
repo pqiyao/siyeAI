@@ -122,6 +122,7 @@ public class AdminH5UserLifecycleService {
         cleanupMapper.deleteConversationBindingsByUser(userId);
         cleanupMapper.deleteConversationArchivesByUser(userId);
         cleanupMapper.deleteConversationMemoryEntriesByUser(userId);
+        cleanupMapper.deleteConversationMemoryRefreshMetricsByUser(userId);
         cleanupMapper.deleteConversationMemoriesByUser(userId);
         cleanupMapper.deleteConversationIdempotencyByUser(userId);
         cleanupMapper.deleteConversationBranchesByUser(userId);

@@ -29,17 +29,20 @@ public class ConversationBranchService {
     private final AppConversationBranchMapper branchMapper;
     private final AppMessageMapper messageMapper;
     private final AppMessageSegmentMapper segmentMapper;
+    private final ConversationMemoryCleanupService memoryCleanupService;
 
     public ConversationBranchService(
             AppConversationMapper conversationMapper,
             AppConversationBranchMapper branchMapper,
             AppMessageMapper messageMapper,
-            AppMessageSegmentMapper segmentMapper
+            AppMessageSegmentMapper segmentMapper,
+            ConversationMemoryCleanupService memoryCleanupService
     ) {
         this.conversationMapper = conversationMapper;
         this.branchMapper = branchMapper;
         this.messageMapper = messageMapper;
         this.segmentMapper = segmentMapper;
+        this.memoryCleanupService = memoryCleanupService;
     }
 
     @Transactional
@@ -229,6 +232,11 @@ public class ConversationBranchService {
             conversation.setActiveBranchId(fallback.getId());
             branchMapper.touch(fallback.getId());
         }
+        memoryCleanupService.clearBranchMemory(
+                conversation.getId(),
+                branchId,
+                conversation.getUserId()
+        );
         return fallback;
     }
 

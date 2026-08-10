@@ -4,16 +4,14 @@ import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
 import com.example.sillyspringboot.conversation.config.MemoryLlmProperties;
 import com.example.sillyspringboot.conversation.entity.AppConversationMemory;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,8 +30,8 @@ public class ConversationMemoryAutoRefreshService {
     private final AppConversationMemoryService memoryService;
     private final MemoryLlmProperties properties;
     private final ConversationMemoryRefreshLeaseManager leaseManager;
+    private final AppFeatureSettingsService featureSettingsService;
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
-    private final Map<String, Runnable> deferredHistoryReconciles = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
 
     public ConversationMemoryAutoRefreshService(
@@ -43,11 +41,24 @@ public class ConversationMemoryAutoRefreshService {
             MemoryLlmProperties properties,
             ConversationMemoryRefreshLeaseManager leaseManager
     ) {
+        this(messageMapper, memoryMapper, memoryService, properties, leaseManager, null);
+    }
+
+    @Autowired
+    public ConversationMemoryAutoRefreshService(
+            AppMessageMapper messageMapper,
+            AppConversationMemoryMapper memoryMapper,
+            AppConversationMemoryService memoryService,
+            MemoryLlmProperties properties,
+            ConversationMemoryRefreshLeaseManager leaseManager,
+            AppFeatureSettingsService featureSettingsService
+    ) {
         this.messageMapper = messageMapper;
         this.memoryMapper = memoryMapper;
         this.memoryService = memoryService;
         this.properties = properties;
         this.leaseManager = leaseManager;
+        this.featureSettingsService = featureSettingsService;
         int workerThreads = Math.max(1, properties.getAutoRefreshWorkerThreads());
         int queueCapacity = Math.max(1, properties.getAutoRefreshQueueCapacity());
         AtomicInteger threadIndex = new AtomicInteger();
@@ -74,66 +85,30 @@ public class ConversationMemoryAutoRefreshService {
     }
 
     public void maybeTriggerAfterGenerationSuccess(long conversationId, Long branchId) {
-        if (conversationId <= 0) {
+        if (conversationId <= 0 || !isLongTermMemoryEnabled()) {
             return;
         }
         String key = memoryKey(conversationId, branchId);
-        submit(key, () -> runMaybeRefresh(conversationId, branchId), false);
+        submit(key, () -> runMaybeRefresh(conversationId, branchId));
     }
 
     public void triggerAfterHistoryChange(long conversationId, long branchId) {
         if (conversationId <= 0 || branchId <= 0) {
             return;
         }
-        boolean shouldRebuild;
         try {
-            // When called by edit/delete/swipe/regenerate, this joins the message
-            // transaction so obsolete generated memories disappear atomically.
-            shouldRebuild = memoryService.invalidateConversationMemoryAfterHistoryChange(conversationId, branchId);
+            // History edits only invalidate generated entries. The next eligible
+            // automatic or manual refresh performs the full rebuild.
+            memoryService.invalidateConversationMemoryAfterHistoryChange(conversationId, branchId);
         } catch (RuntimeException ex) {
             log.error("conversation memory history invalidation failed conversationId={} branchId={}",
                     conversationId, branchId, ex);
             throw ex;
         }
-        Runnable action = () -> queueHistoryRebuild(conversationId, branchId, shouldRebuild);
-        try {
-            if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-                action.run();
-                return;
-            }
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    action.run();
-                }
-            });
-        } catch (RuntimeException ex) {
-            log.warn("conversation memory history scheduling failed conversationId={} branchId={}",
-                    conversationId, branchId, ex);
-        }
-    }
-
-    private void queueHistoryRebuild(long conversationId, long branchId, boolean shouldRebuild) {
-        String key = memoryKey(conversationId, branchId);
-        submit(
-                key,
-                () -> runHistoryReconcile(conversationId, branchId, shouldRebuild),
-                true
-        );
-    }
-
-    private void runHistoryReconcile(long conversationId, long branchId, boolean shouldRebuild) {
-        runWithLease(conversationId, branchId, () -> {
-            memoryService.reconcileConversationMemoryAfterHistoryChange(
-                    conversationId,
-                    branchId,
-                    shouldRebuild
-            );
-        });
     }
 
     private void runMaybeRefresh(long conversationId, Long branchId) {
-        if (!shouldRefresh(conversationId, branchId)) {
+        if (!isLongTermMemoryEnabled() || !shouldRefresh(conversationId, branchId)) {
             return;
         }
         runWithLease(
@@ -160,11 +135,8 @@ public class ConversationMemoryAutoRefreshService {
         }
     }
 
-    private void submit(String key, Runnable action, boolean keepLatestWhenBusy) {
+    private void submit(String key, Runnable action) {
         if (!inFlight.add(key)) {
-            if (keepLatestWhenBusy) {
-                deferredHistoryReconciles.put(key, action);
-            }
             return;
         }
         try {
@@ -175,10 +147,6 @@ public class ConversationMemoryAutoRefreshService {
                     log.warn("conversation memory background task failed key={}", key, ex);
                 } finally {
                     inFlight.remove(key);
-                    Runnable deferred = deferredHistoryReconciles.remove(key);
-                    if (deferred != null) {
-                        submit(key, deferred, true);
-                    }
                 }
             });
         } catch (RejectedExecutionException ex) {
@@ -195,6 +163,9 @@ public class ConversationMemoryAutoRefreshService {
     }
 
     public boolean shouldRefresh(long conversationId, Long branchId) {
+        if (!isLongTermMemoryEnabled()) {
+            return false;
+        }
         int visibleCount = hasBranch(branchId)
                 ? messageMapper.countMemorySourceByConversationBranchId(conversationId, branchId)
                 : messageMapper.countMemorySourceByConversationId(conversationId);
@@ -216,8 +187,23 @@ public class ConversationMemoryAutoRefreshService {
         if (updatedAt == null) {
             return true;
         }
-        Duration minimumInterval = Duration.ofMinutes(Math.max(0, properties.getAutoMinMinutesBetween()));
+        int cooldownMinutes = hasPendingHistoryRebuild(memory)
+                ? properties.getHistoryRebuildCooldownMinutes()
+                : properties.getAutoMinMinutesBetween();
+        Duration minimumInterval = Duration.ofMinutes(Math.max(0, cooldownMinutes));
         return !updatedAt.plus(minimumInterval).isAfter(LocalDateTime.now());
+    }
+
+    private static boolean hasPendingHistoryRebuild(AppConversationMemory memory) {
+        return memory != null
+                && memory.getMemoryRevision() > 0
+                && memory.getAppliedSourceRevision() == 0
+                && memory.getLastSourceMessageId() == null
+                && memory.getLastRefreshedMessageCount() == 0;
+    }
+
+    private boolean isLongTermMemoryEnabled() {
+        return featureSettingsService == null || featureSettingsService.isLongTermMemoryEnabled();
     }
 
     private static String memoryKey(long conversationId, Long branchId) {
@@ -230,7 +216,6 @@ public class ConversationMemoryAutoRefreshService {
 
     @PreDestroy
     public void shutdown() {
-        deferredHistoryReconciles.clear();
         inFlight.clear();
         executor.shutdownNow();
     }

@@ -11,6 +11,7 @@ public record ConversationMemoryRefreshResult(
         String memoryWorldName,
         String syncStatus,
         String syncError,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        String refreshMode
 ) {
 }

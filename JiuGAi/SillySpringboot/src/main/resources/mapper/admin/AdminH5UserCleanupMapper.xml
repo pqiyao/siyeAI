@@ -212,6 +212,17 @@
         )
     </delete>
 
+    <delete id="deleteConversationMemoryRefreshMetricsByUser">
+        DELETE FROM app_conversation_memory_refresh_metric
+        WHERE conversation_id IN (
+            SELECT id FROM (
+                SELECT id
+                FROM app_conversation
+                WHERE user_id = #{userId}
+            ) c
+        )
+    </delete>
+
     <delete id="deleteConversationMemoriesByUser">
         DELETE FROM app_conversation_memory
         WHERE conversation_id IN (

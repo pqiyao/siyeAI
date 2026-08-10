@@ -11,6 +11,7 @@ import com.example.sillyspringboot.conversation.entity.AppConversationMemory;
 import com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntry;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntryMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapper;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
@@ -59,6 +60,7 @@ public class AppConversationMemoryService {
     private final MemoryLlmProperties memoryLlmProperties;
     private final AppConversationBranchMapper branchMapper;
     private final ConversationMemoryApplyService memoryApplyService;
+    private final AppFeatureSettingsService featureSettingsService;
     private final ReentrantLock[] operationLocks = createOperationLocks(256);
 
     public AppConversationMemoryService(
@@ -80,6 +82,33 @@ public class AppConversationMemoryService {
                 memoryCapacityService,
                 memoryLlmProperties,
                 null,
+                null,
+                null
+        );
+    }
+
+    public AppConversationMemoryService(
+            AppConversationMemoryMapper memoryMapper,
+            AppConversationMemoryEntryMapper entryMapper,
+            AppMessageMapper messageMapper,
+            ConversationMemoryLlmService memoryLlmService,
+            ConversationMemorySanitizer memorySanitizer,
+            ConversationMemoryWorldbookSyncService worldbookSyncService,
+            ConversationMemoryCapacityService memoryCapacityService,
+            MemoryLlmProperties memoryLlmProperties,
+            AppConversationBranchMapper branchMapper,
+            ConversationMemoryApplyService memoryApplyService) {
+        this(
+                memoryMapper,
+                entryMapper,
+                messageMapper,
+                memoryLlmService,
+                memorySanitizer,
+                worldbookSyncService,
+                memoryCapacityService,
+                memoryLlmProperties,
+                branchMapper,
+                memoryApplyService,
                 null
         );
     }
@@ -95,7 +124,8 @@ public class AppConversationMemoryService {
             ConversationMemoryCapacityService memoryCapacityService,
             MemoryLlmProperties memoryLlmProperties,
             AppConversationBranchMapper branchMapper,
-            ConversationMemoryApplyService memoryApplyService) {
+            ConversationMemoryApplyService memoryApplyService,
+            AppFeatureSettingsService featureSettingsService) {
         this.memoryMapper = memoryMapper;
         this.entryMapper = entryMapper;
         this.messageMapper = messageMapper;
@@ -106,6 +136,7 @@ public class AppConversationMemoryService {
         this.memoryLlmProperties = memoryLlmProperties;
         this.branchMapper = branchMapper;
         this.memoryApplyService = memoryApplyService;
+        this.featureSettingsService = featureSettingsService;
     }
 
     public ConversationMemoryRefreshResult refreshConversationMemory(long conversationId) {
@@ -113,13 +144,14 @@ public class AppConversationMemoryService {
     }
 
     public ConversationMemoryRefreshResult refreshConversationMemory(long conversationId, Long branchId) {
+        ensureLongTermMemoryEnabled();
         String key = memoryKey(conversationId, branchId);
         ReentrantLock lock = operationLock(key);
         if (!lock.tryLock()) {
-            return toRefreshResult(conversationId, branchId);
+            return toRefreshResult(conversationId, branchId, "CURRENT_STATE");
         }
         try {
-            return refreshConversationMemoryInternal(conversationId, branchId);
+            return refreshConversationMemoryInternal(conversationId, branchId, false, "AUTO");
         } finally {
             releaseOperationLock(lock);
         }
@@ -136,7 +168,7 @@ public class AppConversationMemoryService {
         try {
             syncWorldbookKeepingFailureState(conversationId, branchId);
             if (shouldRebuild) {
-                refreshConversationMemoryInternal(conversationId, branchId);
+                refreshConversationMemoryInternal(conversationId, branchId, true, "HISTORY_REBUILD");
             }
         } finally {
             releaseOperationLock(lock);
@@ -144,6 +176,7 @@ public class AppConversationMemoryService {
     }
 
     public ConversationMemoryRefreshResult refreshConversationMemoryManual(long conversationId, long branchId) {
+        ensureLongTermMemoryEnabled();
         int visibleCount = countVisibleMemorySources(conversationId, branchId);
         int minimum = Math.max(1, memoryLlmProperties.getAutoMinVisibleMessages());
         if (visibleCount < minimum) {
@@ -176,7 +209,7 @@ public class AppConversationMemoryService {
                         "整理过于频繁，请稍后再试"
                 );
             }
-            return refreshConversationMemoryInternal(conversationId, branchId);
+            return refreshConversationMemoryInternal(conversationId, branchId, true, "MANUAL");
         } finally {
             if (acquired) {
                 memoryMapper.releaseManualRefresh(conversationId, branchId, token);
@@ -250,9 +283,19 @@ public class AppConversationMemoryService {
         }
     }
 
-    private ConversationMemoryRefreshResult refreshConversationMemoryInternal(long conversationId, Long branchId) {
+    private ConversationMemoryRefreshResult refreshConversationMemoryInternal(
+            long conversationId,
+            Long branchId,
+            boolean forceFullExtraction,
+            String refreshMode
+    ) {
         if (hasBranch(branchId) && branchMapper != null && memoryApplyService != null) {
-            return refreshConversationMemoryWithRevisionFence(conversationId, branchId);
+            return refreshConversationMemoryWithRevisionFence(
+                    conversationId,
+                    branchId,
+                    forceFullExtraction,
+                    refreshMode
+            );
         }
         MemorySourceVersion expectedVersion = captureMemorySourceVersion(conversationId, branchId);
         StructuredRefreshOutcome structuredOutcome = refreshStructuredEntries(
@@ -261,7 +304,7 @@ public class AppConversationMemoryService {
                 expectedVersion
         );
         if (structuredOutcome == StructuredRefreshOutcome.APPLIED) {
-            return toRefreshResult(conversationId, branchId);
+            return toRefreshResult(conversationId, branchId, "STRUCTURED_APPLIED");
         }
         if (structuredOutcome == StructuredRefreshOutcome.STALE
                 || !isMemorySourceVersionCurrent(conversationId, branchId, expectedVersion)) {
@@ -278,7 +321,7 @@ public class AppConversationMemoryService {
             } else {
                 memoryMapper.upsertRollup(conversationId, r.summaryPreview(), r.factsCount());
             }
-            return toRefreshResult(conversationId, branchId);
+            return toRefreshResult(conversationId, branchId, "SUMMARY_ONLY");
         }
         if (!isMemorySourceVersionCurrent(conversationId, branchId, expectedVersion)) {
             return staleRefreshResult(conversationId, branchId);
@@ -288,14 +331,26 @@ public class AppConversationMemoryService {
         } else {
             touchRefresh(conversationId, branchId);
         }
-        return toRefreshResult(conversationId, branchId);
+        return toRefreshResult(
+                conversationId,
+                branchId,
+                memoryLlmProperties.isFallbackToHeuristic() ? "HEURISTIC_ONLY" : "NO_CHANGE"
+        );
     }
 
     private ConversationMemoryRefreshResult refreshConversationMemoryWithRevisionFence(
             long conversationId,
-            long branchId
+            long branchId,
+            boolean forceFullExtraction,
+            String refreshMode
     ) {
-        ConversationMemoryRefreshSnapshot snapshot = captureStableRefreshSnapshot(conversationId, branchId);
+        long refreshStartedNanos = System.nanoTime();
+        ConversationMemoryRefreshSnapshot snapshot = captureStableRefreshSnapshot(
+                conversationId,
+                branchId,
+                forceFullExtraction,
+                refreshMode
+        );
         Optional<StructuredMemoryExtraction> structured = memoryLlmService.tryStructuredMemoryExtract(snapshot);
         if (structured.isPresent()) {
             ConversationMemoryApplyService.ApplyStatus status =
@@ -304,30 +359,55 @@ public class AppConversationMemoryService {
                 return staleRefreshResult(conversationId, branchId);
             }
             syncWorldbookKeepingFailureState(conversationId, branchId);
-            return toRefreshResult(conversationId, branchId);
+            return toRefreshResult(conversationId, branchId, "STRUCTURED_APPLIED");
         }
 
         Optional<ConversationMemoryLlmService.MemoryRollup> rollup = memoryLlmService.tryLlmRollup(snapshot);
         if (rollup.isPresent()) {
             ConversationMemoryLlmService.MemoryRollup value = rollup.get();
-            if (memoryApplyService.applyRollup(snapshot, value.summaryPreview(), value.factsCount())
+            if (memoryApplyService.applyRollup(
+                    snapshot,
+                    value.summaryPreview(),
+                    value.factsCount(),
+                    value.requestId(),
+                    value.durationMs(),
+                    "SUMMARY_ONLY"
+            )
                     == ConversationMemoryApplyService.ApplyStatus.STALE) {
                 return staleRefreshResult(conversationId, branchId);
             }
-            return toRefreshResult(conversationId, branchId);
+            return toRefreshResult(conversationId, branchId, "SUMMARY_ONLY");
         }
 
         RollupPreview fallback = memoryLlmProperties.isFallbackToHeuristic()
                 ? buildHeuristicRollup(snapshot.messages())
                 : new RollupPreview(snapshot.currentSummaryPreview(), snapshot.currentFactsCount());
-        if (memoryApplyService.applyRollup(snapshot, fallback.summaryPreview(), fallback.factsCount())
+        String fallbackOutcome = memoryLlmProperties.isFallbackToHeuristic() ? "HEURISTIC_ONLY" : "NO_CHANGE";
+        long fallbackDurationMs = Math.max(0L, (System.nanoTime() - refreshStartedNanos) / 1_000_000L);
+        if (memoryApplyService.applyRollup(
+                snapshot,
+                fallback.summaryPreview(),
+                fallback.factsCount(),
+                null,
+                fallbackDurationMs,
+                fallbackOutcome
+        )
                 == ConversationMemoryApplyService.ApplyStatus.STALE) {
             return staleRefreshResult(conversationId, branchId);
         }
-        return toRefreshResult(conversationId, branchId);
+        return toRefreshResult(
+                conversationId,
+                branchId,
+                memoryLlmProperties.isFallbackToHeuristic() ? "HEURISTIC_ONLY" : "NO_CHANGE"
+        );
     }
 
-    private ConversationMemoryRefreshSnapshot captureStableRefreshSnapshot(long conversationId, long branchId) {
+    private ConversationMemoryRefreshSnapshot captureStableRefreshSnapshot(
+            long conversationId,
+            long branchId,
+            boolean forceFullExtraction,
+            String refreshMode
+    ) {
         memoryMapper.ensureForBranch(conversationId, branchId);
         for (int attempt = 0; attempt < 3; attempt++) {
             com.example.sillyspringboot.conversation.entity.AppConversationBranch beforeBranch =
@@ -359,39 +439,212 @@ public class AppConversationMemoryService {
                 continue;
             }
 
-            List<ConversationMemoryRefreshSnapshot.MessageSnapshot> messages = sourceRows == null
+            int visibleMessageCount = messageMapper.countMemorySourceByConversationBranchId(conversationId, branchId);
+            List<AppMessage> safeSourceRows = sourceRows == null
                     ? List.of()
                     : sourceRows.stream()
                     .filter(java.util.Objects::nonNull)
+                    .toList();
+            ExtractionWindow extractionWindow = chooseExtractionWindow(
+                    conversationId,
+                    branchId,
+                    afterMemory,
+                    visibleMessageCount,
+                    safeSourceRows,
+                    forceFullExtraction
+            );
+            List<ConversationMemoryRefreshSnapshot.MessageSnapshot> messages = extractionWindow.messages().stream()
+                    .filter(java.util.Objects::nonNull)
                     .map(ConversationMemoryRefreshSnapshot.MessageSnapshot::from)
                     .toList();
-            List<ConversationMemoryRefreshSnapshot.EntrySnapshot> existingEntries = new ArrayList<>();
+            List<AppConversationMemoryEntry> allExistingEntries = new ArrayList<>();
             if (activeEntries != null) {
                 activeEntries.stream()
                         .filter(java.util.Objects::nonNull)
-                        .map(ConversationMemoryRefreshSnapshot.EntrySnapshot::from)
-                        .forEach(existingEntries::add);
+                        .forEach(allExistingEntries::add);
             }
             if (deletedEntries != null) {
                 deletedEntries.stream()
                         .filter(java.util.Objects::nonNull)
-                        .map(ConversationMemoryRefreshSnapshot.EntrySnapshot::from)
-                        .forEach(existingEntries::add);
+                        .forEach(allExistingEntries::add);
             }
+            List<ConversationMemoryRefreshSnapshot.EntrySnapshot> existingEntries = selectExistingEntries(
+                    allExistingEntries,
+                    extractionWindow,
+                    afterMemory.getLastSourceMessageId()
+            ).stream().map(ConversationMemoryRefreshSnapshot.EntrySnapshot::from).toList();
             return new ConversationMemoryRefreshSnapshot(
                     conversationId,
                     branchId,
                     afterBranch.getMemorySourceRevision(),
                     afterMemory.getManualRevision(),
                     afterMemory.getMemoryRevision(),
-                    messageMapper.countMemorySourceByConversationBranchId(conversationId, branchId),
+                    visibleMessageCount,
                     nullToEmpty(afterMemory.getSummaryPreview()),
                     afterMemory.getFactsCount(),
                     messages,
-                    existingEntries
+                    existingEntries,
+                    extractionWindow.mode(),
+                    refreshMode
             );
         }
         throw new BusinessException(ErrorCode.SERVICE_BUSY, "聊天内容正在变化，请稍后重新整理记忆");
+    }
+
+    private ExtractionWindow chooseExtractionWindow(
+            long conversationId,
+            long branchId,
+            AppConversationMemory memory,
+            int visibleMessageCount,
+            List<AppMessage> sourceRows,
+            boolean forceFullExtraction
+    ) {
+        if (!canUseIncrementalExtraction(
+                conversationId,
+                branchId,
+                memory,
+                visibleMessageCount,
+                sourceRows,
+                forceFullExtraction
+        )) {
+            return new ExtractionWindow("FULL", sourceRows);
+        }
+
+        Long cursor = memory.getLastSourceMessageId();
+        int cursorIndex = -1;
+        for (int i = 0; i < sourceRows.size(); i++) {
+            if (java.util.Objects.equals(cursor, sourceRows.get(i).getId())) {
+                cursorIndex = i;
+                break;
+            }
+        }
+        if (cursorIndex < 0 || cursorIndex >= sourceRows.size() - 1) {
+            return new ExtractionWindow("FULL", sourceRows);
+        }
+        int overlap = Math.max(2, memoryLlmProperties.getIncrementalOverlapMessages());
+        int start = Math.max(0, cursorIndex - overlap + 1);
+        return new ExtractionWindow("INCREMENTAL", List.copyOf(sourceRows.subList(start, sourceRows.size())));
+    }
+
+    private boolean canUseIncrementalExtraction(
+            long conversationId,
+            long branchId,
+            AppConversationMemory memory,
+            int visibleMessageCount,
+            List<AppMessage> sourceRows,
+            boolean forceFullExtraction
+    ) {
+        if (forceFullExtraction || !memoryLlmProperties.isIncrementalExtractionEnabled()) {
+            return false;
+        }
+        int rolloutPercent = Math.max(0, Math.min(100, memoryLlmProperties.getIncrementalRolloutPercent()));
+        if (rolloutPercent <= 0 || stableIncrementalBucket(conversationId, branchId) >= rolloutPercent) {
+            return false;
+        }
+        if (memory == null || memory.getLastSourceMessageId() == null) {
+            return false;
+        }
+        int previousCount = memory.getLastRefreshedMessageCount();
+        if (previousCount <= 0 || visibleMessageCount <= previousCount) {
+            return false;
+        }
+        int interval = Math.max(1, memoryLlmProperties.getFullRecalibrationMessageInterval());
+        if (previousCount / interval != visibleMessageCount / interval) {
+            return false;
+        }
+        return sourceRows.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(AppMessage::getId)
+                .anyMatch(memory.getLastSourceMessageId()::equals);
+    }
+
+    static int stableIncrementalBucket(long conversationId, long branchId) {
+        long mixed = conversationId * 0x9E3779B97F4A7C15L + branchId * 0xC2B2AE3D27D4EB4FL;
+        mixed ^= mixed >>> 33;
+        mixed *= 0xFF51AFD7ED558CCDL;
+        mixed ^= mixed >>> 33;
+        return (int) Math.floorMod(mixed, 100L);
+    }
+
+    private List<AppConversationMemoryEntry> selectExistingEntries(
+            List<AppConversationMemoryEntry> existingEntries,
+            ExtractionWindow extractionWindow,
+            Long cursorMessageId
+    ) {
+        if (!"INCREMENTAL".equals(extractionWindow.mode()) || existingEntries.isEmpty()) {
+            return List.copyOf(existingEntries);
+        }
+
+        List<AppConversationMemoryEntry> selected = new ArrayList<>();
+        for (AppConversationMemoryEntry entry : existingEntries) {
+            if (isUserControlledMemory(entry)) {
+                selected.add(entry);
+            }
+        }
+
+        int maxRelevant = Math.max(8, memoryLlmProperties.getIncrementalMaxRelevantEntries());
+        int selectedRelevant = 0;
+        for (AppConversationMemoryEntry entry : existingEntries) {
+            if (!isUserControlledMemory(entry)
+                    && isCoreMemoryType(entry)
+                    && selectedRelevant < maxRelevant) {
+                selected.add(entry);
+                selectedRelevant++;
+            }
+        }
+
+        String recentText = extractionWindow.messages().stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(message -> cursorMessageId == null
+                        || message.getId() == null
+                        || message.getId() > cursorMessageId)
+                .map(AppMessage::getContent)
+                .filter(java.util.Objects::nonNull)
+                .map(text -> text.toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        if (!recentText.isBlank()) {
+            for (AppConversationMemoryEntry entry : existingEntries) {
+                if (selectedRelevant >= maxRelevant) {
+                    break;
+                }
+                if (!selected.contains(entry) && isKeywordRelevant(entry, recentText)) {
+                    selected.add(entry);
+                    selectedRelevant++;
+                }
+            }
+        }
+        return List.copyOf(selected);
+    }
+
+    private static boolean isUserControlledMemory(AppConversationMemoryEntry entry) {
+        return entry != null && (entry.isManualPinned() || entry.isManualDisabled() || entry.isManualDeleted());
+    }
+
+    private static boolean isCoreMemoryType(AppConversationMemoryEntry entry) {
+        if (entry == null || entry.getMemoryType() == null) {
+            return false;
+        }
+        return Set.of("identity", "relationship", "preference", "promise", "boundary", "setting")
+                .contains(entry.getMemoryType().trim().toLowerCase(Locale.ROOT));
+    }
+
+    private boolean isKeywordRelevant(AppConversationMemoryEntry entry, String recentText) {
+        if (entry == null) {
+            return false;
+        }
+        for (String keyword : memorySanitizer.readKeywords(entry.getKeywordsJson())) {
+            String normalized = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+            if (normalized.length() >= 2 && recentText.contains(normalized)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record ExtractionWindow(String mode, List<AppMessage> messages) {
+        private ExtractionWindow {
+            messages = messages == null ? List.of() : List.copyOf(messages);
+        }
     }
 
     private static RollupPreview buildHeuristicRollup(
@@ -473,6 +726,9 @@ public class AppConversationMemoryService {
         StructuredMemoryExtraction extraction = structured.get();
         Set<String> disabledKeys = new LinkedHashSet<>();
         for (String key : memorySanitizer.sanitizeDisableKeys(extraction.disableEntryKeys())) {
+            if (isPinnedKey(key, existingEntries)) {
+                continue;
+            }
             if (disabledKeys.add(key)) {
                 if (hasBranch(branchId)) {
                     entryMapper.disableByKeyForBranch(conversationId, branchId, key);
@@ -485,6 +741,9 @@ public class AppConversationMemoryService {
         if (extraction.entries() != null) {
             for (ExtractedMemoryEntry extracted : extraction.entries()) {
                 for (String key : memorySanitizer.sanitizeReplaceKeys(extracted)) {
+                    if (isPinnedKey(key, existingEntries)) {
+                        continue;
+                    }
                     if (disabledKeys.add(key)) {
                         if (hasBranch(branchId)) {
                             entryMapper.disableByKeyForBranch(conversationId, branchId, key);
@@ -534,7 +793,8 @@ public class AppConversationMemoryService {
                 ? (enabledEntries == null ? 0 : enabledEntries.size())
                 : entryMapper.countEnabledByConversationId(conversationId);
         boolean hasManualSuppression = existingEntries.stream()
-                .anyMatch(entry -> entry != null && (entry.isManualDeleted() || entry.isManualDisabled()));
+                .anyMatch(entry -> entry != null
+                        && (entry.isManualPinned() || entry.isManualDeleted() || entry.isManualDisabled()));
         String summaryPreview = extraction.summaryPreview();
         if (hasBranch(branchId) || hasManualSuppression) {
             if (enabledEntries == null) {
@@ -628,7 +888,7 @@ public class AppConversationMemoryService {
         log.info("conversation memory refresh discarded because source messages changed "
                         + "conversationId={} branchId={}",
                 conversationId, branchId);
-        return toRefreshResult(conversationId, branchId);
+        return toRefreshResult(conversationId, branchId, "STALE");
     }
 
     private SourceRange resolveSourceRange(List<AppMessage> rows) {
@@ -1223,7 +1483,8 @@ public class AppConversationMemoryService {
         String candidateKey = nullToEmpty(candidate.getEntryKey()).trim();
         String candidateContent = memoryFingerprint(candidate.getContent());
         for (AppConversationMemoryEntry existing : existingEntries) {
-            if (existing == null || (!existing.isManualDeleted() && !existing.isManualDisabled())) {
+            if (existing == null
+                    || (!existing.isManualPinned() && !existing.isManualDeleted() && !existing.isManualDisabled())) {
                 continue;
             }
             String existingKey = nullToEmpty(existing.getEntryKey()).trim();
@@ -1234,6 +1495,13 @@ public class AppConversationMemoryService {
             if (!candidateContent.isBlank() && candidateContent.equals(suppressedContent)) {
                 return true;
             }
+            if (existing.isManualPinned()) {
+                if (declaresReplacement(extracted, existingKey)
+                        || (sameMemoryType(candidate, existing) && sharesKeywordDomain(candidate, existing))) {
+                    return true;
+                }
+                continue;
+            }
             if (declaresReplacement(extracted, existingKey)) {
                 continue;
             }
@@ -1242,6 +1510,26 @@ public class AppConversationMemoryService {
             }
         }
         return false;
+    }
+
+    private boolean sharesKeywordDomain(
+            AppConversationMemoryEntry candidate,
+            AppConversationMemoryEntry protectedEntry
+    ) {
+        Set<String> candidateKeywords = normalizedKeywordSet(candidate.getKeywordsJson());
+        Set<String> protectedKeywords = normalizedKeywordSet(protectedEntry.getKeywordsJson());
+        return candidateKeywords.stream().anyMatch(protectedKeywords::contains)
+                || isSemanticallySimilar(candidate, protectedEntry);
+    }
+
+    private static boolean isPinnedKey(String key, List<AppConversationMemoryEntry> existingEntries) {
+        if (key == null || key.isBlank() || existingEntries == null) {
+            return false;
+        }
+        return existingEntries.stream()
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(entry -> entry.isManualPinned()
+                        && key.equalsIgnoreCase(nullToEmpty(entry.getEntryKey()).trim()));
     }
 
     private boolean isSemanticallySimilar(
@@ -1334,6 +1622,14 @@ public class AppConversationMemoryService {
     }
 
     private ConversationMemoryRefreshResult toRefreshResult(long conversationId, Long branchId) {
+        return toRefreshResult(conversationId, branchId, "CURRENT_STATE");
+    }
+
+    private ConversationMemoryRefreshResult toRefreshResult(
+            long conversationId,
+            Long branchId,
+            String refreshMode
+    ) {
         AppConversationMemory m = hasBranch(branchId)
                 ? memoryMapper.findByConversationBranchId(conversationId, branchId)
                 : memoryMapper.findByConversationId(conversationId);
@@ -1347,7 +1643,8 @@ public class AppConversationMemoryService {
                     "",
                     ConversationMemoryWorldbookSyncService.SYNC_SKIPPED,
                     "",
-                    null
+                    null,
+                    refreshMode
             );
         }
         return new ConversationMemoryRefreshResult(
@@ -1359,7 +1656,8 @@ public class AppConversationMemoryService {
                 nullToEmpty(m.getMemoryWorldName()),
                 nullToEmpty(m.getSyncStatus()),
                 nullToEmpty(m.getSyncError()),
-                m.getUpdatedAt()
+                m.getUpdatedAt(),
+                refreshMode
         );
     }
 
@@ -1369,6 +1667,12 @@ public class AppConversationMemoryService {
 
     private static boolean hasBranch(Long branchId) {
         return branchId != null && branchId > 0;
+    }
+
+    private void ensureLongTermMemoryEnabled() {
+        if (featureSettingsService != null) {
+            featureSettingsService.ensureLongTermMemoryEnabled();
+        }
     }
 
     private int countVisibleMemorySources(long conversationId, Long branchId) {

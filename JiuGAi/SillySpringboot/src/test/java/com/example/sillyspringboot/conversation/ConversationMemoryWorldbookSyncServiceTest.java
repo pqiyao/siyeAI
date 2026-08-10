@@ -49,6 +49,7 @@ public class ConversationMemoryWorldbookSyncServiceTest {
 
         when(conversationMapper.findById(conversationId)).thenReturn(conversation(conversationId, 77L, 88L));
         when(memoryMapper.findByConversationBranchId(conversationId, 0L)).thenReturn(memory(conversationId, 0L, 3L));
+        allowRevisionStatusUpdate(memoryMapper);
         when(entryMapper.listEnabledByConversationId(conversationId)).thenReturn(List.of(
                 entry(conversationId, "identity_user_call_gege", "identity",
                         "User call name", "User wants the character to call him gege.", "[\"gege\",\"call\"]", 200, true),
@@ -61,7 +62,7 @@ public class ConversationMemoryWorldbookSyncServiceTest {
 
         String worldName = service.syncWorldbook(conversationId);
 
-        assertThat(worldName).matches("jg_memory_conv_123_[0-9a-f]{10}");
+        assertThat(worldName).matches("jg_memory_conv_123_[0-9a-f]{10}_r3");
         ArgumentCaptor<StWorldbookSaveRequest> requestCaptor = ArgumentCaptor.forClass(StWorldbookSaveRequest.class);
         verify(stAdapter).saveWorldbook(requestCaptor.capture());
         StWorldbookSaveRequest request = requestCaptor.getValue();
@@ -102,7 +103,7 @@ public class ConversationMemoryWorldbookSyncServiceTest {
     }
 
     @Test
-    void syncWorldbook_shouldPersistFailedStateWhenDeletingEmptyWorldbookFails() {
+    void syncWorldbook_shouldKeepSkippedStateWhenEmptyWorldbookCleanupIsTemporarilyUnavailable() {
         long conversationId = 124L;
         StAdapter stAdapter = mock(StAdapter.class);
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
@@ -120,13 +121,14 @@ public class ConversationMemoryWorldbookSyncServiceTest {
 
         when(conversationMapper.findById(conversationId)).thenReturn(conversation(conversationId, 77L, 88L));
         when(memoryMapper.findByConversationBranchId(conversationId, 0L)).thenReturn(memory(conversationId, 0L, 4L));
+        allowRevisionStatusUpdate(memoryMapper);
         when(entryMapper.listEnabledByConversationId(conversationId)).thenReturn(List.of());
         when(entryMapper.countAllByConversationId(conversationId)).thenReturn(2);
         doThrow(new RuntimeException("st delete unavailable")).when(stAdapter).deleteWorldbook(org.mockito.ArgumentMatchers.anyString());
 
-        assertThatThrownBy(() -> service.syncWorldbook(conversationId))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("st delete unavailable");
+        String worldName = service.syncWorldbook(conversationId);
+
+        assertThat(worldName).endsWith("_r4");
 
         verify(memoryMapper).updateWorldbookSyncStatusWithRevision(
                 org.mockito.ArgumentMatchers.eq(conversationId),
@@ -134,8 +136,8 @@ public class ConversationMemoryWorldbookSyncServiceTest {
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.eq(2),
                 org.mockito.ArgumentMatchers.eq(0),
-                org.mockito.ArgumentMatchers.eq(ConversationMemoryWorldbookSyncService.SYNC_FAILED),
-                org.mockito.ArgumentMatchers.eq("st delete unavailable"),
+                org.mockito.ArgumentMatchers.eq(ConversationMemoryWorldbookSyncService.SYNC_SKIPPED),
+                org.mockito.ArgumentMatchers.isNull(),
                 org.mockito.ArgumentMatchers.eq(4L)
         );
     }
@@ -159,6 +161,7 @@ public class ConversationMemoryWorldbookSyncServiceTest {
         );
         when(conversationMapper.findById(conversationId)).thenReturn(conversation(conversationId, 77L, 88L));
         when(memoryMapper.findByConversationBranchId(conversationId, 0L)).thenReturn(memory(conversationId, 0L, 5L));
+        allowRevisionStatusUpdate(memoryMapper);
         when(entryMapper.listEnabledByConversationId(conversationId)).thenReturn(List.of(
                 entry(conversationId, "one", "identity", "One", "One", "[]", 300, false),
                 entry(conversationId, "two", "relationship", "Two", "Two", "[]", 200, false),
@@ -178,6 +181,42 @@ public class ConversationMemoryWorldbookSyncServiceTest {
                 org.mockito.ArgumentMatchers.isNull(),
                 org.mockito.ArgumentMatchers.eq(5L)
         );
+    }
+
+    @Test
+    void syncWorldbook_shouldDeleteItsVersionWhenRevisionWasSuperseded() {
+        long conversationId = 128L;
+        StAdapter stAdapter = mock(StAdapter.class);
+        AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        AppConversationMemoryEntryMapper entryMapper = mock(AppConversationMemoryEntryMapper.class);
+        MemoryLlmProperties properties = properties();
+        ConversationMemoryWorldbookSyncService service = new ConversationMemoryWorldbookSyncService(
+                stAdapter, conversationMapper, memoryMapper, entryMapper,
+                new ConversationMemorySanitizer(properties), properties
+        );
+        when(conversationMapper.findById(conversationId)).thenReturn(conversation(conversationId, 77L, 88L));
+        when(memoryMapper.findByConversationBranchId(conversationId, 0L)).thenReturn(memory(conversationId, 0L, 7L));
+        when(entryMapper.listEnabledByConversationId(conversationId)).thenReturn(List.of(
+                entry(conversationId, "identity_name", "identity", "Name", "Call me Ayao.", "[\"Ayao\"]", 200, true)
+        ));
+        when(entryMapper.countAllByConversationId(conversationId)).thenReturn(1);
+        when(memoryMapper.updateWorldbookSyncStatusWithRevision(
+                org.mockito.ArgumentMatchers.eq(conversationId),
+                org.mockito.ArgumentMatchers.eq(0L),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(1),
+                org.mockito.ArgumentMatchers.eq(1),
+                org.mockito.ArgumentMatchers.eq(ConversationMemoryWorldbookSyncService.SYNC_SUCCESS),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.eq(7L)
+        )).thenReturn(0);
+
+        String worldName = service.syncWorldbook(conversationId);
+
+        assertThat(worldName).endsWith("_r7");
+        verify(stAdapter).saveWorldbook(org.mockito.ArgumentMatchers.argThat(request -> worldName.equals(request.name())));
+        verify(stAdapter).deleteWorldbook(worldName);
     }
 
     @Test
@@ -296,5 +335,18 @@ public class ConversationMemoryWorldbookSyncServiceTest {
         properties.setMaxEntryContentChars(300);
         properties.setMaxKeywords(8);
         return properties;
+    }
+
+    private static void allowRevisionStatusUpdate(AppConversationMemoryMapper memoryMapper) {
+        when(memoryMapper.updateWorldbookSyncStatusWithRevision(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.anyLong()
+        )).thenReturn(1);
     }
 }

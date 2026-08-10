@@ -391,6 +391,12 @@
           AND retired_at IS NULL
     </update>
 
+    <delete id="deleteByConversationBranchId">
+        DELETE FROM app_conversation_memory_entry
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+    </delete>
+
     <select id="countAllByConversationId" resultType="int">
         SELECT COUNT(1)
         FROM app_conversation_memory_entry

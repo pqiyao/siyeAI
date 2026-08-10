@@ -10,8 +10,10 @@ import com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapp
 import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
 import com.example.sillyspringboot.conversation.service.AppConversationMemoryService;
 import com.example.sillyspringboot.conversation.service.AppConversationService;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -43,6 +45,7 @@ public class ApiV1TavernMemoryController {
     private final AppConversationMapper conversationMapper;
     private final AppConversationBranchMapper branchMapper;
     private final AppConversationMemoryService conversationMemoryService;
+    private final AppFeatureSettingsService featureSettingsService;
 
     public ApiV1TavernMemoryController(
             H5ClientUidAuthService h5Auth,
@@ -52,22 +55,46 @@ public class ApiV1TavernMemoryController {
             AppConversationBranchMapper branchMapper,
             AppConversationMemoryService conversationMemoryService
     ) {
+        this(
+                h5Auth,
+                tokenService,
+                conversationService,
+                conversationMapper,
+                branchMapper,
+                conversationMemoryService,
+                null
+        );
+    }
+
+    @Autowired
+    public ApiV1TavernMemoryController(
+            H5ClientUidAuthService h5Auth,
+            AppTokenService tokenService,
+            AppConversationService conversationService,
+            AppConversationMapper conversationMapper,
+            AppConversationBranchMapper branchMapper,
+            AppConversationMemoryService conversationMemoryService,
+            AppFeatureSettingsService featureSettingsService
+    ) {
         this.h5Auth = h5Auth;
         this.tokenService = tokenService;
         this.conversationService = conversationService;
         this.conversationMapper = conversationMapper;
         this.branchMapper = branchMapper;
         this.conversationMemoryService = conversationMemoryService;
+        this.featureSettingsService = featureSettingsService;
     }
 
     @PostMapping("/refresh")
     public ApiV1Result<ConversationMemoryRefreshResult> refresh(@RequestBody Map<String, Object> payload) {
+        ensureLongTermMemoryEnabled();
         BranchContext context = requireBranchContext(payload);
         return ApiV1Result.ok(conversationMemoryService.refreshConversationMemoryManual(context.conversationId(), context.branchId()));
     }
 
     @PostMapping("/entries")
     public ApiV1Result<Map<String, Object>> entries(@RequestBody Map<String, Object> payload) {
+        ensureLongTermMemoryEnabled();
         BranchContext context = requireBranchContext(payload);
         String entryFilter = requireEntryFilter(payload);
         int page = requirePositiveInt(payload, "page", DEFAULT_ENTRY_PAGE, Integer.MAX_VALUE);
@@ -83,6 +110,7 @@ public class ApiV1TavernMemoryController {
 
     @PostMapping("/save-entry")
     public ApiV1Result<Map<String, Object>> saveEntry(@RequestBody Map<String, Object> payload) {
+        ensureLongTermMemoryEnabled();
         BranchContext context = requireBranchContext(payload);
         Long entryId = optionalPositiveLong(payload, "entryId");
         String memoryType = requireMemoryType(payload);
@@ -116,6 +144,7 @@ public class ApiV1TavernMemoryController {
 
     @PostMapping("/disable-entry")
     public ApiV1Result<Map<String, Object>> disableEntry(@RequestBody Map<String, Object> payload) {
+        ensureLongTermMemoryEnabled();
         BranchContext context = requireBranchContext(payload);
         long entryId = requireEntryId(payload);
         return ApiV1Result.ok(conversationMemoryService.disableMemoryEntry(context.conversationId(), context.branchId(), entryId));
@@ -123,6 +152,7 @@ public class ApiV1TavernMemoryController {
 
     @PostMapping("/set-entry-enabled")
     public ApiV1Result<Map<String, Object>> setEntryEnabled(@RequestBody Map<String, Object> payload) {
+        ensureLongTermMemoryEnabled();
         BranchContext context = requireBranchContext(payload);
         long entryId = requireEntryId(payload);
         Boolean enabled = payload == null ? null : asBoolean(payload.get("enabled"));
@@ -139,6 +169,7 @@ public class ApiV1TavernMemoryController {
 
     @PostMapping("/delete-entry")
     public ApiV1Result<Map<String, Object>> deleteEntry(@RequestBody Map<String, Object> payload) {
+        ensureLongTermMemoryEnabled();
         BranchContext context = requireBranchContext(payload);
         long entryId = requireEntryId(payload);
         return ApiV1Result.ok(conversationMemoryService.deleteMemoryEntry(
@@ -150,11 +181,18 @@ public class ApiV1TavernMemoryController {
 
     @PostMapping("/sync")
     public ApiV1Result<Map<String, Object>> sync(@RequestBody Map<String, Object> payload) {
+        ensureLongTermMemoryEnabled();
         BranchContext context = requireBranchContext(payload);
         return ApiV1Result.ok(conversationMemoryService.retryWorldbookSync(
                 context.conversationId(),
                 context.branchId()
         ));
+    }
+
+    private void ensureLongTermMemoryEnabled() {
+        if (featureSettingsService != null) {
+            featureSettingsService.ensureLongTermMemoryEnabled();
+        }
     }
 
     private static long requireEntryId(Map<String, Object> payload) {

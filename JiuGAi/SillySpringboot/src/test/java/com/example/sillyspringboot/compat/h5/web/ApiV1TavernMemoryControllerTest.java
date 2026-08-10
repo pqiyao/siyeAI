@@ -10,6 +10,7 @@ import com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapp
 import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
 import com.example.sillyspringboot.conversation.service.AppConversationMemoryService;
 import com.example.sillyspringboot.conversation.service.AppConversationService;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,10 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ApiV1TavernMemoryControllerTest {
@@ -36,6 +40,45 @@ class ApiV1TavernMemoryControllerTest {
     private static final long CHARACTER_ID = 20L;
     private static final long CONVERSATION_ID = 30L;
     private static final long BRANCH_ID = 40L;
+
+    @Test
+    void disabledFeature_shouldRejectEveryMemoryEndpointBeforeAuthenticationOrDataAccess() {
+        H5ClientUidAuthService h5Auth = mock(H5ClientUidAuthService.class);
+        AppTokenService tokenService = mock(AppTokenService.class);
+        AppConversationService conversationService = mock(AppConversationService.class);
+        AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
+        AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
+        AppConversationMemoryService memoryService = mock(AppConversationMemoryService.class);
+        AppFeatureSettingsService featureSettingsService = mock(AppFeatureSettingsService.class);
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN, "当前已关闭长期记忆功能"))
+                .when(featureSettingsService).ensureLongTermMemoryEnabled();
+        ApiV1TavernMemoryController controller = new ApiV1TavernMemoryController(
+                h5Auth,
+                tokenService,
+                conversationService,
+                conversationMapper,
+                branchMapper,
+                memoryService,
+                featureSettingsService
+        );
+
+        List<Runnable> calls = List.of(
+                () -> controller.refresh(Map.of()),
+                () -> controller.entries(Map.of()),
+                () -> controller.saveEntry(Map.of()),
+                () -> controller.disableEntry(Map.of()),
+                () -> controller.setEntryEnabled(Map.of()),
+                () -> controller.deleteEntry(Map.of()),
+                () -> controller.sync(Map.of())
+        );
+        calls.forEach(call -> assertThatThrownBy(call::run)
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN)));
+
+        verify(featureSettingsService, times(calls.size())).ensureLongTermMemoryEnabled();
+        verifyNoInteractions(h5Auth, tokenService, conversationService, conversationMapper, branchMapper, memoryService);
+    }
 
     @Test
     void entriesUsesExplicitPanelBranchEvenWhenItIsNotTheCurrentActiveBranch() {

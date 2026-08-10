@@ -59,6 +59,8 @@ public interface AdminH5UserCleanupMapper {
 
     int deleteConversationMemoryEntriesByUser(@Param("userId") long userId);
 
+    int deleteConversationMemoryRefreshMetricsByUser(@Param("userId") long userId);
+
     int deleteConversationMemoriesByUser(@Param("userId") long userId);
 
     int deleteConversationIdempotencyByUser(@Param("userId") long userId);

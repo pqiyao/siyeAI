@@ -16,11 +16,43 @@ public record ConversationMemoryRefreshSnapshot(
         String currentSummaryPreview,
         int currentFactsCount,
         List<MessageSnapshot> messages,
-        List<EntrySnapshot> existingEntries
+        List<EntrySnapshot> existingEntries,
+        String extractionMode,
+        String refreshMode
 ) {
     public ConversationMemoryRefreshSnapshot {
         messages = messages == null ? List.of() : List.copyOf(messages);
         existingEntries = existingEntries == null ? List.of() : List.copyOf(existingEntries);
+        extractionMode = extractionMode == null || extractionMode.isBlank() ? "FULL" : extractionMode;
+        refreshMode = refreshMode == null || refreshMode.isBlank() ? "AUTO" : refreshMode;
+    }
+
+    public ConversationMemoryRefreshSnapshot(
+            long conversationId,
+            long branchId,
+            long sourceRevision,
+            long manualRevision,
+            long baseMemoryRevision,
+            int visibleMessageCount,
+            String currentSummaryPreview,
+            int currentFactsCount,
+            List<MessageSnapshot> messages,
+            List<EntrySnapshot> existingEntries
+    ) {
+        this(
+                conversationId,
+                branchId,
+                sourceRevision,
+                manualRevision,
+                baseMemoryRevision,
+                visibleMessageCount,
+                currentSummaryPreview,
+                currentFactsCount,
+                messages,
+                existingEntries,
+                "FULL",
+                "AUTO"
+        );
     }
 
     public Long firstMessageId() {
@@ -70,6 +102,7 @@ public record ConversationMemoryRefreshSnapshot(
             String content,
             String keywordsJson,
             boolean enabled,
+            boolean manualPinned,
             boolean manualDisabled,
             boolean manualDeleted
     ) {
@@ -80,6 +113,7 @@ public record ConversationMemoryRefreshSnapshot(
                     entry.getContent(),
                     entry.getKeywordsJson(),
                     entry.isEnabled(),
+                    entry.isManualPinned(),
                     entry.isManualDisabled(),
                     entry.isManualDeleted()
             );

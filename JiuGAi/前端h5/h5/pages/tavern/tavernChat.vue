@@ -61,7 +61,7 @@
 				<text class="tool-i" :class="{ 'tool-i--disabled': !assistantTailActionState().ok }" @tap="onRegen">{{ chatUi.regen }}</text>
 				<text class="tool-i" :class="{ 'tool-i--disabled': !assistantTailActionState().ok }" @tap="onContinue">{{ chatUi.continue }}</text>
 				<text class="tool-i" @tap="onRestart">{{ chatUi.restart }}</text>
-				<text class="tool-i" @tap="onMem">{{ chatUi.memory }}</text>
+				<text v-if="longTermMemoryEnabledGlobal !== false" class="tool-i" @tap="onMem">{{ chatUi.memory }}</text>
 				<text class="tool-i" :class="{ 'tool-i--active': branchPanel.visible }" @tap="openBranchPanel">{{ tx('branch_panel_title', '分支') }}</text>
 				<text
 					v-if="canShowReplyHelpTrigger()"
@@ -827,7 +827,7 @@
 							<input v-model="memoryPanel.editor.priority" class="memory-priority-input" type="number" maxlength="3" />
 						</view>
 						<view class="memory-switch-row">
-							<view><text class="memory-switch-title">保护记忆</text><text class="memory-field-help">容量整理时不自动淘汰</text></view>
+							<view><text class="memory-switch-title">保护记忆</text><text class="memory-field-help">仅你可以修改、停用或删除，AI 整理不会覆盖或淘汰</text></view>
 							<switch :checked="memoryPanel.editor.manualPinned" color="#4f93a3" @change="memoryPanel.editor.manualPinned = $event.detail.value" />
 						</view>
 						<view class="memory-switch-row" :class="{ 'memory-switch-row--disabled': !memoryEditorCanConstant }">
@@ -2041,6 +2041,7 @@
 				userVoiceStateMap: {},
 				voiceFeatureEnabledGlobal: true,
 				imageGenerationEnabledGlobal: true,
+				longTermMemoryEnabledGlobal: false,
 				visionAccessState: {
 					loaded: false,
 					loading: false,
@@ -2440,6 +2441,7 @@
 			this.jgChatErrorMsg = '';
 			this.applyVoiceFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
 			this.applyImageGenerationFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
+			this.applyLongTermMemoryFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
 			this.applyRechargeEntryConfig(tavernApi.getRuntimeFeatureConfig());
 			this.chatAppearanceChangeHandler = () => {
 				this.refreshChatAppearanceConfig();
@@ -2466,6 +2468,7 @@
 				const identityChanged = this.handleJgIdentityChangeOnShow(tavernApi);
 				this.applyVoiceFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
 				this.applyImageGenerationFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
+				this.applyLongTermMemoryFeatureGlobalConfig(tavernApi.getRuntimeFeatureConfig());
 				this.applyRechargeEntryConfig(tavernApi.getRuntimeFeatureConfig());
 				this.refreshChatAppearanceConfig();
 				this.syncChatAppearanceFromCloud();
@@ -3495,6 +3498,7 @@
 					return Promise.resolve(tavernApi.fetchAppRuntimeConfig(force)).then((config) => {
 						this.applyVoiceFeatureGlobalConfig(config);
 						this.applyImageGenerationFeatureGlobalConfig(config);
+						this.applyLongTermMemoryFeatureGlobalConfig(config);
 						this.applyRechargeEntryConfig(config);
 						return this.voiceFeatureEnabledGlobal;
 					}).catch(() => this.voiceFeatureEnabledGlobal);
@@ -3507,6 +3511,16 @@
 				this.imageGenerationEnabledGlobal = enabled;
 				if (!enabled) {
 					this.characterImagePanel = Object.assign(createCharacterImagePanelState(), { visible: false });
+				}
+				return enabled;
+			},
+			applyLongTermMemoryFeatureGlobalConfig(config) {
+				const enabled = !!(config && config.longTermMemoryEnabled === true);
+				this.longTermMemoryEnabledGlobal = enabled;
+				if (!enabled) {
+					this.memoryPanel = createMemoryPanelState();
+					this.memoryRefreshing = false;
+					this.memoryRefreshStatusToken = 0;
 				}
 				return enabled;
 			},
@@ -10702,6 +10716,9 @@
 				this.$set(this.memoryPanel, 'hasMore', hasMore);
 			},
 			openMemoryPanel() {
+				if (this.longTermMemoryEnabledGlobal === false) {
+					return;
+				}
 				if (this.sending || this.voiceRecording || this.voiceStopping || this.voiceTranscribing) {
 					return;
 				}
@@ -10928,11 +10945,21 @@
 						if (memory && typeof memory === 'object') {
 							this.jgMemory = Object.assign({}, this.jgMemory || {}, memory);
 						}
-						return this.loadMemoryPanel();
+						return this.loadMemoryPanel().then((loaded) => ({ loaded, memory }));
 					})
-					.then((loaded) => {
-						if (loaded && this.isMemoryPanelRequestCurrent(requestToken)) {
-							uni.showToast({ title: this.tx('memory_refresh_success_lorebook', '已整理长期记忆'), icon: 'none' });
+					.then((result) => {
+						if (result && result.loaded && this.isMemoryPanelRequestCurrent(requestToken)) {
+							const mode = String(result.memory && result.memory.refreshMode || '').toUpperCase();
+							const title = mode === 'STRUCTURED_APPLIED'
+								? '长期记忆已更新'
+								: mode === 'SUMMARY_ONLY'
+									? '已更新摘要，事实记忆未变化'
+									: mode === 'HEURISTIC_ONLY'
+										? 'AI 整理不可用，已保留基础摘要'
+										: mode === 'STALE'
+											? '聊天已变化，本次结果未写入'
+											: '记忆状态已刷新';
+							uni.showToast({ title, icon: 'none', duration: 2800 });
 						}
 					})
 					.catch((e) => {
@@ -13360,6 +13387,7 @@
 				});
 			},
 			onMem() {
+				if (this.longTermMemoryEnabledGlobal === false) return;
 				if (this.voiceRecording || this.voiceStopping || this.voiceTranscribing) return;
 				this.openMemoryPanel();
 			},

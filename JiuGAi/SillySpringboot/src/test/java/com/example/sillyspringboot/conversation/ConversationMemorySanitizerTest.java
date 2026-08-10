@@ -28,7 +28,7 @@ public class ConversationMemorySanitizerTest {
                 true,
                 true,
                 new BigDecimal("1.20")
-        ), 100L, 120L);
+        ), 100L, 120L, List.of(100L));
 
         assertThat(entity).isNotNull();
         assertThat(entity.getConversationId()).isEqualTo(10L);
@@ -87,7 +87,7 @@ public class ConversationMemorySanitizerTest {
                 true,
                 true,
                 new BigDecimal("0.40")
-        ), null, null);
+        ), 100L, 120L, List.of(100L));
 
         assertThat(entity).isNotNull();
         assertThat(entity.getMemoryType()).isEqualTo("promise");
@@ -111,7 +111,7 @@ public class ConversationMemorySanitizerTest {
                 false,
                 true,
                 null
-        ), null, null);
+        ), 100L, 120L, List.of(100L));
 
         assertThat(entity).isNotNull();
         assertThat(entity.getMemoryType()).isEqualTo("event");
@@ -157,6 +157,45 @@ public class ConversationMemorySanitizerTest {
         assertThat(sanitizer.readMessageIds(entity.getSourceMessageIdsJson())).containsExactly(100L, 120L);
     }
 
+    @Test
+    void toEntity_shouldRejectAutomaticMemoryWhenAllEvidenceIdsAreInvalid() {
+        ExtractedMemoryEntry extracted = new ExtractedMemoryEntry(
+                "event_unverified",
+                "event",
+                "无证据事实",
+                "双方曾经在雨夜见面。",
+                List.of("雨夜", "见面"),
+                List.of(),
+                120,
+                "before_char",
+                false,
+                false,
+                true,
+                new BigDecimal("0.90"),
+                List.of(),
+                List.of(999L)
+        );
+
+        assertThat(sanitizer.toEntity(
+                10L, extracted, 100L, 120L, List.of(100L, 110L, 120L)
+        )).isNull();
+    }
+
+    @Test
+    void toManualEntity_shouldKeepAFullTwelveHundredCharacterMemory() {
+        MemoryLlmProperties properties = properties();
+        properties.setMaxManualEntryContentChars(1200);
+        ConversationMemorySanitizer manualSanitizer = new ConversationMemorySanitizer(properties);
+        String content = "长".repeat(1200);
+
+        AppConversationMemoryEntry entity = manualSanitizer.toManualEntity(
+                10L, 20L, "manual_long", "setting", "完整设定", content,
+                List.of("设定"), List.of(), 180, true, true
+        );
+
+        assertThat(entity.getContent()).hasSize(1200);
+    }
+
     private static ExtractedMemoryEntry entry(
             String entryKey,
             String memoryType,
@@ -182,7 +221,8 @@ public class ConversationMemorySanitizerTest {
                 false,
                 enabled,
                 confidence,
-                List.of()
+                List.of(),
+                List.of(100L)
         );
     }
 

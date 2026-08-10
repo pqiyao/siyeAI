@@ -298,4 +298,10 @@
         DELETE FROM app_conversation_memory
         WHERE conversation_id = #{conversationId}
     </delete>
+
+    <delete id="deleteByConversationBranchId">
+        DELETE FROM app_conversation_memory
+        WHERE conversation_id = #{conversationId}
+          AND branch_id = #{branchId}
+    </delete>
 </mapper>

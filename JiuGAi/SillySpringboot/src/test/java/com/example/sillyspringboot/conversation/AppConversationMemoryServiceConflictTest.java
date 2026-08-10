@@ -69,7 +69,8 @@ public class AppConversationMemoryServiceConflictTest {
                                 false,
                                 true,
                                 new BigDecimal("0.95"),
-                                List.of("identity_user_call_gege")
+                                List.of("identity_user_call_gege"),
+                                List.of(12L)
                         )),
                         List.of("identity_user_call_gege")
                 )));
@@ -161,7 +162,8 @@ public class AppConversationMemoryServiceConflictTest {
                                 false,
                                 true,
                                 new BigDecimal("0.95"),
-                                List.of()
+                                List.of(),
+                                List.of(20L)
                         )),
                         List.of()
                 )));
@@ -223,7 +225,8 @@ public class AppConversationMemoryServiceConflictTest {
                                 false,
                                 true,
                                 new BigDecimal("0.96"),
-                                List.of()
+                                List.of(),
+                                List.of(30L)
                         )),
                         List.of()
                 )));

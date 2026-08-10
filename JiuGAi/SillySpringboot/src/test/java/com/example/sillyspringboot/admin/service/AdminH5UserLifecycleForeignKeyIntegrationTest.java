@@ -46,6 +46,19 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
         insertMessage(userId, conversationId, branchId);
         long generationTaskId = insertGenerationData(userId, conversationId, characterId);
         insertMemory(conversationId, branchId);
+        jdbc.update(
+                """
+                INSERT INTO app_conversation_memory_refresh_metric (
+                    request_id, conversation_id, branch_id, refresh_mode, extraction_mode, outcome,
+                    input_message_count, visible_message_count, existing_entry_count,
+                    model_output_entry_count, accepted_entry_count, rejected_entry_count,
+                    conflict_count, disable_requested_count, duration_ms
+                ) VALUES (?, ?, ?, 'AUTO', 'FULL', 'STRUCTURED_APPLIED', 8, 8, 2, 1, 1, 0, 0, 0, 25)
+                """,
+                "memory-metric-" + userId,
+                conversationId,
+                branchId
+        );
         insertPasswordResetToken(userId);
         long deviceId = insertTrustedDevice(userId);
         String clientUid = insertClientUid(userId);
@@ -87,6 +100,7 @@ class AdminH5UserLifecycleForeignKeyIntegrationTest {
         assertThat(count("app_conversation", "user_id", userId)).isZero();
         assertThat(count("app_conversation_branch", "user_id", userId)).isZero();
         assertThat(count("app_conversation_memory_entry", "conversation_id", conversationId)).isZero();
+        assertThat(count("app_conversation_memory_refresh_metric", "conversation_id", conversationId)).isZero();
         assertThat(count("app_generation_task", "id", generationTaskId)).isZero();
         assertThat(count("app_generation_attempt", "generation_task_id", generationTaskId)).isZero();
         assertThat(count("app_generation_stat_event", "task_id", generationTaskId)).isZero();

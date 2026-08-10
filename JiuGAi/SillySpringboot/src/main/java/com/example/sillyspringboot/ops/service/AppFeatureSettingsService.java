@@ -72,6 +72,9 @@ public class AppFeatureSettingsService {
             settings.setUserChatPresetEntryVisible(
                     boolVal(body.get("userChatPresetEntryVisible"), settings.isUserChatPresetEntryVisible())
             );
+            settings.setLongTermMemoryEnabled(
+                    boolVal(body.get("longTermMemoryEnabled"), settings.isLongTermMemoryEnabled())
+            );
             settings.setSemanticAnnotationEnabled(
                     boolVal(body.get("semanticAnnotationEnabled"), settings.isSemanticAnnotationEnabled())
             );
@@ -112,6 +115,7 @@ public class AppFeatureSettingsService {
         data.put("checkinEntryVisible", settings.isCheckinEntryVisible());
         data.put("systemChatPresetEntryVisible", settings.isSystemChatPresetEntryVisible());
         data.put("userChatPresetEntryVisible", settings.isUserChatPresetEntryVisible());
+        data.put("longTermMemoryEnabled", settings.isLongTermMemoryEnabled());
         data.put("semanticAnnotationEnabled", settings.isSemanticAnnotationEnabled());
         data.put("semanticAnnotationRouteKey", settings.getSemanticAnnotationRouteKey());
         data.put("userByokVipMinLevel", settings.getUserByokVipMinLevel());
@@ -142,6 +146,16 @@ public class AppFeatureSettingsService {
     public void ensureVoiceFeatureEnabled() {
         if (!getSettings().isVoiceFeatureEnabled()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "当前已关闭语音功能");
+        }
+    }
+
+    public boolean isLongTermMemoryEnabled() {
+        return getSettings().isLongTermMemoryEnabled();
+    }
+
+    public void ensureLongTermMemoryEnabled() {
+        if (!isLongTermMemoryEnabled()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "当前已关闭长期记忆功能");
         }
     }
 

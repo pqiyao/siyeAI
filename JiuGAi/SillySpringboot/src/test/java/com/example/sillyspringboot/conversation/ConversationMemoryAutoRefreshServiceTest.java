@@ -7,6 +7,7 @@ import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapp
 import com.example.sillyspringboot.conversation.service.AppConversationMemoryService;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryAutoRefreshService;
 import com.example.sillyspringboot.conversation.service.ConversationMemoryRefreshLeaseManager;
+import com.example.sillyspringboot.ops.service.AppFeatureSettingsService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -23,9 +24,36 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 public class ConversationMemoryAutoRefreshServiceTest {
+
+    @Test
+    void disabledFeature_shouldSkipAutomaticRefreshBeforeQueryingConversationState() {
+        AppMessageMapper messageMapper = mock(AppMessageMapper.class);
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        AppConversationMemoryService memoryService = mock(AppConversationMemoryService.class);
+        ConversationMemoryRefreshLeaseManager leaseManager = mock(ConversationMemoryRefreshLeaseManager.class);
+        AppFeatureSettingsService featureSettingsService = mock(AppFeatureSettingsService.class);
+        when(featureSettingsService.isLongTermMemoryEnabled()).thenReturn(false);
+        ConversationMemoryAutoRefreshService service = new ConversationMemoryAutoRefreshService(
+                messageMapper,
+                memoryMapper,
+                memoryService,
+                defaults(),
+                leaseManager,
+                featureSettingsService
+        );
+
+        try {
+            assertThat(service.shouldRefresh(122L)).isFalse();
+            service.maybeTriggerAfterGenerationSuccess(122L);
+            verifyNoInteractions(messageMapper, memoryMapper, memoryService, leaseManager);
+        } finally {
+            service.shutdown();
+        }
+    }
 
     @Test
     void shouldRefresh_shouldRequireVisibleMessagesAndTwentyNewMessages() {
@@ -46,18 +74,37 @@ public class ConversationMemoryAutoRefreshServiceTest {
     }
 
     @Test
-    void shouldRefresh_shouldRequireThirtyMinutesSinceLastRefresh() {
+    void shouldRefresh_shouldRequireSixtyMinutesSinceLastRefresh() {
         long conversationId = 124L;
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
         AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
         ConversationMemoryAutoRefreshService service = service(messageMapper, memoryMapper);
 
         when(messageMapper.countMemorySourceByConversationId(conversationId)).thenReturn(46);
-        when(memoryMapper.findByConversationId(conversationId)).thenReturn(memory(26, LocalDateTime.now().minusMinutes(10)));
+        when(memoryMapper.findByConversationId(conversationId)).thenReturn(memory(26, LocalDateTime.now().minusMinutes(30)));
         assertThat(service.shouldRefresh(conversationId)).isFalse();
 
-        when(memoryMapper.findByConversationId(conversationId)).thenReturn(memory(26, LocalDateTime.now().minusMinutes(31)));
+        when(memoryMapper.findByConversationId(conversationId)).thenReturn(memory(26, LocalDateTime.now().minusMinutes(61)));
         assertThat(service.shouldRefresh(conversationId)).isTrue();
+    }
+
+    @Test
+    void shouldRefresh_shouldUseTenMinuteCooldownForPendingHistoryRebuild() {
+        long conversationId = 1241L;
+        AppMessageMapper messageMapper = mock(AppMessageMapper.class);
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        ConversationMemoryAutoRefreshService service = service(messageMapper, memoryMapper);
+
+        when(messageMapper.countMemorySourceByConversationId(conversationId)).thenReturn(46);
+        AppConversationMemory memory = memory(0, LocalDateTime.now().minusMinutes(11));
+        memory.setMemoryRevision(1);
+        memory.setAppliedSourceRevision(0);
+        memory.setLastSourceMessageId(null);
+        when(memoryMapper.findByConversationId(conversationId)).thenReturn(memory);
+        assertThat(service.shouldRefresh(conversationId)).isTrue();
+
+        memory.setUpdatedAt(LocalDateTime.now().minusMinutes(5));
+        assertThat(service.shouldRefresh(conversationId)).isFalse();
     }
 
     @Test
@@ -91,7 +138,7 @@ public class ConversationMemoryAutoRefreshServiceTest {
     }
 
     @Test
-    void triggerAfterHistoryChange_shouldInvalidateBeforeForcedRebuild() {
+    void triggerAfterHistoryChange_shouldOnlyInvalidateAndDeferRebuild() {
         long conversationId = 127L;
         long branchId = 31L;
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
@@ -110,18 +157,14 @@ public class ConversationMemoryAutoRefreshServiceTest {
             service.triggerAfterHistoryChange(conversationId, branchId);
 
             verify(memoryService).invalidateConversationMemoryAfterHistoryChange(conversationId, branchId);
-            verify(memoryService, timeout(2000)).reconcileConversationMemoryAfterHistoryChange(
-                    conversationId,
-                    branchId,
-                    true
-            );
+            verify(memoryService, never()).reconcileConversationMemoryAfterHistoryChange(anyLong(), anyLong(), any(Boolean.class));
         } finally {
             service.shutdown();
         }
     }
 
     @Test
-    void triggerAfterHistoryChange_shouldStillRemoveStaleWorldbookWhenTooShortToRebuild() {
+    void triggerAfterHistoryChange_shouldNotRebuildWhenTooShortEither() {
         long conversationId = 128L;
         long branchId = 32L;
         AppConversationMemoryService memoryService = mock(AppConversationMemoryService.class);
@@ -137,11 +180,7 @@ public class ConversationMemoryAutoRefreshServiceTest {
         try {
             service.triggerAfterHistoryChange(conversationId, branchId);
 
-            verify(memoryService, timeout(2000)).reconcileConversationMemoryAfterHistoryChange(
-                    conversationId,
-                    branchId,
-                    false
-            );
+            verify(memoryService, never()).reconcileConversationMemoryAfterHistoryChange(anyLong(), anyLong(), any(Boolean.class));
         } finally {
             service.shutdown();
         }

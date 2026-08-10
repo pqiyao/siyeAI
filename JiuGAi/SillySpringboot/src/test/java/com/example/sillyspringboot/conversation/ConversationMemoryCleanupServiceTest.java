@@ -1,5 +1,6 @@
 package com.example.sillyspringboot.conversation;
 
+import com.example.sillyspringboot.admin.service.ExternalCleanupTaskService;
 import com.example.sillyspringboot.conversation.entity.AppConversationMemory;
 import com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntryMapper;
@@ -128,13 +129,101 @@ public class ConversationMemoryCleanupServiceTest {
         verify(memoryMapper).deleteByConversationId(conversationId);
     }
 
+    @Test
+    void clearBranchMemory_shouldPersistCleanupBeforeDeletingLocalMemory() {
+        long conversationId = 126L;
+        long branchId = 43L;
+        long userId = 7L;
+        String worldName = "jg_memory_conv_126_b43";
+        String taskId = "cleanup-task-126-43";
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        AppConversationMemoryEntryMapper entryMapper = mock(AppConversationMemoryEntryMapper.class);
+        AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
+        ConversationMemoryWorldbookSyncService worldbookSyncService = mock(ConversationMemoryWorldbookSyncService.class);
+        ExternalCleanupTaskService cleanupTaskService = mock(ExternalCleanupTaskService.class);
+        ConversationMemoryCleanupService service = service(
+                memoryMapper,
+                entryMapper,
+                branchMapper,
+                worldbookSyncService,
+                cleanupTaskService
+        );
+
+        when(worldbookSyncService.resolveWorldName(conversationId, branchId)).thenReturn(worldName);
+        when(cleanupTaskService.enqueueMemoryWorldbookSetDeletion(userId, conversationId, worldName))
+                .thenReturn(taskId);
+
+        service.clearBranchMemory(conversationId, branchId, userId);
+
+        InOrder order = inOrder(cleanupTaskService, entryMapper, memoryMapper);
+        order.verify(cleanupTaskService).enqueueMemoryWorldbookSetDeletion(userId, conversationId, worldName);
+        order.verify(entryMapper).deleteByConversationBranchId(conversationId, branchId);
+        order.verify(memoryMapper).deleteByConversationBranchId(conversationId, branchId);
+        order.verify(cleanupTaskService).processImmediately(List.of(taskId));
+    }
+
+    @Test
+    void clearBranchMemory_shouldKeepCommittedDeletionSuccessfulWhenImmediateProcessorFails() {
+        long conversationId = 127L;
+        long branchId = 44L;
+        long userId = 8L;
+        String worldName = "jg_memory_conv_127_b44";
+        String taskId = "cleanup-task-127-44";
+        AppConversationMemoryMapper memoryMapper = mock(AppConversationMemoryMapper.class);
+        AppConversationMemoryEntryMapper entryMapper = mock(AppConversationMemoryEntryMapper.class);
+        AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
+        ConversationMemoryWorldbookSyncService worldbookSyncService = mock(ConversationMemoryWorldbookSyncService.class);
+        ExternalCleanupTaskService cleanupTaskService = mock(ExternalCleanupTaskService.class);
+        ConversationMemoryCleanupService service = service(
+                memoryMapper,
+                entryMapper,
+                branchMapper,
+                worldbookSyncService,
+                cleanupTaskService
+        );
+
+        when(worldbookSyncService.resolveWorldName(conversationId, branchId)).thenReturn(worldName);
+        when(cleanupTaskService.enqueueMemoryWorldbookSetDeletion(userId, conversationId, worldName))
+                .thenReturn(taskId);
+        when(cleanupTaskService.processImmediately(List.of(taskId)))
+                .thenThrow(new IllegalStateException("cleanup processor unavailable"));
+
+        service.clearBranchMemory(conversationId, branchId, userId);
+
+        verify(entryMapper).deleteByConversationBranchId(conversationId, branchId);
+        verify(memoryMapper).deleteByConversationBranchId(conversationId, branchId);
+        verify(cleanupTaskService).processImmediately(List.of(taskId));
+    }
+
     private static ConversationMemoryCleanupService service(
             AppConversationMemoryMapper memoryMapper,
             AppConversationMemoryEntryMapper entryMapper,
             AppConversationBranchMapper branchMapper,
             ConversationMemoryWorldbookSyncService worldbookSyncService
     ) {
-        return new ConversationMemoryCleanupService(memoryMapper, entryMapper, branchMapper, worldbookSyncService);
+        return service(
+                memoryMapper,
+                entryMapper,
+                branchMapper,
+                worldbookSyncService,
+                mock(ExternalCleanupTaskService.class)
+        );
+    }
+
+    private static ConversationMemoryCleanupService service(
+            AppConversationMemoryMapper memoryMapper,
+            AppConversationMemoryEntryMapper entryMapper,
+            AppConversationBranchMapper branchMapper,
+            ConversationMemoryWorldbookSyncService worldbookSyncService,
+            ExternalCleanupTaskService cleanupTaskService
+    ) {
+        return new ConversationMemoryCleanupService(
+                memoryMapper,
+                entryMapper,
+                branchMapper,
+                worldbookSyncService,
+                cleanupTaskService
+        );
     }
 
     private static AppConversationMemory memory(long conversationId, long branchId, String worldName) {

@@ -16,13 +16,30 @@ public class MemoryLlmProperties {
     /** 送入模型的对话文本最大字符（超出则截断尾部）。 */
     private int maxTranscriptChars = 14000;
 
+    /** Enable stable-bucket incremental extraction for a limited rollout. */
+    private boolean incrementalExtractionEnabled = true;
+
+    /** Percentage of conversation branches assigned to incremental extraction. */
+    private int incrementalRolloutPercent = 10;
+
+    /** Earlier messages retained around the extraction cursor for continuity. */
+    private int incrementalOverlapMessages = 12;
+
+    /** Force a full extraction whenever this message-count boundary is crossed. */
+    private int fullRecalibrationMessageInterval = 80;
+
+    /** Non-protected existing memories supplied to one incremental extraction. */
+    private int incrementalMaxRelevantEntries = 40;
+
     private boolean fallbackToHeuristic = true;
 
     private int autoEveryMessages = 20;
 
-    private int autoMinMinutesBetween = 30;
+    private int autoMinMinutesBetween = 60;
 
     private int autoMinVisibleMessages = 6;
+
+    private int historyRebuildCooldownMinutes = 10;
 
     private int autoRefreshWorkerThreads = 2;
 
@@ -79,6 +96,46 @@ public class MemoryLlmProperties {
         this.maxTranscriptChars = maxTranscriptChars;
     }
 
+    public boolean isIncrementalExtractionEnabled() {
+        return incrementalExtractionEnabled;
+    }
+
+    public void setIncrementalExtractionEnabled(boolean incrementalExtractionEnabled) {
+        this.incrementalExtractionEnabled = incrementalExtractionEnabled;
+    }
+
+    public int getIncrementalRolloutPercent() {
+        return incrementalRolloutPercent;
+    }
+
+    public void setIncrementalRolloutPercent(int incrementalRolloutPercent) {
+        this.incrementalRolloutPercent = incrementalRolloutPercent;
+    }
+
+    public int getIncrementalOverlapMessages() {
+        return incrementalOverlapMessages;
+    }
+
+    public void setIncrementalOverlapMessages(int incrementalOverlapMessages) {
+        this.incrementalOverlapMessages = incrementalOverlapMessages;
+    }
+
+    public int getFullRecalibrationMessageInterval() {
+        return fullRecalibrationMessageInterval;
+    }
+
+    public void setFullRecalibrationMessageInterval(int fullRecalibrationMessageInterval) {
+        this.fullRecalibrationMessageInterval = fullRecalibrationMessageInterval;
+    }
+
+    public int getIncrementalMaxRelevantEntries() {
+        return incrementalMaxRelevantEntries;
+    }
+
+    public void setIncrementalMaxRelevantEntries(int incrementalMaxRelevantEntries) {
+        this.incrementalMaxRelevantEntries = incrementalMaxRelevantEntries;
+    }
+
     public boolean isFallbackToHeuristic() {
         return fallbackToHeuristic;
     }
@@ -109,6 +166,14 @@ public class MemoryLlmProperties {
 
     public void setAutoMinVisibleMessages(int autoMinVisibleMessages) {
         this.autoMinVisibleMessages = autoMinVisibleMessages;
+    }
+
+    public int getHistoryRebuildCooldownMinutes() {
+        return historyRebuildCooldownMinutes;
+    }
+
+    public void setHistoryRebuildCooldownMinutes(int historyRebuildCooldownMinutes) {
+        this.historyRebuildCooldownMinutes = historyRebuildCooldownMinutes;
     }
 
     public int getAutoRefreshWorkerThreads() {

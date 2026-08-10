@@ -1677,6 +1677,9 @@ public final class StClient {
         }
         root.putPOJO("group_names", request.groupNames() == null ? java.util.List.of() : request.groupNames());
         root.putPOJO("world_names", request.stWorldNames() == null ? java.util.List.of() : request.stWorldNames());
+        if (properties.getMemoryLoreMaxTokens() > 0) {
+            root.put("memory_lore_max_tokens", properties.getMemoryLoreMaxTokens());
+        }
         if (StringUtils.hasText(request.tailSystemPrompt())) {
             root.put("tail_system_prompt", request.tailSystemPrompt().trim());
         }
@@ -1837,6 +1840,9 @@ public final class StClient {
             requestBody.put("char_name", charName == null ? "" : charName);
             requestBody.put("group_names", groupNames == null ? java.util.List.of() : groupNames);
             requestBody.put("world_names", worldNames == null ? java.util.List.of() : worldNames);
+            if (properties.getMemoryLoreMaxTokens() > 0) {
+                requestBody.put("memory_lore_max_tokens", properties.getMemoryLoreMaxTokens());
+            }
             if (StringUtils.hasText(runtimePresetBundle)) {
                 requestBody.put("runtime_preset_bundle", objectMapper.readValue(runtimePresetBundle, Object.class));
             }

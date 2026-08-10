@@ -10,8 +10,12 @@ import com.example.sillyspringboot.conversation.entity.AppConversationMemoryEntr
 import com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryEntryMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMemoryMapper;
+import com.example.sillyspringboot.conversation.model.ConversationMemoryRefreshMetric;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +28,8 @@ import java.util.UUID;
 @Service
 public class ConversationMemoryApplyService {
 
+    private static final Logger log = LoggerFactory.getLogger(ConversationMemoryApplyService.class);
+
     public enum ApplyStatus {
         APPLIED,
         STALE
@@ -35,6 +41,7 @@ public class ConversationMemoryApplyService {
     private final AppMessageMapper messageMapper;
     private final ConversationMemorySanitizer sanitizer;
     private final ConversationMemoryCapacityService capacityService;
+    private final ConversationMemoryRefreshMetricsService metricsService;
 
     public ConversationMemoryApplyService(
             AppConversationBranchMapper branchMapper,
@@ -44,12 +51,34 @@ public class ConversationMemoryApplyService {
             ConversationMemorySanitizer sanitizer,
             ConversationMemoryCapacityService capacityService
     ) {
+        this(
+                branchMapper,
+                memoryMapper,
+                entryMapper,
+                messageMapper,
+                sanitizer,
+                capacityService,
+                null
+        );
+    }
+
+    @Autowired
+    public ConversationMemoryApplyService(
+            AppConversationBranchMapper branchMapper,
+            AppConversationMemoryMapper memoryMapper,
+            AppConversationMemoryEntryMapper entryMapper,
+            AppMessageMapper messageMapper,
+            ConversationMemorySanitizer sanitizer,
+            ConversationMemoryCapacityService capacityService,
+            ConversationMemoryRefreshMetricsService metricsService
+    ) {
         this.branchMapper = branchMapper;
         this.memoryMapper = memoryMapper;
         this.entryMapper = entryMapper;
         this.messageMapper = messageMapper;
         this.sanitizer = sanitizer;
         this.capacityService = capacityService;
+        this.metricsService = metricsService;
     }
 
     @Transactional
@@ -64,8 +93,20 @@ public class ConversationMemoryApplyService {
 
         List<AppConversationMemoryEntry> existingEntries =
                 entryMapper.listAllIncludingDeletedForUpdate(snapshot.conversationId(), snapshot.branchId());
+        int modelOutputEntryCount = Math.max(
+                extraction.modelOutputEntryCount(),
+                extraction.entries() == null ? 0 : extraction.entries().size()
+        );
+        int acceptedEntryCount = 0;
+        int rejectedEntryCount = Math.max(0, extraction.parseRejectedEntryCount());
+        int conflictCount = 0;
         Set<String> disabledKeys = new LinkedHashSet<>();
-        for (String key : sanitizer.sanitizeDisableKeys(extraction.disableEntryKeys())) {
+        List<String> requestedDisableKeys = sanitizer.sanitizeDisableKeys(extraction.disableEntryKeys());
+        for (String key : requestedDisableKeys) {
+            if (isPinnedKey(key, existingEntries)) {
+                conflictCount++;
+                continue;
+            }
             if (disabledKeys.add(key)) {
                 entryMapper.disableByKeyForBranch(snapshot.conversationId(), snapshot.branchId(), key);
             }
@@ -74,6 +115,10 @@ public class ConversationMemoryApplyService {
         if (extraction.entries() != null) {
             for (ExtractedMemoryEntry extracted : extraction.entries()) {
                 for (String key : sanitizer.sanitizeReplaceKeys(extracted)) {
+                    if (isPinnedKey(key, existingEntries)) {
+                        conflictCount++;
+                        continue;
+                    }
                     if (disabledKeys.add(key)) {
                         entryMapper.disableByKeyForBranch(snapshot.conversationId(), snapshot.branchId(), key);
                     }
@@ -86,12 +131,17 @@ public class ConversationMemoryApplyService {
                         snapshot.messageIds()
                 );
                 if (entity == null) {
+                    rejectedEntryCount++;
                     continue;
                 }
                 entity.setBranchId(snapshot.branchId());
-                if (!isBlockedByManualSuppression(entity, extracted, existingEntries)) {
-                    entryMapper.upsert(entity);
+                if (isBlockedByManualSuppression(entity, extracted, existingEntries)) {
+                    rejectedEntryCount++;
+                    conflictCount++;
+                    continue;
                 }
+                entryMapper.upsert(entity);
+                acceptedEntryCount++;
             }
         }
 
@@ -101,7 +151,8 @@ public class ConversationMemoryApplyService {
         int enabledCount = enabledEntries == null ? 0 : enabledEntries.size();
         int entryCount = entryMapper.countAllByConversationBranchId(snapshot.conversationId(), snapshot.branchId());
         boolean hasManualSuppression = existingEntries != null && existingEntries.stream()
-                .anyMatch(entry -> entry != null && (entry.isManualDeleted() || entry.isManualDisabled()));
+                .anyMatch(entry -> entry != null
+                        && (entry.isManualPinned() || entry.isManualDeleted() || entry.isManualDisabled()));
         String summary = hasManualSuppression
                 ? buildEnabledSummaryPreview(enabledEntries)
                 : nullToEmpty(extraction.summaryPreview());
@@ -122,7 +173,57 @@ public class ConversationMemoryApplyService {
         if (updated != 1) {
             throw new IllegalStateException("memory revision changed while branch row was locked");
         }
+        recordStructuredMetric(
+                snapshot,
+                extraction,
+                modelOutputEntryCount,
+                acceptedEntryCount,
+                rejectedEntryCount,
+                conflictCount,
+                requestedDisableKeys.size()
+        );
         return ApplyStatus.APPLIED;
+    }
+
+    private void recordStructuredMetric(
+            ConversationMemoryRefreshSnapshot snapshot,
+            StructuredMemoryExtraction extraction,
+            int modelOutputEntryCount,
+            int acceptedEntryCount,
+            int rejectedEntryCount,
+            int conflictCount,
+            int disableRequestedCount
+    ) {
+        if (metricsService == null) {
+            return;
+        }
+        ConversationMemoryRefreshMetric metric = new ConversationMemoryRefreshMetric(
+                extraction.requestId(),
+                snapshot.conversationId(),
+                snapshot.branchId(),
+                snapshot.refreshMode(),
+                snapshot.extractionMode(),
+                "STRUCTURED_APPLIED",
+                snapshot.messages().size(),
+                snapshot.visibleMessageCount(),
+                snapshot.existingEntries().size(),
+                modelOutputEntryCount,
+                acceptedEntryCount,
+                rejectedEntryCount,
+                conflictCount,
+                disableRequestedCount,
+                extraction.durationMs()
+        );
+        try {
+            metricsService.record(metric);
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "memory refresh metric write failed conversationId={} branchId={}: {}",
+                    snapshot.conversationId(),
+                    snapshot.branchId(),
+                    ex.getMessage()
+            );
+        }
     }
 
     @Transactional
@@ -130,6 +231,36 @@ public class ConversationMemoryApplyService {
             ConversationMemoryRefreshSnapshot snapshot,
             String summaryPreview,
             int factsCount
+    ) {
+        return applyRollupInternal(snapshot, summaryPreview, factsCount, null, 0L, null);
+    }
+
+    @Transactional
+    public ApplyStatus applyRollup(
+            ConversationMemoryRefreshSnapshot snapshot,
+            String summaryPreview,
+            int factsCount,
+            String requestId,
+            long durationMs,
+            String outcome
+    ) {
+        return applyRollupInternal(
+                snapshot,
+                summaryPreview,
+                factsCount,
+                requestId,
+                durationMs,
+                outcome
+        );
+    }
+
+    private ApplyStatus applyRollupInternal(
+            ConversationMemoryRefreshSnapshot snapshot,
+            String summaryPreview,
+            int factsCount,
+            String requestId,
+            long durationMs,
+            String outcome
     ) {
         LockedState locked = lockAndValidate(snapshot);
         if (locked == null) {
@@ -158,7 +289,48 @@ public class ConversationMemoryApplyService {
         if (updated != 1) {
             throw new IllegalStateException("memory revision changed while branch row was locked");
         }
+        if (outcome != null && !outcome.isBlank()) {
+            recordRollupMetric(snapshot, requestId, durationMs, outcome);
+        }
         return ApplyStatus.APPLIED;
+    }
+
+    private void recordRollupMetric(
+            ConversationMemoryRefreshSnapshot snapshot,
+            String requestId,
+            long durationMs,
+            String outcome
+    ) {
+        if (metricsService == null) {
+            return;
+        }
+        ConversationMemoryRefreshMetric metric = new ConversationMemoryRefreshMetric(
+                requestId,
+                snapshot.conversationId(),
+                snapshot.branchId(),
+                snapshot.refreshMode(),
+                snapshot.extractionMode(),
+                outcome,
+                snapshot.messages().size(),
+                snapshot.visibleMessageCount(),
+                snapshot.existingEntries().size(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                Math.max(0L, durationMs)
+        );
+        try {
+            metricsService.record(metric);
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "memory refresh metric write failed conversationId={} branchId={}: {}",
+                    snapshot.conversationId(),
+                    snapshot.branchId(),
+                    ex.getMessage()
+            );
+        }
     }
 
     @Transactional
@@ -339,7 +511,8 @@ public class ConversationMemoryApplyService {
         String candidateKey = nullToEmpty(candidate.getEntryKey()).trim();
         String candidateContent = fingerprint(candidate.getContent());
         for (AppConversationMemoryEntry existing : existingEntries) {
-            if (existing == null || (!existing.isManualDeleted() && !existing.isManualDisabled())) {
+            if (existing == null
+                    || (!existing.isManualPinned() && !existing.isManualDeleted() && !existing.isManualDisabled())) {
                 continue;
             }
             String existingKey = nullToEmpty(existing.getEntryKey()).trim();
@@ -349,6 +522,13 @@ public class ConversationMemoryApplyService {
             if (!candidateContent.isBlank() && candidateContent.equals(fingerprint(existing.getContent()))) {
                 return true;
             }
+            if (existing.isManualPinned()) {
+                if (declaresReplacement(extracted, existingKey)
+                        || (sameType(candidate, existing) && sharesKeywordDomain(candidate, existing))) {
+                    return true;
+                }
+                continue;
+            }
             if (!declaresReplacement(extracted, existingKey)
                     && sameType(candidate, existing)
                     && isSemanticallySimilar(candidate, existing)) {
@@ -356,6 +536,26 @@ public class ConversationMemoryApplyService {
             }
         }
         return false;
+    }
+
+    private boolean sharesKeywordDomain(
+            AppConversationMemoryEntry candidate,
+            AppConversationMemoryEntry protectedEntry
+    ) {
+        Set<String> candidateKeywords = normalizedKeywords(candidate.getKeywordsJson());
+        Set<String> protectedKeywords = normalizedKeywords(protectedEntry.getKeywordsJson());
+        return candidateKeywords.stream().anyMatch(protectedKeywords::contains)
+                || isSemanticallySimilar(candidate, protectedEntry);
+    }
+
+    private static boolean isPinnedKey(String key, List<AppConversationMemoryEntry> existingEntries) {
+        if (key == null || key.isBlank() || existingEntries == null) {
+            return false;
+        }
+        return existingEntries.stream()
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(entry -> entry.isManualPinned()
+                        && key.equalsIgnoreCase(nullToEmpty(entry.getEntryKey()).trim()));
     }
 
     private boolean isSemanticallySimilar(AppConversationMemoryEntry candidate, AppConversationMemoryEntry suppressed) {

@@ -70,6 +70,9 @@ public class SillyTavernProperties {
      */
     private boolean preferStPresetParams = true;
 
+    /** 0 表示由 ST runtime 按模型上下文自适应；正数表示长期记忆独立 token 上限。 */
+    private int memoryLoreMaxTokens = 0;
+
     /**
      * 仅用于开发/联调：抓取网关发往 ST `/generate` 的请求体，做 Golden Diff。
      * 默认关闭，避免在生产环境泄漏 prompt / 用户内容。
@@ -239,6 +242,14 @@ public class SillyTavernProperties {
 
     public void setPreferStPresetParams(boolean preferStPresetParams) {
         this.preferStPresetParams = preferStPresetParams;
+    }
+
+    public int getMemoryLoreMaxTokens() {
+        return memoryLoreMaxTokens;
+    }
+
+    public void setMemoryLoreMaxTokens(int memoryLoreMaxTokens) {
+        this.memoryLoreMaxTokens = memoryLoreMaxTokens;
     }
 
     public Debug getDebug() {

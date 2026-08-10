@@ -189,6 +189,34 @@ public class AppConversationMemoryEntryMapperTest {
     }
 
     @Test
+    void memoryEntryMapper_shouldNotDisableOrOverwritePinnedMemoryFromAutomaticRefresh() {
+        long conversationId = 1001L;
+        AppConversationMemoryEntry pinned = entry(
+                conversationId, "identity_allergy", "boundary",
+                "Allergy", "User is severely allergic to peanuts.", "[\"peanut\",\"allergy\"]", 200
+        );
+        pinned.setManualPinned(true);
+        entryMapper.insertManual(pinned);
+
+        entryMapper.disableByKeyForBranch(conversationId, 0L, "identity_allergy");
+        AppConversationMemoryEntry automaticReplacement = entry(
+                conversationId, "identity_allergy", "preference",
+                "Food preference", "User likes peanuts.", "[\"peanut\"]", 80
+        );
+        entryMapper.upsert(automaticReplacement);
+
+        assertThat(entryMapper.listEnabledByConversationId(conversationId))
+                .singleElement()
+                .satisfies(stored -> {
+                    assertThat(stored.isManualPinned()).isTrue();
+                    assertThat(stored.isEnabled()).isTrue();
+                    assertThat(stored.getMemoryType()).isEqualTo("boundary");
+                    assertThat(stored.getContent()).isEqualTo("User is severely allergic to peanuts.");
+                    assertThat(stored.getPriority()).isEqualTo(200);
+                });
+    }
+
+    @Test
     void historyInvalidationDeletesOnlyGeneratedEntriesAndPreservesManualOrPinnedEntries() {
         long conversationId = 1001L;
 

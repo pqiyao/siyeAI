@@ -25,6 +25,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class ConversationMemoryLlmService {
@@ -42,7 +43,11 @@ public class ConversationMemoryLlmService {
         this.properties = properties;
     }
 
-    public record MemoryRollup(String summaryPreview, int factsCount) {}
+    public record MemoryRollup(String summaryPreview, int factsCount, String requestId, long durationMs) {
+        public MemoryRollup(String summaryPreview, int factsCount) {
+            this(summaryPreview, factsCount, null, 0L);
+        }
+    }
 
     public Optional<StructuredMemoryExtraction> tryStructuredMemoryExtract(
             long conversationId,
@@ -142,6 +147,7 @@ public class ConversationMemoryLlmService {
                 Every entry must cite one or more sourceMessageIds shown in the transcript. Never invent an ID.
                 Existing entries marked USER_DELETED are user deletion tombstones. Never recreate the same key or fact merely because it still appears in chat history.
                 Existing entries marked USER_DISABLED were explicitly disabled by the user. Do not recreate or re-enable the same fact under another key. Only when the recent transcript clearly establishes a different replacement fact may you emit a new key and include the disabled key in replaces.
+                Existing entries marked USER_PINNED are authoritative user-protected facts. Never disable, replace, contradict, or rewrite them. Only the user may change them.
                 Use priority 200 for names/call signs/boundaries/confirmed relationship, 160 for durable preference/promise, 120 for important event/plot, 80 for ordinary fact.
                 Example: if the user says "以后叫我哥哥", output one identity entry with entryKey "identity_user_call_gege", content "用户希望角色称呼他为哥哥。", keywords ["哥哥","称呼"], priority 200, constantInjection true, confidence >= 0.90.
                 Conflict example: if existing memory has "identity_user_call_gege" but the user later says "别叫哥哥了，叫我阿曜", output disableEntryKeys ["identity_user_call_gege"] and a new identity entry "identity_user_call_ayao" with content "用户希望角色称呼他为阿曜。".
@@ -153,11 +159,12 @@ public class ConversationMemoryLlmService {
                 ChatMessage.text("user", "Existing memory entries:\n" + existing + "\n\nRecent transcript:\n" + transcript)
         );
 
+        String requestId = "mem_struct_" + UUID.randomUUID().toString().replace("-", "");
         ChatGenerateRequest req = new ChatGenerateRequest(
                 conversationId,
                 "",
                 messages,
-                "mem_struct_" + System.currentTimeMillis(),
+                requestId,
                 true,
                 "memory_structured_extract",
                 Set.of(),
@@ -173,6 +180,7 @@ public class ConversationMemoryLlmService {
 
         StringBuilder acc = new StringBuilder();
         StStreamControl control = new StStreamControl();
+        long startedNanos = System.nanoTime();
         try {
             stClient.streamChatCompletionsGenerate(
                     req,
@@ -191,7 +199,16 @@ public class ConversationMemoryLlmService {
             return Optional.empty();
         }
 
-        return parseStructured(acc.toString());
+        long durationMs = Math.max(0L, (System.nanoTime() - startedNanos) / 1_000_000L);
+        return parseStructured(acc.toString()).map(parsed -> new StructuredMemoryExtraction(
+                parsed.summaryPreview(),
+                parsed.entries(),
+                parsed.disableEntryKeys(),
+                requestId,
+                durationMs,
+                parsed.modelOutputEntryCount(),
+                parsed.parseRejectedEntryCount()
+        ));
     }
 
     public Optional<MemoryRollup> tryLlmRollup(long conversationId) {
@@ -252,11 +269,12 @@ public class ConversationMemoryLlmService {
                 ChatMessage.text("user", "Transcript:\n" + transcript)
         );
 
+        String requestId = "mem_llm_" + UUID.randomUUID().toString().replace("-", "");
         ChatGenerateRequest req = new ChatGenerateRequest(
                 conversationId,
                 "",
                 messages,
-                "mem_llm_" + System.currentTimeMillis(),
+                requestId,
                 true,
                 "memory_rollup",
                 Set.of(),
@@ -272,6 +290,7 @@ public class ConversationMemoryLlmService {
 
         StringBuilder acc = new StringBuilder();
         StStreamControl control = new StStreamControl();
+        long startedNanos = System.nanoTime();
         try {
             stClient.streamChatCompletionsGenerate(
                     req,
@@ -294,7 +313,14 @@ public class ConversationMemoryLlmService {
         if (raw.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(parseRollup(raw));
+        long durationMs = Math.max(0L, (System.nanoTime() - startedNanos) / 1_000_000L);
+        MemoryRollup parsed = parseRollup(raw);
+        return Optional.of(new MemoryRollup(
+                parsed.summaryPreview(),
+                parsed.factsCount(),
+                requestId,
+                durationMs
+        ));
     }
 
     private static MemoryRollup parseRollup(String raw) {
@@ -328,6 +354,7 @@ public class ConversationMemoryLlmService {
             String summary = trimTo(root.path("summaryPreview").asText(""), 420);
             List<ExtractedMemoryEntry> entries = new ArrayList<>();
             JsonNode arr = root.path("entries");
+            int modelOutputEntryCount = arr.isArray() ? arr.size() : 0;
             if (arr.isArray()) {
                 for (JsonNode n : arr) {
                     ExtractedMemoryEntry entry = parseEntryNode(n);
@@ -340,7 +367,15 @@ public class ConversationMemoryLlmService {
             if (summary.isBlank() && entries.isEmpty() && disables.isEmpty()) {
                 return Optional.empty();
             }
-            return Optional.of(new StructuredMemoryExtraction(summary, entries, disables));
+            return Optional.of(new StructuredMemoryExtraction(
+                    summary,
+                    entries,
+                    disables,
+                    null,
+                    0L,
+                    modelOutputEntryCount,
+                    Math.max(0, modelOutputEntryCount - entries.size())
+            ));
         } catch (Exception e) {
             log.warn("memory structured parse failed: {}", e.getMessage());
             return Optional.empty();
@@ -483,7 +518,15 @@ public class ConversationMemoryLlmService {
             if (entry == null) {
                 continue;
             }
-            if (entry.manualDeleted()) {
+            if (entry.manualPinned()) {
+                sb.append("- USER_PINNED ")
+                        .append(entry.entryKey())
+                        .append(" [")
+                        .append(entry.memoryType())
+                        .append("]: ")
+                        .append(trimTo(entry.content(), 160))
+                        .append(" (authoritative; never disable, replace, contradict, or rewrite)\n");
+            } else if (entry.manualDeleted()) {
                 sb.append("- USER_DELETED ")
                         .append(entry.entryKey())
                         .append(": ")

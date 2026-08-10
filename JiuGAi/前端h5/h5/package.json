@@ -27,6 +27,7 @@
 		,"test:ai-settings-smart-fill": "node tests/aiSettingsSmartFill.contract.test.cjs"
 		,"test:friend-links": "node tests/friendLinks.contract.test.cjs"
 		,"test:ensemble-chat": "node tests/ensembleChat.unit.test.cjs && node tests/characterStudioV2.contract.test.cjs"
+		,"test:chat-memory": "node tests/chatMemoryExperience.contract.test.cjs"
 	},
 	"dependencies": {
     "@ffmpeg/core": "^0.12.10",

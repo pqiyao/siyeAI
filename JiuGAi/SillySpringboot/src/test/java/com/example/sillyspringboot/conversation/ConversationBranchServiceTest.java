@@ -9,6 +9,7 @@ import com.example.sillyspringboot.conversation.entity.AppConversationBranch;
 import com.example.sillyspringboot.conversation.mapper.AppConversationBranchMapper;
 import com.example.sillyspringboot.conversation.mapper.AppConversationMapper;
 import com.example.sillyspringboot.conversation.service.ConversationBranchService;
+import com.example.sillyspringboot.conversation.service.ConversationMemoryCleanupService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -206,7 +207,8 @@ class ConversationBranchServiceTest {
         AppMessageMapper messageMapper = mock(AppMessageMapper.class);
         AppMessageSegmentMapper segmentMapper = mock(AppMessageSegmentMapper.class);
         ConversationBranchService service = new ConversationBranchService(
-                conversationMapper, branchMapper, messageMapper, segmentMapper);
+                conversationMapper, branchMapper, messageMapper, segmentMapper,
+                mock(ConversationMemoryCleanupService.class));
 
         AppConversation conversation = conversation(1L, 10L, 20L);
         AppConversationBranch active = branch(20L, 1L, 10L, 0);
@@ -250,6 +252,36 @@ class ConversationBranchServiceTest {
         verify(conversationMapper).setActiveBranchId(1L, 30L);
     }
 
+    @Test
+    void deletingBranchClearsItsMemoryAfterBranchIsSoftDeleted() {
+        AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
+        AppConversationBranchMapper branchMapper = mock(AppConversationBranchMapper.class);
+        AppMessageMapper messageMapper = mock(AppMessageMapper.class);
+        ConversationMemoryCleanupService cleanupService = mock(ConversationMemoryCleanupService.class);
+        ConversationBranchService service = new ConversationBranchService(
+                conversationMapper,
+                branchMapper,
+                messageMapper,
+                mock(AppMessageSegmentMapper.class),
+                cleanupService
+        );
+
+        AppConversation conversation = conversation(1L, 10L, 30L);
+        AppConversationBranch target = branch(30L, 1L, 10L, 1);
+        target.setParentBranchId(20L);
+        AppConversationBranch parent = branch(20L, 1L, 10L, 0);
+        when(branchMapper.findByIdForConversation(1L, 30L)).thenReturn(target);
+        when(branchMapper.findByIdForConversation(1L, 20L)).thenReturn(parent);
+        when(branchMapper.softDelete(1L, 30L)).thenReturn(1);
+
+        AppConversationBranch fallback = service.deleteBranch(conversation, 30L);
+
+        assertThat(fallback.getId()).isEqualTo(20L);
+        verify(branchMapper).softDelete(1L, 30L);
+        verify(cleanupService).clearBranchMemory(1L, 30L, 10L);
+        verify(conversationMapper).setActiveBranchId(1L, 20L);
+    }
+
     private static AppConversation conversation(long id, long userId, long activeBranchId) {
         AppConversation conversation = new AppConversation();
         conversation.setId(id);
@@ -267,7 +299,8 @@ class ConversationBranchServiceTest {
                 conversationMapper,
                 branchMapper,
                 messageMapper,
-                mock(AppMessageSegmentMapper.class)
+                mock(AppMessageSegmentMapper.class),
+                mock(ConversationMemoryCleanupService.class)
         );
     }
 

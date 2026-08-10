@@ -6,6 +6,7 @@ import com.example.sillyspringboot.admin.model.CharacterUploadAssetRow;
 import com.example.sillyspringboot.admin.model.ExternalCleanupTask;
 import com.example.sillyspringboot.config.ExternalCleanupProperties;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
+import com.example.sillyspringboot.integration.sillytavern.dto.StWorldbookOptionDto;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -173,6 +174,39 @@ class ExternalCleanupTaskServiceTest {
         assertThat(service.backoffSeconds(1)).isEqualTo(10);
         assertThat(service.backoffSeconds(2)).isEqualTo(20);
         assertThat(service.backoffSeconds(3)).isEqualTo(25);
+    }
+
+    @Test
+    void memoryWorldbookSetDeletesOnlyBaseAndNumericRevisionFiles() {
+        String baseName = "jg_memory_conv_31_b9";
+        ExternalCleanupTask task = task(
+                "task-memory-worldbooks",
+                ExternalCleanupTaskService.TYPE_ST_MEMORY_WORLDBOOK_SET,
+                0,
+                3
+        );
+        task.setPrimaryRef(baseName);
+        task.setSecondaryRef("31");
+        installClaimBehavior(task);
+        when(stAdapter.listWorldbooks()).thenReturn(List.of(
+                new StWorldbookOptionDto(baseName, baseName),
+                new StWorldbookOptionDto(baseName + "_r5", baseName + "_r5"),
+                new StWorldbookOptionDto(baseName + "_r6", baseName + "_r6"),
+                new StWorldbookOptionDto(baseName + "_rollback", baseName + "_rollback"),
+                new StWorldbookOptionDto("jg_memory_conv_31_b10_r6", "jg_memory_conv_31_b10_r6")
+        ));
+        when(stAdapter.deleteWorldbook(anyString())).thenReturn(true);
+        when(mapper.markCompleted(anyString(), anyString(), any())).thenReturn(1);
+
+        ExternalCleanupTaskService.CleanupAttempt result =
+                service.processImmediately(List.of(task.getId())).get(0);
+
+        assertThat(result.succeeded()).isTrue();
+        verify(stAdapter).deleteWorldbook(baseName);
+        verify(stAdapter).deleteWorldbook(baseName + "_r5");
+        verify(stAdapter).deleteWorldbook(baseName + "_r6");
+        verify(stAdapter, never()).deleteWorldbook(baseName + "_rollback");
+        verify(stAdapter, never()).deleteWorldbook("jg_memory_conv_31_b10_r6");
     }
 
     @Test

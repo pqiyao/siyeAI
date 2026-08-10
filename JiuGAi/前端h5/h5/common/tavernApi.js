@@ -774,6 +774,7 @@ function normalizeRuntimeFeatureConfig(source) {
 		checkinEntryVisible: raw.checkinEntryVisible !== false,
 		systemChatPresetEntryVisible: raw.systemChatPresetEntryVisible !== false,
 		userChatPresetEntryVisible: raw.userChatPresetEntryVisible !== false,
+		longTermMemoryEnabled: raw.longTermMemoryEnabled === true,
 		userByokVipMinLevel: normalizeNonNegativeInt(raw.userByokVipMinLevel, 0)
 	};
 }
@@ -856,6 +857,10 @@ function isVoiceFeatureEnabled() {
 
 function isImageGenerationEnabled() {
 	return getRuntimeFeatureConfig().imageGenerationEnabled !== false;
+}
+
+function isLongTermMemoryEnabled() {
+	return getRuntimeFeatureConfig().longTermMemoryEnabled === true;
 }
 
 function isIllustrationEntryEnabled() {
@@ -3485,6 +3490,7 @@ module.exports = {
 	isUserByokEnabled: isUserByokEnabled,
 	isImageGenerationEnabled: isImageGenerationEnabled,
 	isVoiceFeatureEnabled: isVoiceFeatureEnabled,
+	isLongTermMemoryEnabled: isLongTermMemoryEnabled,
 	isIllustrationEntryEnabled: isIllustrationEntryEnabled,
 	isRechargeEntryVisible: isRechargeEntryVisible,
 	isCheckinEntryVisible: isCheckinEntryVisible,

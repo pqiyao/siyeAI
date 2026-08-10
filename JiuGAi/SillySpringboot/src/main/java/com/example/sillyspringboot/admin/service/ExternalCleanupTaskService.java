@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.sillyspringboot.config.ExternalCleanupProperties;
 import com.example.sillyspringboot.integration.sillytavern.StAdapter;
+import com.example.sillyspringboot.integration.sillytavern.dto.StWorldbookOptionDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,6 +41,7 @@ public class ExternalCleanupTaskService {
     static final String TYPE_ST_CHAT = "ST_CHAT";
     static final String TYPE_ST_CHARACTER = "ST_CHARACTER";
     static final String TYPE_ST_WORLDBOOK = "ST_WORLDBOOK";
+    static final String TYPE_ST_MEMORY_WORLDBOOK_SET = "ST_MEMORY_WORLDBOOK_SET";
     static final String TYPE_LOCAL_UPLOAD = "LOCAL_UPLOAD";
     static final String TYPE_CHARACTER_ST_BUNDLE = "CHARACTER_ST_BUNDLE";
     static final String TYPE_CHARACTER_LOCAL_UPLOAD = "CHARACTER_LOCAL_UPLOAD";
@@ -155,6 +157,35 @@ public class ExternalCleanupTaskService {
         return enqueueUserDeletionTasks(userId, stChats, ownedCharacters, List.of(), localAssetUrls);
     }
 
+    @Transactional
+    public String enqueueMemoryWorldbookSetDeletion(
+            long sourceUserId,
+            long conversationId,
+            String baseWorldName
+    ) {
+        String safeWorldName = text(baseWorldName);
+        String expectedPrefix = "jg_memory_conv_" + conversationId + "_";
+        if (sourceUserId <= 0 || conversationId <= 0 || !safeWorldName.startsWith(expectedPrefix)) {
+            throw new IllegalArgumentException("memory worldbook cleanup context is invalid");
+        }
+        Map<String, CleanupDraft> drafts = new LinkedHashMap<>();
+        addDraft(
+                drafts,
+                TYPE_ST_MEMORY_WORLDBOOK_SET,
+                safeWorldName,
+                String.valueOf(conversationId)
+        );
+        List<String> taskIds = persistDrafts(
+                sourceUserId,
+                drafts,
+                "BRANCH_MEMORY_DELETION"
+        );
+        if (taskIds.size() != 1) {
+            throw new IllegalStateException("memory worldbook cleanup task was not persisted");
+        }
+        return taskIds.get(0);
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public List<String> enqueueArtifactRollbackTasks(
             long sourceUserId,
@@ -171,6 +202,14 @@ public class ExternalCleanupTaskService {
     }
 
     private List<String> persistDrafts(long sourceUserId, Map<String, CleanupDraft> drafts) {
+        return persistDrafts(sourceUserId, drafts, "USER_DELETION");
+    }
+
+    private List<String> persistDrafts(
+            long sourceUserId,
+            Map<String, CleanupDraft> drafts,
+            String sourceType
+    ) {
         List<String> taskIds = new ArrayList<>(drafts.size());
         LocalDateTime now = LocalDateTime.now();
         int maxAttempts = clamp(properties.getMaxAttempts(), 1, 100);
@@ -179,7 +218,8 @@ public class ExternalCleanupTaskService {
             ExternalCleanupTask task = new ExternalCleanupTask();
             task.setId(UUID.randomUUID().toString());
             task.setTaskKey(taskKey);
-            task.setSourceType("USER_DELETION");
+            String safeSourceType = text(sourceType);
+            task.setSourceType(safeSourceType.isBlank() ? "USER_DELETION" : safeSourceType);
             task.setSourceUserId(sourceUserId);
             task.setResourceType(draft.resourceType());
             task.setPrimaryRef(draft.primaryRef());
@@ -455,10 +495,54 @@ public class ExternalCleanupTaskService {
             case TYPE_ST_CHAT -> stAdapter.deleteChat(primaryRef, text(task.getSecondaryRef()));
             case TYPE_ST_CHARACTER -> stAdapter.deleteCharacter(primaryRef, true);
             case TYPE_ST_WORLDBOOK -> stAdapter.deleteWorldbook(primaryRef);
+            case TYPE_ST_MEMORY_WORLDBOOK_SET -> deleteMemoryWorldbookSet(task);
             case TYPE_LOCAL_UPLOAD -> deleteLocalUpload(primaryRef);
             case TYPE_CHARACTER_ST_BUNDLE -> deleteCharacterStBundle(task);
             case TYPE_CHARACTER_LOCAL_UPLOAD -> deleteCharacterLocalUpload(task);
             default -> throw new IllegalArgumentException("unsupported cleanup resource type: " + resourceType);
+        }
+    }
+
+    private void deleteMemoryWorldbookSet(ExternalCleanupTask task) {
+        long conversationId = positiveLong(task.getSecondaryRef());
+        String baseWorldName = text(task.getPrimaryRef());
+        String expectedPrefix = "jg_memory_conv_" + conversationId + "_";
+        if (conversationId <= 0
+                || !baseWorldName.startsWith(expectedPrefix)
+                || baseWorldName.contains("..")
+                || baseWorldName.contains("/")
+                || baseWorldName.contains("\\")) {
+            throw new UnsafeCleanupReferenceException("memory worldbook cleanup reference is invalid");
+        }
+
+        Set<String> candidates = new LinkedHashSet<>();
+        List<StWorldbookOptionDto> options = stAdapter.listWorldbooks();
+        if (options != null) {
+            for (StWorldbookOptionDto option : options) {
+                if (option == null) {
+                    continue;
+                }
+                addMemoryWorldbookVersion(candidates, option.fileId(), baseWorldName);
+                addMemoryWorldbookVersion(candidates, option.name(), baseWorldName);
+            }
+        }
+        for (String candidate : candidates) {
+            stAdapter.deleteWorldbook(candidate);
+        }
+    }
+
+    private static void addMemoryWorldbookVersion(
+            Set<String> candidates,
+            String candidate,
+            String baseWorldName
+    ) {
+        String safeCandidate = text(candidate);
+        String revisionPrefix = baseWorldName + "_r";
+        boolean revisioned = safeCandidate.startsWith(revisionPrefix)
+                && safeCandidate.length() > revisionPrefix.length()
+                && safeCandidate.substring(revisionPrefix.length()).chars().allMatch(Character::isDigit);
+        if (safeCandidate.equals(baseWorldName) || revisioned) {
+            candidates.add(safeCandidate);
         }
     }
 

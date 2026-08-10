@@ -81,6 +81,9 @@ public interface AppConversationMemoryEntryMapper {
 
     void softDeleteByConversationId(@Param("conversationId") long conversationId);
 
+    int deleteByConversationBranchId(@Param("conversationId") long conversationId,
+                                     @Param("branchId") long branchId);
+
     int countAllByConversationId(@Param("conversationId") long conversationId);
 
     int countAllByConversationBranchId(@Param("conversationId") long conversationId,

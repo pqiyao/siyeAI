@@ -1,195 +1,125 @@
-# 四叶酒馆（Siye AI）
+<div align="center">
 
-面向 AI 角色互动场景的全栈应用系统，集成 H5 用户端、运营后台、Spring Boot 后端与 SillyTavern。
+# 四叶酒馆
 
-四叶酒馆不是一个只会调用模型接口的聊天 demo，而是一套把用户端 H5、Spring Boot 业务后端、Vue 运营后台、SillyTavern 聊天运行时集成、角色资产管理、世界书与记忆能力、支付权益、工单反馈、社区互动、插画扩展和 Docker 部署串起来的完整项目。
+**Siye AI**
 
-## 线上体验
+面向 AI 角色互动场景的全栈应用系统
 
-用户端体验地址：
+[![Java 17](https://img.shields.io/badge/Java-17-ED8B00?logo=openjdk&logoColor=white)](backend/pom.xml)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.x-6DB33F?logo=springboot&logoColor=white)](backend/)
+[![Vue 3](https://img.shields.io/badge/Vue-3-42B883?logo=vuedotjs&logoColor=white)](admin-web/)
+[![SillyTavern](https://img.shields.io/badge/Runtime-SillyTavern-7B61FF)](sillytavern/)
+[![License](https://img.shields.io/badge/License-Non--Commercial-EA4AAA)](LICENSE)
 
-<p>
-  <a href="https://siyeai.pengqiyao.cn/"><strong>https://siyeai.pengqiyao.cn/</strong></a>
-</p>
+[线上体验](https://siyeai.pengqiyao.cn/) · [项目结构](docs/PROJECT_STRUCTURE.md) · [部署说明](docs/DEPLOYMENT.md) · [问题反馈](https://github.com/pqiyao/siyeAI/issues)
 
-如果这个项目对你有帮助，欢迎 Star、提 Issue、参与讨论，也欢迎加入官方群交流。
+</div>
 
-<p>
-  <img src="docs/images/official-qq-group.jpg" alt="四叶酒馆聊天群" width="280">
-</p>
+## 项目简介
+
+四叶酒馆不是单一的聊天界面或模型调用示例，而是一套围绕 AI 角色互动构建的完整应用。项目将移动端用户体验、角色与世界书管理、聊天记忆、运营后台、权益与订单、内容审核，以及 SillyTavern 运行时整合在同一套工程中。
+
+适合用于学习 AI 角色应用的工程组织方式、搭建非商业自托管服务，或作为同类产品的二次开发参考。
+
+## 核心能力
+
+| 领域 | 能力 |
+| --- | --- |
+| 角色互动 | 角色发现、详情、对话、续写、重生成、会话分支与历史记录。 |
+| 上下文工程 | 角色卡、世界书、长期记忆、上下文构建与模型路由。 |
+| 多模态能力 | 文本生成、语音、图片生成及相关供应商配置。 |
+| 内容运营 | 角色审核、公告、工单、插画内容、标签与资源管理。 |
+| 用户与权益 | 用户体系、访问控制、会员权益、额度、订单与支付渠道。 |
+| 工程交付 | H5 用户端、运营后台、业务后端、数据库迁移与部署配置。 |
+
+## 系统架构
+
+```mermaid
+flowchart LR
+  H5["H5 用户端<br/>h5-web"] --> API["业务后端<br/>backend"]
+  Admin["运营后台<br/>admin-web"] --> API
+  API --> MySQL[(MySQL)]
+  API --> Redis[(Redis)]
+  API --> ST["SillyTavern<br/>sillytavern"]
+  API --> Providers["模型供应商<br/>LLM / TTS / Image"]
+```
+
+| 目录 | 说明 |
+| --- | --- |
+| [`backend/`](backend/) | Java 17 / Spring Boot 业务后端与数据库迁移。 |
+| [`admin-web/`](admin-web/) | Vue 3 / Vite / Element Plus 运营后台。 |
+| [`h5-web/`](h5-web/) | uni-app H5 用户端。 |
+| [`sillytavern/`](sillytavern/) | SillyTavern 聊天运行时与集成代码。 |
+| [`docs/`](docs/) | 项目结构、部署说明与展示资源。 |
+
+更完整的模块边界和开发入口见 [项目结构文档](docs/PROJECT_STRUCTURE.md)。
 
 ## 项目预览
 
-### 用户端 H5
+### 用户端
 
 <table>
   <tr>
-    <td width="50%">
-      <img src="docs/images/h5-discovery.jpg" alt="H5 发现页" width="420">
-      <br>
-      <sub>发现页：角色入口、推荐内容与移动端使用路径。</sub>
+    <td width="50%" align="center">
+      <img src="docs/images/h5-discovery.jpg" alt="角色发现页" width="420">
+      <br><sub>角色发现</sub>
     </td>
-    <td width="50%">
-      <img src="docs/images/h5-chat.jpg" alt="AI 聊天页" width="420">
-      <br>
-      <sub>聊天页：角色对话、续写、重生成与沉浸式交互。</sub>
+    <td width="50%" align="center">
+      <img src="docs/images/h5-chat.jpg" alt="AI 角色聊天页" width="420">
+      <br><sub>角色聊天</sub>
     </td>
   </tr>
   <tr>
-    <td width="50%">
+    <td width="50%" align="center">
       <img src="docs/images/h5-character-library.jpg" alt="角色库" width="420">
-      <br>
-      <sub>角色库：角色内容展示、筛选和进入详情。</sub>
+      <br><sub>角色库</sub>
     </td>
-    <td width="50%">
-      <img src="docs/images/admin-dashboard.jpg" alt="运营后台概览" width="420">
-      <br>
-      <sub>后台概览：运营指标、角色会话、消息与订单数据。</sub>
+    <td width="50%" align="center">
+      <img src="docs/images/admin-dashboard.jpg" alt="数据概览" width="420">
+      <br><sub>数据概览</sub>
     </td>
   </tr>
 </table>
 
 ### 运营后台
 
-<p>
-  <img src="docs/images/admin-ops-dashboard.jpg" alt="H5 酒馆运营大屏" width="900">
+<p align="center">
+  <img src="docs/images/admin-ops-dashboard.jpg" alt="运营后台" width="900">
 </p>
 
 <table>
   <tr>
-    <td width="50%">
-      <img src="docs/images/admin-entitlement-policy.jpg" alt="权益策略配置" width="440">
-      <br>
-      <sub>权益策略：免费用户、周卡会员、Plus 会员的额度与访问权限配置。</sub>
+    <td width="50%" align="center">
+      <img src="docs/images/admin-entitlement-policy.jpg" alt="权益策略" width="440">
+      <br><sub>权益策略</sub>
     </td>
-    <td width="50%">
-      <img src="docs/images/admin-illustration-review.jpg" alt="插画作品审核" width="440">
-      <br>
-      <sub>插画作品：作品筛选、审核、隐藏、驳回和编辑管理。</sub>
+    <td width="50%" align="center">
+      <img src="docs/images/admin-illustration-review.jpg" alt="内容审核" width="440">
+      <br><sub>内容审核</sub>
     </td>
   </tr>
 </table>
 
-## 一句话定位
+## 快速开始
 
-四叶酒馆是一个把 AI 角色聊天、角色内容管理、用户体验、后台运营和部署交付串起来的完整工程样例。
+完整运行需要 Java 17、Node.js 20+、MySQL 8+ 和 Redis 6+。首次部署前请先阅读 [部署说明](docs/DEPLOYMENT.md)。
 
-更具体一点，它解决的不是“怎么让模型回复一句话”，而是：
-
-- 普通用户如何在手机端发现角色、查看详情、进入聊天、继续对话、反馈问题。
-- 角色、世界书、头像、封面、审核状态、标签和扩展字段如何成为可管理的业务资产。
-- 聊天上下文、历史消息、记忆刷新、续写、重生成和分支如何进入系统能力。
-- 运营人员如何管理用户、角色、公告、权益、订单、模型供应商、工单和插画内容。
-- 开发者如何理解 H5、后台、后端、数据库、Redis、Nginx、SillyTavern 和 Docker 之间的关系。
-
-## 为什么值得开源
-
-AI 角色聊天项目很容易停留在演示层：一个输入框，一个模型接口，一个聊天窗口。四叶酒馆的价值在于，它已经把大量真实产品会遇到的问题放进同一套系统里。
-
-| 价值 | 说明 |
-| --- | --- |
-| 产品化入口 | H5 用户端覆盖发现、角色详情、聊天、设置、个人中心、支付和工单等主要路径。 |
-| 角色资产管理 | 角色不只是本地文件，而是可入库、可审核、可上下架、可关联世界书和运营数据的内容资产。 |
-| 上下文工程 | 角色卡、世界书、历史消息、记忆刷新、续写、重生成、分支等能力为沉浸式互动打基础。 |
-| 运营后台 | 后台管理端让角色、用户、订单、公告、工单、模型配置和插画扩展都有可视化入口。 |
-| 多端协同 | H5、后台、后端、MySQL、Redis、Nginx、Docker、SillyTavern 和外部模型服务需要真实协作。 |
-| 可交付部署 | 项目保留 Docker Compose、Nginx、环境变量模板和部署说明，方便本地运行和服务器迁移。 |
-| 二次开发参考 | 适合学习 AI 角色互动系统的工程组织方式，也适合作为后续产品化、商业化或社区化的起点。 |
-
-## 系统结构
-
-```mermaid
-flowchart LR
-  User["用户"] --> H5["H5 用户端<br/>h5-web"]
-  Admin["运营人员"] --> AdminWeb["Vue 后台<br/>admin-web"]
-
-  H5 --> API["Spring Boot 后端<br/>backend"]
-  AdminWeb --> API
-
-  API --> DB["MySQL<br/>业务数据与迁移"]
-  API --> Redis["Redis<br/>缓存与会话"]
-  API --> ST["SillyTavern<br/>聊天运行时集成"]
-  API --> Model["模型供应商<br/>LLM / TTS / 其他能力"]
-  API --> Uploads["静态资源与上传目录"]
-
-  Deploy["Docker / Nginx<br/>deploy"] --> H5
-  Deploy --> AdminWeb
-  Deploy --> API
-  Deploy --> DB
-  Deploy --> Redis
-  Deploy --> ST
-```
-
-## 目录说明
-
-| 路径 | 作用 |
-| --- | --- |
-| `backend/` | Spring Boot 后端，包含用户、鉴权、角色、聊天、记忆、订单、权益、工单、公告、上传、后台接口和 SillyTavern 集成。 |
-| `admin-web/` | Vue 3 / Vite / Element Plus 运营后台，基于 RuoYi Vue 改造。 |
-| `h5-web/` | uni-app H5 用户端，覆盖发现、角色库、聊天、个人中心、支付、工单和社交等用户流程。 |
-| `sillytavern/` | SillyTavern 聊天运行时及相关集成代码。 |
-| `docs/` | 项目结构、部署说明和 README 展示资源。 |
-
-详细模块说明见 [项目结构文档](docs/PROJECT_STRUCTURE.md)，部署前请阅读 [部署文档](docs/DEPLOYMENT.md)。
-
-## 功能地图
-
-```mermaid
-mindmap
-  root((四叶酒馆))
-    用户端 H5
-      角色发现
-      角色详情
-      AI 聊天
-      个人中心
-      支付权益
-      工单反馈
-    业务后端
-      用户与鉴权
-      角色与世界书
-      会话与消息
-      订单与权益
-      模型配置
-      上传与静态资源
-    运营后台
-      用户管理
-      角色审核
-      公告管理
-      工单处理
-      插画管理
-      权限日志
-    AI 运行时
-      SillyTavern 集成
-      上下文构建
-      记忆增强
-      模型供应商接入
-    部署交付
-      Docker Compose
-      Nginx
-      MySQL
-      Redis
-      环境变量模板
-```
-
-## 本地开发
-
-完整运行需要 Java 17、Maven、Node.js、MySQL 和 Redis。各模块需要按本地环境配置数据库、缓存、鉴权密钥和模型供应商参数；不要直接复用生产环境配置。
-
-后端：
+### 启动后端
 
 ```bash
 cd backend
 ./mvnw spring-boot:run
 ```
 
-Windows：
+Windows 使用：
 
 ```powershell
 cd backend
 .\mvnw.cmd spring-boot:run
 ```
 
-后台管理端：
+### 启动运营后台
 
 ```bash
 cd admin-web
@@ -197,9 +127,7 @@ npm install
 npm run dev
 ```
 
-H5 用户端位于 `h5-web/`，这是 uni-app 工程。建议使用 HBuilderX 打开该目录并运行到 H5；其 `package.json` 当前主要提供契约测试脚本，并未定义通用的 `npm run dev:h5` 命令。
-
-SillyTavern：
+### 启动 SillyTavern
 
 ```bash
 cd sillytavern
@@ -207,30 +135,38 @@ npm install
 npm start
 ```
 
-## 配置原则
+H5 用户端位于 `h5-web/`，建议使用 HBuilderX 打开并运行到 H5。
 
-开源版本使用示例配置和占位符，不应提交生产密钥。
+## 配置与安全
 
-敏感值应通过环境变量、服务器配置或密钥管理系统提供，例如：
+生产环境必须通过环境变量或密钥管理系统提供敏感配置。至少应替换以下项目：
 
-- `APP_AUTH_SECRET`
-- `APP_RUOYI_ADMIN_PASSWORD`
-- `APP_RUOYI_JWT_SECRET`
-- `SPRING_DATASOURCE_PASSWORD`
-- `SILLYTAVERN_API_KEY`
+```text
+APP_AUTH_SECRET
+APP_RUOYI_ADMIN_PASSWORD
+APP_RUOYI_JWT_SECRET
+SPRING_DATASOURCE_PASSWORD
+SILLYTAVERN_API_KEY
+```
 
-不要把生产密钥写进前端代码、YAML、Dockerfile、截图、Issue 示例或文档片段里。
+请勿提交生产 `.env`、数据库文件、真实用户数据、模型或支付密钥、证书及私钥。示例账号和默认配置仅用于本地开发，不得直接用于公网部署。
 
-## 开源边界
+## 文档
 
-这个仓库应保持为干净的公开交付版本：
+- [项目结构](docs/PROJECT_STRUCTURE.md)：模块职责、调用关系与开发入口。
+- [部署说明](docs/DEPLOYMENT.md)：环境要求、构建流程、反向代理和上线检查。
+- [许可证](LICENSE)：使用、修改和再分发条件。
 
-- 不提交生产 `.env`、数据库密码、模型供应商密钥、支付密钥、证书、私钥和真实用户数据。
-- 不提交 `node_modules/`、`target/`、`dist/`、`unpackage/`、日志、数据库文件、运行时上传目录和本地压缩包。
-- 大体积艺术资源、真实商业素材、未确认授权的图片、音频、Live2D 模型和游戏素材应删除、替换为占位文件，或在许可证允许后再加入。
-- 如果你基于此项目上线自己的服务，请重新配置域名、密钥、数据库、CORS、后台账号、支付回调和模型供应商信息。
-- 示例账号与默认密码仅可用于本地调试；任何公网部署都必须删除或立即修改，并启用强密码。
+## 社区
+
+欢迎通过 [Issues](https://github.com/pqiyao/siyeAI/issues) 提交问题和建议。
+
+<details>
+  <summary>加入官方群</summary>
+  <br>
+  <img src="docs/images/official-qq-group.jpg" alt="四叶酒馆官方群" width="280">
+</details>
 
 ## 许可证
 
-本项目采用自定义的非商业使用许可发布，仅允许个人、教育、研究及其他非商业用途。未经版权所有者事先书面许可，不得将本项目用于付费托管、商业产品、收费服务或其他商业用途。完整条款请参阅 [LICENSE](LICENSE)。
+本项目采用自定义的非商业使用许可。允许个人、教育、研究及其他非商业用途；未经版权所有者事先书面许可，不得用于付费托管、商业产品、收费服务或其他商业用途。完整条款见 [LICENSE](LICENSE)。

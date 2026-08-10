@@ -124,11 +124,13 @@ flowchart LR
 
 | 路径 | 作用 |
 | --- | --- |
-| `JiuGAi/SillySpringboot/` | Spring Boot 后端，包含用户、鉴权、角色、聊天、记忆、订单、权益、工单、公告、上传、后台接口和 SillyTavern 集成。 |
-| `JiuGAi/RuoYi-Vue3-master/RuoYi-Vue3-master/` | Vue 3 / Vite / Element Plus 运营后台，基于 RuoYi Vue 改造。 |
-| `JiuGAi/前端h5/h5/` | uni-app H5 用户端，覆盖发现、角色库、聊天、个人中心、支付、工单和社交等用户流程。 |
-| `SillyTavern-release/SillyTavern-release/` | SillyTavern 聊天运行时及相关集成代码。 |
-| `docs/images/` | 开源文档展示图片、截图和交流群图片。 |
+| `backend/` | Spring Boot 后端，包含用户、鉴权、角色、聊天、记忆、订单、权益、工单、公告、上传、后台接口和 SillyTavern 集成。 |
+| `admin-web/` | Vue 3 / Vite / Element Plus 运营后台，基于 RuoYi Vue 改造。 |
+| `h5-web/` | uni-app H5 用户端，覆盖发现、角色库、聊天、个人中心、支付、工单和社交等用户流程。 |
+| `sillytavern/` | SillyTavern 聊天运行时及相关集成代码。 |
+| `docs/` | 项目结构、部署说明和 README 展示资源。 |
+
+详细模块说明见 [项目结构文档](docs/PROJECT_STRUCTURE.md)，部署前请阅读 [部署文档](docs/DEPLOYMENT.md)。
 
 ## 功能地图
 
@@ -176,31 +178,31 @@ mindmap
 后端：
 
 ```bash
-cd JiuGAi/SillySpringboot
+cd backend
 ./mvnw spring-boot:run
 ```
 
 Windows：
 
 ```powershell
-cd JiuGAi\SillySpringboot
+cd backend
 .\mvnw.cmd spring-boot:run
 ```
 
 后台管理端：
 
 ```bash
-cd JiuGAi/RuoYi-Vue3-master/RuoYi-Vue3-master
+cd admin-web
 npm install
 npm run dev
 ```
 
-H5 用户端位于 `JiuGAi/前端h5/h5/`，这是 uni-app 工程。建议使用 HBuilderX 打开该目录并运行到 H5；其 `package.json` 当前主要提供契约测试脚本，并未定义通用的 `npm run dev:h5` 命令。
+H5 用户端位于 `h5-web/`，这是 uni-app 工程。建议使用 HBuilderX 打开该目录并运行到 H5；其 `package.json` 当前主要提供契约测试脚本，并未定义通用的 `npm run dev:h5` 命令。
 
 SillyTavern：
 
 ```bash
-cd SillyTavern-release/SillyTavern-release
+cd sillytavern
 npm install
 npm start
 ```

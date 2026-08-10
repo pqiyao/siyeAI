@@ -1,6 +1,6 @@
-# 四叶酒馆 / Siye AI / JiuGuanSJ
+# 四叶酒馆（Siye AI）
 
-面向 AI 角色互动场景的全栈应用系统。
+面向 AI 角色互动场景的全栈应用系统，集成 H5 用户端、运营后台、Spring Boot 后端与 SillyTavern。
 
 四叶酒馆不是一个只会调用模型接口的聊天 demo，而是一套把用户端 H5、Spring Boot 业务后端、Vue 运营后台、SillyTavern 聊天运行时集成、角色资产管理、世界书与记忆能力、支付权益、工单反馈、社区互动、插画扩展和 Docker 部署串起来的完整项目。
 
@@ -124,13 +124,11 @@ flowchart LR
 
 | 路径 | 作用 |
 | --- | --- |
-| `backend/` | Spring Boot 后端，包含用户、鉴权、角色、聊天、记忆、订单、权益、工单、公告、上传、后台接口和 SillyTavern 集成。 |
-| `admin-web/` | Vue 3 / Vite / Element Plus 后台管理端，基于 RuoYi Vue 风格改造。 |
-| `h5-web/` | uni-app H5 用户端，覆盖发现、角色库、聊天、我的、支付、工单、社交等用户流程。 |
-| `integrations/st-memory-enhancement/` | SillyTavern 记忆增强相关集成材料，可作为运行时扩展参考。 |
-| `deploy/` | Docker Compose、Nginx、环境变量模板和部署说明。 |
+| `JiuGAi/SillySpringboot/` | Spring Boot 后端，包含用户、鉴权、角色、聊天、记忆、订单、权益、工单、公告、上传、后台接口和 SillyTavern 集成。 |
+| `JiuGAi/RuoYi-Vue3-master/RuoYi-Vue3-master/` | Vue 3 / Vite / Element Plus 运营后台，基于 RuoYi Vue 改造。 |
+| `JiuGAi/前端h5/h5/` | uni-app H5 用户端，覆盖发现、角色库、聊天、个人中心、支付、工单和社交等用户流程。 |
+| `SillyTavern-release/SillyTavern-release/` | SillyTavern 聊天运行时及相关集成代码。 |
 | `docs/images/` | 开源文档展示图片、截图和交流群图片。 |
-| `项目说明文档/` | 中文项目说明，包含项目概览、快速启动、配置、后端、前端、部署和开发维护。 |
 
 ## 功能地图
 
@@ -171,88 +169,47 @@ mindmap
       环境变量模板
 ```
 
-## Docker 快速启动
-
-推荐先使用 Docker Compose 体验完整系统。
-
-```bash
-cd deploy
-cp .env.example .env
-```
-
-编辑 `deploy/.env`，把占位值换成你自己的本地配置，尤其是：
-
-```text
-MYSQL_ROOT_PASSWORD
-MYSQL_PASSWORD
-APP_AUTH_SECRET
-APP_RUOYI_ADMIN_PASSWORD
-APP_RUOYI_JWT_SECRET
-SILLYTAVERN_PUBLIC_BASE_URL
-```
-
-示例后台账号为 `admin / admin123`，只用于本地体验。公开部署前请换成自己的管理员账号和 bcrypt 密码。
-
-启动：
-
-```bash
-docker compose --env-file .env up -d --build
-```
-
-默认本地端口：
-
-| 服务 | 地址 |
-| --- | --- |
-| 后端 API | `http://127.0.0.1:8080` |
-| 运营后台 | `http://127.0.0.1:8081` |
-| H5 用户端 | `http://127.0.0.1:8082` |
-| SillyTavern | `http://127.0.0.1:8000` |
-
-更多部署细节见 [deploy/README.md](deploy/README.md)。
-
 ## 本地开发
+
+完整运行需要 Java 17、Maven、Node.js、MySQL 和 Redis。各模块需要按本地环境配置数据库、缓存、鉴权密钥和模型供应商参数；不要直接复用生产环境配置。
 
 后端：
 
 ```bash
-cd backend
+cd JiuGAi/SillySpringboot
 ./mvnw spring-boot:run
 ```
 
 Windows：
 
 ```powershell
-cd backend
+cd JiuGAi\SillySpringboot
 .\mvnw.cmd spring-boot:run
 ```
 
 后台管理端：
 
 ```bash
-cd admin-web
+cd JiuGAi/RuoYi-Vue3-master/RuoYi-Vue3-master
 npm install
 npm run dev
 ```
 
-H5 用户端：
+H5 用户端位于 `JiuGAi/前端h5/h5/`，这是 uni-app 工程。建议使用 HBuilderX 打开该目录并运行到 H5；其 `package.json` 当前主要提供契约测试脚本，并未定义通用的 `npm run dev:h5` 命令。
+
+SillyTavern：
 
 ```bash
-cd h5-web
+cd SillyTavern-release/SillyTavern-release
 npm install
-npm run dev:h5
+npm start
 ```
 
 ## 配置原则
 
 开源版本使用示例配置和占位符，不应提交生产密钥。
 
-常见配置入口：
-
-- 根目录示例：`.env.example`
-- 部署示例：`deploy/.env.example`
-- 后台前端示例：`admin-web/.env.development.example`、`admin-web/.env.production.example`、`admin-web/.env.staging.example`
-
-敏感值应通过环境变量或服务器密钥管理系统提供，例如：
+敏感值应通过环境变量、服务器配置或密钥管理系统提供，例如：
 
 - `APP_AUTH_SECRET`
 - `APP_RUOYI_ADMIN_PASSWORD`
@@ -262,25 +219,6 @@ npm run dev:h5
 
 不要把生产密钥写进前端代码、YAML、Dockerfile、截图、Issue 示例或文档片段里。
 
-## 文档地图
-
-如果你第一次阅读项目，建议按这个顺序：
-
-1. [项目说明文档/01-项目概览.md](项目说明文档/01-项目概览.md)
-2. [项目说明文档/02-快速启动.md](项目说明文档/02-快速启动.md)
-3. [项目说明文档/03-配置说明.md](项目说明文档/03-配置说明.md)
-4. [项目说明文档/04-后端说明.md](项目说明文档/04-后端说明.md)
-5. [项目说明文档/05-前端说明.md](项目说明文档/05-前端说明.md)
-6. [项目说明文档/06-部署说明.md](项目说明文档/06-部署说明.md)
-7. [项目说明文档/07-开发维护.md](项目说明文档/07-开发维护.md)
-另外几份根目录文档的作用：
-
-| 文档 | 作用 |
-| --- | --- |
-| [SECURITY.md](SECURITY.md) | 说明安全问题上报方式、密钥管理原则和生产部署加固建议。 |
-| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | 说明第三方依赖、上游项目、素材资产和许可证审查要求。 |
-| [LICENSE](LICENSE) | 当前开源许可证。 |
-
 ## 开源边界
 
 这个仓库应保持为干净的公开交付版本：
@@ -289,7 +227,8 @@ npm run dev:h5
 - 不提交 `node_modules/`、`target/`、`dist/`、`unpackage/`、日志、数据库文件、运行时上传目录和本地压缩包。
 - 大体积艺术资源、真实商业素材、未确认授权的图片、音频、Live2D 模型和游戏素材应删除、替换为占位文件，或在许可证允许后再加入。
 - 如果你基于此项目上线自己的服务，请重新配置域名、密钥、数据库、CORS、后台账号、支付回调和模型供应商信息。
+- 示例账号与默认密码仅可用于本地调试；任何公网部署都必须删除或立即修改，并启用强密码。
 
 ## 许可证
 
-本项目使用 MIT License 发布，详见 [LICENSE](LICENSE)。
+本项目采用自定义的非商业使用许可发布，仅允许个人、教育、研究及其他非商业用途。未经版权所有者事先书面许可，不得将本项目用于付费托管、商业产品、收费服务或其他商业用途。完整条款请参阅 [LICENSE](LICENSE)。

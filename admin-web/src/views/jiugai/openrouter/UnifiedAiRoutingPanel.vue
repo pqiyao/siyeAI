@@ -441,6 +441,51 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="deploymentDeleteDialogVisible" title="迁移路由引用并删除模型" width="620px">
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        title="该模型仍被执行路由引用"
+        description="选择替换模型后会在同一事务中更新全部引用路由；不选择时，只能从仍有其他节点的路由中解除引用。"
+      />
+      <div class="deployment-reference-list">
+        <div v-for="route in deploymentDeleteReferences" :key="route.id" class="deployment-reference-item">
+          <div>
+            <strong>{{ route.displayName }}</strong>
+            <small>{{ route.routeKey }}</small>
+          </div>
+          <el-tag effect="plain">{{ route.deploymentIds?.length || 0 }} 个节点</el-tag>
+        </div>
+      </div>
+      <el-form label-position="top">
+        <el-form-item label="替换为同能力模型">
+          <el-select v-model="deploymentReplacementId" clearable placeholder="可选；唯一节点路由必须选择">
+            <el-option
+              v-for="item in deploymentReplacementCandidates"
+              :key="item.id"
+              :label="`${accountFor(item)?.displayName || '--'} · ${item.modelName}`"
+              :value="item.id"
+            />
+          </el-select>
+          <small v-if="deploymentDeleteRequiresReplacement" class="delete-migration-hint">
+            至少一条有效路由仅剩当前节点，必须选择替换模型。
+          </small>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="deploymentDeleteDialogVisible = false">取消</el-button>
+        <el-button
+          type="danger"
+          :loading="deletingDeployment"
+          :disabled="deploymentDeleteRequiresReplacement && !deploymentReplacementId"
+          @click="submitDeploymentMigration"
+        >
+          {{ deploymentReplacementId ? '迁移并删除' : '解除引用并删除' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="runtimeDialogVisible" title="AI 路由运行开关" width="560px">
       <el-alert
         type="warning"
@@ -694,6 +739,7 @@ import {
   discoverAiModels,
   getAiRouting,
   importLegacyAiChatRoute,
+  migrateDeleteAiDeployment,
   probeAiCapability,
   resetAiRoutingRuntimeSettings,
   saveAiProvider,
@@ -736,6 +782,7 @@ const savingRoute = ref(false)
 const discovering = ref(false)
 const probing = ref(false)
 const importingLegacy = ref(false)
+const deletingDeployment = ref(false)
 const savingRuntime = ref(false)
 const accountChoice = ref(null)
 const modelOptions = ref([])
@@ -744,6 +791,9 @@ const modelSearch = ref('')
 const modelSummary = ref('')
 const routeDraft = ref([])
 const routeCandidateId = ref(null)
+const deploymentDeleteDialogVisible = ref(false)
+const deploymentDeleteTarget = ref(null)
+const deploymentReplacementId = ref(null)
 const chatWorkspace = ref('offerings')
 const chatOfferings = ref([])
 const billingModes = ref([])
@@ -807,6 +857,24 @@ const modelNoDataText = computed(() => {
 })
 const routeCandidates = computed(() => capabilityDeployments.value.filter((item) => !routeDraft.value.some((selected) => selected.id === item.id)))
 const probeMayIncurCost = computed(() => ['IMAGE', 'TTS', 'STT'].includes(providerForm.capability))
+const deploymentDeleteReferences = computed(() => {
+  const id = deploymentDeleteTarget.value?.id
+  return id == null ? [] : routes.value.filter((route) => route.deploymentIds?.includes(id))
+})
+const deploymentReplacementCandidates = computed(() => {
+  const target = deploymentDeleteTarget.value
+  if (!target) return []
+  return deployments.value.filter((item) => item.id !== target.id
+    && item.capability === target.capability
+    && item.enabled !== false
+    && accountFor(item)?.enabled !== false)
+})
+const deploymentDeleteRequiresReplacement = computed(() => deploymentDeleteReferences.value.some((route) => {
+  const remaining = (route.deploymentIds || []).filter((id) => id !== deploymentDeleteTarget.value?.id)
+  const orphanDedicatedRoute = String(route.routeKey || '').startsWith('chat.offer.')
+    && !chatOfferings.value.some((offering) => offering.routeKey === route.routeKey)
+  return remaining.length === 0 && !orphanDedicatedRoute
+}))
 const sharedAccountDeployments = computed(() => deployments.value.filter((item) => item.accountId === providerForm.accountId))
 const sharedAccountCapabilityText = computed(() => [...new Set(sharedAccountDeployments.value.map((item) => capabilityName(item.capability)))].join('、'))
 const accountConnectionFieldsChanged = computed(() => {
@@ -1065,9 +1133,12 @@ function submitOffering() {
 }
 
 function removeOffering(row) {
-  proxy.$modal.confirm(`确认删除用户模型“${row.displayName}”吗？`)
+  proxy.$modal.confirm(`确认删除用户模型“${row.displayName}”吗？无人使用的专属执行路由会同时回收。`)
     .then(() => deleteAiChatOffering(row.id))
-    .then(() => load())
+    .then(() => {
+      proxy.$modal.msgSuccess('用户模型及其无人使用的专属路由已删除')
+      return load()
+    })
     .catch((error) => {
       if (error !== 'cancel' && error !== 'close') proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '删除用户模型失败'))
     })
@@ -1304,6 +1375,13 @@ function submitProvider() {
 }
 
 function removeDeployment(row) {
+  const references = routes.value.filter((route) => route.deploymentIds?.includes(row.id))
+  if (references.length) {
+    deploymentDeleteTarget.value = row
+    deploymentReplacementId.value = null
+    deploymentDeleteDialogVisible.value = true
+    return
+  }
   proxy.$modal.confirm(`确认删除模型 ${row.modelName} 吗？`)
     .then(() => deleteAiDeployment(row.id))
     .then(() => load())
@@ -1312,6 +1390,25 @@ function removeDeployment(row) {
         proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '删除能力模型失败'))
       }
     })
+}
+
+function submitDeploymentMigration() {
+  const target = deploymentDeleteTarget.value
+  if (!target) return
+  deletingDeployment.value = true
+  migrateDeleteAiDeployment(target.id, { replacementDeploymentId: deploymentReplacementId.value })
+    .then((res) => {
+      const updatedRoutes = res?.data?.updatedRoutes || []
+      proxy.$modal.msgSuccess(updatedRoutes.length
+        ? `已更新 ${updatedRoutes.length} 条路由并删除模型`
+        : '能力模型已删除')
+      deploymentDeleteDialogVisible.value = false
+      deploymentDeleteTarget.value = null
+      deploymentReplacementId.value = null
+      return load()
+    })
+    .catch((error) => proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '迁移路由并删除模型失败')))
+    .finally(() => { deletingDeployment.value = false })
 }
 
 function removeAccount(account) {
@@ -1564,6 +1661,12 @@ load()
 .route-editor { display: grid; gap: 14px; }
 .route-editor-item { display: grid; grid-template-columns: 24px 28px minmax(0, 1fr) 34px; align-items: center; gap: 10px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--el-border-color); border-radius: 6px; background: var(--el-bg-color); }
 .drag-handle { cursor: grab; color: var(--el-text-color-secondary); }
+.deployment-reference-list { display: grid; gap: 8px; margin: 16px 0; }
+.deployment-reference-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--el-border-color-lighter); border-radius: 6px; }
+.deployment-reference-item > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.deployment-reference-item small { overflow: hidden; color: var(--el-text-color-secondary); font-family: Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.deployment-reference-list + .el-form :deep(.el-select) { width: 100%; }
+.delete-migration-hint { display: block; margin-top: 6px; color: var(--el-color-danger); }
 .chat-workspace-tabs { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; border-top: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-extra-light); }
 .chat-workspace-tabs > span { color: var(--el-text-color-secondary); font-size: 12px; }
 .offering-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 24px; border-top: 1px solid var(--el-border-color-lighter); }

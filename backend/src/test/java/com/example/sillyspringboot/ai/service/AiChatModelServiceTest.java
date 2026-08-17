@@ -256,6 +256,49 @@ class AiChatModelServiceTest {
     }
 
     @Test
+    void deletingDisabledOfferingReclaimsItsUnusedDedicatedRoute() {
+        AiChatOffering offering = availableOffering();
+        offering.setEnabled(false);
+        AiRoute route = availableRoute();
+        route.setRouteKey("chat.offer.story");
+
+        when(mapper.findOfferingById(11L)).thenReturn(offering);
+        when(mapper.findDefaultOffering()).thenReturn(availableOffering());
+        when(routingService.isCapabilityEnabled(AiCapability.CHAT)).thenReturn(true);
+        when(routingService.isRouteConfigured("chat.offer.story", AiCapability.CHAT)).thenReturn(true);
+        when(mapper.listOfferings()).thenReturn(List.of());
+        when(routingMapper.findRouteByKey("chat.offer.story")).thenReturn(route);
+
+        service.deleteOffering(11L);
+
+        verify(mapper).deletePrices(11L);
+        verify(mapper).deleteOffering(11L);
+        verify(routingService).deleteRoute(21L);
+    }
+
+    @Test
+    void deletingOfferingKeepsDedicatedRouteWhenAnotherOfferingStillUsesIt() {
+        AiChatOffering offering = availableOffering();
+        offering.setEnabled(false);
+        AiChatOffering other = availableOffering();
+        other.setId(12L);
+        other.setOfferingCode("story-copy");
+        AiRoute route = availableRoute();
+        route.setRouteKey("chat.offer.story");
+
+        when(mapper.findOfferingById(11L)).thenReturn(offering);
+        when(mapper.findDefaultOffering()).thenReturn(availableOffering());
+        when(routingService.isCapabilityEnabled(AiCapability.CHAT)).thenReturn(true);
+        when(routingService.isRouteConfigured("chat.offer.story", AiCapability.CHAT)).thenReturn(true);
+        when(mapper.listOfferings()).thenReturn(List.of(other));
+        when(routingMapper.findRouteByKey("chat.offer.story")).thenReturn(route);
+
+        service.deleteOffering(11L);
+
+        verify(routingService, never()).deleteRoute(21L);
+    }
+
+    @Test
     void firstConcurrentSelectionReturnsConflictInsteadOfInternalError() {
         AiChatOffering offering = availableOffering();
         AiChatOfferingPrice price = new AiChatOfferingPrice();

@@ -114,6 +114,14 @@ export function deleteAiDeployment(id) {
   })
 }
 
+export function migrateDeleteAiDeployment(id, data) {
+  return sillyRequest({
+    url: `/admin/jiugai/ai-routing/deployment/${id}/migrate-delete`,
+    method: 'post',
+    data
+  })
+}
+
 export function deleteAiAccount(id) {
   return sillyRequest({
     url: `/admin/jiugai/ai-routing/account/${id}`,

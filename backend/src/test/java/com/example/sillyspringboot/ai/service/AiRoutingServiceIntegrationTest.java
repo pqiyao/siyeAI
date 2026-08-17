@@ -320,6 +320,123 @@ class AiRoutingServiceIntegrationTest {
         }
     }
 
+    @Test
+    void deletingDeploymentReclaimsLegacyOrphanDedicatedOfferingRoute() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String routeKey = "chat.offer.orphan." + suffix;
+        Long accountId = null;
+        Long deploymentId = null;
+        Long routeId = null;
+        try {
+            Map<String, Object> provider = service.saveProvider(
+                    providerBody("orphan_" + suffix, "Orphan", "model-orphan", "secret-" + suffix));
+            accountId = id((Map<?, ?>) provider.get("account"));
+            deploymentId = id((Map<?, ?>) provider.get("deployment"));
+            Map<String, Object> snapshot = service.saveRoute(new LinkedHashMap<>(Map.of(
+                    "routeKey", routeKey,
+                    "displayName", "孤立用户模型路由 " + suffix,
+                    "capability", "CHAT",
+                    "deploymentIds", List.of(deploymentId),
+                    "enabled", true
+            )));
+            routeId = routeId(snapshot, routeKey);
+
+            service.deleteDeployment(deploymentId);
+
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM app_ai_provider_deployment WHERE id = ?", Integer.class, deploymentId)).isZero();
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM app_ai_route WHERE id = ?", Integer.class, routeId)).isZero();
+            deploymentId = null;
+            routeId = null;
+        } finally {
+            if (routeId != null) service.deleteRoute(routeId);
+            if (deploymentId != null) service.deleteDeployment(deploymentId);
+            if (accountId != null) service.deleteAccount(accountId);
+        }
+    }
+
+    @Test
+    void migrateDeleteReplacesUniqueRouteNodeBeforeDeletingDeployment() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String routeKey = "test.migrate." + suffix;
+        Long sourceAccountId = null;
+        Long replacementAccountId = null;
+        Long sourceDeploymentId = null;
+        Long replacementDeploymentId = null;
+        Long routeId = null;
+        try {
+            Map<String, Object> source = service.saveProvider(
+                    providerBody("migrate_source_" + suffix, "Source", "model-source", "source-" + suffix));
+            Map<String, Object> replacement = service.saveProvider(
+                    providerBody("migrate_target_" + suffix, "Target", "model-target", "target-" + suffix));
+            sourceAccountId = id((Map<?, ?>) source.get("account"));
+            replacementAccountId = id((Map<?, ?>) replacement.get("account"));
+            sourceDeploymentId = id((Map<?, ?>) source.get("deployment"));
+            replacementDeploymentId = id((Map<?, ?>) replacement.get("deployment"));
+            Map<String, Object> snapshot = service.saveRoute(new LinkedHashMap<>(Map.of(
+                    "routeKey", routeKey,
+                    "displayName", "迁移测试路由 " + suffix,
+                    "capability", "CHAT",
+                    "deploymentIds", List.of(sourceDeploymentId),
+                    "enabled", true
+            )));
+            routeId = routeId(snapshot, routeKey);
+
+            Map<String, Object> result = service.migrateAndDeleteDeployment(
+                    sourceDeploymentId, Map.of("replacementDeploymentId", replacementDeploymentId));
+
+            assertThat(result.get("updatedRoutes")).asList().contains("迁移测试路由 " + suffix);
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM app_ai_provider_deployment WHERE id = ?", Integer.class, sourceDeploymentId)).isZero();
+            assertThat(service.resolveRoute(routeKey, AiCapability.CHAT))
+                    .extracting(AiRoutingService.ResolvedProvider::deploymentId)
+                    .containsExactly(replacementDeploymentId);
+            sourceDeploymentId = null;
+        } finally {
+            if (routeId != null) service.deleteRoute(routeId);
+            if (sourceDeploymentId != null) service.deleteDeployment(sourceDeploymentId);
+            if (replacementDeploymentId != null) service.deleteDeployment(replacementDeploymentId);
+            if (sourceAccountId != null) service.deleteAccount(sourceAccountId);
+            if (replacementAccountId != null) service.deleteAccount(replacementAccountId);
+        }
+    }
+
+    @Test
+    void migrateDeleteRequiresReplacementForUniqueNonOrphanRoute() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String routeKey = "test.required." + suffix;
+        Long accountId = null;
+        Long deploymentId = null;
+        Long routeId = null;
+        try {
+            Map<String, Object> provider = service.saveProvider(
+                    providerBody("required_" + suffix, "Required", "model-required", "secret-" + suffix));
+            accountId = id((Map<?, ?>) provider.get("account"));
+            deploymentId = id((Map<?, ?>) provider.get("deployment"));
+            Map<String, Object> snapshot = service.saveRoute(new LinkedHashMap<>(Map.of(
+                    "routeKey", routeKey,
+                    "displayName", "必须替换路由 " + suffix,
+                    "capability", "CHAT",
+                    "deploymentIds", List.of(deploymentId),
+                    "enabled", true
+            )));
+            routeId = routeId(snapshot, routeKey);
+
+            long sourceId = deploymentId;
+            assertThatThrownBy(() -> service.migrateAndDeleteDeployment(sourceId, Map.of()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("必须替换路由")
+                    .hasMessageContaining("选择同能力替换模型");
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM app_ai_provider_deployment WHERE id = ?", Integer.class, deploymentId)).isOne();
+        } finally {
+            if (routeId != null) service.deleteRoute(routeId);
+            if (deploymentId != null) service.deleteDeployment(deploymentId);
+            if (accountId != null) service.deleteAccount(accountId);
+        }
+    }
+
     private static Map<String, Object> providerBody(String key, String name, String model, String secret) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("providerKey", key);

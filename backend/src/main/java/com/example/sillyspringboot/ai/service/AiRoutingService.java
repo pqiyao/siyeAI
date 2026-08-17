@@ -537,9 +537,15 @@ public class AiRoutingService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "能力模型不存在");
         }
         List<AiRoute> references = mapper.listRoutesForDeployment(id);
+        for (AiRoute route : references) {
+            if (isOrphanedDedicatedOfferingRoute(route)) {
+                deleteRoute(route.getId());
+            }
+        }
+        references = mapper.listRoutesForDeployment(id);
         if (!references.isEmpty()) {
             String routeNames = references.stream()
-                    .map(route -> firstNonBlank(route.getDisplayName(), route.getRouteKey()))
+                    .map(this::routeReferenceLabel)
                     .distinct()
                     .reduce((left, right) -> left + "、" + right)
                     .orElse("未知路由");
@@ -549,6 +555,79 @@ public class AiRoutingService {
             );
         }
         mapper.deleteDeployment(id);
+    }
+
+    @Transactional
+    public Map<String, Object> migrateAndDeleteDeployment(long id, Map<String, Object> body) {
+        boolean protectLiveDefaultRoute = isLiveDefaultChatRouteReady();
+        AiProviderDeployment source = mapper.findDeploymentByIdForUpdate(id);
+        if (source == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "能力模型不存在");
+        }
+        Long replacementId = longValue(body == null ? null : body.get("replacementDeploymentId"));
+        AiProviderDeployment replacement = null;
+        if (replacementId != null) {
+            if (replacementId == id) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "替换模型不能与待删除模型相同");
+            }
+            replacement = mapper.findDeploymentById(replacementId);
+            if (replacement == null
+                    || !source.getCapability().equalsIgnoreCase(replacement.getCapability())
+                    || !Boolean.TRUE.equals(replacement.getEnabled())) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "替换模型不存在、已停用或能力不匹配");
+            }
+        }
+
+        List<AiRoute> references = mapper.listRoutesForDeployment(id);
+        List<String> changedRoutes = new ArrayList<>();
+        for (AiRoute route : references) {
+            if (isOrphanedDedicatedOfferingRoute(route)) {
+                deleteRoute(route.getId());
+                changedRoutes.add(firstNonBlank(route.getDisplayName(), route.getRouteKey()));
+                continue;
+            }
+            List<Long> nextIds = new ArrayList<>();
+            for (AiRouteMember member : mapper.listRouteMembers(route.getId())) {
+                Long memberId = member.getDeploymentId();
+                if (Objects.equals(memberId, id)) {
+                    if (replacementId != null && !nextIds.contains(replacementId)) nextIds.add(replacementId);
+                } else if (!nextIds.contains(memberId)) {
+                    nextIds.add(memberId);
+                }
+            }
+            if (nextIds.isEmpty()) {
+                throw new BusinessException(
+                        ErrorCode.VALIDATION_FAILED,
+                        "路由“" + firstNonBlank(route.getDisplayName(), route.getRouteKey())
+                                + "”仅剩待删除模型，请先选择同能力替换模型"
+                );
+            }
+            mapper.deleteRouteMembers(route.getId());
+            int order = 1;
+            for (Long deploymentId : nextIds) {
+                AiRouteMember member = new AiRouteMember();
+                member.setRouteId(route.getId());
+                member.setDeploymentId(deploymentId);
+                member.setSortOrder(order++);
+                mapper.insertRouteMember(member);
+            }
+            if (Boolean.TRUE.equals(route.getEnabled())
+                    && !isRouteConfigured(route.getRouteKey(), parseCapability(route.getCapability()))) {
+                throw new BusinessException(
+                        ErrorCode.VALIDATION_FAILED,
+                        "替换后路由“" + firstNonBlank(route.getDisplayName(), route.getRouteKey()) + "”没有可用供应商线路"
+                );
+            }
+            changedRoutes.add(firstNonBlank(route.getDisplayName(), route.getRouteKey()));
+        }
+        mapper.deleteDeployment(id);
+        if (protectLiveDefaultRoute) validateLiveDefaultChatRoute();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("deletedDeploymentId", id);
+        result.put("replacementDeploymentId", replacementId);
+        result.put("updatedRoutes", changedRoutes);
+        return result;
     }
 
     @Transactional
@@ -565,11 +644,7 @@ public class AiRoutingService {
         if (route == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "能力路由不存在");
         }
-        List<String> offeringNames = chatModelMapper == null ? List.of() : chatModelMapper.listOfferings().stream()
-                .filter(offering -> Objects.equals(route.getRouteKey(), offering.getRouteKey()))
-                .map(offering -> firstNonBlank(offering.getDisplayName(), offering.getOfferingCode()))
-                .distinct()
-                .toList();
+        List<String> offeringNames = offeringNamesForRoute(route.getRouteKey());
         if (!offeringNames.isEmpty()) {
             throw new BusinessException(
                     ErrorCode.FORBIDDEN,
@@ -585,6 +660,29 @@ public class AiRoutingService {
         }
         mapper.deleteRouteMembers(id);
         mapper.deleteRoute(id);
+    }
+
+    private boolean isOrphanedDedicatedOfferingRoute(AiRoute route) {
+        return route != null
+                && safe(route.getRouteKey()).toLowerCase(Locale.ROOT).startsWith("chat.offer.")
+                && offeringNamesForRoute(route.getRouteKey()).isEmpty();
+    }
+
+    private String routeReferenceLabel(AiRoute route) {
+        String routeName = firstNonBlank(route.getDisplayName(), route.getRouteKey());
+        List<String> offeringNames = offeringNamesForRoute(route.getRouteKey());
+        return offeringNames.isEmpty()
+                ? routeName
+                : routeName + "（用户模型：" + String.join("、", offeringNames) + "）";
+    }
+
+    private List<String> offeringNamesForRoute(String routeKey) {
+        if (chatModelMapper == null) return List.of();
+        return chatModelMapper.listOfferings().stream()
+                .filter(offering -> Objects.equals(routeKey, offering.getRouteKey()))
+                .map(offering -> firstNonBlank(offering.getDisplayName(), offering.getOfferingCode()))
+                .distinct()
+                .toList();
     }
 
     @Transactional

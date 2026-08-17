@@ -116,6 +116,16 @@ public class AdminAiRoutingController {
         return actionResult("能力模型已删除", () -> routingService.deleteDeployment(id));
     }
 
+    @PostMapping("/deployment/{id}/migrate-delete")
+    @AdminPermitted({"ops:openrouter:delete", "ops:openrouter:edit"})
+    public Map<String, Object> migrateAndDeleteDeployment(
+            @PathVariable("id") long id,
+            @RequestBody(required = false) Map<String, Object> body
+    ) {
+        return dataResult("路由引用已迁移，能力模型已删除",
+                () -> routingService.migrateAndDeleteDeployment(id, body));
+    }
+
     @DeleteMapping("/account/{id}")
     @AdminPermitted({"ops:openrouter:delete", "ops:openrouter:edit"})
     public Map<String, Object> deleteAccount(@PathVariable("id") long id) {

@@ -29,6 +29,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -137,6 +138,7 @@ public class AiChatModelService {
         }
         boolean creating = row == null;
         if (creating) row = new AiChatOffering();
+        String previousRouteKey = creating ? "" : safe(row.getRouteKey());
 
         String code = safe(body == null ? null : body.get("offeringCode")).toLowerCase(Locale.ROOT);
         if (creating) {
@@ -199,6 +201,9 @@ public class AiChatModelService {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "模型编码或会员价格层级重复");
         }
         validateLiveDefaultOffering(settings());
+        if (!previousRouteKey.isBlank() && !Objects.equals(previousRouteKey, routeKey)) {
+            cleanupDedicatedOfferingRoute(previousRouteKey);
+        }
         return adminOfferingView(mapper.findOfferingById(row.getId()));
     }
 
@@ -212,6 +217,17 @@ public class AiChatModelService {
         mapper.deletePrices(id);
         mapper.deleteOffering(id);
         validateLiveDefaultOffering(settings());
+        cleanupDedicatedOfferingRoute(row.getRouteKey());
+    }
+
+    private void cleanupDedicatedOfferingRoute(String rawRouteKey) {
+        String routeKey = safe(rawRouteKey).toLowerCase(Locale.ROOT);
+        if (!routeKey.startsWith("chat.offer.")) return;
+        boolean stillReferenced = mapper.listOfferings().stream()
+                .anyMatch(offering -> routeKey.equalsIgnoreCase(safe(offering.getRouteKey())));
+        if (stillReferenced) return;
+        var route = routingMapper.findRouteByKey(routeKey);
+        if (route != null) routingService.deleteRoute(route.getId());
     }
 
     @Transactional(readOnly = true)

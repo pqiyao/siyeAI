@@ -74,13 +74,13 @@ public class AiProviderCatalogService {
         value = stripKnownEndpoint(stripTrailingSlash(value));
         try {
             URI uri = URI.create(value);
-            if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+            if (!"https".equalsIgnoreCase(uri.getScheme())
                     || uri.getHost() == null || uri.getHost().isBlank()
                     || uri.getUserInfo() != null || uri.getFragment() != null || uri.getQuery() != null) {
                 throw new IllegalArgumentException("invalid provider url");
             }
         } catch (IllegalArgumentException ex) {
-            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "API 地址必须是有效的 http/https 基础地址");
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "API 地址必须是有效的 HTTPS 基础地址，禁止明文传输 API Key");
         }
         String lower = value.toLowerCase(Locale.ROOT);
         return lower.endsWith("/v1") ? value : value + "/v1";

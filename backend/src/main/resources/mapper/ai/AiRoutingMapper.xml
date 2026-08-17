@@ -156,6 +156,13 @@
     <select id="countRouteMembersForDeployment" resultType="int">
         SELECT COUNT(*) FROM app_ai_route_member WHERE deployment_id = #{deploymentId}
     </select>
+    <select id="listRoutesForDeployment" resultMap="RouteMap">
+        SELECT r.id, r.route_key, r.display_name, r.capability, r.enabled, r.note, r.created_at, r.updated_at
+        FROM app_ai_route r
+        INNER JOIN app_ai_route_member m ON m.route_id = r.id
+        WHERE m.deployment_id = #{deploymentId}
+        ORDER BY r.capability ASC, r.display_name ASC, r.id ASC
+    </select>
     <update id="markDeploymentSuccess">
         UPDATE app_ai_provider_deployment
         SET consecutive_failures = 0, circuit_open_until = NULL, last_health_status = 'healthy',
@@ -219,9 +226,6 @@
         WHERE id = #{id}
     </update>
     <delete id="deleteRoute">DELETE FROM app_ai_route WHERE id = #{id}</delete>
-    <select id="countChatOfferingsForRoute" resultType="int">
-        SELECT COUNT(*) FROM app_ai_chat_offering WHERE route_key = #{routeKey}
-    </select>
     <select id="listRouteMembers" resultType="com.example.sillyspringboot.ai.entity.AiRouteMember">
         SELECT id, route_id, deployment_id, sort_order FROM app_ai_route_member
         WHERE route_id = #{routeId} ORDER BY sort_order ASC

@@ -397,6 +397,10 @@ public class AiRoutingService {
         }
         List<Long> deploymentIds = longList(body == null ? null : body.get("deploymentIds"));
         if (deploymentIds.isEmpty()) {
+            if (id != null) {
+                deleteRoute(id);
+                return adminSnapshot();
+            }
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "路由至少需要一个能力模型");
         }
         LinkedHashSet<Long> uniqueIds = new LinkedHashSet<>(deploymentIds);
@@ -528,8 +532,21 @@ public class AiRoutingService {
 
     @Transactional
     public void deleteDeployment(long id) {
-        if (mapper.countRouteMembersForDeployment(id) > 0) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "请先从能力路由中移除该模型");
+        AiProviderDeployment deployment = mapper.findDeploymentById(id);
+        if (deployment == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "能力模型不存在");
+        }
+        List<AiRoute> references = mapper.listRoutesForDeployment(id);
+        if (!references.isEmpty()) {
+            String routeNames = references.stream()
+                    .map(route -> firstNonBlank(route.getDisplayName(), route.getRouteKey()))
+                    .distinct()
+                    .reduce((left, right) -> left + "、" + right)
+                    .orElse("未知路由");
+            throw new BusinessException(
+                    ErrorCode.FORBIDDEN,
+                    "该模型仍被以下执行路由引用：" + routeNames + "。请先从这些路由中移除"
+            );
         }
         mapper.deleteDeployment(id);
     }
@@ -545,8 +562,26 @@ public class AiRoutingService {
     @Transactional
     public void deleteRoute(long id) {
         AiRoute route = mapper.findRouteById(id);
-        if (route != null && mapper.countChatOfferingsForRoute(route.getRouteKey()) > 0) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "该路由已绑定用户可选聊天模型，请先解除绑定");
+        if (route == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "能力路由不存在");
+        }
+        List<String> offeringNames = chatModelMapper == null ? List.of() : chatModelMapper.listOfferings().stream()
+                .filter(offering -> Objects.equals(route.getRouteKey(), offering.getRouteKey()))
+                .map(offering -> firstNonBlank(offering.getDisplayName(), offering.getOfferingCode()))
+                .distinct()
+                .toList();
+        if (!offeringNames.isEmpty()) {
+            throw new BusinessException(
+                    ErrorCode.FORBIDDEN,
+                    "该路由已绑定用户可选聊天模型：" + String.join("、", offeringNames) + "。请先解除绑定"
+            );
+        }
+        AiCapability capability = parseCapability(route.getCapability());
+        if (Objects.equals(route.getRouteKey(), capability.defaultRouteKey()) && isCapabilityEnabled(capability)) {
+            throw new BusinessException(
+                    ErrorCode.FORBIDDEN,
+                    capabilityLabel(capability) + "新路由当前正在运行，请先在“运行开关”中关闭该能力"
+            );
         }
         mapper.deleteRouteMembers(id);
         mapper.deleteRoute(id);
@@ -725,6 +760,11 @@ public class AiRoutingService {
         mapper.markDeploymentStatus(deploymentId, "configuration_error", trim(message, 500));
     }
 
+    @Transactional
+    public void recordProbeStatus(long deploymentId, String status, String message) {
+        mapper.markDeploymentStatus(deploymentId, status, trim(message, 500));
+    }
+
     private Map<String, Object> accountView(AiProviderAccount row) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("id", row.getId());
@@ -841,6 +881,16 @@ public class AiRoutingService {
             for (String value : values) if (StringUtils.hasText(value)) return value.trim();
         }
         return "";
+    }
+
+    private static String capabilityLabel(AiCapability capability) {
+        return switch (capability) {
+            case CHAT -> "文本聊天";
+            case VISION -> "视觉理解";
+            case IMAGE -> "生图";
+            case TTS -> "语音合成";
+            case STT -> "语音识别";
+        };
     }
 
     private static String mask(String secret) {

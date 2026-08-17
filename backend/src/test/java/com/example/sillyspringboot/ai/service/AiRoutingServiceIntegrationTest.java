@@ -236,6 +236,90 @@ class AiRoutingServiceIntegrationTest {
         }
     }
 
+    @Test
+    void emptyExistingRouteDeletesItAndDeploymentErrorNamesEveryReference() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        String routeKey = "test.route." + suffix;
+        String routeName = "测试执行路由 " + suffix;
+        Long accountId = null;
+        Long deploymentId = null;
+        Long routeId = null;
+        try {
+            Map<String, Object> provider = service.saveProvider(
+                    providerBody("delete_" + suffix, "Delete", "model-delete", "secret-" + suffix));
+            accountId = id((Map<?, ?>) provider.get("account"));
+            deploymentId = id((Map<?, ?>) provider.get("deployment"));
+            Map<String, Object> snapshot = service.saveRoute(new LinkedHashMap<>(Map.of(
+                    "routeKey", routeKey,
+                    "displayName", routeName,
+                    "capability", "CHAT",
+                    "deploymentIds", List.of(deploymentId),
+                    "enabled", true
+            )));
+            routeId = routeId(snapshot, routeKey);
+
+            long referencedDeploymentId = deploymentId;
+            assertThatThrownBy(() -> service.deleteDeployment(referencedDeploymentId))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining(routeName);
+
+            service.saveRoute(new LinkedHashMap<>(Map.of(
+                    "id", routeId,
+                    "routeKey", routeKey,
+                    "displayName", routeName,
+                    "capability", "CHAT",
+                    "deploymentIds", List.of(),
+                    "enabled", true
+            )));
+            routeId = null;
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM app_ai_route WHERE route_key = ?", Integer.class, routeKey)).isZero();
+        } finally {
+            if (routeId != null) service.deleteRoute(routeId);
+            if (deploymentId != null) service.deleteDeployment(deploymentId);
+            if (accountId != null) service.deleteAccount(accountId);
+        }
+    }
+
+    @Test
+    void cannotDeleteDefaultRouteWhileCapabilityIsRunning() {
+        String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+        Long accountId = null;
+        Long deploymentId = null;
+        Long routeId = null;
+        runtimeSettingsService.resetToEnvironment();
+        try {
+            Map<String, Object> provider = service.saveProvider(
+                    providerBody("live_" + suffix, "Live", "model-live", "secret-" + suffix));
+            accountId = id((Map<?, ?>) provider.get("account"));
+            deploymentId = id((Map<?, ?>) provider.get("deployment"));
+            Map<String, Object> snapshot = service.saveRoute(new LinkedHashMap<>(Map.of(
+                    "routeKey", AiCapability.CHAT.defaultRouteKey(),
+                    "displayName", "Live chat " + suffix,
+                    "capability", "CHAT",
+                    "deploymentIds", List.of(deploymentId),
+                    "enabled", true
+            )));
+            routeId = routeId(snapshot, AiCapability.CHAT.defaultRouteKey());
+            runtimeSettingsService.save(Map.of(
+                    "confirmed", true,
+                    "enabled", true,
+                    "chatCanaryPercent", 10
+            ));
+
+            long activeRouteId = routeId;
+            assertThatThrownBy(() -> service.deleteRoute(activeRouteId))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("正在运行")
+                    .hasMessageContaining("运行开关");
+        } finally {
+            runtimeSettingsService.resetToEnvironment();
+            if (routeId != null) service.deleteRoute(routeId);
+            if (deploymentId != null) service.deleteDeployment(deploymentId);
+            if (accountId != null) service.deleteAccount(accountId);
+        }
+    }
+
     private static Map<String, Object> providerBody(String key, String name, String model, String secret) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("providerKey", key);
@@ -253,5 +337,14 @@ class AiRoutingServiceIntegrationTest {
 
     private static Long id(Map<?, ?> view) {
         return ((Number) view.get("id")).longValue();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Long routeId(Map<String, Object> snapshot, String routeKey) {
+        return ((List<Map<String, Object>>) snapshot.get("routes")).stream()
+                .filter(item -> routeKey.equals(item.get("routeKey")))
+                .map(item -> ((Number) item.get("id")).longValue())
+                .findFirst()
+                .orElseThrow();
     }
 }

@@ -36,6 +36,7 @@ public interface AiRoutingMapper {
     );
     int deleteDeployment(@Param("id") Long id);
     int countRouteMembersForDeployment(@Param("deploymentId") Long deploymentId);
+    List<AiRoute> listRoutesForDeployment(@Param("deploymentId") Long deploymentId);
     int markDeploymentSuccess(@Param("id") Long id);
     int resetDeploymentHealth(@Param("id") Long id);
     int resetDeploymentHealthByAccountId(@Param("accountId") Long accountId);
@@ -62,7 +63,6 @@ public interface AiRoutingMapper {
     int insertRoute(AiRoute row);
     int updateRoute(AiRoute row);
     int deleteRoute(@Param("id") Long id);
-    int countChatOfferingsForRoute(@Param("routeKey") String routeKey);
     List<AiRouteMember> listRouteMembers(@Param("routeId") Long routeId);
     int deleteRouteMembers(@Param("routeId") Long routeId);
     int insertRouteMember(AiRouteMember row);

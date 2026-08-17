@@ -21,15 +21,30 @@ class AiProviderProbeServiceSecurityTest {
 
     @Test
     void rejectsLoopbackPrivateAndNonHttpTargets() {
-        assertThatThrownBy(() -> AiProviderProbeService.validatePublicTarget(URI.create("http://127.0.0.1/v1/models")))
+        assertThatThrownBy(() -> AiProviderProbeService.validatePublicTarget(URI.create("https://127.0.0.1/v1/models")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("内网或保留网络");
-        assertThatThrownBy(() -> AiProviderProbeService.validatePublicTarget(URI.create("http://10.20.30.40/v1/models")))
+        assertThatThrownBy(() -> AiProviderProbeService.validatePublicTarget(URI.create("https://10.20.30.40/v1/models")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("内网或保留网络");
+        assertThatThrownBy(() -> AiProviderProbeService.validatePublicTarget(URI.create("http://example.com/v1/models")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("HTTPS");
         assertThatThrownBy(() -> AiProviderProbeService.validatePublicTarget(URI.create("file:///etc/passwd")))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("HTTP/HTTPS");
+                .hasMessageContaining("HTTPS");
+    }
+
+    @Test
+    void providerCatalogRejectsPlaintextCredentialEndpoints() {
+        AiProviderCatalogService catalog = new AiProviderCatalogService();
+
+        assertThatThrownBy(() -> catalog.normalizeBaseUrl("custom", "http://api.example.com/v1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("HTTPS")
+                .hasMessageContaining("API Key");
+        assertThat(catalog.normalizeBaseUrl("custom", "https://api.example.com"))
+                .isEqualTo("https://api.example.com/v1");
     }
 
     @Test
@@ -88,6 +103,38 @@ class AiProviderProbeServiceSecurityTest {
                 "application/json",
                 "{\"choices\":[{\"message\":{\"content\":\"  \"}}]}".getBytes(StandardCharsets.UTF_8)
         ))).isInstanceOf(BusinessException.class).hasMessageContaining("无有效内容");
+    }
+
+    @Test
+    void chatProbeUsesEnoughOutputTokensAndSupportsCompletionTokenFallback() {
+        Map<String, Object> regular = AiProviderProbeService.chatPayload(draft(AiCapability.CHAT), "max_tokens");
+        Map<String, Object> reasoning = AiProviderProbeService.chatPayload(
+                draft(AiCapability.CHAT), "max_completion_tokens");
+
+        assertThat(regular).containsEntry("max_tokens", 256).doesNotContainKey("max_completion_tokens");
+        assertThat(reasoning).containsEntry("max_completion_tokens", 256).doesNotContainKey("max_tokens");
+    }
+
+    @Test
+    void chatValidationExplainsReasoningAndIncompatibleResponseShapes() {
+        AiProviderProbeService service = new AiProviderProbeService(mock(AiRoutingService.class), new ObjectMapper());
+        AiRoutingService.DraftCredential chat = draft(AiCapability.CHAT);
+
+        assertThatThrownBy(() -> service.validateCapabilityResponse(chat, response(
+                "application/json",
+                "{\"choices\":[{\"finish_reason\":\"length\",\"message\":{\"content\":null,\"reasoning_content\":\"thinking\"}}]}"
+                        .getBytes(StandardCharsets.UTF_8))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("推理内容")
+                .hasMessageContaining("finish_reason=length");
+        assertThatThrownBy(() -> service.validateCapabilityResponse(chat, response(
+                "application/json", "{\"choices\":[{\"text\":\"OK\"}]}".getBytes(StandardCharsets.UTF_8))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("choices[0].text");
+        assertThatThrownBy(() -> service.validateCapabilityResponse(chat, response(
+                "application/json", "{\"output_text\":\"OK\"}".getBytes(StandardCharsets.UTF_8))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Responses API");
     }
 
     @Test

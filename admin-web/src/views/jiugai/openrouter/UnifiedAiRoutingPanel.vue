@@ -10,7 +10,7 @@
           {{ flags.enabled ? '新路由已启用' : '旧路由生效中' }}
         </el-tag>
         <el-button
-          v-if="activeCapability !== 'CHAT' || chatWorkspace === 'providers'"
+          v-if="activeCapability === 'CHAT' && chatWorkspace === 'providers'"
           v-hasPermi="['ops:openrouter:edit']"
           :icon="Upload"
           :loading="importingLegacy"
@@ -376,6 +376,14 @@
           </el-form-item>
         </div>
       </el-form>
+      <el-alert
+        v-if="probeMayIncurCost"
+        class="probe-cost-alert"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="本次测试会真实调用上游接口，可能产生费用"
+      />
       <template #footer>
         <div class="dialog-footer">
           <el-button
@@ -423,8 +431,12 @@
       </div>
       <template #footer>
         <el-button @click="routeDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingRoute" :disabled="routeDraft.length === 0" @click="submitRoute">
-          保存执行顺序
+        <el-button
+          :type="routeDraft.length === 0 ? 'danger' : 'primary'"
+          :loading="savingRoute"
+          @click="submitRoute"
+        >
+          {{ routeDraft.length === 0 ? '删除执行路由' : '保存执行顺序' }}
         </el-button>
       </template>
     </el-dialog>
@@ -678,6 +690,7 @@ import {
   deleteAiAccount,
   deleteAiChatOffering,
   deleteAiDeployment,
+  deleteAiRoute,
   discoverAiModels,
   getAiRouting,
   importLegacyAiChatRoute,
@@ -793,6 +806,7 @@ const modelNoDataText = computed(() => {
   return '没有符合当前筛选条件的模型'
 })
 const routeCandidates = computed(() => capabilityDeployments.value.filter((item) => !routeDraft.value.some((selected) => selected.id === item.id)))
+const probeMayIncurCost = computed(() => ['IMAGE', 'TTS', 'STT'].includes(providerForm.capability))
 const sharedAccountDeployments = computed(() => deployments.value.filter((item) => item.accountId === providerForm.accountId))
 const sharedAccountCapabilityText = computed(() => [...new Set(sharedAccountDeployments.value.map((item) => capabilityName(item.capability)))].join('、'))
 const accountConnectionFieldsChanged = computed(() => {
@@ -1328,8 +1342,31 @@ function removeRouteDraft(index) {
 }
 
 function submitRoute() {
-  savingRoute.value = true
   const route = capabilityRoute.value
+  if (!routeDraft.value.length) {
+    if (!route?.id) {
+      proxy.$modal.msgWarning('当前没有可删除的执行路由')
+      return
+    }
+    proxy.$modal.confirm(`确认删除“${route.displayName}”吗？删除后该能力将不再有默认执行路由。`)
+      .then(() => {
+        savingRoute.value = true
+        return deleteAiRoute(route.id)
+      })
+      .then(() => {
+        proxy.$modal.msgSuccess('执行路由已删除，现在可以删除不再被其他路由引用的模型')
+        routeDialogVisible.value = false
+        return load()
+      })
+      .catch((error) => {
+        if (error !== 'cancel' && error !== 'close') {
+          proxy.$modal.msgError(jiugaiRequestErrorMessage(error, '删除执行路由失败'))
+        }
+      })
+      .finally(() => { savingRoute.value = false })
+    return
+  }
+  savingRoute.value = true
   saveAiRoute({
     id: route?.id || null,
     routeKey: defaultRouteKey(activeCapability.value),
@@ -1362,6 +1399,8 @@ function deploymentStatus(row) {
   if (row.circuitOpenUntil && Date.parse(row.circuitOpenUntil) > Date.now()) return { text: '熔断中', type: 'danger' }
   if (row.lastHealthStatus === 'healthy') return { text: '健康', type: 'success' }
   if (row.lastHealthStatus === 'configuration_error') return { text: '配置错误', type: 'danger' }
+  if (row.lastHealthStatus === 'authentication_error') return { text: '鉴权失败', type: 'danger' }
+  if (row.lastHealthStatus === 'incompatible_response') return { text: '响应不兼容', type: 'warning' }
   if (row.lastHealthStatus === 'failing') return { text: '失败中', type: 'warning' }
   return { text: '未探测', type: '' }
 }

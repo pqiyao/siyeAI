@@ -41,7 +41,7 @@ public class AiProviderProbeService {
     private static final int MAX_RESPONSE_BODY = 16 * 1024 * 1024;
     private static final byte[] STT_PROBE_WAV = loadSttProbeWav();
     private static final String VISION_PROBE_IMAGE =
-            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z4D8AAAAASUVORK5CYII=";
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABxSURBVFhH7c6xDQBADIPA7L/0fw8VShtLtCfPm3mrlhuBteXuwB24A3fgDtyBO7AW+CdHsE5gjWCdwBrBOoE1gnUCawTrBNYI1gmsEawTWCNYJ7BGsE5gjWCdwBrBOoE1gnUCawTrBNYI1gmsEawTGPv33vSmDAD7zQAAAABJRU5ErkJggg==";
 
     record ProbeResponse(int statusCode, HttpHeaders headers, byte[] body) {}
 
@@ -108,14 +108,19 @@ public class AiProviderProbeService {
         }
         try {
             long startedAt = System.nanoTime();
-            HttpRequest request = switch (draft.capability()) {
-                case CHAT -> chatRequest(draft);
-                case VISION -> visionRequest(draft);
-                case IMAGE -> imageRequest(draft);
-                case TTS -> ttsRequest(draft);
-                case STT -> sttRequest(draft);
-            };
-            ProbeResponse response = send(draft, request, capabilityLabel(draft.capability()) + "测试");
+            ProbeResponse response;
+            if (draft.capability() == AiCapability.CHAT) {
+                response = sendChatProbe(draft);
+            } else {
+                HttpRequest request = switch (draft.capability()) {
+                    case VISION -> visionRequest(draft);
+                    case IMAGE -> imageRequest(draft);
+                    case TTS -> ttsRequest(draft);
+                    case STT -> sttRequest(draft);
+                    case CHAT -> throw new IllegalStateException("chat probe request already handled");
+                };
+                response = send(draft, request, capabilityLabel(draft.capability()) + "测试");
+            }
             validateCapabilityResponse(draft, response);
             if (draft.deploymentId() != null) {
                 routingService.recordSuccess(draft.deploymentId());
@@ -132,19 +137,35 @@ public class AiProviderProbeService {
             return result;
         } catch (BusinessException ex) {
             if (draft.deploymentId() != null) {
-                routingService.recordConfigurationError(draft.deploymentId(), ex.getMessage());
+                recordProbeFailure(draft.deploymentId(), ex);
             }
             throw ex;
         }
     }
 
-    private HttpRequest chatRequest(AiRoutingService.DraftCredential draft) {
+    private ProbeResponse sendChatProbe(AiRoutingService.DraftCredential draft) {
+        String operation = capabilityLabel(draft.capability()) + "测试";
+        try {
+            return send(draft, chatRequest(draft, "max_tokens"), operation);
+        } catch (BusinessException ex) {
+            if (!shouldRetryWithMaxCompletionTokens(ex)) {
+                throw ex;
+            }
+            return send(draft, chatRequest(draft, "max_completion_tokens"), operation);
+        }
+    }
+
+    private HttpRequest chatRequest(AiRoutingService.DraftCredential draft, String tokenField) {
+        return jsonPost(draft, "/chat/completions", chatPayload(draft, tokenField));
+    }
+
+    static Map<String, Object> chatPayload(AiRoutingService.DraftCredential draft, String tokenField) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("model", draft.modelName());
         payload.put("messages", List.of(Map.of("role", "user", "content", "Reply with OK.")));
-        payload.put("max_tokens", 2);
+        payload.put("max_completion_tokens".equals(tokenField) ? "max_completion_tokens" : "max_tokens", 256);
         payload.put("stream", false);
-        return jsonPost(draft, "/chat/completions", payload);
+        return payload;
     }
 
     private HttpRequest visionRequest(AiRoutingService.DraftCredential draft) {
@@ -189,7 +210,7 @@ public class AiProviderProbeService {
         payload.put("voice", firstNonBlank(draft.voiceName(), defaultProbeVoice(draft.modelName())));
         payload.put("input", "test");
         payload.put("response_format", "mp3");
-        return jsonPost(draft, "/audio/speech", payload);
+        return jsonPost(draft, "/audio/speech", payload, "audio/mpeg, audio/*;q=0.9, application/octet-stream;q=0.8");
     }
 
     private HttpRequest sttRequest(AiRoutingService.DraftCredential draft) {
@@ -214,8 +235,17 @@ public class AiProviderProbeService {
     }
 
     private HttpRequest jsonPost(AiRoutingService.DraftCredential draft, String path, Object payload) {
+        return jsonPost(draft, path, payload, "application/json");
+    }
+
+    private HttpRequest jsonPost(
+            AiRoutingService.DraftCredential draft,
+            String path,
+            Object payload,
+            String accept
+    ) {
         try {
-            return requestBuilder(draft, path)
+            return requestBuilder(draft, path, accept)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload), StandardCharsets.UTF_8))
                     .build();
@@ -225,12 +255,16 @@ public class AiProviderProbeService {
     }
 
     private HttpRequest.Builder requestBuilder(AiRoutingService.DraftCredential draft, String path) {
+        return requestBuilder(draft, path, "application/json");
+    }
+
+    private HttpRequest.Builder requestBuilder(AiRoutingService.DraftCredential draft, String path, String accept) {
         URI target = URI.create(trimTrailingSlash(draft.baseUrl()) + path);
         validatePublicTarget(target);
         return HttpRequest.newBuilder(target)
                 .timeout(Duration.ofSeconds(draft.requestTimeoutSeconds()))
                 .header("Authorization", "Bearer " + draft.apiKey())
-                .header("Accept", "application/json");
+                .header("Accept", accept);
     }
 
     private ProbeResponse send(AiRoutingService.DraftCredential draft, HttpRequest request, String operation) {
@@ -247,14 +281,14 @@ public class AiProviderProbeService {
             }
             ProbeResponse response = new ProbeResponse(raw.statusCode(), raw.headers(), body);
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw validation(operation + "失败：HTTP " + response.statusCode() + "，" + providerError(response.body()));
+                throw upstreamFailure(operation, response.statusCode(), providerError(response.body()));
             }
             return response;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw validation(operation + "已中断");
+            throw new BusinessException(ErrorCode.SERVICE_BUSY, operation + "已中断", ex);
         } catch (IOException ex) {
-            throw validation(operation + "失败：" + safeMessage(ex));
+            throw new BusinessException(ErrorCode.UPSTREAM_ERROR, operation + "失败：" + safeMessage(ex), ex);
         }
     }
 
@@ -271,8 +305,8 @@ public class AiProviderProbeService {
         }
         JsonNode root = parseJson(body, capabilityLabel(capability) + "响应不是有效 JSON");
         boolean valid = switch (capability) {
-            case CHAT -> hasUsableChatContent(root);
-            case VISION -> hasUsableChatContent(root);
+            case CHAT -> validateChatContent(root, capability);
+            case VISION -> validateChatContent(root, capability);
             case IMAGE -> hasUsableImage(root);
             case STT -> StringUtils.hasText(root.path("text").asText(""));
             case TTS -> true;
@@ -291,6 +325,35 @@ public class AiProviderProbeService {
             for (JsonNode item : content) {
                 if (StringUtils.hasText(item.path("text").asText(""))) return true;
             }
+        }
+        return false;
+    }
+
+    private static boolean validateChatContent(JsonNode root, AiCapability capability) {
+        if (hasUsableChatContent(root)) {
+            return true;
+        }
+        JsonNode choice = root.path("choices").path(0);
+        JsonNode message = choice.path("message");
+        String finishReason = choice.path("finish_reason").asText("");
+        String label = capabilityLabel(capability);
+        if (StringUtils.hasText(message.path("reasoning_content").asText(""))) {
+            String detail = "length".equalsIgnoreCase(finishReason)
+                    ? "上游只返回了推理内容且输出额度已耗尽（finish_reason=length）"
+                    : "上游只返回了 reasoning_content，没有可供当前运行时消费的最终正文";
+            throw validation(label + "接口成功但无有效最终内容：" + detail);
+        }
+        if (message.path("tool_calls").isArray() && !message.path("tool_calls").isEmpty()) {
+            throw validation(label + "接口成功但无有效最终内容：上游只返回了 tool_calls");
+        }
+        if (StringUtils.hasText(choice.path("text").asText(""))) {
+            throw validation(label + "接口成功但无有效最终内容：上游返回 choices[0].text，当前链路要求 Chat Completions message.content");
+        }
+        if (StringUtils.hasText(root.path("output_text").asText("")) || root.path("output").isArray()) {
+            throw validation(label + "接口成功但无有效最终内容：上游返回 Responses API 结构，当前链路要求 Chat Completions 结构");
+        }
+        if ("length".equalsIgnoreCase(finishReason)) {
+            throw validation(label + "接口成功但无有效最终内容：输出额度已耗尽（finish_reason=length）");
         }
         return false;
     }
@@ -368,11 +431,11 @@ public class AiProviderProbeService {
     static void validatePublicTarget(URI target) {
         if (target == null
                 || target.getScheme() == null
-                || !("http".equalsIgnoreCase(target.getScheme()) || "https".equalsIgnoreCase(target.getScheme()))
+                || !"https".equalsIgnoreCase(target.getScheme())
                 || target.getHost() == null
                 || target.getHost().isBlank()
                 || target.getUserInfo() != null) {
-            throw validation("探测地址必须是有效的 HTTP/HTTPS 公网地址");
+            throw validation("探测地址必须是有效的 HTTPS 公网地址，禁止明文传输 API Key");
         }
         try {
             InetAddress[] addresses = InetAddress.getAllByName(target.getHost());
@@ -559,6 +622,43 @@ public class AiProviderProbeService {
     private static String safeMessage(Throwable error) {
         String message = error == null ? "未知错误" : error.getMessage();
         return StringUtils.hasText(message) ? message.trim() : error.getClass().getSimpleName();
+    }
+
+    private void recordProbeFailure(long deploymentId, BusinessException error) {
+        ErrorCode code = error.getErrorCode();
+        if (code == ErrorCode.RATE_LIMITED || code == ErrorCode.SERVICE_BUSY || code == ErrorCode.UPSTREAM_ERROR) {
+            routingService.recordFailure(deploymentId, error.getMessage());
+        } else if (code == ErrorCode.UNAUTHORIZED) {
+            routingService.recordProbeStatus(deploymentId, "authentication_error", error.getMessage());
+        } else {
+            routingService.recordProbeStatus(deploymentId, "incompatible_response", error.getMessage());
+        }
+    }
+
+    private static boolean shouldRetryWithMaxCompletionTokens(BusinessException error) {
+        if (error == null || error.getErrorCode() != ErrorCode.VALIDATION_FAILED) {
+            return false;
+        }
+        String message = safeMessage(error).toLowerCase(Locale.ROOT);
+        return message.contains("max_tokens")
+                && (message.contains("max_completion_tokens")
+                || message.contains("unsupported")
+                || message.contains("not supported")
+                || message.contains("不支持"));
+    }
+
+    private static BusinessException upstreamFailure(String operation, int status, String detail) {
+        ErrorCode code;
+        if (status == 401 || status == 403) {
+            code = ErrorCode.UNAUTHORIZED;
+        } else if (status == 429) {
+            code = ErrorCode.RATE_LIMITED;
+        } else if (status >= 500) {
+            code = ErrorCode.UPSTREAM_ERROR;
+        } else {
+            code = ErrorCode.VALIDATION_FAILED;
+        }
+        return new BusinessException(code, operation + "失败：HTTP " + status + "，" + detail);
     }
 
     private static String firstNonBlank(String... values) {

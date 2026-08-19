@@ -178,6 +178,8 @@ app:
       app-id: ${APP_PAYMENT_WECHAT_H5_APP_ID:}
       merchant-id: ${APP_PAYMENT_WECHAT_H5_MERCHANT_ID:}
       api-v3-key: ${APP_PAYMENT_WECHAT_H5_API_V3_KEY:}
+      platform-public-key-pem: ${APP_PAYMENT_WECHAT_H5_PLATFORM_PUBLIC_KEY_PEM:}
+      platform-public-key-path: ${APP_PAYMENT_WECHAT_H5_PLATFORM_PUBLIC_KEY_PATH:}
       merchant-serial-number: ${APP_PAYMENT_WECHAT_H5_MERCHANT_SERIAL_NO:}
       private-key-pem: ${APP_PAYMENT_WECHAT_H5_PRIVATE_KEY_PEM:}
       private-key-path: ${APP_PAYMENT_WECHAT_H5_PRIVATE_KEY_PATH:}

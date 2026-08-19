@@ -639,7 +639,9 @@ public class StoreService {
 
     public List<Map<String, Object>> clientFacingChannels() {
         return paymentProviderRegistry.describeChannels().stream()
-                .filter(item -> Boolean.TRUE.equals(item.get("clientVisible")))
+                .filter(item -> Boolean.TRUE.equals(item.get("clientVisible"))
+                        && Boolean.TRUE.equals(item.get("enabled"))
+                        && Boolean.TRUE.equals(item.get("ready")))
                 .toList();
     }
 

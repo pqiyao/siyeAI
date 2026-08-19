@@ -1,5 +1,6 @@
 package com.example.sillyspringboot.compat.h5.web;
 
+import com.example.sillyspringboot.ai.service.AiChatModelService;
 import com.example.sillyspringboot.chat.mapper.AppMessageMapper;
 import com.example.sillyspringboot.chat.service.AppChatService;
 import com.example.sillyspringboot.chat.service.ChatAudioSpeechService;
@@ -21,6 +22,7 @@ import com.example.sillyspringboot.ops.service.H5EntitlementService;
 import com.example.sillyspringboot.ops.service.UserTtsVoiceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 
@@ -71,7 +73,8 @@ class ApiV1TavernReplySuggestionsBillingTest {
 
     @Test
     void successfulSuggestionsCompleteTheReservedTicket() {
-        when(chat.suggestReplies(99L, "token", "draft")).thenReturn(List.of("reply"));
+        when(chat.suggestReplies(99L, "token", "draft", "", "", ""))
+                .thenReturn(List.of("reply"));
 
         ApiV1Result<java.util.Map<String, Object>> result = controller.replySuggestions(payload());
 
@@ -82,11 +85,41 @@ class ApiV1TavernReplySuggestionsBillingTest {
     @Test
     void failedSuggestionsRefundTheReservedTicket() {
         RuntimeException failure = new RuntimeException("upstream failed");
-        when(chat.suggestReplies(99L, "token", "draft")).thenThrow(failure);
+        when(chat.suggestReplies(99L, "token", "draft", "", "", ""))
+                .thenThrow(failure);
 
         assertThrows(RuntimeException.class, () -> controller.replySuggestions(payload()));
 
         verify(entitlement).refundFailedChat(ticket, false);
+    }
+
+    @Test
+    void suggestionsUseResolvedConversationModelForRoutingAndBilling() {
+        AiChatModelService chatModels = mock(AiChatModelService.class);
+        ReflectionTestUtils.setField(controller, "chatModelService", chatModels);
+        AiChatModelService.ResolvedChatModel resolved = new AiChatModelService.ResolvedChatModel(
+                "SYSTEM", 12L, "premium", "Premium", null, "", "chat.offer.premium",
+                "DIAMOND_ONLY", 0, 2, 0, 7L);
+        H5ChatPayload payload = payload();
+        payload.setChatModelSource("SYSTEM");
+        payload.setChatModelRef("premium");
+        payload.setChatModelSelectionVersion(7L);
+
+        when(chat.resolveUserId("token")).thenReturn(5L);
+        when(chatModels.resolveForGeneration(5L, 99L, "SYSTEM", "premium", 7L)).thenReturn(resolved);
+        when(entitlement.guardChatModel(
+                "client-1", 7L, EntitlementPolicyService.ChatQuotaAction.GENERATE,
+                resolved, "suggest-request-1", 99L)).thenReturn(ticket);
+        when(chat.suggestReplies(
+                99L, "token", "draft", "SYSTEM", "", "chat.offer.premium"))
+                .thenReturn(List.of("reply"));
+
+        ApiV1Result<java.util.Map<String, Object>> result = controller.replySuggestions(payload);
+
+        assertEquals(List.of("reply"), result.data().get("suggestions"));
+        verify(chat).suggestReplies(
+                99L, "token", "draft", "SYSTEM", "", "chat.offer.premium");
+        verify(entitlement).recordSuccessfulChat(ticket, true);
     }
 
     private static H5ChatPayload payload() {

@@ -297,7 +297,8 @@ public class AppChatServiceMemoryInjectionTest {
         long conversationId = 124L;
         AppChatService service = buildService(conversationId);
 
-        List<String> suggestions = service.suggestReplies(conversationId, "token", "draft");
+        List<String> suggestions = service.suggestReplies(
+                conversationId, "token", "draft", "SYSTEM", "", "chat.offer.premium");
 
         assertThat(suggestions).containsExactly("ok", "sure", "continue", "here");
 
@@ -305,6 +306,8 @@ public class AppChatServiceMemoryInjectionTest {
         verify(serviceTestStAdapter).streamGenerateAssistantReply(requestCaptor.capture(), any(), any(StStreamControl.class));
         ChatGenerateRequest captured = requestCaptor.getValue();
         assertThat(captured.mode()).isEqualTo("reply_suggestions");
+        assertThat(captured.routingRouteKey()).isEqualTo("chat.offer.premium");
+        assertThat(captured.userModelOverride()).isNull();
         assertThat(captured.tailSystemPrompt()).isNullOrEmpty();
         assertThat(captured.stWorldNames()).containsExactly("base_world", "memory_world");
         assertThat(captured.messages())
@@ -313,6 +316,24 @@ public class AppChatServiceMemoryInjectionTest {
         assertThat(captured.messages().get(captured.messages().size() - 1).content())
                 .doesNotContain("Relevant conversation memory:")
                 .contains("SillyTavern-style user impersonation prompt:");
+    }
+
+    @Test
+    void suggestReplies_shouldUseTheSelectedByokModelInsteadOfTheProviderDefault() {
+        long conversationId = 134L;
+        AppChatService service = buildService(conversationId);
+
+        service.suggestReplies(
+                conversationId, "token", "draft", "BYOK", "anthropic/claude-sonnet", "");
+
+        ArgumentCaptor<ChatGenerateRequest> requestCaptor = ArgumentCaptor.forClass(ChatGenerateRequest.class);
+        verify(serviceTestStAdapter).streamGenerateAssistantReply(
+                requestCaptor.capture(), any(), any(StStreamControl.class));
+        ChatGenerateRequest captured = requestCaptor.getValue();
+        assertThat(captured.routingRouteKey()).isNullOrEmpty();
+        assertThat(captured.userModelOverride()).isNotNull();
+        assertThat(captured.userModelOverride().modelName()).isEqualTo("anthropic/claude-sonnet");
+        assertThat(captured.userModelOverride().providerSource()).isEqualTo("openrouter");
     }
 
     @Test

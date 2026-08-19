@@ -161,12 +161,7 @@ public class ImageGenerationFacade {
             return "openai_compatible";
         }
         String compatibilityEngine = normalizeEngine(safe(settingsService.getSettings().getEngine()));
-        if ("st_comfy".equals(compatibilityEngine)) {
-            return compatibilityEngine;
-        }
-        // System mode is deliberately pinned to the tested NovelAI adapter.
-        // Legacy managed/OpenAI settings are not allowed to select a random provider pool.
-        return "novelai";
+        return "st_comfy".equals(compatibilityEngine) ? "st_comfy" : "novelai";
     }
 
     private static String normalizeEngine(String value) {

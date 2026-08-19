@@ -70,6 +70,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/dev/st-debug/**").permitAll()
                         .requestMatchers("/api/telegram/stars/webhook").permitAll()
                         .requestMatchers("/api/payment/epay/notify", "/api/payment/epay/return").permitAll()
+                        .requestMatchers("/api/payment/wechat-h5/notify", "/api/payment/alipay-wap/notify").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/app/ping").permitAll()
                         .requestMatchers(HttpMethod.POST,
                                 "/api/app/auth/telegram/login",

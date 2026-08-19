@@ -66,6 +66,9 @@
 						<text class="section-subtitle">{{ copy.orderSubtitle }}</text>
 					</view>
 					<view class="order-head-actions">
+						<view v-if="hasRemovableOrders" class="order-tool-btn" role="button" aria-label="清理未支付订单" title="清理未支付订单" @tap="toggleAllRemovableOrders">
+							<u-icon name="checkbox-mark" color="#b45309" size="22"></u-icon>
+						</view>
 						<view class="order-tool-btn" role="button" :aria-label="copy.refresh" :title="copy.refresh" @tap="loadPage">
 							<u-icon name="reload" color="#4f7f8e" size="22"></u-icon>
 						</view>
@@ -86,6 +89,16 @@
 						<view class="order-side">
 							<text class="order-price">¥{{ item.amountYuan }}</text>
 							<text class="order-status" :class="item.status === 'PAID' ? 'paid' : 'pending'">{{ item.statusLabel }}</text>
+							<view
+								v-if="String(item.status || '').toUpperCase() !== 'PAID'"
+								class="order-tool-btn order-remove-btn"
+								role="button"
+								aria-label="删除未支付订单"
+								title="删除未支付订单"
+								@tap.stop="confirmRemoveOrders([item.orderNo])"
+							>
+								<u-icon name="trash" color="#b45309" size="22"></u-icon>
+							</view>
 						</view>
 					</view>
 					</view>
@@ -230,6 +243,7 @@ export default {
 			profile: {},
 			coinProducts: [],
 			orderList: [],
+			selectedOrderNos: [],
 			rechargeEntryVisible: tavernApi.isRechargeEntryVisible(),
 			rechargeEntryReady: typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot()
 		};
@@ -237,6 +251,9 @@ export default {
 	computed: {
 		copy() {
 			return COPY[getLanguageCode()] || COPY.en;
+		},
+		hasRemovableOrders() {
+			return this.orderList.some((item) => String(item.status || '').toUpperCase() !== 'PAID');
 		}
 	},
 	onShow() {
@@ -244,6 +261,34 @@ export default {
 		this.syncRechargeEntryVisibility(true);
 	},
 	methods: {
+		toggleAllRemovableOrders() {
+			const removable = this.orderList
+				.filter((item) => String(item.status || '').toUpperCase() !== 'PAID')
+				.map((item) => item.orderNo)
+				.filter(Boolean);
+			this.selectedOrderNos = this.selectedOrderNos.length === removable.length ? [] : removable;
+			if (this.selectedOrderNos.length) this.confirmRemoveOrders(this.selectedOrderNos);
+		},
+		confirmRemoveOrders(orderNos) {
+			const targets = Array.isArray(orderNos) ? orderNos.filter(Boolean) : [];
+			if (!targets.length) return;
+			uni.showModal({
+				title: '删除未支付订单',
+				content: '删除后仅从钱包列表隐藏，不会影响支付平台已经发出的回调。',
+				confirmText: '删除',
+				cancelText: '取消',
+				success: (res) => {
+					if (!res.confirm) return;
+					const clientUid = tavernApi.getClientUid();
+					Promise.all(targets.map((orderNo) => tavernApi.postStoreOrderRemove({ clientUid, orderNo }))).then(() => {
+						this.orderList = this.orderList.filter((order) => !targets.includes(order.orderNo));
+						this.selectedOrderNos = [];
+					}).catch((error) => {
+						uni.showToast({ title: error && error.message ? error.message : '订单删除失败', icon: 'none' });
+					});
+				}
+			});
+		},
 		syncRechargeEntryVisibility(forceRefresh) {
 			this.rechargeEntryVisible = tavernApi.isRechargeEntryVisible();
 			if (typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot()) {
@@ -976,5 +1021,10 @@ export default {
 
 .order-tool-btn:active {
 	transform: scale(0.96);
+}
+
+.order-remove-btn {
+	border-color: rgba(180, 83, 9, 0.18);
+	background: rgba(255, 247, 237, 0.82);
 }
 </style>

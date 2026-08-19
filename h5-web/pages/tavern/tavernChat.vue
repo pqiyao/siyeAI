@@ -9380,13 +9380,17 @@
 				this.replySuggest.visible = true;
 				this.replySuggest.loading = true;
 				this.replySuggest.error = '';
-				return tavernApi
-					.fetchTavernReplySuggestions({
+				const generationRequestId = this.createChatGenerationRequestId('suggest', key);
+				const payload = Object.assign(
+					{
 						characterId: cid,
 						clientUid: tavernApi.getClientUid(),
-						content: String(this.draft || '').trim(),
-						generationRequestId: this.createChatGenerationRequestId('suggest', key)
-					})
+						content: String(this.draft || '').trim()
+					},
+					this.buildChatModelPayloadFields(generationRequestId)
+				);
+				return tavernApi
+					.fetchTavernReplySuggestions(payload)
 					.then((items) => {
 						const list = Array.isArray(items)
 							? items

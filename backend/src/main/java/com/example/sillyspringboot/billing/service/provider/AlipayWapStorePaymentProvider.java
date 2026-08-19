@@ -146,6 +146,7 @@ public class AlipayWapStorePaymentProvider implements StorePaymentProvider {
                 && !blank(paymentProperties.getAppId()).isBlank()
                 && !blank(paymentProperties.getNotifyUrl()).isBlank()
                 && !blank(paymentProperties.getReturnUrl()).isBlank()
+                && !blank(paymentProperties.getAlipayPublicKey()).isBlank()
                 && (!blank(paymentProperties.getPrivateKeyPem()).isBlank()
                 || !blank(paymentProperties.getPrivateKeyPath()).isBlank());
     }

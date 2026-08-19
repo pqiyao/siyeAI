@@ -2945,6 +2945,9 @@ function parseSseBlock(block, handlers) {
 	if (ev === 'error' && h.onError) {
 		h.onError(new Error(obj.message || 'stream error'));
 	}
+	if ((ev === 'done' || ev === 'error') && h.onTerminal) {
+		h.onTerminal(ev, obj);
+	}
 }
 
 function parseSseChunks(buffer, handlers) {
@@ -2966,6 +2969,16 @@ function postTavernXhrSseStream(path, payload, handlers, opts) {
 		var buffer = '';
 		var settled = false;
 		var aborted = false;
+		var sawTerminal = false;
+		var streamHandlers = {
+			onDelta: h.onDelta,
+			onDone: h.onDone,
+			onError: h.onError,
+			onTerminal: function (eventName, data) {
+				sawTerminal = true;
+				if (h.onTerminal) h.onTerminal(eventName, data);
+			}
+		};
 
 		function cleanup() {
 			if (signal && signal.removeEventListener) {
@@ -3021,7 +3034,7 @@ function postTavernXhrSseStream(path, payload, handlers, opts) {
 			var chunk = text.slice(seenLength);
 			seenLength = text.length;
 			buffer += chunk;
-			buffer = parseSseChunks(buffer, h);
+			buffer = parseSseChunks(buffer, streamHandlers);
 		}
 
 		xhr.open('POST', url, true);
@@ -3038,7 +3051,7 @@ function postTavernXhrSseStream(path, payload, handlers, opts) {
 				emitError(e);
 			}
 		};
-		xhr.onreadystatechange = function () {
+			xhr.onreadystatechange = function () {
 			if (xhr.readyState !== 4 || settled) {
 				return;
 			}
@@ -3052,13 +3065,20 @@ function postTavernXhrSseStream(path, payload, handlers, opts) {
 				return;
 			}
 			if (xhr.status < 200 || xhr.status >= 300) {
+				if (xhr.status === 401) {
+					authSession.handleAuthExpired();
+				}
 				emitError(new Error(extractSseHttpErrorMessage(xhr.responseText) || 'HTTP ' + xhr.status));
 				return;
 			}
 			try {
 				consumeProgress();
 				if (buffer.trim()) {
-					parseSseBlock(buffer, h);
+					parseSseBlock(buffer, streamHandlers);
+				}
+				if (!sawTerminal) {
+					emitError(new Error('stream ended before terminal event'));
+					return;
 				}
 				done();
 			} catch (e) {
@@ -3134,6 +3154,16 @@ function postTavernUniChunkedSseStream(path, payload, handlers, opts) {
 		var requestTask = null;
 		var aborted = false;
 		var fallbackReplayTimer = null;
+		var sawTerminal = false;
+		var streamHandlers = {
+			onDelta: h.onDelta,
+			onDone: h.onDone,
+			onError: h.onError,
+			onTerminal: function (eventName, data) {
+				sawTerminal = true;
+				if (h.onTerminal) h.onTerminal(eventName, data);
+			}
+		};
 		if (typeof TextDecoder === 'function') {
 			try {
 				decoder = new TextDecoder('utf-8');
@@ -3184,7 +3214,7 @@ function postTavernUniChunkedSseStream(path, payload, handlers, opts) {
 			}
 			sawChunk = true;
 			buffer += text;
-			buffer = parseSseChunks(buffer, h);
+			buffer = parseSseChunks(buffer, streamHandlers);
 		}
 
 		function replayBufferedText(text) {
@@ -3209,7 +3239,7 @@ function postTavernUniChunkedSseStream(path, payload, handlers, opts) {
 						return;
 					}
 					try {
-						parseSseBlock(blocks[index], h);
+						parseSseBlock(blocks[index], streamHandlers);
 					} catch (e) {
 						reject(e);
 						return;
@@ -3300,6 +3330,9 @@ function postTavernUniChunkedSseStream(path, payload, handlers, opts) {
 						return;
 					}
 					if (res.statusCode < 200 || res.statusCode >= 300) {
+						if (res.statusCode === 401) {
+							authSession.handleAuthExpired();
+						}
 						emitError(new Error(extractSseHttpErrorMessage(decodeChunkToText(res.data)) || 'HTTP ' + res.statusCode));
 						return;
 					}
@@ -3308,7 +3341,11 @@ function postTavernUniChunkedSseStream(path, payload, handlers, opts) {
 							var replayText = decodeUniChunk(res.data, false);
 							flushDecoder();
 							if (replayText) {
-								replayBufferedText(replayText).then(function () {
+									replayBufferedText(replayText).then(function () {
+									if (!sawTerminal) {
+										emitError(new Error('stream ended before terminal event'));
+										return;
+									}
 									done();
 								}).catch(emitError);
 								return;
@@ -3316,7 +3353,11 @@ function postTavernUniChunkedSseStream(path, payload, handlers, opts) {
 						}
 						flushDecoder();
 						if (buffer.trim()) {
-							parseSseBlock(buffer, h);
+							parseSseBlock(buffer, streamHandlers);
+						}
+						if (!sawTerminal) {
+							emitError(new Error('stream ended before terminal event'));
+							return;
 						}
 						done();
 					} catch (e) {
@@ -3358,6 +3399,9 @@ function postTavernSseStream(path, payload, handlers, opts) {
 		return fetch(url, fetchOpts)
 			.then(function (res) {
 				captureResponseDeviceToken({ headers: res.headers });
+				if (res.status === 401) {
+					authSession.handleAuthExpired();
+				}
 				if (!res.ok) {
 					return res.text().then(function (t) {
 						throw new Error(extractSseHttpErrorMessage(t) || 'HTTP ' + res.status);
@@ -3369,16 +3413,29 @@ function postTavernSseStream(path, payload, handlers, opts) {
 				var reader = res.body.getReader();
 				var dec = new TextDecoder();
 				var buf = '';
+				var sawTerminal = false;
+				var streamHandlers = {
+					onDelta: h.onDelta,
+					onDone: h.onDone,
+					onError: h.onError,
+					onTerminal: function (eventName, data) {
+						sawTerminal = true;
+						if (h.onTerminal) h.onTerminal(eventName, data);
+					}
+				};
 				function pump() {
 					return reader.read().then(function (result) {
 						if (result.done) {
 							if (buf.trim()) {
-								parseSseBlock(buf, h);
+								parseSseBlock(buf, streamHandlers);
+							}
+							if (!sawTerminal) {
+								throw new Error('stream ended before terminal event');
 							}
 							return;
 						}
 						buf += dec.decode(result.value, { stream: true });
-						buf = parseSseChunks(buf, h);
+						buf = parseSseChunks(buf, streamHandlers);
 						return pump();
 					});
 				}

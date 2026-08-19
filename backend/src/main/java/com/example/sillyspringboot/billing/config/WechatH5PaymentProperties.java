@@ -11,6 +11,8 @@ public class WechatH5PaymentProperties {
     private String appId = "";
     private String merchantId = "";
     private String apiV3Key = "";
+    private String platformPublicKeyPem = "";
+    private String platformPublicKeyPath = "";
     private String merchantSerialNumber = "";
     private String privateKeyPem = "";
     private String privateKeyPath = "";
@@ -49,6 +51,14 @@ public class WechatH5PaymentProperties {
     public void setApiV3Key(String apiV3Key) {
         this.apiV3Key = apiV3Key;
     }
+
+    public String getPlatformPublicKeyPem() { return platformPublicKeyPem; }
+
+    public void setPlatformPublicKeyPem(String platformPublicKeyPem) { this.platformPublicKeyPem = platformPublicKeyPem; }
+
+    public String getPlatformPublicKeyPath() { return platformPublicKeyPath; }
+
+    public void setPlatformPublicKeyPath(String platformPublicKeyPath) { this.platformPublicKeyPath = platformPublicKeyPath; }
 
     public String getMerchantSerialNumber() {
         return merchantSerialNumber;

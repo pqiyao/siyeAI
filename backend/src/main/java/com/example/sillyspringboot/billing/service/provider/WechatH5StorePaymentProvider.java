@@ -18,6 +18,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.security.PrivateKey;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -45,7 +46,10 @@ public class WechatH5StorePaymentProvider implements StorePaymentProvider {
         this.channelConfigService = channelConfigService;
         this.paymentProperties = paymentProperties;
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newHttpClient();
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
     }
 
     @Override
@@ -107,12 +111,13 @@ public class WechatH5StorePaymentProvider implements StorePaymentProvider {
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .header(HttpHeaders.AUTHORIZATION, authorization)
                     .header(HttpHeaders.USER_AGENT, safeUserAgent(context.getUserAgent()))
+                    .timeout(Duration.ofSeconds(30))
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                return unavailablePayload(config, "微信 H5 下单失败 + extractWechatError(response.body())");
+                return unavailablePayload(config, "微信 H5 下单失败：" + extractWechatError(response.body()));
             }
 
             Map<String, Object> body = objectMapper.readValue(response.body(), MAP_TYPE);
@@ -133,8 +138,10 @@ public class WechatH5StorePaymentProvider implements StorePaymentProvider {
             data.put("productCode", order.getProductCode());
             data.put("productName", order.getProductName());
             return data;
-        } catch (IOException | InterruptedException ex) {
+        } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            return unavailablePayload(config, "微信支付请求已中断，请稍后重试");
+        } catch (IOException | RuntimeException ex) {
             return unavailablePayload(config, "微信支付请求失败，请稍后重试");
         }
     }
@@ -179,7 +186,10 @@ public class WechatH5StorePaymentProvider implements StorePaymentProvider {
                 && !blank(paymentProperties.getAppId()).isBlank()
                 && !blank(paymentProperties.getMerchantId()).isBlank()
                 && !blank(paymentProperties.getMerchantSerialNumber()).isBlank()
+                && blank(paymentProperties.getApiV3Key()).length() == 32
                 && !blank(paymentProperties.getNotifyUrl()).isBlank()
+                && (!blank(paymentProperties.getPlatformPublicKeyPem()).isBlank()
+                || !blank(paymentProperties.getPlatformPublicKeyPath()).isBlank())
                 && (!blank(paymentProperties.getPrivateKeyPem()).isBlank()
                 || !blank(paymentProperties.getPrivateKeyPath()).isBlank());
     }

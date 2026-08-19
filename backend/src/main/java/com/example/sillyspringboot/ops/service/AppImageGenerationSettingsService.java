@@ -199,7 +199,7 @@ public class AppImageGenerationSettingsService {
                 || "user".equals(text)
                 || "user_openai".equals(text)
                 || "user_openai_compatible".equals(text)) {
-            return "user_openai_compatible";
+            return "novelai";
         }
         if ("managed".equals(text)
                 || "platform".equals(text)
@@ -207,20 +207,16 @@ public class AppImageGenerationSettingsService {
                 || "platform_openai".equals(text)
                 || "managed_openai_compatible".equals(text)
                 || "platform_openai_compatible".equals(text)) {
-            return "managed_openai_compatible";
+            return "novelai";
         }
         if ("comfy".equals(text) || "st_comfyui".equals(text)) {
             return "st_comfy";
         }
-        if ("sd_webui".equals(text) || "webui".equals(text)) {
-            return "st_sd_webui";
-        }
+        if ("sd_webui".equals(text) || "webui".equals(text)) return "novelai";
         if ("novel".equals(text) || "nai".equals(text) || "novelai".equals(text)) {
             return "novelai";
         }
-        if ("st_comfy".equals(text) || "st_sd_webui".equals(text)) {
-            return text;
-        }
+        if ("st_comfy".equals(text)) return text;
         // Historical managed/user OpenAI values are no longer system engines.
         return "novelai";
     }

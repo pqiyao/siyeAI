@@ -341,17 +341,19 @@ public class ApiV1TavernChatController {
         String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
         long conversationId = requireExistingConversationId(characterId, clientUid, token);
         String requestId = generationRequestId(payload, "h5_suggest");
-        H5EntitlementService.AccessTicket ticket = entitlementService.guardChat(
-                clientUid,
-                characterId,
-                EntitlementPolicyService.ChatQuotaAction.GENERATE,
-                requestId,
-                conversationId,
-                null
-        );
+        AiChatModelService.ResolvedChatModel chatModel = resolveChatModel(token, conversationId, payload);
+        H5EntitlementService.AccessTicket ticket = guardChat(
+                clientUid, characterId, EntitlementPolicyService.ChatQuotaAction.GENERATE,
+                chatModel, requestId, conversationId);
         try {
             List<String> suggestions = chatService.suggestReplies(
-                    conversationId, token, payload == null ? "" : payload.getContent());
+                    conversationId,
+                    token,
+                    payload == null ? "" : payload.getContent(),
+                    chatModel == null ? "" : chatModel.source(),
+                    chatModel == null ? "" : chatModel.modelName(),
+                    chatModel == null ? "" : chatModel.routeKey()
+            );
             if (suggestions == null || suggestions.isEmpty()) {
                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "AI 帮答暂时不可用，请稍后再试");
             }

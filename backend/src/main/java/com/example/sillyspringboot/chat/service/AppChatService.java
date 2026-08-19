@@ -764,6 +764,17 @@ public class AppChatService {
     }
 
     public List<String> suggestReplies(long conversationId, String token, String currentDraft) {
+        return suggestReplies(conversationId, token, currentDraft, "", "", "");
+    }
+
+    public List<String> suggestReplies(
+            long conversationId,
+            String token,
+            String currentDraft,
+            String chatModelSource,
+            String chatModelName,
+            String chatRouteKey
+    ) {
         AppUser user = tokenService.validateAndLoadUser(token);
         long userId = user.getId();
         AppConversation conversation = conversationMapper.findByIdForUser(conversationId, userId);
@@ -814,7 +825,8 @@ public class AppChatService {
                     charName,
                     tailMemoryPrompt
             );
-            UserModelOverride userModelOverride = resolveUserModelOverride(userId);
+            UserModelOverride userModelOverride = resolveUserModelOverride(
+                    userId, chatModelSource, chatModelName);
 
             ChatGenerateRequest request = new ChatGenerateRequest(
                     conversationId,
@@ -833,7 +845,9 @@ public class AppChatService {
                     worldNames,
                     userModelOverride,
                     null,
-                    runtimePresetBundle
+                    runtimePresetBundle,
+                    AiCapability.CHAT,
+                    chatRouteKey
             );
             StStreamControl control = new StStreamControl();
             StringBuilder raw = new StringBuilder();

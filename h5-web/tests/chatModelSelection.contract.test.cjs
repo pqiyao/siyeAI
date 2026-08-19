@@ -32,6 +32,7 @@ assert.match(chat, /fields\.chatModelSelectionVersion = Number\(this\.currentCha
 assert.match(chat, /createChatGenerationRequestId\('regen'/);
 assert.match(chat, /createChatGenerationRequestId\('continue'/);
 assert.match(chat, /createChatGenerationRequestId\('send'/);
+assert.match(chat, /createChatGenerationRequestId\('suggest'[\s\S]*?buildChatModelPayloadFields\(generationRequestId\)[\s\S]*?fetchTavernReplySuggestions\(payload\)/);
 assert.match(settings, /class="field chat-model-library"/);
 assert.match(settings, /putTavernUserAiSettings\(clientUid/);
 assert.match(settings, /defaultModelName:/);

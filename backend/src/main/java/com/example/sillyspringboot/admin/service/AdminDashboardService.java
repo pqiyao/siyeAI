@@ -53,6 +53,7 @@ public class AdminDashboardService {
         metrics.put("totalConversations", dashboardMapper.totalConversations());
         metrics.put("activeConversations7d", dashboardMapper.activeConversationsRecent(7));
         metrics.put("totalMessages", dashboardMapper.totalMessages());
+        metrics.put("successfulAiResponses", dashboardMapper.successfulAiResponses());
         metrics.put("totalTasks", totalTasks);
         metrics.put("successRate", totalTasks <= 0 ? 0d : (double) successTasks / (double) totalTasks);
         metrics.put("totalPaidOrders", dashboardMapper.totalPaidOrders());

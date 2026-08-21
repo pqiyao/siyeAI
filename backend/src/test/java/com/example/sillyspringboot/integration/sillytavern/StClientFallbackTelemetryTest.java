@@ -222,7 +222,7 @@ class StClientFallbackTelemetryTest {
 
         assertEquals(2, attempts.get());
         assertTrue(chunks.stream().anyMatch(chunk -> "runtime-recovered".equals(chunk.delta())));
-        verify(routing).recordFailure(eq("primary"), eq("st runtime generate empty response"));
+        verify(routing).recordFailure(eq("primary"), eq("st runtime generate empty response: EMPTY_SSE"));
         verify(routing).recordSuccess("fallback");
     }
 
@@ -330,6 +330,44 @@ class StClientFallbackTelemetryTest {
     }
 
     @Test
+    void directGenerateCapturesUsageFromSseTelemetryChunk() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/csrf-token", exchange -> respond(exchange, 200, "{\"token\":\"disabled\"}"));
+        server.createContext(StApiPaths.SETTINGS_GET, exchange -> respond(
+                exchange,
+                200,
+                "{\"settings\":\"{\\\"chat_completion_source\\\":\\\"openai\\\",\\\"openai_model\\\":\\\"test-model\\\"}\"}"
+        ));
+        server.createContext(StApiPaths.CHAT_COMPLETIONS_GENERATE, exchange -> respond(
+                exchange,
+                200,
+                "data: {\"choices\":[{\"delta\":{\"content\":\"direct-usage\"}}]}\n\n"
+                        + "data: {\"usage\":{\"prompt_tokens\":1234,\"completion_tokens\":7}}\n\n"
+                        + "data: [DONE]\n\n"
+        ));
+        server.start();
+
+        StModelRoutingService routing = mock(StModelRoutingService.class);
+        when(routing.resolveForScene(StModelRoutingService.DEFAULT_SCENE)).thenReturn(new StModelRoutingService.ResolvedRoute(
+                StModelRoutingService.DEFAULT_SCENE,
+                "Default",
+                List.of(provider("primary", "model-a", "key-a"))));
+        GenerationTelemetryService telemetry = mock(GenerationTelemetryService.class);
+        when(telemetry.recordAsync(any())).thenReturn(true);
+
+        directClient(routing, telemetry, null).streamChatCompletionsGenerate(
+                request(), ignored -> {}, new StStreamControl());
+
+        ArgumentCaptor<GenerationAttemptEvent> events = ArgumentCaptor.forClass(GenerationAttemptEvent.class);
+        verify(telemetry).recordAsync(events.capture());
+        GenerationAttemptEvent event = events.getValue();
+        assertEquals(1234, event.promptTokens());
+        assertEquals(7, event.completionTokens());
+        assertFalse(event.promptTokensEstimated());
+        assertFalse(event.completionTokensEstimated());
+    }
+
+    @Test
     void directTerminalHttpFailuresDoNotFallbackOrCountCircuitFailure() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
         AtomicInteger fallbackProviderAttempts = new AtomicInteger();
@@ -417,7 +455,7 @@ class StClientFallbackTelemetryTest {
 
         assertEquals(2, attempts.get());
         assertTrue(chunks.stream().anyMatch(chunk -> "direct-recovered".equals(chunk.delta())));
-        verify(routing).recordFailure(eq("primary"), eq("st generate empty response"));
+        verify(routing).recordFailure(eq("primary"), eq("st generate empty response: EMPTY_SSE"));
         verify(routing).recordSuccess("fallback");
     }
 
@@ -795,6 +833,14 @@ class StClientFallbackTelemetryTest {
     }
 
     private StClient directClient(StModelRoutingService legacy, AiRoutingService v2) {
+        return directClient(legacy, null, v2);
+    }
+
+    private StClient directClient(
+            StModelRoutingService legacy,
+            GenerationTelemetryService telemetry,
+            AiRoutingService v2
+    ) {
         SillyTavernProperties properties = new SillyTavernProperties();
         properties.setBaseUrl(URI.create("http://127.0.0.1:" + server.getAddress().getPort()));
         properties.setConnectTimeout(Duration.ofSeconds(2));
@@ -802,7 +848,7 @@ class StClientFallbackTelemetryTest {
         OpenRouterGenerationSettingsService settings = mock(OpenRouterGenerationSettingsService.class);
         when(settings.resolveForRuntime()).thenReturn(new OpenRouterGenerationSettingsService.ResolvedSettings(
                 "test-model", 0.85d, 256, -1d, -999d, -999d, List.of()));
-        return new StClient(properties, settings, legacy, null, null, null, v2);
+        return new StClient(properties, settings, legacy, null, null, telemetry, v2);
     }
 
     private void startRuntimeServer(ExchangeHandler handler) throws IOException {

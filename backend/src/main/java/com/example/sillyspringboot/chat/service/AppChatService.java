@@ -764,7 +764,7 @@ public class AppChatService {
     }
 
     public List<String> suggestReplies(long conversationId, String token, String currentDraft) {
-        return suggestReplies(conversationId, token, currentDraft, "", "", "");
+        return suggestReplies(conversationId, token, currentDraft, "", "", "", "");
     }
 
     public List<String> suggestReplies(
@@ -774,6 +774,18 @@ public class AppChatService {
             String chatModelSource,
             String chatModelName,
             String chatRouteKey
+    ) {
+        return suggestReplies(conversationId, token, currentDraft, chatModelSource, chatModelName, chatRouteKey, "");
+    }
+
+    public List<String> suggestReplies(
+            long conversationId,
+            String token,
+            String currentDraft,
+            String chatModelSource,
+            String chatModelName,
+            String chatRouteKey,
+            String generationRequestId
     ) {
         AppUser user = tokenService.validateAndLoadUser(token);
         long userId = user.getId();
@@ -828,11 +840,14 @@ public class AppChatService {
             UserModelOverride userModelOverride = resolveUserModelOverride(
                     userId, chatModelSource, chatModelName);
 
+            String stableRequestId = generationRequestId == null || generationRequestId.isBlank()
+                    ? "h5_suggest_" + java.util.UUID.randomUUID().toString().replace("-", "")
+                    : generationRequestId.trim();
             ChatGenerateRequest request = new ChatGenerateRequest(
                     conversationId,
                     "",
                     promptMessages,
-                    "suggest_" + System.currentTimeMillis(),
+                    stableRequestId,
                     true,
                     "reply_suggestions",
                     Set.of(),
@@ -859,6 +874,10 @@ public class AppChatService {
 
             List<String> suggestions = parseReplySuggestions(raw.toString());
             if (!suggestions.isEmpty()) {
+                String dedupeRequestKey = userId + ":" + stableRequestId;
+                if (messageMapper.claimSuccessfulAiHelpCounter(dedupeRequestKey) > 0) {
+                    messageMapper.incrementSuccessfulAiHelpCounter();
+                }
                 return suggestions;
             }
         } catch (BusinessException ex) {

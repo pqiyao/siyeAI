@@ -23,6 +23,11 @@
         <result column="error_code" property="errorCode"/>
         <result column="error_message" property="errorMessage"/>
         <result column="trace_id" property="traceId"/>
+        <result column="effective_preset_id" property="effectivePresetId"/>
+        <result column="effective_max_context" property="effectiveMaxContext"/>
+        <result column="effective_max_tokens" property="effectiveMaxTokens"/>
+        <result column="effective_provider" property="effectiveProvider"/>
+        <result column="effective_api_source" property="effectiveApiSource"/>
     </resultMap>
 
     <insert id="insert" parameterType="com.example.sillyspringboot.chat.entity.AppGenerationTask"
@@ -85,6 +90,17 @@
             trace_id = COALESCE(#{traceId}, trace_id)
         WHERE id = #{id}
           AND status NOT IN ('SUCCESS', 'FAILED', 'STOPPED')
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="updateEffectiveContext">
+        UPDATE app_generation_task
+        SET effective_preset_id = #{presetId},
+            effective_max_context = #{maxContext},
+            effective_max_tokens = #{maxTokens},
+            effective_provider = #{provider},
+            effective_api_source = #{apiSource}
+        WHERE id = #{id}
           AND deleted_at IS NULL
     </update>
 

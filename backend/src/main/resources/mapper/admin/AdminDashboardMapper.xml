@@ -129,17 +129,28 @@
     </select>
 
     <select id="totalMessages" resultType="long">
-        SELECT COALESCE(
-            (
-                SELECT counter_value
-                FROM app_stats_counter
-                WHERE counter_key = 'total_messages'
+        SELECT GREATEST(
+            COALESCE(
+                (
+                    SELECT counter_value
+                    FROM app_stats_counter
+                    WHERE counter_key = 'total_messages'
+                ),
+                0
             ),
             (
                 SELECT COUNT(*)
                 FROM app_message
             )
         )
+    </select>
+
+    <select id="successfulAiResponses" resultType="long">
+        SELECT COALESCE((
+            SELECT counter_value
+            FROM app_stats_counter
+            WHERE counter_key = 'successful_ai_responses'
+        ), 0)
     </select>
 
     <select id="totalTasks" resultType="long">
@@ -328,7 +339,7 @@
             SUM(failure_count) AS failureCount,
             COALESCE(ROUND(SUM(duration_sum_ms) / NULLIF(SUM(duration_sample_count), 0)), 0) AS avgDurationMs,
             COALESCE(ROUND(SUM(ttft_sum_ms) / NULLIF(SUM(ttft_sample_count), 0)), 0) AS avgTtftMs,
-            COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS totalTokens,
+            COALESCE(SUM(COALESCE(prompt_tokens, 0) + COALESCE(completion_tokens, 0)), 0) AS totalTokens,
             COALESCE(SUM(total_cost_usd), 0) AS totalCostUsd
         FROM facts
         GROUP BY stat_day
@@ -358,7 +369,7 @@
             COALESCE(ROUND(SUM(f.duration_sum_ms) / NULLIF(SUM(f.duration_sample_count), 0)), 0) AS avgDurationMs,
             (SELECT MIN(r.duration_ms) FROM ranked r WHERE r.provider_key = f.provider_key AND r.percentile &gt;= 0.95) AS p95DurationMs,
             COALESCE(ROUND(SUM(f.ttft_sum_ms) / NULLIF(SUM(f.ttft_sample_count), 0)), 0) AS avgTtftMs,
-            COALESCE(SUM(f.prompt_tokens + f.completion_tokens), 0) AS totalTokens,
+            COALESCE(SUM(COALESCE(f.prompt_tokens, 0) + COALESCE(f.completion_tokens, 0)), 0) AS totalTokens,
             COALESCE(SUM(f.total_cost_usd), 0) AS totalCostUsd
         FROM facts f
         GROUP BY f.provider_key
@@ -375,7 +386,7 @@
             SUM(attempt_count) AS attempts,
             COALESCE(SUM(success_count) / NULLIF(SUM(attempt_count), 0), 0) AS successRate,
             COALESCE(ROUND(SUM(duration_sum_ms) / NULLIF(SUM(duration_sample_count), 0)), 0) AS avgDurationMs,
-            COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS totalTokens,
+            COALESCE(SUM(COALESCE(prompt_tokens, 0) + COALESCE(completion_tokens, 0)), 0) AS totalTokens,
             COALESCE(SUM(total_cost_usd), 0) AS totalCostUsd
         FROM facts
         GROUP BY provider_key, COALESCE(NULLIF(model, ''), 'unknown')
@@ -392,7 +403,7 @@
             COALESCE(c.name, '未关联角色') AS characterName,
             SUM(a.attempt_count) AS attempts,
             COALESCE(SUM(a.success_count) / NULLIF(SUM(a.attempt_count), 0), 0) AS successRate,
-            COALESCE(SUM(a.prompt_tokens + a.completion_tokens), 0) AS totalTokens,
+            COALESCE(SUM(COALESCE(a.prompt_tokens, 0) + COALESCE(a.completion_tokens, 0)), 0) AS totalTokens,
             COALESCE(SUM(a.total_cost_usd), 0) AS totalCostUsd
         FROM facts a
         LEFT JOIN app_character c ON c.id = a.character_id

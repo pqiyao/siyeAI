@@ -13,6 +13,12 @@ public interface AppMessageMapper {
 
     void incrementTotalMessageCounter();
 
+    void incrementSuccessfulAiResponseCounter(@Param("taskId") long taskId);
+
+    int claimSuccessfulAiHelpCounter(@Param("requestId") String requestId);
+
+    void incrementSuccessfulAiHelpCounter();
+
     void updateStatusAndContent(@Param("id") long id,
                                 @Param("status") String status,
                                 @Param("content") String content,

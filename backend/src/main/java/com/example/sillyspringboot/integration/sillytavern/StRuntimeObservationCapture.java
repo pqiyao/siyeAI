@@ -1,6 +1,8 @@
 package com.example.sillyspringboot.integration.sillytavern;
 
 import com.example.sillyspringboot.integration.sillytavern.dto.ChatGenerateRequest;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -36,6 +38,11 @@ public class StRuntimeObservationCapture {
             List<String> worldNames,
             boolean memoryWorldbookAttached,
             boolean runtimePresetBundlePresent,
+            Long effectivePresetId,
+            Integer effectiveMaxContext,
+            Integer effectiveMaxTokens,
+            String effectiveProvider,
+            String effectiveApiSource,
             boolean tailSystemPromptPresent,
             int promptMessageCount,
             int userMessageChars,
@@ -44,6 +51,7 @@ public class StRuntimeObservationCapture {
     }
 
     private final SillyTavernProperties properties;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final Object lock = new Object();
     private Deque<CaptureItem> ring;
 
@@ -64,6 +72,11 @@ public class StRuntimeObservationCapture {
         if (request == null) {
             return;
         }
+        EffectivePreset effectivePreset = effectivePreset(request.runtimePresetBundle());
+        String apiSource = request.userModelOverride() == null
+                ? "system"
+                : trimToEmpty(request.userModelOverride().providerSource(), 80);
+        String provider = request.userModelOverride() == null ? "system_route" : "user_byok";
         CaptureItem item = new CaptureItem(
                 Instant.now(),
                 safeTraceId(),
@@ -77,13 +90,18 @@ public class StRuntimeObservationCapture {
                 normalizeWorldNames(request.stWorldNames()),
                 hasMemoryWorldbook(request.stWorldNames()),
                 StringUtils.hasText(request.runtimePresetBundle()),
+                effectivePreset.id(),
+                effectivePreset.maxContext(),
+                effectivePreset.maxTokens(),
+                provider,
+                apiSource,
                 StringUtils.hasText(request.tailSystemPrompt()),
                 request.messages() == null ? 0 : request.messages().size(),
                 request.userMessage() == null ? 0 : request.userMessage().length(),
                 trimToEmpty(StringUtils.hasText(goldenDiffStatus) ? goldenDiffStatus : "not_compared", 48)
         );
         log.info(
-                "st.runtime.observation traceId={} conversationId={} mode={} source={} userName={} charName={} avatar={} file={} worldNames={} memoryWorldbook={} preset={} tailPrompt={} promptMessages={} userMessageChars={} goldenDiff={}",
+                "st.runtime.observation traceId={} conversationId={} mode={} source={} userName={} charName={} avatar={} file={} worldNames={} memoryWorldbook={} preset={} effectivePresetId={} effectiveMaxContext={} effectiveMaxTokens={} effectiveProvider={} effectiveApiSource={} tailPrompt={} promptMessages={} userMessageChars={} goldenDiff={}",
                 item.traceId(),
                 item.conversationId(),
                 item.mode(),
@@ -95,6 +113,11 @@ public class StRuntimeObservationCapture {
                 item.worldNames(),
                 item.memoryWorldbookAttached(),
                 item.runtimePresetBundlePresent(),
+                item.effectivePresetId(),
+                item.effectiveMaxContext(),
+                item.effectiveMaxTokens(),
+                item.effectiveProvider(),
+                item.effectiveApiSource(),
                 item.tailSystemPromptPresent(),
                 item.promptMessageCount(),
                 item.userMessageChars(),
@@ -130,6 +153,26 @@ public class StRuntimeObservationCapture {
         String id = MDC.get("traceId");
         return id == null ? "" : id;
     }
+
+    private EffectivePreset effectivePreset(String bundleJson) {
+        if (!StringUtils.hasText(bundleJson)) return new EffectivePreset(null, null, null);
+        try {
+            JsonNode root = objectMapper.readTree(bundleJson);
+            JsonNode generation = root.path("generation");
+            long id = root.path("_effective_preset_id").asLong(0L);
+            int maxContext = generation.path("openai_max_context").asInt(0);
+            int maxTokens = generation.path("openai_max_tokens").asInt(0);
+            return new EffectivePreset(
+                    id > 0 ? id : null,
+                    maxContext > 0 ? maxContext : null,
+                    maxTokens > 0 ? maxTokens : null
+            );
+        } catch (Exception ignored) {
+            return new EffectivePreset(null, null, null);
+        }
+    }
+
+    private record EffectivePreset(Long id, Integer maxContext, Integer maxTokens) {}
 
     private static List<String> normalizeWorldNames(List<String> worldNames) {
         LinkedHashSet<String> ordered = new LinkedHashSet<>();

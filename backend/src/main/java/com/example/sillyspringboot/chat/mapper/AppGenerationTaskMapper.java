@@ -24,6 +24,13 @@ public interface AppGenerationTaskMapper {
                      @Param("traceId") String traceId,
                      @Param("httpStatus") Integer httpStatus);
 
+    int updateEffectiveContext(@Param("id") long id,
+                               @Param("presetId") Long presetId,
+                               @Param("maxContext") Integer maxContext,
+                               @Param("maxTokens") Integer maxTokens,
+                               @Param("provider") String provider,
+                               @Param("apiSource") String apiSource);
+
     int countActiveByConversationId(@Param("conversationId") long conversationId);
 
     int markStaleActiveByConversationId(@Param("conversationId") long conversationId,

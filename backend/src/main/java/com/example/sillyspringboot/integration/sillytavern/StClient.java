@@ -917,6 +917,7 @@ public final class StClient {
                 String line;
                 StringBuilder dataBuf = new StringBuilder();
                 boolean emittedContent = false;
+                StreamDiagnostics diagnostics = new StreamDiagnostics();
                 while (!control.isCancelled() && (line = reader.readLine()) != null) {
                     if (line.isEmpty()) {
                         if (dataBuf.length() == 0) continue;
@@ -925,10 +926,11 @@ public final class StClient {
                         if (data.isEmpty()) continue;
                         attempt.observeUsage(data, objectMapper);
                         StreamChunkResult result = emitStreamData(data, request, observedOnChunk, idx);
+                        diagnostics.observe(data, result);
                         emittedContent = emittedContent || result.emittedContent();
                         if (result.done()) {
                             if (!emittedContent) {
-                                throw providerTransientFailure("st runtime generate empty response");
+                                throw providerTransientFailure(diagnostics.emptyResponseMessage("st runtime generate"));
                             }
                             emitDoneChunk(request, observedOnChunk, idx, null);
                             return;
@@ -956,17 +958,18 @@ public final class StClient {
                     String data = dataBuf.toString().trim();
                     attempt.observeUsage(data, objectMapper);
                     StreamChunkResult result = emitStreamData(data, request, observedOnChunk, idx);
+                    diagnostics.observe(data, result);
                     emittedContent = emittedContent || result.emittedContent();
                     if (result.done()) {
                         if (!emittedContent) {
-                            throw providerTransientFailure("st runtime generate empty response");
+                            throw providerTransientFailure(diagnostics.emptyResponseMessage("st runtime generate"));
                         }
                         emitDoneChunk(request, observedOnChunk, idx, null);
                         return;
                     }
                 }
                 if (!control.isCancelled() && !emittedContent) {
-                    throw providerTransientFailure("st runtime generate empty response");
+                    throw providerTransientFailure(diagnostics.emptyResponseMessage("st runtime generate"));
                 }
             }
         } catch (Exception e) {
@@ -1268,6 +1271,18 @@ public final class StClient {
             root = root.getCause();
         }
         String message = rootCauseMessage(error).toLowerCase(java.util.Locale.ROOT);
+        if (message.contains("empty_sse")) {
+            return "EMPTY_SSE";
+        }
+        if (message.contains("reasoning_only")) {
+            return "REASONING_ONLY";
+        }
+        if (message.contains("unsupported_stream_format")) {
+            return "UNSUPPORTED_STREAM_FORMAT";
+        }
+        if (message.contains("stream_ended_without_content")) {
+            return "STREAM_ENDED_WITHOUT_CONTENT";
+        }
         if (message.contains("without assistant content") || message.contains("no assistant content")) {
             return "EMPTY_RESPONSE";
         }
@@ -1399,17 +1414,20 @@ public final class StClient {
                 String line;
                 StringBuilder dataBuf = new StringBuilder();
                 boolean emittedContent = false;
+                StreamDiagnostics diagnostics = new StreamDiagnostics();
                 while (!control.isCancelled() && (line = reader.readLine()) != null) {
                     if (line.isEmpty()) {
                         if (dataBuf.length() == 0) continue;
                         String data = dataBuf.toString().trim();
                         dataBuf.setLength(0);
                         if (data.isEmpty()) continue;
+                        attempt.observeUsage(data, objectMapper);
                         StreamChunkResult result = emitStreamData(data, request, onChunk, idx);
+                        diagnostics.observe(data, result);
                         emittedContent = emittedContent || result.emittedContent();
                         if (result.done()) {
                             if (!emittedContent) {
-                                throw providerTransientFailure("st generate empty response");
+                                throw providerTransientFailure(diagnostics.emptyResponseMessage("st generate"));
                             }
                             emitDoneChunk(request, onChunk, idx, null);
                             return;
@@ -1435,18 +1453,21 @@ public final class StClient {
                     }
                 }
                 if (!control.isCancelled() && dataBuf.length() > 0) {
-                    StreamChunkResult result = emitStreamData(dataBuf.toString().trim(), request, onChunk, idx);
+                    String data = dataBuf.toString().trim();
+                    attempt.observeUsage(data, objectMapper);
+                    StreamChunkResult result = emitStreamData(data, request, onChunk, idx);
+                    diagnostics.observe(data, result);
                     emittedContent = emittedContent || result.emittedContent();
                     if (result.done()) {
                         if (!emittedContent) {
-                            throw providerTransientFailure("st generate empty response");
+                            throw providerTransientFailure(diagnostics.emptyResponseMessage("st generate"));
                         }
                         emitDoneChunk(request, onChunk, idx, null);
                         return;
                     }
                 }
                 if (!control.isCancelled() && !emittedContent) {
-                    throw providerTransientFailure("st generate empty response");
+                    throw providerTransientFailure(diagnostics.emptyResponseMessage("st generate"));
                 }
             }
         } catch (Exception e) {
@@ -2923,14 +2944,14 @@ public final class StClient {
             AtomicInteger idx
     ) {
         if (!StringUtils.hasText(data)) {
-            return new StreamChunkResult(false, false);
+            return new StreamChunkResult(false, false, false, false);
         }
         if ("[DONE]".equals(data)) {
-            return new StreamChunkResult(false, true);
+            return new StreamChunkResult(false, true, false, false);
         }
         ParsedChunk parsed = parseChunk(data);
         if (parsed == null) {
-            return new StreamChunkResult(false, false);
+            return new StreamChunkResult(false, false, false, false);
         }
         String sanitizedDelta = sanitizeAssistantDelta(parsed.delta());
         boolean emittedContent = StringUtils.hasText(sanitizedDelta);
@@ -2944,7 +2965,7 @@ public final class StClient {
                     parsed.reasoning(),
                     null));
         }
-        return new StreamChunkResult(emittedContent, parsed.done());
+        return new StreamChunkResult(emittedContent, parsed.done(), true, StringUtils.hasText(parsed.reasoning()));
     }
 
     private static void emitDoneChunk(
@@ -3038,7 +3059,48 @@ public final class StClient {
 
     record ParsedChunk(String delta, boolean done, String reasoning) {}
 
-    private record StreamChunkResult(boolean emittedContent, boolean done) {}
+    private record StreamChunkResult(boolean emittedContent, boolean done, boolean parsed, boolean reasoningPresent) {}
+
+    private record EffectiveRuntimePreset(Long presetId, Integer maxContext, Integer maxTokens) {
+        private static EffectiveRuntimePreset parse(String bundleJson) {
+            if (!StringUtils.hasText(bundleJson)) return new EffectiveRuntimePreset(null, null, null);
+            try {
+                JsonNode root = new ObjectMapper().readTree(bundleJson);
+                JsonNode generation = root.path("generation");
+                long rawPresetId = root.path("_effective_preset_id").asLong(0L);
+                int rawMaxContext = generation.path("openai_max_context").asInt(0);
+                int rawMaxTokens = generation.path("openai_max_tokens").asInt(0);
+                return new EffectiveRuntimePreset(
+                        rawPresetId > 0 ? rawPresetId : null,
+                        rawMaxContext > 0 ? rawMaxContext : null,
+                        rawMaxTokens > 0 ? rawMaxTokens : null
+                );
+            } catch (Exception ignored) {
+                return new EffectiveRuntimePreset(null, null, null);
+            }
+        }
+    }
+
+    private static final class StreamDiagnostics {
+        private int events;
+        private int parsedEvents;
+        private boolean reasoningPresent;
+
+        private void observe(String data, StreamChunkResult result) {
+            if (StringUtils.hasText(data) && !"[DONE]".equals(data)) events++;
+            if (result != null) {
+                if (result.parsed()) parsedEvents++;
+                reasoningPresent = reasoningPresent || result.reasoningPresent();
+            }
+        }
+
+        private String emptyResponseMessage(String operation) {
+            if (events == 0) return operation + " empty response: EMPTY_SSE";
+            if (reasoningPresent) return operation + " empty response: REASONING_ONLY";
+            if (parsedEvents == 0) return operation + " empty response: UNSUPPORTED_STREAM_FORMAT";
+            return operation + " empty response: STREAM_ENDED_WITHOUT_CONTENT";
+        }
+    }
 
     private static final class AttemptTelemetry {
 
@@ -3050,6 +3112,11 @@ public final class StClient {
         private final String providerSource;
         private final String model;
         private final boolean byok;
+        private final Long effectivePresetId;
+        private final Integer effectiveMaxContext;
+        private final Integer effectiveMaxTokens;
+        private final String effectiveProvider;
+        private final String effectiveApiSource;
         private final LocalDateTime startedAt = LocalDateTime.now();
         private LocalDateTime firstTokenAt;
         private long asciiCodePoints;
@@ -3075,6 +3142,12 @@ public final class StClient {
             this.providerSource = providerSource;
             this.model = model;
             this.byok = byok;
+            EffectiveRuntimePreset effective = EffectiveRuntimePreset.parse(request == null ? null : request.runtimePresetBundle());
+            this.effectivePresetId = effective.presetId();
+            this.effectiveMaxContext = effective.maxContext();
+            this.effectiveMaxTokens = effective.maxTokens();
+            this.effectiveProvider = firstNonBlank(providerKey, "st_default");
+            this.effectiveApiSource = firstNonBlank(providerSource, "");
         }
 
         private Long conversationId() {
@@ -3144,6 +3217,11 @@ public final class StClient {
                     providerSource,
                     model,
                     byok,
+                    effectivePresetId,
+                    effectiveMaxContext,
+                    effectiveMaxTokens,
+                    effectiveProvider,
+                    effectiveApiSource,
                     attemptNo > 1,
                     startedAt,
                     firstTokenAt,

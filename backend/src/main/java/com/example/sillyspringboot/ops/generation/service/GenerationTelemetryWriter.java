@@ -1,5 +1,6 @@
 package com.example.sillyspringboot.ops.generation.service;
 
+import com.example.sillyspringboot.chat.mapper.AppGenerationTaskMapper;
 import com.example.sillyspringboot.ops.generation.entity.GenerationModelPricing;
 import com.example.sillyspringboot.ops.generation.mapper.GenerationAttemptMapper;
 import com.example.sillyspringboot.ops.generation.model.GenerationAttemptContext;
@@ -7,6 +8,7 @@ import com.example.sillyspringboot.ops.generation.model.GenerationAttemptEvent;
 import com.example.sillyspringboot.ops.generation.model.GenerationAttemptRow;
 import com.example.sillyspringboot.shared.logging.SensitiveLogSanitizer;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,14 +24,25 @@ public class GenerationTelemetryWriter {
     private static final BigDecimal ONE_MILLION = new BigDecimal("1000000");
 
     private final GenerationAttemptMapper attemptMapper;
+    private final AppGenerationTaskMapper taskMapper;
     private final GenerationModelPricingService pricingService;
+
+    @Autowired
+    public GenerationTelemetryWriter(
+            GenerationAttemptMapper attemptMapper,
+            GenerationModelPricingService pricingService,
+            AppGenerationTaskMapper taskMapper
+    ) {
+        this.attemptMapper = attemptMapper;
+        this.pricingService = pricingService;
+        this.taskMapper = taskMapper;
+    }
 
     public GenerationTelemetryWriter(
             GenerationAttemptMapper attemptMapper,
             GenerationModelPricingService pricingService
     ) {
-        this.attemptMapper = attemptMapper;
-        this.pricingService = pricingService;
+        this(attemptMapper, pricingService, null);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -47,6 +60,16 @@ public class GenerationTelemetryWriter {
             if (context != null) {
                 row.setGenerationTaskId(context.getGenerationTaskId());
                 row.setCharacterId(context.getCharacterId());
+                if (context.getGenerationTaskId() != null && taskMapper != null) {
+                    taskMapper.updateEffectiveContext(
+                            context.getGenerationTaskId(),
+                            row.getEffectivePresetId(),
+                            row.getEffectiveMaxContext(),
+                            row.getEffectiveMaxTokens(),
+                            row.getEffectiveProvider(),
+                            row.getEffectiveApiSource()
+                    );
+                }
             }
         }
 
@@ -70,6 +93,11 @@ public class GenerationTelemetryWriter {
         row.setProviderSource(safe(event.providerSource(), 80));
         row.setModel(safe(event.model(), 255));
         row.setByok(event.byok());
+        row.setEffectivePresetId(event.effectivePresetId());
+        row.setEffectiveMaxContext(event.effectiveMaxContext());
+        row.setEffectiveMaxTokens(event.effectiveMaxTokens());
+        row.setEffectiveProvider(safe(event.effectiveProvider(), 80));
+        row.setEffectiveApiSource(safe(event.effectiveApiSource(), 80));
         row.setFallback(event.fallback());
         row.setStartedAt(event.startedAt());
         row.setFirstTokenAt(event.firstTokenAt());

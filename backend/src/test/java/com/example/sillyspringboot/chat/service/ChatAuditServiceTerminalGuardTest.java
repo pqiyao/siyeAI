@@ -45,4 +45,27 @@ class ChatAuditServiceTerminalGuardTest {
         verify(statsService, never()).recordGenerationTaskStatus(anyLong(), anyString());
         verify(messageMapper, never()).updateStatusAndContent(anyLong(), anyString(), any(), any(), any());
     }
+
+    @Test
+    void successfulTerminalTaskIncrementsTheResponseCounterOnce() {
+        AppMessageMapper messageMapper = mock(AppMessageMapper.class);
+        AppGenerationTaskMapper taskMapper = mock(AppGenerationTaskMapper.class);
+        when(taskMapper.updateStatus(anyLong(), anyString(), any(), any(), any(), any())).thenReturn(1);
+
+        ChatAuditService service = new ChatAuditService(
+                mock(AppConversationMapper.class),
+                messageMapper,
+                taskMapper,
+                mock(AppTokenService.class),
+                mock(AppConversationArchiveMapper.class),
+                mock(OpenRouterGenerationSettingsService.class),
+                mock(OperationalStatsService.class),
+                mock(ConversationMemoryAutoRefreshService.class),
+                mock(ConversationBranchService.class)
+        );
+
+        service.onSuccess(11L, 22L, "success content", "trace-success");
+
+        verify(messageMapper).incrementSuccessfulAiResponseCounter(22L);
+    }
 }

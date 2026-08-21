@@ -16,6 +16,7 @@
         <result column="bundle_json" property="bundleJson"/>
         <result column="enabled" property="enabled"/>
         <result column="source_available" property="sourceAvailable"/>
+        <result column="global_default" property="globalDefault"/>
         <result column="sort_order" property="sortOrder"/>
         <result column="last_synced_at" property="lastSyncedAt"/>
         <result column="created_at" property="createdAt"/>
@@ -24,7 +25,7 @@
 
     <sql id="BaseColumns">
         id, owner_user_id, scope, source_type, api_type, source_name, name, description,
-        bundle_json, enabled, source_available, sort_order, last_synced_at, created_at, updated_at
+        bundle_json, enabled, source_available, global_default, sort_order, last_synced_at, created_at, updated_at
     </sql>
 
     <select id="findPublicById" resultMap="AppChatPresetResultMap">
@@ -43,6 +44,18 @@
           AND scope = 'PUBLIC'
           AND enabled = 1
           AND source_available = 1
+        LIMIT 1
+    </select>
+
+    <select id="findEnabledGlobalDefault" resultMap="AppChatPresetResultMap">
+        SELECT <include refid="BaseColumns"/>
+        FROM app_chat_preset
+        WHERE scope = 'PUBLIC'
+          AND owner_user_id IS NULL
+          AND global_default = 1
+          AND enabled = 1
+          AND source_available = 1
+        ORDER BY sort_order ASC, id ASC
         LIMIT 1
     </select>
 
@@ -163,16 +176,17 @@
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO app_chat_preset (
             owner_user_id, scope, source_type, api_type, source_name, name, description,
-            bundle_json, enabled, source_available, sort_order, last_synced_at
+            bundle_json, enabled, source_available, global_default, sort_order, last_synced_at
         ) VALUES (
             #{ownerUserId}, #{scope}, #{sourceType}, #{apiType}, #{sourceName}, #{name}, #{description},
-            #{bundleJson}, #{enabled}, #{sourceAvailable}, #{sortOrder}, #{lastSyncedAt}
+            #{bundleJson}, #{enabled}, #{sourceAvailable}, #{globalDefault}, #{sortOrder}, #{lastSyncedAt}
         )
         ON DUPLICATE KEY UPDATE
             name = VALUES(name),
             description = VALUES(description),
             bundle_json = VALUES(bundle_json),
             source_available = VALUES(source_available),
+            global_default = VALUES(global_default),
             last_synced_at = VALUES(last_synced_at),
             updated_at = CURRENT_TIMESTAMP
     </insert>

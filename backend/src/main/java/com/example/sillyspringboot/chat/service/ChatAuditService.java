@@ -241,6 +241,7 @@ public class ChatAuditService {
             return;
         }
         operationalStatsService.recordGenerationTaskStatus(taskId, "SUCCESS");
+        messageMapper.incrementSuccessfulAiResponseCounter(taskId);
         messageMapper.updateStatusAndContent(assistantMessageId, "SUCCESS", finalAssistantText, null, traceId);
         AppMessage message = touchConversationByAssistantMessageId(assistantMessageId);
         updateEnsembleSpeakerSnapshot(message, finalAssistantText);
@@ -257,6 +258,7 @@ public class ChatAuditService {
             return;
         }
         operationalStatsService.recordGenerationTaskStatus(taskId, "SUCCESS");
+        messageMapper.incrementSuccessfulAiResponseCounter(taskId);
         messageMapper.updateStatusAndContent(assistantMessageId, "SUCCESS", finalAssistantText, null, traceId);
         touchConversationByAssistantMessageId(assistantMessageId);
     }

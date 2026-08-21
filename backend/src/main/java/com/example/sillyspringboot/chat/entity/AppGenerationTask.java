@@ -22,6 +22,11 @@ public class AppGenerationTask {
     private String errorCode;
     private String errorMessage;
     private String traceId;
+    private Long effectivePresetId;
+    private Integer effectiveMaxContext;
+    private Integer effectiveMaxTokens;
+    private String effectiveProvider;
+    private String effectiveApiSource;
 
     public Long getId() {
         return id;
@@ -166,4 +171,15 @@ public class AppGenerationTask {
     public void setTraceId(String traceId) {
         this.traceId = traceId;
     }
+
+    public Long getEffectivePresetId() { return effectivePresetId; }
+    public void setEffectivePresetId(Long value) { this.effectivePresetId = value; }
+    public Integer getEffectiveMaxContext() { return effectiveMaxContext; }
+    public void setEffectiveMaxContext(Integer value) { this.effectiveMaxContext = value; }
+    public Integer getEffectiveMaxTokens() { return effectiveMaxTokens; }
+    public void setEffectiveMaxTokens(Integer value) { this.effectiveMaxTokens = value; }
+    public String getEffectiveProvider() { return effectiveProvider; }
+    public void setEffectiveProvider(String value) { this.effectiveProvider = value; }
+    public String getEffectiveApiSource() { return effectiveApiSource; }
+    public void setEffectiveApiSource(String value) { this.effectiveApiSource = value; }
 }

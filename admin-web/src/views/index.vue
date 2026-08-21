@@ -19,7 +19,6 @@
       <article v-for="card in metricCards" :key="card.key" class="metric-card">
         <span class="metric-label">{{ card.label }}</span>
         <strong class="metric-value">{{ card.value }}</strong>
-        <span class="metric-tip">{{ card.tip }}</span>
       </article>
     </section>
 
@@ -194,6 +193,7 @@ const metrics = reactive({
   totalConversations: 0,
   activeConversations7d: 0,
   totalMessages: 0,
+  successfulAiResponses: 0,
   totalTasks: 0,
   totalPaidOrders: 0,
   totalRevenueYuan: '0.00',
@@ -216,44 +216,37 @@ const metricCards = computed(() => [
   {
     key: 'characters',
     label: '角色总量',
-    value: metrics.totalCharacters,
-    tip: `系统 ${metrics.systemCharacters} / 用户 ${metrics.userCharacters}`
+    value: metrics.totalCharacters
   },
   {
     key: 'users',
     label: '用户总量',
-    value: metrics.totalUsers,
-    tip: '按当前 app_user 统计'
+    value: metrics.totalUsers
   },
   {
     key: 'conversations',
     label: '当前有效角色会话',
-    value: metrics.totalConversations,
-    tip: `近 7 天活跃 ${metrics.activeConversations7d}`
+    value: metrics.totalConversations
   },
   {
-    key: 'messages',
-    label: '消息总量',
-    value: metrics.totalMessages,
-    tip: '业务事实消息表'
+    key: 'successfulResponses',
+    label: '成功 AI 响应次数',
+    value: metrics.successfulAiResponses
   },
   {
     key: 'tasks',
     label: '生成任务',
-    value: metrics.totalTasks,
-    tip: '包含发送、续写、重生'
+    value: metrics.totalTasks
   },
   {
     key: 'orders',
     label: '已支付订单',
-    value: metrics.totalPaidOrders,
-    tip: '模拟支付和后续真实支付共用'
+    value: metrics.totalPaidOrders
   },
   {
     key: 'revenue',
     label: '累计流水',
-    value: `￥ ${metrics.totalRevenueYuan}`,
-    tip: '当前以支付成功订单汇总'
+    value: `￥ ${metrics.totalRevenueYuan}`
   }
 ])
 
@@ -479,12 +472,6 @@ onBeforeUnmount(() => {
   .metric-value {
     font-size: 28px;
     color: #0f172a;
-  }
-
-  .metric-tip {
-    color: #94a3b8;
-    font-size: 12px;
-    line-height: 1.5;
   }
 
   .chart-grid,

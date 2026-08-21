@@ -16,6 +16,11 @@ public class GenerationAttemptRow {
     private String providerSource;
     private String model;
     private Boolean byok;
+    private Long effectivePresetId;
+    private Integer effectiveMaxContext;
+    private Integer effectiveMaxTokens;
+    private String effectiveProvider;
+    private String effectiveApiSource;
     private Boolean fallback;
     private LocalDateTime startedAt;
     private LocalDateTime firstTokenAt;
@@ -63,6 +68,16 @@ public class GenerationAttemptRow {
     public void setModel(String value) { this.model = value; }
     public Boolean getByok() { return byok; }
     public void setByok(Boolean value) { this.byok = value; }
+    public Long getEffectivePresetId() { return effectivePresetId; }
+    public void setEffectivePresetId(Long value) { this.effectivePresetId = value; }
+    public Integer getEffectiveMaxContext() { return effectiveMaxContext; }
+    public void setEffectiveMaxContext(Integer value) { this.effectiveMaxContext = value; }
+    public Integer getEffectiveMaxTokens() { return effectiveMaxTokens; }
+    public void setEffectiveMaxTokens(Integer value) { this.effectiveMaxTokens = value; }
+    public String getEffectiveProvider() { return effectiveProvider; }
+    public void setEffectiveProvider(String value) { this.effectiveProvider = value; }
+    public String getEffectiveApiSource() { return effectiveApiSource; }
+    public void setEffectiveApiSource(String value) { this.effectiveApiSource = value; }
     public Boolean getFallback() { return fallback; }
     public void setFallback(Boolean value) { this.fallback = value; }
     public LocalDateTime getStartedAt() { return startedAt; }

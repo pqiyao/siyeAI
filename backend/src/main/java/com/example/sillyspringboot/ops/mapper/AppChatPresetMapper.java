@@ -13,6 +13,8 @@ public interface AppChatPresetMapper {
 
     AppChatPreset findEnabledPublicById(@Param("id") long id);
 
+    AppChatPreset findEnabledGlobalDefault();
+
     AppChatPreset findEnabledAvailableById(@Param("id") long id, @Param("userId") long userId);
 
     AppChatPreset findPrivateByIdForOwner(@Param("id") long id, @Param("userId") long userId);

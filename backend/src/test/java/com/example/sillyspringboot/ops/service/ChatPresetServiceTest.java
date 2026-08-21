@@ -147,6 +147,59 @@ class ChatPresetServiceTest {
     }
 
     @Test
+    void conversationWithoutPresetUsesEnabledGlobalDefault() throws Exception {
+        Fixture fixture = fixture();
+        AppConversationStBinding binding = new AppConversationStBinding();
+        binding.setUserId(USER_ID);
+        AppChatPreset preset = preset(1L, null, "PUBLIC", true);
+        preset.setName("Default");
+        preset.setGlobalDefault(true);
+        preset.setBundleJson("{\"generation\":{\"openai_max_tokens\":1000,\"openai_max_context\":65536}}");
+        when(fixture.presetMapper.findEnabledGlobalDefault()).thenReturn(preset);
+
+        JsonNode resolved = new ObjectMapper().readTree(fixture.service.resolveRuntimePresetBundle(binding));
+
+        assertThat(resolved.path("_effective_preset_id").asLong()).isEqualTo(1L);
+        assertThat(resolved.path("generation").path("openai_max_tokens").asInt()).isEqualTo(1000);
+        assertThat(resolved.path("generation").path("openai_max_context").asInt()).isEqualTo(65536);
+    }
+
+    @Test
+    void conversationPresetTakesPriorityOverGlobalDefault() throws Exception {
+        Fixture fixture = fixture();
+        AppConversationStBinding binding = new AppConversationStBinding();
+        binding.setUserId(USER_ID);
+        binding.setChatPresetId(5L);
+        AppChatPreset privatePreset = preset(5L, USER_ID, "PRIVATE", true);
+        when(fixture.presetMapper.findEnabledAvailableById(5L, USER_ID)).thenReturn(privatePreset);
+
+        JsonNode resolved = new ObjectMapper().readTree(fixture.service.resolveRuntimePresetBundle(binding));
+
+        assertThat(resolved.path("_effective_preset_id").asLong()).isEqualTo(5L);
+        verify(fixture.presetMapper, never()).findEnabledGlobalDefault();
+    }
+
+    @Test
+    void syncingDefaultForcesApprovedGlobalBudgets() throws Exception {
+        Fixture fixture = fixture();
+        JsonNode envelope = new ObjectMapper().readTree("""
+                {"openai_setting_names":["Default"],
+                 "openai_settings":["{\\\"openai_max_tokens\\\":300,\\\"openai_max_context\\\":4095}"]}
+                """);
+        when(fixture.stClient.readStSettingsEnvelope()).thenReturn(envelope);
+        when(fixture.presetMapper.listUnavailablePlatformPresetIds("openai")).thenReturn(List.of());
+
+        fixture.service.syncOpenAiPlatformPresetsFromSt();
+
+        ArgumentCaptor<AppChatPreset> captor = ArgumentCaptor.forClass(AppChatPreset.class);
+        verify(fixture.presetMapper).upsertPlatformPreset(captor.capture());
+        JsonNode generation = new ObjectMapper().readTree(captor.getValue().getBundleJson()).path("generation");
+        assertThat(captor.getValue().getGlobalDefault()).isTrue();
+        assertThat(generation.path("openai_max_tokens").asInt()).isEqualTo(1000);
+        assertThat(generation.path("openai_max_context").asInt()).isEqualTo(65536);
+    }
+
+    @Test
     void disablingPrivatePresetClearsExistingConversationBindings() {
         Fixture fixture = fixture();
         AppChatPreset existing = preset(5L, USER_ID, "PRIVATE", true);

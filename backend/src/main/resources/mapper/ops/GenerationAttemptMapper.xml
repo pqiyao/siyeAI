@@ -29,6 +29,8 @@
         INSERT INTO app_generation_attempt (
             generation_task_id, request_id, trace_id, conversation_id, character_id, attempt_no,
             provider_key, route_key, provider_source, model, byok, was_fallback,
+            effective_preset_id, effective_max_context, effective_max_tokens,
+            effective_provider, effective_api_source,
             started_at, first_token_at, finished_at, ttft_ms, duration_ms,
             http_status, status, error_code, error_message,
             prompt_tokens, completion_tokens,
@@ -40,6 +42,8 @@
         ) VALUES (
             #{generationTaskId}, #{requestId}, #{traceId}, #{conversationId}, #{characterId}, #{attemptNo},
             #{providerKey}, #{routeKey}, #{providerSource}, #{model}, #{byok}, #{fallback},
+            #{effectivePresetId}, #{effectiveMaxContext}, #{effectiveMaxTokens},
+            #{effectiveProvider}, #{effectiveApiSource},
             #{startedAt}, #{firstTokenAt}, #{finishedAt}, #{ttftMs}, #{durationMs},
             #{httpStatus}, #{status}, #{errorCode}, #{errorMessage},
             #{promptTokens}, #{completionTokens},

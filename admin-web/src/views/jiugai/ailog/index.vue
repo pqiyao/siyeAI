@@ -136,6 +136,11 @@
           </el-descriptions-item>
           <el-descriptions-item label="消息ID" :span="2">{{ detail.clientMessageId || '-' }}</el-descriptions-item>
           <el-descriptions-item label="Token">{{ detail.promptTokens || 0 }} / {{ detail.completionTokens || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="有效预设">{{ detail.effectivePresetId || 'ST 全局兜底' }}</el-descriptions-item>
+          <el-descriptions-item label="有效上下文">{{ detail.effectiveMaxContext || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="有效输出上限">{{ detail.effectiveMaxTokens || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="有效供应商">{{ detail.effectiveProvider || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="API 来源">{{ detail.effectiveApiSource || '-' }}</el-descriptions-item>
         </el-descriptions>
 
         <el-descriptions v-if="detail.id && activeView === 'STANDALONE'" :column="3" border size="small">
@@ -163,6 +168,9 @@
             <el-table-column label="路由" prop="routeKey" min-width="130" show-overflow-tooltip />
             <el-table-column label="模型" prop="model" min-width="150" show-overflow-tooltip />
             <el-table-column label="模式" width="86"><template #default="scope">{{ scope.row.byok ? 'BYOK' : '官方' }}</template></el-table-column>
+            <el-table-column label="预设" width="76"><template #default="scope">{{ scope.row.effectivePresetId || '-' }}</template></el-table-column>
+            <el-table-column label="上下文/输出" width="118"><template #default="scope">{{ scope.row.effectiveMaxContext || '-' }} / {{ scope.row.effectiveMaxTokens || '-' }}</template></el-table-column>
+            <el-table-column label="API 来源" prop="effectiveApiSource" min-width="100" show-overflow-tooltip />
             <el-table-column label="Fallback" width="88"><template #default="scope">{{ scope.row.wasFallback ? '是' : '否' }}</template></el-table-column>
             <el-table-column label="状态" width="92"><template #default="scope"><el-tag :type="statusTagType(scope.row.status)" size="small">{{ statusLabel(scope.row.status) }}</el-tag></template></el-table-column>
             <el-table-column label="HTTP" prop="httpStatus" width="68" />

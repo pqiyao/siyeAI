@@ -400,6 +400,7 @@ public class ConversationBranchService {
             row.setSwipeIndex(Math.max(0, swipeIndex));
         }
         messageMapper.insert(row);
+        messageMapper.incrementTotalMessageCounter();
         if ("assistant".equalsIgnoreCase(row.getRole()) && row.getContent() != null && !row.getContent().isBlank()) {
             String ref = "root:" + row.getId();
             messageMapper.updateVariantMeta(row.getId(), ref, row.getSwipeIndex(), row.getTraceId());
@@ -478,6 +479,7 @@ public class ConversationBranchService {
             copiedVariant.setSpeakerNameSnapshot(sourceVariant.getSpeakerNameSnapshot());
             copiedVariant.setSpeakerAvatarSnapshot(sourceVariant.getSpeakerAvatarSnapshot());
             messageMapper.insert(copiedVariant);
+            messageMapper.incrementTotalMessageCounter();
             copyMessageSegments(sourceVariant.getId(), copiedVariant.getId());
         }
     }

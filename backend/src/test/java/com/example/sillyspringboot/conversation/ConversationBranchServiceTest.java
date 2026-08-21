@@ -95,6 +95,7 @@ class ConversationBranchServiceTest {
 
         ArgumentCaptor<AppMessage> messageCaptor = ArgumentCaptor.forClass(AppMessage.class);
         verify(messageMapper, org.mockito.Mockito.times(2)).insert(messageCaptor.capture());
+        verify(messageMapper, times(2)).incrementTotalMessageCounter();
         List<AppMessage> insertedMessages = messageCaptor.getAllValues();
         AppMessage root = insertedMessages.get(0);
         AppMessage hiddenCandidate = insertedMessages.get(1);
@@ -249,6 +250,7 @@ class ConversationBranchServiceTest {
         assertThat(copied.get(1).getSpeakerMemberId()).isEqualTo(101L);
         assertThat(copied.get(1).getSpeakerNameSnapshot()).isEqualTo("小夏");
         assertThat(copied.get(1).getContent()).isEqualTo("当前版本");
+        verify(messageMapper, times(2)).incrementTotalMessageCounter();
         verify(conversationMapper).setActiveBranchId(1L, 30L);
     }
 

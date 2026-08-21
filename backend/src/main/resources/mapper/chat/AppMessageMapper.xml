@@ -61,6 +61,31 @@
             updated_at = CURRENT_TIMESTAMP
     </update>
 
+    <update id="incrementSuccessfulAiResponseCounter">
+        INSERT INTO app_stats_counter (counter_key, counter_value)
+        SELECT 'successful_ai_responses', 1
+        FROM app_generation_task
+        WHERE id = #{taskId}
+          AND status = 'SUCCESS'
+          AND channel IN ('CHAT_SYNC', 'CHAT_STREAM', 'CONTINUE', 'CONTINUE_STREAM', 'REGEN', 'REGEN_STREAM')
+        ON DUPLICATE KEY UPDATE
+            counter_value = counter_value + 1,
+            updated_at = CURRENT_TIMESTAMP
+    </update>
+
+    <update id="incrementSuccessfulAiHelpCounter">
+        INSERT INTO app_stats_counter (counter_key, counter_value)
+        VALUES ('successful_ai_responses', 1)
+        ON DUPLICATE KEY UPDATE
+            counter_value = counter_value + 1,
+            updated_at = CURRENT_TIMESTAMP
+    </update>
+
+    <insert id="claimSuccessfulAiHelpCounter">
+        INSERT IGNORE INTO app_successful_ai_response_dedupe (request_id, response_kind)
+        VALUES (#{requestId}, 'AI_HELP')
+    </insert>
+
     <update id="updateStatusAndContent">
         UPDATE app_message
         SET status = #{status},

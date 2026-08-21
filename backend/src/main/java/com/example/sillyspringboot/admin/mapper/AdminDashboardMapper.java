@@ -24,6 +24,8 @@ public interface AdminDashboardMapper {
 
     long totalMessages();
 
+    long successfulAiResponses();
+
     long totalTasks();
 
     long successTasks();

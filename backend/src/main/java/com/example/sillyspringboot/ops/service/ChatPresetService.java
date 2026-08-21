@@ -98,10 +98,14 @@ public class ChatPresetService {
                 preset.setApiType(API_OPENAI);
                 preset.setSourceName(name);
                 preset.setName(name);
-                preset.setDescription(buildDescription(generation));
-                preset.setBundleJson(buildBundleJson(generation));
+                JsonNode effectiveGeneration = "default".equalsIgnoreCase(name.trim())
+                        ? normalizeGlobalDefaultGeneration(generation)
+                        : generation;
+                preset.setDescription(buildDescription(effectiveGeneration));
+                preset.setBundleJson(buildBundleJson(effectiveGeneration));
                 preset.setEnabled(true);
                 preset.setSourceAvailable(true);
+                preset.setGlobalDefault("default".equalsIgnoreCase(name.trim()));
                 preset.setSortOrder(100 + i);
                 preset.setLastSyncedAt(now);
                 presetMapper.upsertPlatformPreset(preset);
@@ -290,27 +294,30 @@ public class ChatPresetService {
 
     @Transactional(readOnly = true)
     public String resolveRuntimePresetBundle(AppConversationStBinding binding) {
-        if (binding == null || binding.getChatPresetId() == null || binding.getChatPresetId() <= 0) {
+        if (binding == null || binding.getUserId() == null || binding.getUserId() <= 0) {
             return null;
         }
-        if (binding.getUserId() == null || binding.getUserId() <= 0) {
-            return null;
+        AppChatPreset preset = null;
+        if (binding.getChatPresetId() != null && binding.getChatPresetId() > 0) {
+            preset = presetMapper.findEnabledAvailableById(binding.getChatPresetId(), binding.getUserId());
         }
-        AppChatPreset preset = presetMapper.findEnabledAvailableById(binding.getChatPresetId(), binding.getUserId());
+        if (preset == null) {
+            preset = presetMapper.findEnabledGlobalDefault();
+        }
         if (preset == null || !StringUtils.hasText(preset.getBundleJson())) {
             return null;
         }
         if (SCOPE_PRIVATE.equalsIgnoreCase(preset.getScope())) {
             try {
-                return writePrivateBundle(
+                return withRuntimeMetadata(preset, writePrivateBundle(
                         readPrivateGeneration(preset.getBundleJson()),
                         privateSourceType(preset.getSourceType())
-                );
+                ));
             } catch (Exception ignored) {
                 return null;
             }
         }
-        return preset.getBundleJson();
+        return withRuntimeMetadata(preset, preset.getBundleJson());
     }
 
     @Transactional(readOnly = true)
@@ -385,9 +392,25 @@ public class ChatPresetService {
         row.put("scope", preset.getScope());
         row.put("enabled", Boolean.TRUE.equals(preset.getEnabled()));
         row.put("sourceAvailable", !Boolean.FALSE.equals(preset.getSourceAvailable()));
+        row.put("globalDefault", Boolean.TRUE.equals(preset.getGlobalDefault()));
         row.put("editable", SCOPE_PRIVATE.equalsIgnoreCase(preset.getScope()));
         row.put("summary", summarizeBundle(preset.getBundleJson()));
         return row;
+    }
+
+    private String withRuntimeMetadata(AppChatPreset preset, String bundleJson) {
+        try {
+            JsonNode parsed = objectMapper.readTree(bundleJson);
+            ObjectNode root = parsed != null && parsed.isObject()
+                    ? (ObjectNode) parsed
+                    : objectMapper.createObjectNode();
+            root.put("_effective_preset_id", preset.getId() == null ? 0L : preset.getId());
+            root.put("_effective_preset_scope", preset.getScope() == null ? "" : preset.getScope());
+            root.put("_effective_preset_name", preset.getName() == null ? "" : preset.getName());
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "preset runtime metadata invalid");
+        }
     }
 
     private PrivateGeneration readPrivateGeneration(String bundleJson) {
@@ -596,6 +619,15 @@ public class ChatPresetService {
         root.put("api_type", API_OPENAI);
         root.put("source_type", SOURCE_ST_PLATFORM);
         return objectMapper.writeValueAsString(root);
+    }
+
+    private JsonNode normalizeGlobalDefaultGeneration(JsonNode generation) {
+        ObjectNode normalized = generation != null && generation.isObject()
+                ? ((ObjectNode) generation).deepCopy()
+                : objectMapper.createObjectNode();
+        normalized.put("openai_max_tokens", 1000);
+        normalized.put("openai_max_context", 65536);
+        return normalized;
     }
 
     private String buildDescription(JsonNode generation) {

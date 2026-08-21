@@ -254,6 +254,21 @@ public class AppChatController {
                         boolean cancelled = control.isCancelled();
                         if (cancelled) {
                             auditService.onStopped(audit.assistantMessageId(), audit.taskId(), finalContent, traceId());
+                        } else if (finalContent == null || finalContent.isBlank()) {
+                            auditService.onFailed(
+                                    audit.assistantMessageId(),
+                                    audit.taskId(),
+                                    ErrorCode.UPSTREAM_ERROR,
+                                    traceId(),
+                                    "generation completed without response content"
+                            );
+                            sendQuietly(emitter, "error", ChatSseEvent.error(
+                                    conversationId,
+                                    clientMessageId,
+                                    ErrorCode.UPSTREAM_ERROR,
+                                    "模型返回了空内容，请稍后重试",
+                                    traceId()
+                            ));
                         } else {
                             auditService.onSuccess(audit.assistantMessageId(), audit.taskId(), finalContent, traceId());
                         }

@@ -352,7 +352,8 @@ public class ApiV1TavernChatController {
                     payload == null ? "" : payload.getContent(),
                     chatModel == null ? "" : chatModel.source(),
                     chatModel == null ? "" : chatModel.modelName(),
-                    chatModel == null ? "" : chatModel.routeKey()
+                    chatModel == null ? "" : chatModel.routeKey(),
+                    requestId
             );
             if (suggestions == null || suggestions.isEmpty()) {
                 throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "AI 帮答暂时不可用，请稍后再试");

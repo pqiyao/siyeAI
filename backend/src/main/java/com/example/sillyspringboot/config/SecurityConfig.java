@@ -64,7 +64,8 @@ public class SecurityConfig {
                                 "/api/v1/st-assets/**",
                                 "/api/v1/store/**",
                                 "/api/v1/support/**",
-                                "/api/v1/tavern/**"
+                                "/api/v1/tavern/**",
+                                "/api/v1/agent/**"
                         ).permitAll()
                         .requestMatchers("/api/internal/st-frontend-bridge/**").permitAll()
                         .requestMatchers("/api/dev/st-debug/**").permitAll()

@@ -66,6 +66,7 @@ public class ImageGenerationAssetStorageService {
                 image.put("url", stored.url());
                 image.put("mimeType", stored.mimeType());
                 image.put("byteSize", stored.byteSize());
+                image.put("contentHash", stored.contentHash());
                 image.put("storage", "server");
             }
             storedImages.add(image);
@@ -128,7 +129,8 @@ public class ImageGenerationAssetStorageService {
             return new StoredAsset(
                     "/uploads/generated/" + userScope + "/" + assetName,
                     detectedMimeType,
-                    bytes.length
+                    bytes.length,
+                    sha256(bytes)
             );
         } catch (BusinessException ex) {
             throw ex;
@@ -190,10 +192,29 @@ public class ImageGenerationAssetStorageService {
         }
     }
 
+    public Path resolveGenerated(String uri) {
+        String safeUri = stringValue(uri);
+        if (!safeUri.startsWith("/uploads/generated/")) {
+            throw new IllegalArgumentException("生图产物地址不可用");
+        }
+        String relative = safeUri.substring("/uploads/generated/".length());
+        if (relative.isBlank() || relative.contains("..") || relative.contains("\\")) {
+            throw new IllegalArgumentException("生图产物地址不可用");
+        }
+        Path path = storageRoot.resolve(relative).normalize();
+        if (!path.startsWith(storageRoot) || !Files.isRegularFile(path)) {
+            throw new IllegalArgumentException("生图产物文件不存在");
+        }
+        return path;
+    }
+
     private static String sha256(String value) {
+        return sha256(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String sha256(byte[] bytes) {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
             StringBuilder out = new StringBuilder(digest.length * 2);
             for (byte item : digest) {
                 out.append(String.format("%02x", item & 0xff));
@@ -210,5 +231,5 @@ public class ImageGenerationAssetStorageService {
 
     private record ParsedDataUrl(String mimeType, String base64) {}
 
-    private record StoredAsset(String url, String mimeType, int byteSize) {}
+    private record StoredAsset(String url, String mimeType, int byteSize, String contentHash) {}
 }

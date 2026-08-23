@@ -1,0 +1,969 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.sillyspringboot.agent.mapper.AgentAdminMapper">
+
+    <insert id="insertTask" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_task (
+            task_key, task_type, title, objective, constraints_json, status, risk_level, created_by,
+            priority, max_steps, max_retries, max_runtime_seconds, max_tokens, max_cost
+        ) VALUES (
+            #{taskKey}, #{taskType}, #{title}, #{objective}, #{constraintsJson}, #{status}, #{riskLevel}, #{createdBy},
+            #{priority}, #{maxSteps}, #{maxRetries}, #{maxRuntimeSeconds}, #{maxTokens}, #{maxCost}
+        )
+    </insert>
+
+    <update id="updateTaskStatus">
+        UPDATE app_agent_task
+        SET status = #{toStatus},
+            last_error = CASE WHEN #{clearError} = TRUE THEN NULL ELSE last_error END,
+            retry_count = retry_count + #{retryIncrement},
+            started_at = CASE WHEN #{toStatus} = 'RUNNING' AND started_at IS NULL THEN CURRENT_TIMESTAMP ELSE started_at END,
+            finished_at = CASE WHEN #{terminal} = TRUE THEN CURRENT_TIMESTAMP ELSE NULL END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND status IN
+        <foreach collection="fromStatuses" item="status" open="(" separator="," close=")">
+            #{status}
+        </foreach>
+    </update>
+
+    <insert id="insertEvent" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_event (
+            task_id, step_id, event_seq, event_type, visibility, summary, payload_json
+        )
+        VALUES (
+            #{taskId}, #{stepId},
+            (
+                SELECT COALESCE(MAX(event_seq), 0) + 1
+                FROM (
+                    SELECT event_seq
+                    FROM app_agent_event
+                    WHERE task_id = #{taskId}
+                ) AS existing_events
+            ),
+            #{eventType}, #{visibility}, #{summary}, #{payloadJson}
+        )
+    </insert>
+
+    <select id="findLatestPlan" resultType="map">
+        SELECT
+            p.id,
+            p.task_id AS taskId,
+            p.plan_version AS planVersion,
+            p.status,
+            p.plan_json AS planJson,
+            p.input_hash AS inputHash,
+            p.generated_by AS generatedBy,
+            p.approved_by AS approvedBy,
+            p.approved_at AS approvedAt,
+            p.created_at AS createdAt,
+            p.updated_at AS updatedAt
+        FROM app_agent_plan p
+        WHERE p.task_id = #{taskId}
+        ORDER BY p.plan_version DESC, p.id DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertPlan" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_plan (
+            task_id, plan_version, status, plan_json, input_hash, generated_by
+        ) VALUES (
+            #{taskId}, #{planVersion}, #{status}, #{planJson}, #{inputHash}, #{generatedBy}
+        )
+    </insert>
+
+    <insert id="insertStep" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_step (
+            task_id, plan_id, step_key, step_name, agent_role, step_type, status,
+            depends_on_json, tool_name, input_json, max_attempts, risk_level, sort_order
+        ) VALUES (
+            #{taskId}, #{planId}, #{stepKey}, #{stepName}, #{agentRole}, #{stepType}, #{status},
+            #{dependsOnJson}, #{toolName}, #{inputJson}, #{maxAttempts}, #{riskLevel}, #{sortOrder}
+        )
+    </insert>
+
+    <update id="updateTaskPlanSummary">
+        UPDATE app_agent_task
+        SET total_steps = #{totalSteps},
+            completed_steps = 0,
+            current_step_id = #{currentStepId},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{taskId}
+    </update>
+
+    <update id="updateTaskRiskLevel">
+        UPDATE app_agent_task
+        SET risk_level = #{riskLevel}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{taskId}
+    </update>
+
+    <update id="updatePlanStatus">
+        UPDATE app_agent_plan
+        <set>
+            status = #{toStatus},
+            updated_at = CURRENT_TIMESTAMP,
+            <if test="approvedBy != null">
+                approved_by = #{approvedBy},
+                approved_at = CURRENT_TIMESTAMP,
+            </if>
+        </set>
+        WHERE id = #{id}
+          AND status = #{fromStatus}
+    </update>
+
+    <insert id="insertApproval" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_approval (
+            task_id, step_id, approval_type, status, requested_by, reason,
+            target_summary, parameter_hash, expires_at
+        ) VALUES (
+            #{taskId}, #{stepId}, #{approvalType}, #{status}, #{requestedBy}, #{reason},
+            #{targetSummary}, #{parameterHash}, #{expiresAt}
+        )
+    </insert>
+
+    <select id="findLatestApproval" resultType="map">
+        SELECT
+            a.id,
+            a.task_id AS taskId,
+            a.step_id AS stepId,
+            a.approval_type AS approvalType,
+            a.status,
+            a.requested_by AS requestedBy,
+            a.reviewer_id AS reviewerId,
+            a.reason,
+            a.target_summary AS targetSummary,
+            a.parameter_hash AS parameterHash,
+            a.expires_at AS expiresAt,
+            a.decided_at AS decidedAt,
+            a.decision_comment AS decisionComment,
+            a.created_at AS createdAt,
+            a.updated_at AS updatedAt
+        FROM app_agent_approval a
+        WHERE a.task_id = #{taskId}
+          AND a.approval_type = #{approvalType}
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findApproval" resultType="map">
+        SELECT
+            a.id,
+            a.task_id AS taskId,
+            a.step_id AS stepId,
+            a.approval_type AS approvalType,
+            a.status,
+            a.requested_by AS requestedBy,
+            a.reviewer_id AS reviewerId,
+            a.reason,
+            a.target_summary AS targetSummary,
+            a.parameter_hash AS parameterHash,
+            a.expires_at AS expiresAt,
+            a.decided_at AS decidedAt,
+            a.decision_comment AS decisionComment,
+            a.created_at AS createdAt,
+            a.updated_at AS updatedAt
+        FROM app_agent_approval a
+        WHERE a.id = #{id}
+        LIMIT 1
+    </select>
+
+    <update id="updateApprovalStatus">
+        UPDATE app_agent_approval
+        SET status = #{toStatus},
+            reviewer_id = #{reviewerId},
+            decision_comment = #{decisionComment},
+            decided_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+          AND status = #{fromStatus}
+    </update>
+
+    <delete id="deletePlanSteps">
+        DELETE FROM app_agent_step
+        WHERE plan_id = #{planId}
+          AND status IN ('PENDING', 'BLOCKED', 'READY', 'WAITING_APPROVAL')
+    </delete>
+
+    <update id="resetTaskPlanSummary">
+        UPDATE app_agent_task
+        SET total_steps = 0,
+            completed_steps = 0,
+            current_step_id = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{taskId}
+    </update>
+
+    <select id="listReadySteps" resultType="map">
+        SELECT
+            s.id AS stepId,
+            s.task_id AS taskId,
+            s.step_key AS stepKey,
+            s.step_name AS stepName,
+            s.agent_role AS agentRole,
+            s.step_type AS stepType,
+            s.tool_name AS toolName,
+            s.attempt_count AS attemptCount,
+            s.max_attempts AS maxAttempts,
+            t.status AS taskStatus,
+            t.title AS taskTitle,
+            t.objective AS taskObjective,
+            t.constraints_json AS constraintsJson,
+            t.created_by AS createdBy,
+            t.risk_level AS riskLevel,
+            t.token_usage AS tokenUsage,
+            t.cost_amount AS costAmount,
+            s.input_json AS inputJson
+        FROM app_agent_step s
+        INNER JOIN app_agent_task t ON t.id = s.task_id
+        WHERE s.status = 'READY'
+          AND t.status IN ('READY', 'RUNNING')
+          AND (s.lease_until IS NULL OR s.lease_until &lt; CURRENT_TIMESTAMP)
+        ORDER BY t.priority DESC, s.updated_at ASC, s.id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="claimStep">
+        UPDATE app_agent_step
+        SET status = 'RUNNING',
+            lease_owner = #{owner},
+            lease_until = #{leaseUntil},
+            attempt_count = attempt_count + 1,
+            started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{stepId}
+          AND status = 'READY'
+          AND (lease_until IS NULL OR lease_until &lt; CURRENT_TIMESTAMP)
+          AND EXISTS (
+              SELECT 1 FROM app_agent_task t
+              WHERE t.id = app_agent_step.task_id
+                AND t.status IN ('READY', 'RUNNING')
+          )
+    </update>
+
+    <update id="renewStepLease">
+        UPDATE app_agent_step
+        SET lease_until = #{leaseUntil}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{stepId} AND status = 'RUNNING' AND lease_owner = #{owner}
+    </update>
+
+    <update id="recoverExpiredSteps">
+        UPDATE app_agent_step
+        SET status = 'READY',
+            lease_owner = NULL,
+            lease_until = NULL,
+            error_code = 'WORKER_LEASE_EXPIRED',
+            error_message = 'Worker lease expired; step returned to ready state',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE status = 'RUNNING'
+          AND lease_until IS NOT NULL
+          AND lease_until &lt; #{now}
+          AND attempt_count &lt; max_attempts
+    </update>
+
+    <update id="failExhaustedSteps">
+        UPDATE app_agent_step
+        SET status = 'FAILED',
+            lease_owner = NULL,
+            lease_until = NULL,
+            error_code = 'WORKER_ATTEMPTS_EXHAUSTED',
+            error_message = 'Worker lease expired after maximum attempts',
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE status = 'RUNNING'
+          AND lease_until IS NOT NULL
+          AND lease_until &lt; #{now}
+          AND attempt_count &gt;= max_attempts
+    </update>
+
+    <update id="failTasksWithFailedSteps">
+        UPDATE app_agent_task
+        SET status = 'FAILED',
+            last_error = 'Agent step attempts exhausted',
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE status IN ('READY', 'RUNNING')
+          AND EXISTS (
+              SELECT 1 FROM app_agent_step s
+              WHERE s.task_id = app_agent_task.id AND s.status = 'FAILED'
+          )
+    </update>
+
+    <update id="completeStep">
+        UPDATE app_agent_step
+        SET status = 'SUCCEEDED',
+            output_json = #{outputJson},
+            output_summary = #{outputSummary},
+            lease_owner = NULL,
+            lease_until = NULL,
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{stepId} AND status = 'RUNNING' AND lease_owner = #{owner}
+    </update>
+
+    <update id="failStep">
+        UPDATE app_agent_step
+        SET status = 'FAILED',
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            lease_owner = NULL,
+            lease_until = NULL,
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{stepId} AND status = 'RUNNING' AND lease_owner = #{owner}
+    </update>
+
+    <select id="findNextBlockedStep" resultType="map">
+        SELECT s.id AS stepId, s.task_id AS taskId, s.step_key AS stepKey
+        FROM app_agent_step s
+        WHERE s.task_id = #{taskId}
+          AND s.status = 'BLOCKED'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM app_agent_step previous
+              WHERE previous.task_id = s.task_id
+                AND previous.sort_order &lt; s.sort_order
+                AND previous.status NOT IN ('SUCCEEDED', 'SKIPPED')
+          )
+        ORDER BY s.sort_order ASC, s.id ASC
+        LIMIT 1
+    </select>
+
+    <update id="promoteStep">
+        UPDATE app_agent_step
+        SET status = 'READY', updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{stepId} AND status = 'BLOCKED'
+    </update>
+
+    <update id="updateTaskProgress">
+        UPDATE app_agent_task
+        SET completed_steps = (
+                SELECT COUNT(*) FROM app_agent_step s
+                WHERE s.task_id = app_agent_task.id AND s.status = 'SUCCEEDED'
+            ),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{taskId}
+    </update>
+
+    <update id="tryCompleteTask">
+        UPDATE app_agent_task
+        SET status = 'SUCCEEDED',
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{taskId}
+          AND status = 'RUNNING'
+          AND NOT EXISTS (
+              SELECT 1 FROM app_agent_step s
+              WHERE s.task_id = app_agent_task.id
+                AND s.status NOT IN ('SUCCEEDED', 'SKIPPED')
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM app_agent_step degraded
+              WHERE degraded.task_id = app_agent_task.id
+                AND JSON_VALID(degraded.output_json)
+                AND JSON_UNQUOTE(JSON_EXTRACT(degraded.output_json, '$.degraded')) = 'true'
+          )
+    </update>
+
+    <update id="tryCompletePartialTask">
+        UPDATE app_agent_task
+        SET status = 'PARTIAL_SUCCESS',
+            last_error = 'Agent 任务完成，但部分可选产物降级或跳过',
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{taskId}
+          AND status = 'RUNNING'
+          AND NOT EXISTS (
+              SELECT 1 FROM app_agent_step s
+              WHERE s.task_id = app_agent_task.id
+                AND s.status NOT IN ('SUCCEEDED', 'SKIPPED')
+          )
+          AND EXISTS (
+              SELECT 1 FROM app_agent_step degraded
+              WHERE degraded.task_id = app_agent_task.id
+                AND JSON_VALID(degraded.output_json)
+                AND JSON_UNQUOTE(JSON_EXTRACT(degraded.output_json, '$.degraded')) = 'true'
+          )
+    </update>
+
+    <update id="failTask">
+        UPDATE app_agent_task
+        SET status = 'FAILED',
+            last_error = #{errorMessage},
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{taskId} AND status IN ('READY', 'RUNNING', 'WAITING_CONFIRMATION')
+    </update>
+
+    <update id="refreshTaskUsage">
+        UPDATE app_agent_task t
+        SET token_usage = COALESCE((
+                SELECT SUM(COALESCE(a.prompt_tokens, 0) + COALESCE(a.completion_tokens, 0))
+                FROM app_generation_attempt a
+                WHERE a.request_id REGEXP CONCAT('^agent[^0-9]*', t.id, '([^0-9]|$)')
+            ), 0),
+            cost_amount = COALESCE((
+                SELECT SUM(COALESCE(a.total_cost_usd, 0))
+                FROM app_generation_attempt a
+                WHERE a.request_id REGEXP CONCAT('^agent[^0-9]*', t.id, '([^0-9]|$)')
+            ), 0),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE t.id = #{taskId}
+    </update>
+
+    <select id="taskBudgetExceeded" resultType="int">
+        SELECT CASE WHEN
+            (max_tokens &gt; 0 AND token_usage &gt;= max_tokens)
+            OR (max_cost &gt; 0 AND cost_amount &gt;= max_cost)
+            THEN 1 ELSE 0 END
+        FROM app_agent_task
+        WHERE id = #{taskId}
+    </select>
+
+    <select id="taskRuntimeExceeded" resultType="int">
+        SELECT CASE WHEN
+            started_at IS NOT NULL
+            AND max_runtime_seconds &gt; 0
+            AND TIMESTAMPDIFF(SECOND, started_at, CURRENT_TIMESTAMP) &gt;= max_runtime_seconds
+            THEN 1 ELSE 0 END
+        FROM app_agent_task
+        WHERE id = #{taskId}
+    </select>
+
+    <update id="cancelPendingSteps">
+        UPDATE app_agent_step
+        SET status = 'CANCELLED',
+            lease_owner = NULL,
+            lease_until = NULL,
+            finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE task_id = #{taskId}
+          AND status IN ('PENDING', 'BLOCKED', 'READY', 'WAITING_APPROVAL', 'RETRY_WAITING')
+    </update>
+
+    <update id="finalizeCancelledTask">
+        UPDATE app_agent_task
+        SET status = 'CANCELLED',
+            last_error = COALESCE(last_error, 'Agent 任务已取消'),
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{taskId}
+          AND status = 'CANCEL_REQUESTED'
+          AND NOT EXISTS (
+              SELECT 1 FROM app_agent_step s
+              WHERE s.task_id = app_agent_task.id AND s.status = 'RUNNING'
+          )
+    </update>
+
+    <update id="resetFailedSteps">
+        UPDATE app_agent_step
+        SET status = CASE WHEN status = 'FAILED' THEN 'READY' ELSE 'BLOCKED' END,
+            error_code = NULL,
+            error_message = NULL,
+            lease_owner = NULL,
+            lease_until = NULL,
+            finished_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE task_id = #{taskId}
+          AND status IN ('FAILED', 'CANCELLED')
+    </update>
+
+    <select id="findToolByKey" resultType="map">
+        SELECT
+            d.id,
+            d.tool_key AS toolKey,
+            d.version,
+            d.risk_level AS riskLevel,
+            d.approval_required AS approvalRequired,
+            d.enabled,
+            d.timeout_seconds AS timeoutSeconds,
+            d.max_retries AS maxRetries
+        FROM app_agent_tool_definition d
+        WHERE d.tool_key = #{toolKey}
+        ORDER BY d.enabled DESC, d.version DESC, d.id DESC
+        LIMIT 1
+    </select>
+
+    <update id="requestToolApproval">
+        UPDATE app_agent_step
+        SET status = 'WAITING_APPROVAL',
+            lease_owner = NULL,
+            lease_until = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{stepId} AND status = 'RUNNING'
+    </update>
+
+    <update id="approveToolStep">
+        UPDATE app_agent_step
+        SET status = 'READY', updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{stepId} AND status = 'WAITING_APPROVAL'
+    </update>
+
+    <update id="rejectToolStep">
+        UPDATE app_agent_step
+        SET status = 'FAILED',
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{stepId} AND status = 'WAITING_APPROVAL'
+    </update>
+
+    <insert id="insertToolCall" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_tool_call (
+            task_id, step_id, tool_definition_id, attempt, idempotency_key, status,
+            input_hash, input_summary, started_at
+        ) VALUES (
+            #{taskId}, #{stepId}, #{toolDefinitionId}, #{attempt}, #{idempotencyKey}, #{status},
+            #{inputHash}, #{inputSummary}, CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="finishToolCall">
+        UPDATE app_agent_tool_call
+        SET status = #{status},
+            output_summary = #{outputSummary},
+            error_code = #{errorCode},
+            error_message = #{errorMessage},
+            duration_ms = #{durationMs},
+            token_usage = #{tokenUsage},
+            cost_amount = COALESCE(#{costAmount}, 0),
+            provider = #{provider},
+            model_name = #{modelName},
+            finished_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <insert id="upsertArtifact" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_artifact (
+            task_id, step_id, artifact_key, artifact_type, name, version, status,
+            uri, content_hash, size_bytes, mime_type, metadata_json, content_json
+        ) VALUES (
+            #{taskId}, #{stepId}, #{artifactKey}, #{artifactType}, #{name}, #{version}, #{status},
+            #{uri}, #{contentHash}, #{sizeBytes}, #{mimeType}, #{metadataJson}, #{contentJson}
+        )
+        ON DUPLICATE KEY UPDATE
+            step_id = VALUES(step_id),
+            name = VALUES(name),
+            status = VALUES(status),
+            uri = VALUES(uri),
+            content_hash = VALUES(content_hash),
+            size_bytes = VALUES(size_bytes),
+            mime_type = VALUES(mime_type),
+            metadata_json = VALUES(metadata_json),
+            content_json = VALUES(content_json),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="refreshArtifactCount">
+        UPDATE app_agent_task
+        SET artifact_count = (
+                SELECT COUNT(*) FROM app_agent_artifact a
+                WHERE a.task_id = app_agent_task.id AND a.status = 'READY'
+            ),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{taskId}
+    </update>
+
+    <select id="findArtifact" resultType="map">
+        SELECT
+            a.id,
+            a.task_id AS taskId,
+            a.step_id AS stepId,
+            a.artifact_key AS artifactKey,
+            a.artifact_type AS artifactType,
+            a.name,
+            a.version,
+            a.status,
+            a.uri,
+            a.content_hash AS contentHash,
+            a.size_bytes AS sizeBytes,
+            a.mime_type AS mimeType,
+            a.metadata_json AS metadataJson,
+            a.content_json AS contentJson,
+            a.created_at AS createdAt,
+            a.updated_at AS updatedAt
+        FROM app_agent_artifact a
+        WHERE a.task_id = #{taskId}
+          AND a.artifact_key = #{artifactKey}
+          AND a.version = #{version}
+        LIMIT 1
+    </select>
+
+    <sql id="TaskWhere">
+        <where>
+            <if test="status != null and status != ''">AND t.status = #{status}</if>
+            <if test="riskLevel != null and riskLevel != ''">AND t.risk_level = #{riskLevel}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    t.task_key LIKE CONCAT('%', #{keyword}, '%')
+                    OR t.title LIKE CONCAT('%', #{keyword}, '%')
+                    OR t.objective LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <select id="overview" resultType="map">
+        SELECT
+            (SELECT COUNT(*) FROM app_agent_task) AS totalTasks,
+            (SELECT COUNT(*) FROM app_agent_task WHERE created_at &gt;= CURRENT_DATE) AS todayTasks,
+            (SELECT COUNT(*) FROM app_agent_task WHERE status = 'RUNNING') AS runningTasks,
+            (SELECT COUNT(*) FROM app_agent_task WHERE status = 'WAITING_APPROVAL') AS waitingApprovalTasks,
+            (SELECT COUNT(*) FROM app_agent_task WHERE status IN ('SUCCEEDED', 'PARTIAL_SUCCESS')) AS succeededTasks,
+            (SELECT COUNT(*) FROM app_agent_task WHERE status = 'FAILED') AS failedTasks,
+            (SELECT COUNT(*) FROM app_agent_approval WHERE status = 'PENDING') AS pendingApprovals,
+            (SELECT COUNT(*) FROM app_agent_tool_definition WHERE enabled = 1) AS enabledTools,
+            (SELECT COUNT(*) FROM app_agent_tool_call WHERE status = 'RUNNING') AS runningToolCalls,
+            (SELECT COUNT(*) FROM app_agent_artifact WHERE status = 'READY') AS readyArtifacts,
+            COALESCE((SELECT SUM(token_usage) FROM app_agent_task), 0) AS totalTokenUsage,
+            COALESCE((SELECT SUM(cost_amount) FROM app_agent_task), 0) AS totalCostAmount
+    </select>
+
+    <select id="countTasks" resultType="long">
+        SELECT COUNT(*) FROM app_agent_task t
+        <include refid="TaskWhere"/>
+    </select>
+
+    <select id="listTasks" resultType="map">
+        SELECT
+            t.id,
+            t.task_key AS taskKey,
+            t.task_type AS taskType,
+            t.title,
+            t.status,
+            t.risk_level AS riskLevel,
+            t.created_by AS createdBy,
+            t.priority,
+            t.max_steps AS maxSteps,
+            t.max_retries AS maxRetries,
+            t.max_runtime_seconds AS maxRuntimeSeconds,
+            t.max_tokens AS maxTokens,
+            t.max_cost AS maxCost,
+            t.current_step_id AS currentStepId,
+            t.total_steps AS totalSteps,
+            t.completed_steps AS completedSteps,
+            t.retry_count AS retryCount,
+            t.token_usage AS tokenUsage,
+            t.cost_amount AS costAmount,
+            t.artifact_count AS artifactCount,
+            t.started_at AS startedAt,
+            t.finished_at AS finishedAt,
+            COALESCE(t.last_error, '') AS lastError,
+            t.created_at AS createdAt,
+            t.updated_at AS updatedAt
+        FROM app_agent_task t
+        <include refid="TaskWhere"/>
+        ORDER BY CASE
+            WHEN t.status = 'RUNNING' THEN 0
+            WHEN t.status IN ('WAITING_APPROVAL', 'WAITING_CONFIRMATION') THEN 1
+            WHEN t.status IN ('FAILED', 'PARTIAL_SUCCESS') THEN 2
+            ELSE 3
+        END, t.updated_at DESC, t.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countTasksForOwner" resultType="long">
+        SELECT COUNT(*) FROM app_agent_task t
+        WHERE t.created_by = #{ownerId}
+        <if test="status != null and status != ''">AND t.status = #{status}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                t.task_key LIKE CONCAT('%', #{keyword}, '%')
+                OR t.title LIKE CONCAT('%', #{keyword}, '%')
+                OR t.objective LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+    </select>
+
+    <select id="listTasksForOwner" resultType="map">
+        SELECT
+            t.id,
+            t.task_key AS taskKey,
+            t.task_type AS taskType,
+            t.title,
+            t.status,
+            t.risk_level AS riskLevel,
+            t.created_by AS createdBy,
+            t.priority,
+            t.max_steps AS maxSteps,
+            t.max_retries AS maxRetries,
+            t.max_runtime_seconds AS maxRuntimeSeconds,
+            t.max_tokens AS maxTokens,
+            t.max_cost AS maxCost,
+            t.current_step_id AS currentStepId,
+            t.total_steps AS totalSteps,
+            t.completed_steps AS completedSteps,
+            t.retry_count AS retryCount,
+            t.token_usage AS tokenUsage,
+            t.cost_amount AS costAmount,
+            t.artifact_count AS artifactCount,
+            t.started_at AS startedAt,
+            t.finished_at AS finishedAt,
+            COALESCE(t.last_error, '') AS lastError,
+            t.created_at AS createdAt,
+            t.updated_at AS updatedAt
+        FROM app_agent_task t
+        WHERE t.created_by = #{ownerId}
+        <if test="status != null and status != ''">AND t.status = #{status}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                t.task_key LIKE CONCAT('%', #{keyword}, '%')
+                OR t.title LIKE CONCAT('%', #{keyword}, '%')
+                OR t.objective LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        ORDER BY t.updated_at DESC, t.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findTask" resultType="map">
+        SELECT
+            t.id,
+            t.task_key AS taskKey,
+            t.task_type AS taskType,
+            t.title,
+            t.objective,
+            t.constraints_json AS constraintsJson,
+            t.status,
+            t.risk_level AS riskLevel,
+            t.created_by AS createdBy,
+            t.priority,
+            t.max_steps AS maxSteps,
+            t.max_retries AS maxRetries,
+            t.max_runtime_seconds AS maxRuntimeSeconds,
+            t.max_tokens AS maxTokens,
+            t.max_cost AS maxCost,
+            t.current_step_id AS currentStepId,
+            t.total_steps AS totalSteps,
+            t.completed_steps AS completedSteps,
+            t.retry_count AS retryCount,
+            t.token_usage AS tokenUsage,
+            t.cost_amount AS costAmount,
+            t.artifact_count AS artifactCount,
+            t.started_at AS startedAt,
+            t.finished_at AS finishedAt,
+            COALESCE(t.last_error, '') AS lastError,
+            t.created_at AS createdAt,
+            t.updated_at AS updatedAt
+        FROM app_agent_task t
+        WHERE t.id = #{id}
+    </select>
+
+    <select id="listSteps" resultType="map">
+        SELECT
+            s.id,
+            s.task_id AS taskId,
+            s.plan_id AS planId,
+            s.step_key AS stepKey,
+            s.step_name AS stepName,
+            s.agent_role AS agentRole,
+            s.step_type AS stepType,
+            s.status,
+            s.depends_on_json AS dependsOnJson,
+            s.tool_name AS toolName,
+            s.input_json AS inputJson,
+            s.output_json AS outputJson,
+            s.output_summary AS outputSummary,
+            s.attempt_count AS attemptCount,
+            s.max_attempts AS maxAttempts,
+            s.risk_level AS riskLevel,
+            s.lease_owner AS leaseOwner,
+            s.lease_until AS leaseUntil,
+            s.sort_order AS sortOrder,
+            s.started_at AS startedAt,
+            s.finished_at AS finishedAt,
+            COALESCE(s.error_code, '') AS errorCode,
+            COALESCE(s.error_message, '') AS errorMessage,
+            s.created_at AS createdAt,
+            s.updated_at AS updatedAt
+        FROM app_agent_step s
+        WHERE s.task_id = #{taskId}
+        ORDER BY s.sort_order ASC, s.id ASC
+    </select>
+
+    <select id="listToolCalls" resultType="map">
+        SELECT
+            c.id,
+            c.task_id AS taskId,
+            c.step_id AS stepId,
+            s.step_name AS stepName,
+            s.tool_name AS toolName,
+            c.tool_definition_id AS toolDefinitionId,
+            c.attempt,
+            c.idempotency_key AS idempotencyKey,
+            c.status,
+            c.input_hash AS inputHash,
+            c.input_summary AS inputSummary,
+            c.output_summary AS outputSummary,
+            c.output_ref AS outputRef,
+            c.error_code AS errorCode,
+            c.error_message AS errorMessage,
+            c.duration_ms AS durationMs,
+            c.provider,
+            c.model_name AS modelName,
+            c.token_usage AS tokenUsage,
+            c.cost_amount AS costAmount,
+            c.started_at AS startedAt,
+            c.finished_at AS finishedAt,
+            c.created_at AS createdAt
+        FROM app_agent_tool_call c
+        LEFT JOIN app_agent_step s ON s.id = c.step_id
+        WHERE c.task_id = #{taskId}
+        ORDER BY c.created_at ASC, c.id ASC
+    </select>
+
+    <select id="listEvents" resultType="map">
+        SELECT
+            e.id,
+            e.task_id AS taskId,
+            e.step_id AS stepId,
+            e.event_seq AS eventSeq,
+            e.event_type AS eventType,
+            e.visibility,
+            e.summary,
+            e.payload_json AS payloadJson,
+            e.created_at AS createdAt
+        FROM app_agent_event e
+        WHERE e.task_id = #{taskId}
+          AND e.visibility = 'PUBLIC'
+          AND e.event_seq &gt; #{afterSeq}
+        ORDER BY e.event_seq ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="listArtifacts" resultType="map">
+        SELECT
+            a.id,
+            a.task_id AS taskId,
+            a.step_id AS stepId,
+            a.artifact_key AS artifactKey,
+            a.artifact_type AS artifactType,
+            a.name,
+            a.version,
+            a.status,
+            a.uri,
+            a.content_hash AS contentHash,
+            a.size_bytes AS sizeBytes,
+            a.mime_type AS mimeType,
+            a.metadata_json AS metadataJson,
+            a.content_json AS contentJson,
+            a.created_at AS createdAt,
+            a.updated_at AS updatedAt
+        FROM app_agent_artifact a
+        WHERE a.task_id = #{taskId}
+        ORDER BY a.created_at DESC, a.id DESC
+    </select>
+
+    <sql id="ApprovalWhere">
+        <where>
+            <if test="status != null and status != ''">AND a.status = #{status}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    a.approval_type LIKE CONCAT('%', #{keyword}, '%')
+                    OR a.target_summary LIKE CONCAT('%', #{keyword}, '%')
+                    OR a.reason LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <select id="countApprovals" resultType="long">
+        SELECT COUNT(*) FROM app_agent_approval a
+        <include refid="ApprovalWhere"/>
+    </select>
+
+    <select id="listApprovals" resultType="map">
+        SELECT
+            a.id,
+            a.task_id AS taskId,
+            a.step_id AS stepId,
+            a.approval_type AS approvalType,
+            a.status,
+            a.requested_by AS requestedBy,
+            a.reviewer_id AS reviewerId,
+            a.reason,
+            a.target_summary AS targetSummary,
+            a.parameter_hash AS parameterHash,
+            a.expires_at AS expiresAt,
+            a.decided_at AS decidedAt,
+            a.decision_comment AS decisionComment,
+            a.created_at AS createdAt,
+            a.updated_at AS updatedAt
+        FROM app_agent_approval a
+        <include refid="ApprovalWhere"/>
+        ORDER BY CASE WHEN a.status = 'PENDING' THEN 0 ELSE 1 END, a.created_at DESC, a.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <sql id="ToolWhere">
+        <where>
+            <if test="category != null and category != ''">AND d.category = #{category}</if>
+            <if test="enabled != null">AND d.enabled = #{enabled}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    d.tool_key LIKE CONCAT('%', #{keyword}, '%')
+                    OR d.display_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR d.description LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </sql>
+
+    <select id="countTools" resultType="long">
+        SELECT COUNT(*) FROM app_agent_tool_definition d
+        <include refid="ToolWhere"/>
+    </select>
+
+    <select id="listTools" resultType="map">
+        SELECT
+            d.id,
+            d.tool_key AS toolKey,
+            d.version,
+            d.display_name AS displayName,
+            d.category,
+            d.handler_type AS handlerType,
+            d.risk_level AS riskLevel,
+            d.input_schema AS inputSchema,
+            d.output_schema AS outputSchema,
+            d.allowed_roles_json AS allowedRolesJson,
+            d.description,
+            d.timeout_seconds AS timeoutSeconds,
+            d.max_retries AS maxRetries,
+            d.idempotent,
+            d.approval_required AS approvalRequired,
+            d.enabled,
+            d.created_at AS createdAt,
+            d.updated_at AS updatedAt
+        FROM app_agent_tool_definition d
+        <include refid="ToolWhere"/>
+        ORDER BY d.enabled DESC, d.category ASC, d.tool_key ASC, d.version DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findTool" resultType="map">
+        SELECT
+            d.id,
+            d.tool_key AS toolKey,
+            d.version,
+            d.display_name AS displayName,
+            d.category,
+            d.handler_type AS handlerType,
+            d.risk_level AS riskLevel,
+            d.input_schema AS inputSchema,
+            d.output_schema AS outputSchema,
+            d.allowed_roles_json AS allowedRolesJson,
+            d.description,
+            d.timeout_seconds AS timeoutSeconds,
+            d.max_retries AS maxRetries,
+            d.idempotent,
+            d.approval_required AS approvalRequired,
+            d.enabled,
+            d.created_at AS createdAt,
+            d.updated_at AS updatedAt
+        FROM app_agent_tool_definition d
+        WHERE d.id = #{id}
+        LIMIT 1
+    </select>
+</mapper>

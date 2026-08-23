@@ -168,6 +168,17 @@ public class RuoYiShellAuthController {
         systemChildren.add(routeChild("JgPermissionLog", "permissionlog", "jiugai/permissionlog/index", "\u6743\u9650\u53d8\u66f4\u65e5\u5fd7", "log", "system:permission-log:view", "system:admin-role:view", "system:admin-user:view"));
         systemOps.put("children", filterChildrenByPermission(systemChildren, session.getPermissions()));
 
+        Map<String, Object> agentOps = routeParent("JiugaiAgent", "/agent", "\u667a\u80fd\u4f53\u4e2d\u5fc3", "cpu");
+        List<Map<String, Object>> agentChildren = new ArrayList<>();
+        agentChildren.add(routeChild("JgAgentOverview", "overview", "jiugai/agent/overview/index", "\u667a\u80fd\u4f53\u603b\u89c8", "dashboard", "agent:center:view"));
+        agentChildren.add(routeChild("JgAgentTask", "task", "jiugai/agent/task/index", "\u4efb\u52a1\u4e2d\u5fc3", "list", "agent:task:view"));
+        Map<String, Object> agentTaskDetail = routeChild("JgAgentTaskDetail", "task/detail/:id", "jiugai/agent/task/detail/index", "\u4efb\u52a1\u8be6\u60c5", "list", "agent:task:view");
+        agentTaskDetail.put("hidden", true);
+        agentChildren.add(agentTaskDetail);
+        agentChildren.add(routeChild("JgAgentApproval", "approval", "jiugai/agent/approval/index", "\u5ba1\u6279\u4e2d\u5fc3", "checked", "agent:approval:view"));
+        agentChildren.add(routeChild("JgAgentTool", "tool", "jiugai/agent/tool/index", "\u5de5\u5177\u4e2d\u5fc3", "component", "agent:tool:view"));
+        agentOps.put("children", filterChildrenByPermission(agentChildren, session.getPermissions()));
+
         if (!((List<?>) contentOps.get("children")).isEmpty()) {
             routes.add(contentOps);
         }
@@ -179,6 +190,9 @@ public class RuoYiShellAuthController {
         }
         if (!((List<?>) systemOps.get("children")).isEmpty()) {
             routes.add(systemOps);
+        }
+        if (!((List<?>) agentOps.get("children")).isEmpty()) {
+            routes.add(agentOps);
         }
 
         Map<String, Object> result = AdminAjaxResult.ok();

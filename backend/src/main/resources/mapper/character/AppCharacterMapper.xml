@@ -201,10 +201,11 @@
             #{persona}, #{scenario}, #{visualPrompt}, #{visualNegativePrompt}, #{firstMessage}, #{alternateGreetingsJson},
             #{mesExample}, #{systemPrompt}, #{postHistoryInstructions},
             #{avatarUrl}, #{coverUrl}, #{chatBackgroundUrl}, #{stWorldNamesJson}, #{privateCard},
-            #{reviewStatus}, #{reviewReason}, #{reviewedAt}, #{reviewedBy},
-            #{occupationLabel}, #{tagsJson}, #{vipOnly}, #{unlockedDefault}, #{clientVisible}, #{previewBlurVipLevel},
-            #{likeCount}, #{dislikeCount}, #{creatorName}, #{creatorHandle}, #{tokenDisplay},
-            #{gameplayType}, #{chatModesJson}, #{sortOrder}, #{creatorNotes}, #{stExtraJson}
+            COALESCE(#{reviewStatus}, 'PENDING'), #{reviewReason}, #{reviewedAt}, #{reviewedBy},
+            #{occupationLabel}, #{tagsJson}, COALESCE(#{vipOnly}, FALSE), COALESCE(#{unlockedDefault}, FALSE),
+            COALESCE(#{clientVisible}, FALSE), COALESCE(#{previewBlurVipLevel}, 0),
+            COALESCE(#{likeCount}, 0), COALESCE(#{dislikeCount}, 0), #{creatorName}, #{creatorHandle}, #{tokenDisplay},
+            #{gameplayType}, #{chatModesJson}, COALESCE(#{sortOrder}, 0), #{creatorNotes}, #{stExtraJson}
         )
     </insert>
 

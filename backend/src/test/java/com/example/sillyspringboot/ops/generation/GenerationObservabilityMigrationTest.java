@@ -162,7 +162,7 @@ class GenerationObservabilityMigrationTest {
                         + "AND column_name IN ('visual_prompt', 'visual_negative_prompt')",
                 Integer.class
         ));
-        assertEquals("119", jdbc.queryForObject(
+        assertEquals("137", jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class
         ));

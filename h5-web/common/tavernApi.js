@@ -2846,6 +2846,48 @@ function createCharacterDraft(payload) {
 	return requestJson('POST', '/api/v1/characters/create-draft', payload, 20000);
 }
 
+function buildAgentQuery(clientUid, extra) {
+	var query = ['clientUid=' + encodeURIComponent(clientUid || getClientUid())];
+	var source = extra && typeof extra === 'object' ? extra : {};
+	Object.keys(source).forEach(function (key) {
+		var value = source[key];
+		if (value !== undefined && value !== null && String(value) !== '') {
+			query.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
+		}
+	});
+	return '?' + query.join('&');
+}
+
+function fetchAgentTasks(clientUid, options) {
+	var source = options && typeof options === 'object' ? options : {};
+	return requestJson('GET', '/api/v1/agent/tasks' + buildAgentQuery(clientUid, {
+		page: source.page || 1,
+		pageSize: source.pageSize || 20,
+		status: source.status || '',
+		keyword: source.keyword || ''
+	}), null, 20000);
+}
+
+function createAgentTask(clientUid, payload) {
+	return requestJson('POST', '/api/v1/agent/tasks' + buildAgentQuery(clientUid), payload || {}, 20000);
+}
+
+function fetchAgentTask(taskId, clientUid) {
+	return requestJson('GET', '/api/v1/agent/tasks/' + encodeURIComponent(String(taskId)) + buildAgentQuery(clientUid), null, 20000);
+}
+
+function generateAgentPlan(taskId, clientUid) {
+	return requestJson('POST', '/api/v1/agent/tasks/' + encodeURIComponent(String(taskId)) + '/plan' + buildAgentQuery(clientUid), {}, 20000);
+}
+
+function approveAgentPlan(taskId, clientUid) {
+	return requestJson('POST', '/api/v1/agent/tasks/' + encodeURIComponent(String(taskId)) + '/plan/approve' + buildAgentQuery(clientUid), {}, 20000);
+}
+
+function controlAgentTask(taskId, action, clientUid) {
+	return requestJson('POST', '/api/v1/agent/tasks/' + encodeURIComponent(String(taskId)) + '/' + encodeURIComponent(String(action)) + buildAgentQuery(clientUid), {}, 20000);
+}
+
 /**
  * @param {string} path 如 '/api/v1/tavern/chat/stream'
  * @param {{ signal?: AbortSignal }} [opts]
@@ -3668,6 +3710,12 @@ module.exports = {
 	cleanupLocalCharacterArtifacts: cleanupLocalCharacterArtifacts,
 	postCharacterInteraction: postCharacterInteraction,
 	createCharacterDraft: createCharacterDraft,
+	fetchAgentTasks: fetchAgentTasks,
+	createAgentTask: createAgentTask,
+	fetchAgentTask: fetchAgentTask,
+	generateAgentPlan: generateAgentPlan,
+	approveAgentPlan: approveAgentPlan,
+	controlAgentTask: controlAgentTask,
 	saveMyCharacter: saveMyCharacter,
 	deleteMyCharacter: deleteMyCharacter,
 	uploadMyCharacterImage: uploadMyCharacterImage,

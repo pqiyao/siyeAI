@@ -104,6 +104,12 @@
 			}
 		},
 		{
+			"path": "pages/user/agentWorkbench",
+			"style": {
+				"navigationStyle": "custom"
+			}
+		},
+		{
 			"path": "pages/user/myfavorites",
 			"style": {
 				"navigationStyle": "custom",

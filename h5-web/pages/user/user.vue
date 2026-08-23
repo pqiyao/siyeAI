@@ -384,6 +384,11 @@ export default {
 					iconPath: '/static/user/u4.png'
 				},
 				{
+					key: 'agentWorkbench',
+					name: 'AI 创作工作台',
+					iconPath: '/static/user/v0.png'
+				},
+				{
 					key: 'tavern',
 					name: this.uiText.shortcutTavernName,
 					iconPath: '/static/user/u0.png'
@@ -644,8 +649,14 @@ export default {
 			});
 			// #endif
 		},
-		onActionTap(key) {
-			if (key === 'aiSettings') {
+			onActionTap(key) {
+			if (key === 'agentWorkbench') {
+				if (!this.hasToken) {
+					uni.navigateTo({ url: tavernApi.buildLoginUrl('/pages/user/agentWorkbench') });
+					return;
+				}
+				this.util.urlTo('/pages/user/agentWorkbench');
+			} else if (key === 'aiSettings') {
 				this.util.urlTo('/pages/user/aiSettings');
 			} else if (key === 'profile') {
 				this.onProfileTap();

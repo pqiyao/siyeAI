@@ -1,25 +1,54 @@
 package com.example.sillyspringboot.agent.service;
 
 import com.example.sillyspringboot.agent.mapper.AgentAdminMapper;
+import com.example.sillyspringboot.agent.security.AgentParameterHasher;
+import com.example.sillyspringboot.agent.tool.AgentEvaluationTool;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class AgentPlanService {
 
+    private static final Logger log = LoggerFactory.getLogger(AgentPlanService.class);
     private final AgentAdminMapper mapper;
     private final ObjectMapper objectMapper;
+    private final AgentEvaluationTool evaluationTool;
+    private final AgentPlannerModelService plannerModelService;
+
+    @Value("${app.agent.workflow-template-enabled:false}")
+    private boolean workflowTemplateEnabled;
 
     public AgentPlanService(AgentAdminMapper mapper, ObjectMapper objectMapper) {
+        this(mapper, objectMapper, null, null);
+    }
+
+    @Autowired
+    public AgentPlanService(
+            AgentAdminMapper mapper,
+            ObjectMapper objectMapper,
+            AgentEvaluationTool evaluationTool,
+            AgentPlannerModelService plannerModelService
+    ) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
+        this.evaluationTool = evaluationTool;
+        this.plannerModelService = plannerModelService;
     }
 
     @Transactional
@@ -36,7 +65,13 @@ public class AgentPlanService {
         }
 
         transitionTask(taskId, "DRAFT", "PLANNING");
-        List<StepDefinition> definitions = templateFor(String.valueOf(task.get("taskType")));
+        PlanSelection selection = selectPlan(task);
+        List<StepDefinition> definitions = selection.definitions();
+        validatePlan(definitions);
+        int maxSteps = Math.max(1, number(task.get("maxSteps"), 50));
+        if (definitions.size() > maxSteps) {
+            throw new IllegalArgumentException("Agent 计划步骤数超过任务 maxSteps 限制");
+        }
         String taskRisk = normalizedRisk(task.get("riskLevel"));
         String planRisk = definitions.stream()
                 .map(definition -> riskForTool(definition.toolName()))
@@ -50,9 +85,9 @@ public class AgentPlanService {
         plan.put("taskId", taskId);
         plan.put("planVersion", planVersion);
         plan.put("status", "WAITING_APPROVAL");
-        plan.put("generatedBy", "SYSTEM_TEMPLATE");
+        plan.put("generatedBy", selection.generatedBy());
         plan.put("inputHash", null);
-        plan.put("planJson", planJson(task, definitions));
+        plan.put("planJson", planJson(task, definitions, selection.generatedBy()));
         if (mapper.insertPlan(plan) != 1) {
             throw new IllegalStateException("Agent 计划创建失败");
         }
@@ -72,7 +107,9 @@ public class AgentPlanService {
             step.put("status", index == 0 ? "READY" : "BLOCKED");
             step.put("dependsOnJson", json(definition.dependsOn()));
             step.put("toolName", definition.toolName());
-            step.put("inputJson", null);
+            step.put("inputJson", definition.inputJson() == null
+                    ? inputJsonForTool(task, definition.toolName())
+                    : definition.inputJson());
             step.put("maxAttempts", maxAttempts);
             step.put("riskLevel", maxRisk(taskRisk, riskForTool(definition.toolName())));
             step.put("sortOrder", index + 1);
@@ -98,12 +135,15 @@ public class AgentPlanService {
         approval.put("reason", "Agent 计划需要人工审批");
         approval.put("targetSummary", shortText(task.get("title"), task.get("objective"), 4_000));
         approval.put("parameterHash", null);
-        approval.put("expiresAt", null);
+        approval.put("expiresAt", LocalDateTime.now().plusMinutes(30));
         if (mapper.insertApproval(approval) != 1) {
             throw new IllegalStateException("Agent 计划审批记录创建失败");
         }
         transitionTask(taskId, "PLANNING", "WAITING_APPROVAL");
         insertEvent(taskId, "PLAN_CREATED", "Agent 计划已生成，等待审批");
+        if ("MODEL_PROPOSAL".equals(selection.generatedBy())) {
+            insertEvent(taskId, "PLAN_MODEL_PROPOSAL", "Agent 计划来自受控模型提案，已完成服务端校验");
+        }
         insertEvent(taskId, "PLAN_APPROVAL_REQUIRED", "Agent 计划需要人工审批");
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -123,6 +163,7 @@ public class AgentPlanService {
         if ("TOOL".equalsIgnoreCase(String.valueOf(approval.get("approvalType")))) {
             return approveToolApproval(approval, reviewerId, decisionComment);
         }
+        requirePendingApproval(approval);
         requirePlanApproval(approval);
         return approve(idOf(approval, "审批任务", "taskId"), reviewerId, approvalId, decisionComment);
     }
@@ -133,10 +174,8 @@ public class AgentPlanService {
         if ("TOOL".equalsIgnoreCase(String.valueOf(approval.get("approvalType")))) {
             return rejectToolApproval(approval, reviewerId, decisionComment);
         }
+        requirePendingApproval(approval);
         requirePlanApproval(approval);
-        if (!"PENDING".equals(String.valueOf(approval.get("status")))) {
-            throw new IllegalArgumentException("审批记录已处理");
-        }
         long taskId = idOf(approval, "审批任务", "taskId");
         Map<String, Object> task = requireTask(taskId);
         requireStatus(task, "WAITING_APPROVAL", "当前任务不在计划审批状态");
@@ -265,7 +304,28 @@ public class AgentPlanService {
         requirePendingApproval(approval);
         long taskId = idOf(approval, "工具审批任务", "taskId");
         long stepId = idOf(approval, "工具审批步骤", "stepId");
-        requireStatus(requireTask(taskId), "WAITING_CONFIRMATION", "当前任务不在工具确认状态");
+        Map<String, Object> task = requireTask(taskId);
+        requireStatus(task, "WAITING_CONFIRMATION", "当前任务不在工具确认状态");
+        List<Map<String, Object>> taskSteps = mapper.listSteps(taskId);
+        Map<String, Object> step = taskSteps == null ? null : taskSteps.stream()
+                .filter(row -> idOf(row, "工具审批步骤", "id") == stepId)
+                .findFirst()
+                .orElse(null);
+        if (step == null) {
+            throw new IllegalArgumentException("工具审批步骤不存在");
+        }
+        String expectedHash = String.valueOf(approval.getOrDefault("parameterHash", "")).trim();
+        String actualHash = AgentParameterHasher.hash(
+                objectMapper,
+                String.valueOf(step.getOrDefault("toolName", "")),
+                String.valueOf(step.getOrDefault("agentRole", "")),
+                String.valueOf(step.getOrDefault("inputJson", "")),
+                String.valueOf(task.getOrDefault("objective", "")),
+                String.valueOf(task.getOrDefault("constraintsJson", ""))
+        );
+        if (expectedHash.isBlank() || !expectedHash.equals(actualHash)) {
+            throw new IllegalArgumentException("工具审批参数已变化或缺少参数指纹，请重新生成审批");
+        }
         if (mapper.updateApprovalStatus(idOf(approval, "工具审批"), "PENDING", "APPROVED", reviewerId,
                 decisionComment(decisionComment, "工具执行已批准")) != 1
                 || mapper.approveToolStep(stepId) != 1
@@ -288,20 +348,58 @@ public class AgentPlanService {
             throw new IllegalStateException("工具审批状态已变化，请刷新后重试");
         }
         insertEvent(taskId, "APPROVAL_REJECTED", "工具执行审批已拒绝");
+        saveEvaluationAfterTerminalTransition(taskId);
         return Map.of("approval", mapper.findApproval(idOf(approval, "工具审批")), "task", mapper.findTask(taskId));
+    }
+
+    private void saveEvaluationAfterTerminalTransition(long taskId) {
+        if (evaluationTool == null) {
+            return;
+        }
+        try {
+            evaluationTool.saveArtifact(taskId, 0L, mapper.findTask(taskId));
+        } catch (RuntimeException e) {
+            log.warn("Agent 审批拒绝后的评估产物保存失败，taskId={}", taskId, e);
+        }
     }
 
     private static void requirePendingApproval(Map<String, Object> approval) {
         if (!"PENDING".equalsIgnoreCase(String.valueOf(approval.get("status")))) {
             throw new IllegalArgumentException("审批记录已处理");
         }
+        Object expiresAt = approval.get("expiresAt");
+        if (expiresAt != null && !String.valueOf(expiresAt).isBlank()) {
+            try {
+                String value = String.valueOf(expiresAt).trim().replace(' ', 'T');
+                if (LocalDateTime.parse(value).isBefore(LocalDateTime.now())) {
+                    throw new IllegalArgumentException("审批已过期，请重新生成审批");
+                }
+            } catch (IllegalArgumentException ex) {
+                throw ex;
+            } catch (Exception ex) {
+                throw new IllegalArgumentException("审批过期时间格式无效");
+            }
+        }
     }
 
-    private String planJson(Map<String, Object> task, List<StepDefinition> definitions) {
+    private String planJson(Map<String, Object> task, List<StepDefinition> definitions, String generatedBy) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("schemaVersion", 1);
         payload.put("taskType", task.get("taskType"));
-        payload.put("generatedBy", "SYSTEM_TEMPLATE");
+        payload.put("generatedBy", generatedBy);
+        String workflowKey = requestedWorkflowKey(task.get("constraintsJson"));
+        if ("WORKFLOW_TEMPLATE".equals(generatedBy)) {
+            Map<String, Object> template = mapper.findEnabledWorkflowTemplateForExecution(
+                    String.valueOf(task.get("taskType")), workflowKey);
+            if (template != null) {
+                payload.put("workflowId", template.get("id"));
+                payload.put("workflowKey", template.get("workflowKey"));
+                payload.put("workflowVersion", template.get("version"));
+                payload.put("failurePolicy", template.get("failurePolicy"));
+            }
+        } else if (workflowKey != null) {
+            payload.put("workflowKey", workflowKey);
+        }
         List<Map<String, Object>> steps = new ArrayList<>();
         for (int index = 0; index < definitions.size(); index++) {
             StepDefinition definition = definitions.get(index);
@@ -312,6 +410,9 @@ public class AgentPlanService {
             item.put("stepType", definition.stepType());
             item.put("toolName", definition.toolName());
             item.put("dependsOn", definition.dependsOn());
+            if (definition.inputJson() != null) {
+                item.put("inputJson", definition.inputJson());
+            }
             item.put("order", index + 1);
             steps.add(item);
         }
@@ -379,7 +480,8 @@ public class AgentPlanService {
 
     private static String riskForTool(String toolName) {
         return switch (toolName == null ? "" : toolName) {
-            case "worldbook.create", "character.sync_st" -> "EXTERNAL_SIDE_EFFECT";
+            case "worldbook.create", "character.sync_st", "mcp.call", "code.run", "user.ticket.reply", "user.account.credit", "content.moderation.action" -> "EXTERNAL_SIDE_EFFECT";
+            case "agent.handoff" -> "WRITE_REVERSIBLE";
             case "character.create", "character.publish", "story.create_outline", "story.write_chapter", "story.revise", "image.generate", "tts.generate", "artifact.render_html", "artifact.render_report", "artifact.package_zip" -> "WRITE_REVERSIBLE";
             default -> "READ_ONLY";
         };
@@ -406,6 +508,391 @@ public class AgentPlanService {
             default -> -1;
         };
     }
+
+    private PlanSelection selectPlan(Map<String, Object> task) {
+        String taskType = String.valueOf(task.get("taskType")).trim().toUpperCase();
+        List<StepDefinition> configured = configuredTemplate(taskType, task);
+        if (configured != null) {
+            return new PlanSelection(configured, "WORKFLOW_TEMPLATE");
+        }
+        if ("GENERAL".equals(taskType)) {
+            List<StepDefinition> proposal = modelProposal(task.get("constraintsJson"));
+            if (proposal == null && plannerModelService != null) {
+                try {
+                    proposal = modelProposal(plannerModelService.propose(task));
+                } catch (IllegalArgumentException ex) {
+                    log.warn("Agent Planner 模型提案未通过解析，回退固定模板: {}", ex.getMessage());
+                }
+            }
+            if (proposal != null) {
+                return new PlanSelection(proposal, "MODEL_PROPOSAL");
+            }
+        }
+        List<StepDefinition> fixed = templateFor(taskType);
+        if (!"GENERAL".equals(taskType)) {
+            return new PlanSelection(fixed, "SYSTEM_TEMPLATE");
+        }
+        String objective = String.valueOf(task.get("objective")).toLowerCase();
+        if (containsAny(objective, "巡检", "健康检查", "jvm", "磁盘", "git")) {
+            return new PlanSelection(templateFor("SYSTEM_INSPECTION"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "统计", "分析", "趋势", "报表", "运营")) {
+            if (containsAny(objective, "系统运营", "运营优化", "生产环境报告", "系统与运营")) {
+                return new PlanSelection(templateFor("OPERATIONS_REVIEW"), "RULE_BASED_PLANNER");
+            }
+            return new PlanSelection(templateFor("DATA_ANALYSIS"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "发布角色", "发布角色卡")) {
+            return new PlanSelection(templateFor("CHARACTER_PUBLISH"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "同步角色", "同步到 sillytavern", "同步到st")) {
+            return new PlanSelection(templateFor("CHARACTER_SYNC"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "网页搜索", "web search", "搜索网页", "查资料")) {
+            return new PlanSelection(templateFor("WEB_SEARCH"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "浏览网页", "browser", "打开网页", "读取页面")) {
+            return new PlanSelection(templateFor("BROWSER_OPEN"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "api请求", "api request", "外部接口", "接口查询")) {
+            return new PlanSelection(templateFor("API_REQUEST"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "mcp", "模型上下文协议")) {
+            return new PlanSelection(templateFor("MCP_CALL"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "代码执行", "运行python", "code runner")) {
+            return new PlanSelection(templateFor("CODE_RUN"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "用户资料", "用户画像")) {
+            return new PlanSelection(templateFor("USER_PROFILE"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "用户账户", "订单余额", "钱包余额")) {
+            if (containsAny(objective, "补发", "充值", "加余额", "加款")) {
+                return new PlanSelection(templateFor("USER_ACCOUNT_CREDIT"), "RULE_BASED_PLANNER");
+            }
+            return new PlanSelection(templateFor("USER_ACCOUNT"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "回复工单", "工单回复", "客服回复")) {
+            return new PlanSelection(templateFor("USER_TICKET_REPLY"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "用户工单", "客服工单")) {
+            return new PlanSelection(templateFor("USER_TICKET"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "用户风险", "异常用户", "风险设备")) {
+            return new PlanSelection(templateFor("USER_RISK"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "内容审核", "角色审核", "违规内容")) {
+            if (containsAny(objective, "审核通过", "审核驳回", "下架审核", "修改审核状态")) {
+                return new PlanSelection(templateFor("CONTENT_MODERATION_ACTION"), "RULE_BASED_PLANNER");
+            }
+            return new PlanSelection(templateFor("CONTENT_MODERATION"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "协作交接", "handoff", "多 agent", "多agent")) {
+            return new PlanSelection(templateFor("COLLABORATION"), "RULE_BASED_PLANNER");
+        }
+        return new PlanSelection(fixed, "SYSTEM_TEMPLATE");
+    }
+
+    private List<StepDefinition> configuredTemplate(String taskType, Map<String, Object> task) {
+        if (!workflowTemplateEnabled || taskType == null || taskType.isBlank()) {
+            return null;
+        }
+        String requestedWorkflowKey = requestedWorkflowKey(task.get("constraintsJson"));
+        Map<String, Object> template = mapper.findEnabledWorkflowTemplateForExecution(taskType, requestedWorkflowKey);
+        if (requestedWorkflowKey != null && template == null) {
+            throw new IllegalArgumentException("请求的 Agent 工作流不存在、未启用或与任务类型不匹配: " + requestedWorkflowKey);
+        }
+        if (template == null) {
+            return null;
+        }
+        String rawSteps = String.valueOf(template.get("stepsJson"));
+        try {
+            JsonNode steps = objectMapper.readTree(rawSteps);
+            if (steps == null || !steps.isArray() || steps.isEmpty()) {
+                throw new IllegalArgumentException("工作流模板 stepsJson 必须是非空数组");
+            }
+            List<StepDefinition> definitions = new ArrayList<>();
+            for (JsonNode node : steps) {
+                if (node == null || !node.isObject()) {
+                    throw new IllegalArgumentException("工作流模板步骤必须是对象");
+                }
+                String key = boundedNodeText(node.get("key"), 100, "工作流步骤 key");
+                String name = boundedNodeText(node.get("name"), 255, "工作流步骤名称");
+                String role = boundedNodeText(node.get("agentRole"), 80, "工作流步骤角色");
+                String type = boundedNodeText(node.get("stepType"), 64, "工作流步骤类型");
+                String tool = boundedNodeText(node.get("toolName"), 160, "工作流步骤工具");
+                JsonNode depends = node.get("dependsOn");
+                if (depends == null || !depends.isArray()) {
+                    throw new IllegalArgumentException("工作流步骤必须声明 dependsOn 数组");
+                }
+                List<String> dependencies = new ArrayList<>();
+                for (JsonNode dependency : depends) {
+                    dependencies.add(boundedNodeText(dependency, 100, "工作流步骤依赖"));
+                }
+                JsonNode input = node.get("inputJson");
+                String inputJson = null;
+                if (input != null && !input.isNull()) {
+                    inputJson = input.isTextual() ? input.textValue() : objectMapper.writeValueAsString(input);
+                    objectMapper.readTree(inputJson);
+                }
+                definitions.add(new StepDefinition(key, name, role, type, tool, dependencies, inputJson));
+            }
+            Set<String> allowedTools = templateStringSet(template.get("allowedToolsJson"), "工作流工具白名单");
+            Set<String> allowedRoles = templateStringSet(template.get("allowedRolesJson"), "工作流角色白名单");
+            int maxSteps = Math.max(1, Math.min(32, number(template.get("maxSteps"), 32)));
+            if (definitions.size() > maxSteps) {
+                throw new IllegalArgumentException("工作流模板步骤数超过模板 maxSteps 限制");
+            }
+            for (StepDefinition definition : definitions) {
+                if (!allowedTools.contains(definition.toolName())) {
+                    throw new IllegalArgumentException("工作流步骤工具不在模板白名单: " + definition.toolName());
+                }
+                if (!allowedRoles.contains(definition.agentRole())) {
+                    throw new IllegalArgumentException("工作流步骤角色不在模板白名单: " + definition.agentRole());
+                }
+            }
+            validatePlan(definitions);
+            applyTemplateLimits(task, maxSteps, template);
+            return definitions;
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("工作流模板 stepsJson 无效", ex);
+        }
+    }
+
+    private void applyTemplateLimits(Map<String, Object> task, int templateMaxSteps, Map<String, Object> template) {
+        long taskId = idOf(task, "任务");
+        int taskMaxSteps = Math.max(1, number(task.get("maxSteps"), 32));
+        int taskMaxRuntime = Math.max(1, number(task.get("maxRuntimeSeconds"), 3600));
+        long taskMaxTokens = longNumber(task.get("maxTokens"), 100_000_000L);
+        BigDecimal taskMaxCost = decimal(task.get("maxCost"), BigDecimal.ZERO);
+        int effectiveSteps = Math.min(taskMaxSteps, Math.max(1, templateMaxSteps));
+        int effectiveRuntime = Math.min(taskMaxRuntime, Math.max(1, number(template.get("maxRuntimeSeconds"), taskMaxRuntime)));
+        long configuredTokens = longNumber(template.get("maxTokens"), 0L);
+        long effectiveTokens = configuredTokens > 0 ? Math.min(taskMaxTokens, configuredTokens) : taskMaxTokens;
+        BigDecimal configuredCost = decimal(template.get("maxCost"), BigDecimal.ZERO);
+        BigDecimal effectiveCost = configuredCost.signum() > 0 ? taskMaxCost.min(configuredCost) : taskMaxCost;
+        if (mapper.updateTaskExecutionLimits(taskId, effectiveSteps, effectiveRuntime, effectiveTokens, effectiveCost) != 1) {
+            throw new IllegalStateException("工作流模板执行边界写入失败");
+        }
+        task.put("maxSteps", effectiveSteps);
+        task.put("maxRuntimeSeconds", effectiveRuntime);
+        task.put("maxTokens", effectiveTokens);
+        task.put("maxCost", effectiveCost);
+    }
+
+    private static long longNumber(Object value, long fallback) {
+        if (value instanceof Number number) return number.longValue();
+        try { return value == null ? fallback : Long.parseLong(String.valueOf(value)); }
+        catch (Exception ignored) { return fallback; }
+    }
+
+    private static BigDecimal decimal(Object value, BigDecimal fallback) {
+        try { return value == null ? fallback : new BigDecimal(String.valueOf(value)); }
+        catch (Exception ignored) { return fallback; }
+    }
+
+    private String requestedWorkflowKey(Object rawConstraints) {
+        if (rawConstraints == null || String.valueOf(rawConstraints).isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(String.valueOf(rawConstraints));
+            JsonNode value = root == null ? null : root.get("workflowKey");
+            if (value == null || value.isNull()) {
+                return null;
+            }
+            if (!value.isTextual()) {
+                throw new IllegalArgumentException("constraints.workflowKey 必须是字符串");
+            }
+            String key = value.textValue().trim();
+            if (key.isBlank() || key.length() > 80 || !key.matches("[a-z0-9][a-z0-9._-]{1,79}")) {
+                throw new IllegalArgumentException("constraints.workflowKey 格式无效");
+            }
+            return key;
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("任务 constraints JSON 无效", ex);
+        }
+    }
+
+    private Set<String> templateStringSet(Object raw, String label) throws JsonProcessingException {
+        if (raw == null || String.valueOf(raw).isBlank()) {
+            throw new IllegalArgumentException(label + "不能为空");
+        }
+        JsonNode node = objectMapper.readTree(String.valueOf(raw));
+        if (node == null || !node.isArray() || node.isEmpty()) {
+            throw new IllegalArgumentException(label + "必须是非空 JSON 数组");
+        }
+        Set<String> values = new HashSet<>();
+        for (JsonNode value : node) {
+            if (value == null || !value.isTextual() || value.textValue().isBlank()) {
+                throw new IllegalArgumentException(label + "包含无效项");
+            }
+            values.add(value.textValue().trim());
+        }
+        return values;
+    }
+
+    /** Parses a model-produced candidate without granting it direct execution authority. */
+    private List<StepDefinition> modelProposal(Object rawConstraints) {
+        if (rawConstraints == null || String.valueOf(rawConstraints).isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(String.valueOf(rawConstraints));
+            JsonNode proposal = root == null ? null : root.get("plannerProposal");
+            if (proposal == null || proposal.isNull()) {
+                return null;
+            }
+            if (!proposal.isObject()) {
+                throw new IllegalArgumentException("plannerProposal 必须是 JSON 对象");
+            }
+            JsonNode steps = proposal.get("steps");
+            if (steps == null || !steps.isArray() || steps.isEmpty()) {
+                throw new IllegalArgumentException("plannerProposal.steps 不能为空");
+            }
+            List<StepDefinition> definitions = new ArrayList<>();
+            for (JsonNode node : steps) {
+                if (node == null || !node.isObject()) {
+                    throw new IllegalArgumentException("模型计划步骤必须是对象");
+                }
+                String key = boundedNodeText(node.get("key"), 100, "步骤 key");
+                String name = boundedNodeText(node.get("name"), 255, "步骤名称");
+                String role = boundedNodeText(node.get("agentRole"), 80, "Agent 角色");
+                String type = boundedNodeText(node.get("stepType"), 64, "步骤类型");
+                String tool = boundedNodeText(node.get("toolName"), 160, "工具名称");
+                JsonNode depends = node.get("dependsOn");
+                if (depends == null || !depends.isArray()) {
+                    throw new IllegalArgumentException("模型计划步骤必须声明 dependsOn 数组");
+                }
+                List<String> dependencies = new ArrayList<>();
+                for (JsonNode dependency : depends) {
+                    String dependencyKey = boundedNodeText(dependency, 100, "步骤依赖");
+                    dependencies.add(dependencyKey);
+                }
+                JsonNode input = node.get("inputJson");
+                String inputJson = null;
+                if (input != null && !input.isNull()) {
+                    inputJson = input.isTextual() ? input.textValue() : objectMapper.writeValueAsString(input);
+                    objectMapper.readTree(inputJson);
+                    if (inputJson.length() > 60_000) {
+                        throw new IllegalArgumentException("模型计划步骤 inputJson 过长");
+                    }
+                }
+                definitions.add(new StepDefinition(key, name, role, type, tool, dependencies, inputJson));
+            }
+            validatePlan(definitions);
+            return definitions;
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("plannerProposal JSON 无效", ex);
+        }
+    }
+
+    private static String boundedNodeText(JsonNode node, int maxLength, String label) {
+        if (node == null || !node.isTextual()) {
+            throw new IllegalArgumentException(label + "不能为空");
+        }
+        String value = node.textValue() == null ? "" : node.textValue().trim();
+        if (value.isBlank() || value.length() > maxLength) {
+            throw new IllegalArgumentException(label + "长度无效");
+        }
+        return value;
+    }
+
+    private String inputJsonForTool(Map<String, Object> task, String toolName) {
+        if (!constraintInputTools().contains(toolName)) {
+            return null;
+        }
+        Object raw = task.get("constraintsJson");
+        if (raw == null || String.valueOf(raw).isBlank()) {
+            return "{}";
+        }
+        String value = String.valueOf(raw).trim();
+        try {
+            objectMapper.readTree(value);
+            return value;
+        } catch (JsonProcessingException ex) {
+            throw new IllegalArgumentException("任务 constraints 必须是有效 JSON", ex);
+        }
+    }
+
+    private static Set<String> constraintInputTools() {
+        return Set.of(
+                "api.request", "web.search", "browser.open", "mcp.call", "code.run",
+                "user.profile.query", "user.account.query", "user.account.credit", "user.ticket.query", "user.ticket.reply",
+                "user.risk.query", "content.moderation.review", "content.moderation.action", "agent.handoff"
+        );
+    }
+
+    private static boolean containsAny(String value, String... terms) {
+        for (String term : terms) {
+            if (value.contains(term)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void validatePlan(List<StepDefinition> definitions) {
+        if (definitions.isEmpty() || definitions.size() > 32) {
+            throw new IllegalArgumentException("Agent 计划步骤数必须在 1 到 32 之间");
+        }
+        Set<String> keys = new HashSet<>();
+        Set<String> tools = allowedTools();
+        for (StepDefinition definition : definitions) {
+            if (!keys.add(definition.key())) {
+                throw new IllegalArgumentException("Agent 计划包含重复步骤: " + definition.key());
+            }
+            if (!tools.contains(definition.toolName())) {
+                throw new IllegalArgumentException("Agent 计划包含未注册工具: " + definition.toolName());
+            }
+        }
+        for (StepDefinition definition : definitions) {
+            for (String dependency : definition.dependsOn()) {
+                if (!keys.contains(dependency) || dependency.equals(definition.key())) {
+                    throw new IllegalArgumentException("Agent 计划依赖无效: " + definition.key() + " -> " + dependency);
+                }
+            }
+        }
+        for (StepDefinition definition : definitions) {
+            if (hasDependencyCycle(definition.key(), definitions, new HashSet<>(), new HashSet<>())) {
+                throw new IllegalArgumentException("Agent 计划存在循环依赖");
+            }
+        }
+    }
+
+    private static boolean hasDependencyCycle(String key, List<StepDefinition> definitions,
+                                               Set<String> visiting, Set<String> visited) {
+        if (visited.contains(key)) {
+            return false;
+        }
+        if (!visiting.add(key)) {
+            return true;
+        }
+        StepDefinition current = definitions.stream()
+                .filter(definition -> definition.key().equals(key))
+                .findFirst()
+                .orElseThrow();
+        for (String dependency : current.dependsOn()) {
+            if (hasDependencyCycle(dependency, definitions, visiting, visited)) {
+                return true;
+            }
+        }
+        visiting.remove(key);
+        visited.add(key);
+        return false;
+    }
+
+    private static Set<String> allowedTools() {
+        return Set.of(
+                "planner.analyze", "worldbook.create", "character.create", "character.validate",
+                "character.publish", "character.sync_st", "story.create_outline", "story.write_chapter",
+                "story.check_continuity", "story.revise", "image.generate", "tts.generate",
+                "artifact.render_html", "artifact.package_zip", "analytics.query", "analytics.review",
+                "artifact.render_report", "artifact.evaluate", "content.moderation.review", "content.moderation.action", "user.profile.query", "user.ticket.query", "user.ticket.reply", "user.account.query", "user.account.credit", "user.risk.query", "agent.handoff", "system.health_check", "api.request", "web.search", "browser.open", "mcp.call", "code.run"
+        );
+    }
+
+    private record PlanSelection(List<StepDefinition> definitions, String generatedBy) {}
 
     private static List<StepDefinition> templateFor(String taskType) {
         return switch (taskType == null ? "GENERAL" : taskType.trim().toUpperCase()) {
@@ -435,6 +922,13 @@ public class AgentPlanService {
                     step("inspect", "执行只读检查", "DevOps Inspector", "INSPECTION", "system.health_check", List.of("scope")),
                     step("report", "检查报告", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("inspect"))
             );
+            case "OPERATIONS_REVIEW" -> List.of(
+                    step("requirements", "确定系统与运营检查范围", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("analytics", "读取运营指标", "Data Analyst", "ANALYSIS", "analytics.query", List.of("requirements")),
+                    step("inspect", "执行系统健康检查", "DevOps Inspector", "INSPECTION", "system.health_check", List.of("requirements")),
+                    step("analytics_review", "复核运营指标", "Reviewer", "REVIEW", "analytics.review", List.of("analytics")),
+                    step("report", "生成系统与运营报告", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("analytics_review", "inspect"))
+            );
             case "CHARACTER_PUBLISH" -> List.of(
                     step("requirements", "确认发布目标", "Planner", "PLANNING", "planner.analyze", List.of()),
                     step("publish", "发布角色", "Reviewer", "CONTENT", "character.publish", List.of("requirements"))
@@ -442,6 +936,56 @@ public class AgentPlanService {
             case "CHARACTER_SYNC" -> List.of(
                     step("requirements", "确认同步目标", "Planner", "PLANNING", "planner.analyze", List.of()),
                     step("sync", "同步角色卡", "Delivery Agent", "DELIVERY", "character.sync_st", List.of("requirements"))
+            );
+            case "WEB_SEARCH" -> List.of(
+                    step("requirements", "确认搜索需求", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("search", "执行网页搜索", "Researcher", "RESEARCH", "web.search", List.of("requirements")),
+                    step("report", "整理搜索结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("search"))
+            );
+            case "BROWSER_OPEN" -> List.of(
+                    step("requirements", "确认网页读取需求", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("open", "读取网页内容", "Researcher", "RESEARCH", "browser.open", List.of("requirements")),
+                    step("report", "整理页面结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("open"))
+            );
+            case "API_REQUEST" -> List.of(
+                    step("requirements", "确认接口查询需求", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("request", "执行白名单接口请求", "Integration Agent", "RESEARCH", "api.request", List.of("requirements")),
+                    step("report", "整理接口结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("request"))
+            );
+            case "MCP_CALL" -> List.of(
+                    step("requirements", "确认 MCP 调用需求", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("call", "执行受控 MCP 调用", "Integration Agent", "EXTERNAL", "mcp.call", List.of("requirements")),
+                    step("report", "整理 MCP 结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("call"))
+            );
+            case "CODE_RUN" -> List.of(
+                    step("requirements", "确认代码执行需求", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("run", "执行隔离代码", "Code Runner", "EXECUTION", "code.run", List.of("requirements")),
+                    step("report", "整理代码结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("run"))
+            );
+            case "USER_PROFILE" -> userQueryTemplate("user.profile.query", "读取用户资料", "Operations Agent");
+            case "USER_ACCOUNT" -> userQueryTemplate("user.account.query", "读取用户账户", "Operations Agent");
+            case "USER_ACCOUNT_CREDIT" -> List.of(
+                    step("requirements", "确认钱包补发需求", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("credit", "审批后补发钱包余额", "Finance Agent", "OPERATIONS", "user.account.credit", List.of("requirements")),
+                    step("report", "整理补发结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("credit"))
+            );
+            case "USER_TICKET" -> userQueryTemplate("user.ticket.query", "读取用户工单", "Support Agent");
+            case "USER_TICKET_REPLY" -> List.of(
+                    step("requirements", "确认回复内容", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("reply", "回复用户工单", "Support Agent", "OPERATIONS", "user.ticket.reply", List.of("requirements")),
+                    step("report", "整理回复结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("reply"))
+            );
+            case "USER_RISK" -> userQueryTemplate("user.risk.query", "读取用户风险", "Risk Agent");
+            case "CONTENT_MODERATION" -> userQueryTemplate("content.moderation.review", "复核角色内容", "Moderator");
+            case "CONTENT_MODERATION_ACTION" -> List.of(
+                    step("requirements", "确认审核决定", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("moderate", "审批后更新角色审核状态", "Moderator", "MODERATION", "content.moderation.action", List.of("requirements")),
+                    step("report", "整理审核结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("moderate"))
+            );
+            case "COLLABORATION" -> List.of(
+                    step("requirements", "确认协作目标", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("handoff", "执行角色交接", "Coordinator", "COLLABORATION", "agent.handoff", List.of("requirements")),
+                    step("report", "整理协作结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("handoff"))
             );
             default -> List.of(
                     step("requirements", "分析任务目标", "Planner", "PLANNING", "planner.analyze", List.of()),
@@ -451,7 +995,15 @@ public class AgentPlanService {
     }
 
     private static StepDefinition step(String key, String name, String role, String type, String tool, List<String> dependsOn) {
-        return new StepDefinition(key, name, role, type, tool, dependsOn);
+        return new StepDefinition(key, name, role, type, tool, dependsOn, null);
+    }
+
+    private static List<StepDefinition> userQueryTemplate(String tool, String name, String role) {
+        return List.of(
+                step("requirements", "确认查询范围", "Planner", "PLANNING", "planner.analyze", List.of()),
+                step("query", name, role, "QUERY", tool, List.of("requirements")),
+                step("report", "整理查询结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("query"))
+        );
     }
 
     private record StepDefinition(
@@ -460,6 +1012,7 @@ public class AgentPlanService {
             String agentRole,
             String stepType,
             String toolName,
-            List<String> dependsOn
+            List<String> dependsOn,
+            String inputJson
     ) {}
 }

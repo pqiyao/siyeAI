@@ -32,7 +32,11 @@ public interface AdminDashboardMapper {
 
     long totalPaidOrders();
 
+    long paidOrdersRecent(@Param("days") int days);
+
     long totalRevenueCents();
+
+    long revenueCentsRecent(@Param("days") int days);
 
     List<Map<String, Object>> generationTrend(@Param("days") Integer days);
 

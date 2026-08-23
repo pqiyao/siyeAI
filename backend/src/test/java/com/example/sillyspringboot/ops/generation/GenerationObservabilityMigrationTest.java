@@ -162,7 +162,15 @@ class GenerationObservabilityMigrationTest {
                         + "AND column_name IN ('visual_prompt', 'visual_negative_prompt')",
                 Integer.class
         ));
-        assertEquals("137", jdbc.queryForObject(
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'app_agent_role_definition'",
+                Integer.class
+        ));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'app_agent_config_audit'",
+                Integer.class
+        ));
+        assertEquals("157", jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class
         ));

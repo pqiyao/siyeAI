@@ -43,6 +43,31 @@
         </el-card>
       </el-col>
     </el-row>
+    <el-row :gutter="16">
+      <el-col :xs="24" :lg="12">
+        <el-card shadow="never" class="panel-card">
+          <template #header><div class="panel-title"><span>平台告警</span><el-tag size="small" :type="alertTagType">{{ alerts.length }} 条</el-tag></div></template>
+          <el-empty v-if="!alerts.length" description="暂无告警" :image-size="52" />
+          <div v-else class="alert-list">
+            <div v-for="item in alerts" :key="`${item.code}-${item.message}`" class="alert-item">
+              <el-tag size="small" :type="alertType(item.severity)">{{ item.severity }}</el-tag>
+              <div><strong>{{ item.code }}</strong><p>{{ item.message }}</p></div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :lg="12">
+        <el-card shadow="never" class="panel-card">
+          <template #header><div class="panel-title"><span>工具与外部连接</span><el-tag size="small" type="info">只读状态</el-tag></div></template>
+          <div class="readiness-grid">
+            <div v-for="item in readinessItems" :key="item.label" class="readiness-item">
+              <span>{{ item.label }}</span><el-tag size="small" :type="item.ready ? 'success' : 'warning'">{{ item.ready ? '已配置' : '未配置' }}</el-tag>
+            </div>
+          </div>
+          <p class="panel-note">状态仅表示配置就绪，不代表已通过真实供应商验收；执行仍受白名单、风险和审批约束。</p>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
@@ -51,6 +76,21 @@ import { getAgentOverview } from '@/api/jiugai/agentTask'
 
 const loading = ref(false)
 const overview = ref({})
+const alerts = computed(() => Array.isArray(overview.value.alerts) ? overview.value.alerts : [])
+const alertTagType = computed(() => alerts.value.some(item => item.severity === 'CRITICAL') ? 'danger' : alerts.value.some(item => item.severity === 'WARNING') ? 'warning' : 'success')
+const alertType = (severity) => severity === 'CRITICAL' ? 'danger' : severity === 'WARNING' ? 'warning' : 'info'
+const readinessItems = computed(() => {
+  const external = overview.value.externalReadiness || {}
+  const tools = overview.value.toolReadiness || {}
+  return [
+    { label: '启用工具', ready: Number(tools.enabledTools || 0) > 0 },
+    { label: 'API 请求', ready: !!external.apiRequest },
+    { label: 'Web Search', ready: !!external.webSearch },
+    { label: 'Browser', ready: !!external.browser },
+    { label: 'MCP', ready: !!external.mcp },
+    { label: 'Code Runner', ready: !!external.codeRunner }
+  ]
+})
 
 const metrics = computed(() => [
   { label: '今日任务', value: overview.value.todayTasks ?? 0, note: `累计任务 ${overview.value.totalTasks ?? 0}` },
@@ -110,6 +150,14 @@ onMounted(load)
 .status-dot--danger { background: #f56c6c; }
 .capability-list div { display: flex; flex-direction: column; gap: 4px; }
 .capability-list span { color: #6b7280; font-size: 13px; }
+.alert-list { display: grid; gap: 12px; }
+.alert-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f0f2f5; }
+.alert-item:last-child { border-bottom: 0; }
+.alert-item strong { font-size: 13px; }
+.alert-item p { margin: 4px 0 0; color: #6b7280; font-size: 13px; }
+.readiness-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.readiness-item { display: flex; align-items: center; justify-content: space-between; padding: 10px; background: #f8fafc; border-radius: 4px; }
+.panel-note { margin: 16px 0 0; color: #909399; font-size: 12px; line-height: 1.5; }
 @media (max-width: 900px) { .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .metric-grid { grid-template-columns: 1fr; } .page-heading { flex-direction: column; } }
 </style>

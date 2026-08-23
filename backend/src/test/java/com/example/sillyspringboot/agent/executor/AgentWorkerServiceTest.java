@@ -66,7 +66,7 @@ class AgentWorkerServiceTest {
                 new AgentBuiltinToolExecutor.ToolResult("{\"ok\":true}", "done")
         );
         when(mapper.completeStep(eq(11L), anyString(), anyString(), eq("done"))).thenReturn(1);
-        when(mapper.findNextBlockedStep(7L)).thenReturn(Map.of("stepId", 12L));
+        when(mapper.findReadyBlockedSteps(7L)).thenReturn(List.of(Map.of("stepId", 12L)));
         when(mapper.promoteStep(12L)).thenReturn(1);
 
         worker.dispatchReadySteps();

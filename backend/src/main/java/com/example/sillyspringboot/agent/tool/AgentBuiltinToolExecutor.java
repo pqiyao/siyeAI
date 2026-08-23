@@ -24,6 +24,21 @@ public class AgentBuiltinToolExecutor {
     private final AgentAnalyticsTool analyticsTool;
     private final AgentSystemInspectionTool systemInspectionTool;
     private final AgentReportTool reportTool;
+    private final AgentApiRequestTool apiRequestTool;
+    private final AgentWebSearchTool webSearchTool;
+    private final AgentMcpCallTool mcpCallTool;
+    private final AgentCodeRunnerTool codeRunnerTool;
+    private final AgentEvaluationTool evaluationTool;
+    private final AgentUserTicketQueryTool userTicketQueryTool;
+    private final AgentUserAccountQueryTool userAccountQueryTool;
+    private final AgentCollaborationTool collaborationTool;
+    private final AgentUserProfileQueryTool userProfileQueryTool;
+    private final AgentUserRiskQueryTool userRiskQueryTool;
+    private final AgentContentModerationTool contentModerationTool;
+    private final AgentBrowserOpenTool browserOpenTool;
+    private final AgentUserTicketReplyTool userTicketReplyTool;
+    private final AgentUserAccountCreditTool userAccountCreditTool;
+    private final AgentContentModerationActionTool contentModerationActionTool;
 
     public AgentBuiltinToolExecutor(
             ObjectMapper objectMapper,
@@ -39,7 +54,22 @@ public class AgentBuiltinToolExecutor {
             AgentPackageTool packageTool,
             AgentAnalyticsTool analyticsTool,
             AgentSystemInspectionTool systemInspectionTool,
-            AgentReportTool reportTool
+            AgentReportTool reportTool,
+            AgentApiRequestTool apiRequestTool,
+            AgentWebSearchTool webSearchTool,
+            AgentMcpCallTool mcpCallTool,
+            AgentCodeRunnerTool codeRunnerTool,
+            AgentEvaluationTool evaluationTool,
+            AgentUserTicketQueryTool userTicketQueryTool,
+            AgentUserAccountQueryTool userAccountQueryTool,
+            AgentCollaborationTool collaborationTool,
+            AgentUserProfileQueryTool userProfileQueryTool,
+            AgentUserRiskQueryTool userRiskQueryTool,
+            AgentContentModerationTool contentModerationTool,
+            AgentBrowserOpenTool browserOpenTool,
+            AgentUserTicketReplyTool userTicketReplyTool,
+            AgentUserAccountCreditTool userAccountCreditTool,
+            AgentContentModerationActionTool contentModerationActionTool
     ) {
         this.objectMapper = objectMapper;
         this.characterTool = characterTool;
@@ -55,6 +85,21 @@ public class AgentBuiltinToolExecutor {
         this.analyticsTool = analyticsTool;
         this.systemInspectionTool = systemInspectionTool;
         this.reportTool = reportTool;
+        this.apiRequestTool = apiRequestTool;
+        this.webSearchTool = webSearchTool;
+        this.mcpCallTool = mcpCallTool;
+        this.codeRunnerTool = codeRunnerTool;
+        this.evaluationTool = evaluationTool;
+        this.userTicketQueryTool = userTicketQueryTool;
+        this.userAccountQueryTool = userAccountQueryTool;
+        this.collaborationTool = collaborationTool;
+        this.userProfileQueryTool = userProfileQueryTool;
+        this.userRiskQueryTool = userRiskQueryTool;
+        this.contentModerationTool = contentModerationTool;
+        this.browserOpenTool = browserOpenTool;
+        this.userTicketReplyTool = userTicketReplyTool;
+        this.userAccountCreditTool = userAccountCreditTool;
+        this.contentModerationActionTool = contentModerationActionTool;
     }
 
     public ToolResult execute(Map<String, Object> step, Map<String, Object> task) {
@@ -125,10 +170,61 @@ public class AgentBuiltinToolExecutor {
             return jsonResult(output, "已完成运营数据复核");
         }
         if ("system.health_check".equals(toolName)) {
-            return jsonResult(systemInspectionTool.inspect(step, task), "已完成系统只读巡检");
+            Map<String, Object> output = systemInspectionTool.inspect(step, task);
+            systemInspectionTool.saveArtifact(number(task.get("taskId")), number(step.get("stepId")), output);
+            return jsonResult(output, "已完成系统只读巡检");
         }
         if ("artifact.render_report".equals(toolName)) {
             return jsonResult(reportTool.render(step, task), "已生成 Agent 执行报告");
+        }
+        if ("api.request".equals(toolName)) {
+            return jsonResult(apiRequestTool.request(step), "已完成白名单 API 只读请求");
+        }
+        if ("web.search".equals(toolName)) {
+            return jsonResult(webSearchTool.search(step), "已完成白名单 Web 搜索");
+        }
+        if ("browser.open".equals(toolName)) {
+            try {
+                return new ToolResult(objectMapper.writeValueAsString(browserOpenTool.read(step)), "已完成受控网页读取");
+            } catch (JsonProcessingException ex) {
+                throw new IllegalStateException("网页读取结果格式化失败", ex);
+            }
+        }
+        if ("mcp.call".equals(toolName)) {
+            return jsonResult(mcpCallTool.call(step), "已完成受控 MCP 调用");
+        }
+        if ("code.run".equals(toolName)) {
+            return jsonResult(codeRunnerTool.run(step), "已完成隔离代码执行");
+        }
+        if ("artifact.evaluate".equals(toolName)) {
+            return jsonResult(evaluationTool.evaluate(task), "已完成 Agent 任务确定性评估");
+        }
+        if ("user.ticket.query".equals(toolName)) {
+            return jsonResult(userTicketQueryTool.query(step), "已读取用户工单摘要");
+        }
+        if ("user.ticket.reply".equals(toolName)) {
+            return jsonResult(userTicketReplyTool.reply(step), "已完成审批后的工单回复");
+        }
+        if ("user.account.query".equals(toolName)) {
+            return jsonResult(userAccountQueryTool.query(step), "已读取用户账户摘要");
+        }
+        if ("user.account.credit".equals(toolName)) {
+            return jsonResult(userAccountCreditTool.credit(step, task), "已完成审批后的钱包补发");
+        }
+        if ("agent.handoff".equals(toolName)) {
+            return jsonResult(collaborationTool.handoff(step, task), "已记录 Agent 角色协作交接");
+        }
+        if ("user.profile.query".equals(toolName)) {
+            return jsonResult(userProfileQueryTool.query(step), "已读取用户资料摘要");
+        }
+        if ("user.risk.query".equals(toolName)) {
+            return jsonResult(userRiskQueryTool.query(step), "已读取用户风险摘要");
+        }
+        if ("content.moderation.review".equals(toolName)) {
+            return jsonResult(contentModerationTool.review(step), "已完成角色内容只读复核");
+        }
+        if ("content.moderation.action".equals(toolName)) {
+            return jsonResult(contentModerationActionTool.review(step), "已完成审批后的角色审核动作");
         }
         throw new UnsupportedOperationException("工具未注册或尚未实现: " + (toolName.isBlank() ? "unknown" : toolName));
     }

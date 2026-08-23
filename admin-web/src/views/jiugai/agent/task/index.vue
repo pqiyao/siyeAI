@@ -12,6 +12,7 @@
       <el-form :inline="true" class="toolbar">
         <el-form-item><el-select v-model="query.status" placeholder="全部状态" clearable style="width: 170px" @change="load"><el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
         <el-form-item><el-input v-model="query.keyword" placeholder="任务标题或目标" clearable style="width: 240px" @keyup.enter="load" /></el-form-item>
+        <el-form-item><el-input v-model="query.tenantKey" placeholder="租户 Key" clearable style="width: 170px" @keyup.enter="load" /></el-form-item>
         <el-button type="primary" :loading="loading" @click="load">查询</el-button>
         <el-button :loading="loading" @click="load">刷新</el-button>
       </el-form>
@@ -27,6 +28,7 @@
         <el-table-column label="状态" width="130"><template #default="scope"><el-tag :type="statusType(scope.row.status)">{{ statusLabel(scope.row.status) }}</el-tag></template></el-table-column>
         <el-table-column label="进度" width="120"><template #default="scope">{{ scope.row.completedSteps || 0 }} / {{ scope.row.totalSteps || 0 }}</template></el-table-column>
         <el-table-column prop="riskLevel" label="风险" width="150" />
+        <el-table-column prop="tenantKey" label="租户" width="150" show-overflow-tooltip />
         <el-table-column prop="tokenUsage" label="Token" width="110" />
         <el-table-column prop="updatedAt" label="更新时间" width="180" />
         <el-table-column label="操作" width="100" fixed="right"><template #default="scope"><el-button link type="primary" @click="openDetail(scope.row)">详情</el-button></template></el-table-column>
@@ -58,7 +60,7 @@ const saving = ref(false)
 const createVisible = ref(false)
 const rows = ref([])
 const total = ref(0)
-const query = reactive({ pageNum: 1, pageSize: 20, status: '', keyword: '' })
+const query = reactive({ pageNum: 1, pageSize: 20, status: '', keyword: '', tenantKey: '' })
 const createForm = reactive({ title: '', objective: '', taskType: 'GENERAL', riskLevel: 'READ_ONLY' })
 const statuses = [
   { value: 'DRAFT', label: '草稿' },

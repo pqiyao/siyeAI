@@ -43,7 +43,9 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/error",
                                 "/favicon.ico",
-                                "/uploads/**",
+                                "/uploads/h5/**",
+                                "/uploads/generated/**",
+                                "/uploads/audio/**",
                                 "/login",
                                 "/captchaImage",
                                 "/admin/**",

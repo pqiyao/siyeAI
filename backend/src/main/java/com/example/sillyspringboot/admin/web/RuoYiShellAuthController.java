@@ -177,6 +177,14 @@ public class RuoYiShellAuthController {
         agentChildren.add(agentTaskDetail);
         agentChildren.add(routeChild("JgAgentApproval", "approval", "jiugai/agent/approval/index", "\u5ba1\u6279\u4e2d\u5fc3", "checked", "agent:approval:view"));
         agentChildren.add(routeChild("JgAgentTool", "tool", "jiugai/agent/tool/index", "\u5de5\u5177\u4e2d\u5fc3", "component", "agent:tool:view"));
+        agentChildren.add(routeChild("JgAgentRole", "role", "jiugai/agent/role/index", "Agent Role", "peoples", "agent:role:view"));
+        agentChildren.add(routeChild("JgAgentWorkflow", "workflow", "jiugai/agent/workflow/index", "Workflow Templates", "tree-table", "agent:workflow:view"));
+        agentChildren.add(routeChild("JgAgentConfigAudit", "config-audit", "jiugai/agent/config-audit/index", "Config Audit", "log", "agent:security:view"));
+        agentChildren.add(routeChild("JgAgentBudget", "budget", "jiugai/agent/budget/index", "Budget Center", "money", "agent:budget:view"));
+        agentChildren.add(routeChild("JgAgentEvaluation", "evaluation", "jiugai/agent/evaluation/index", "Evaluation Center", "data-analysis", "agent:evaluation:view"));
+        agentChildren.add(routeChild("JgAgentSecurity", "security", "jiugai/agent/security/index", "Security Policy", "lock", "agent:security:view"));
+        agentChildren.add(routeChild("JgAgentArtifact", "artifact", "jiugai/agent/artifact/index", "Artifact Center", "document", "agent:artifact:view"));
+        agentChildren.add(routeChild("JgAgentRuntime", "runtime", "jiugai/agent/runtime/index", "Runtime Center", "monitor", "agent:runtime:view"));
         agentOps.put("children", filterChildrenByPermission(agentChildren, session.getPermissions()));
 
         if (!((List<?>) contentOps.get("children")).isEmpty()) {

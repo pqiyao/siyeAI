@@ -40,6 +40,7 @@ public class WalletLedgerService {
     public static final String BIZ_VISION_CONSUME = "VISION_CONSUME";
     public static final String BIZ_VISION_REFUND = "VISION_REFUND";
     public static final String BIZ_CHECKIN = "CHECKIN";
+    public static final String BIZ_AGENT_ADJUSTMENT = "AGENT_ADJUSTMENT";
 
     private final AppWalletLedgerMapper walletLedgerMapper;
     private final AppH5UserProfileExtMapper profileExtMapper;
@@ -50,6 +51,42 @@ public class WalletLedgerService {
     ) {
         this.walletLedgerMapper = walletLedgerMapper;
         this.profileExtMapper = profileExtMapper;
+    }
+
+    /** Approved Agent-only positive wallet adjustment with an auditable idempotency key. */
+    @Transactional
+    public Map<String, Object> agentCredit(long userId, int score, int goldCoin, String idempotencyRef, String note) {
+        if (userId <= 0) throw new BusinessException(ErrorCode.VALIDATION_FAILED, "用户编号无效");
+        if (score < 0 || goldCoin < 0 || score > 1_000_000 || goldCoin > 1_000_000
+                || (score == 0 && goldCoin == 0)) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Agent 钱包补发金额无效");
+        }
+        String ref = trimToNull(idempotencyRef);
+        if (ref == null || ref.length() > 160) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Agent 钱包补发幂等标识无效");
+        }
+        String idempotencyKey = BIZ_AGENT_ADJUSTMENT + ":" + ref;
+        if (walletLedgerMapper.findByIdempotencyKey(idempotencyKey) != null) {
+            return Map.of("operation", "ALREADY_APPLIED", "idempotencyKey", idempotencyKey);
+        }
+        profileExtMapper.insertDefaultIfAbsent(userId);
+        if (profileExtMapper.creditWallet(userId, score, goldCoin) != 1) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Agent 钱包补发失败");
+        }
+        try {
+            int inserted = walletLedgerMapper.insertFull(
+                    userId, BIZ_AGENT_ADJUSTMENT, ref, ref, idempotencyKey,
+                    score, goldCoin, note == null ? "Agent 钱包补发" : note
+            );
+            if (inserted != 1) throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Agent 钱包流水写入失败");
+            return Map.of("operation", "CREDITED", "userId", userId, "score", score,
+                    "goldCoin", goldCoin, "idempotencyKey", idempotencyKey);
+        } catch (RuntimeException ex) {
+            if (profileExtMapper.deductWallet(userId, score, goldCoin) != 1) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Agent 钱包补发失败且冲正失败", ex);
+            }
+            throw ex;
+        }
     }
 
     /**

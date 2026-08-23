@@ -76,6 +76,8 @@ public class ProductionSecurityValidator implements InitializingBean {
             return;
         }
 
+        validateAgentExecutionConfiguration(violations);
+
         validateSecret("app.auth.secret", authProperties.getSecret(), violations);
         validateSecret("app.ruoyi-admin.jwt-secret", adminProperties.getJwtSecret(), violations);
         if (safe(authProperties.getSecret()).equals(safe(adminProperties.getJwtSecret()))) {
@@ -130,6 +132,23 @@ public class ProductionSecurityValidator implements InitializingBean {
         }
 
         failIfAny(violations);
+    }
+
+    private void validateAgentExecutionConfiguration(List<String> violations) {
+        String image = safe(environment.getProperty("app.agent.code-runner.image"));
+        if (image.isBlank()) return;
+        String user = safe(environment.getProperty("app.agent.code-runner.user", "65532:65532"));
+        boolean requireDigest = environment.getProperty("app.agent.code-runner.require-digest", Boolean.class, false);
+        if (!user.matches("[0-9]{1,10}:[0-9]{1,10}") || user.startsWith("0:")) {
+            violations.add("APP_AGENT_CODE_RUNNER_USER must be a non-root numeric UID:GID in production");
+        }
+        boolean pinned = image.matches(".+@sha256:[0-9a-fA-F]{64}");
+        if (!pinned && requireDigest) {
+            violations.add("APP_AGENT_CODE_RUNNER_IMAGE must use @sha256 digest when APP_AGENT_CODE_RUNNER_REQUIRE_DIGEST is enabled");
+        }
+        if (!requireDigest) {
+            violations.add("APP_AGENT_CODE_RUNNER_REQUIRE_DIGEST must be true when Code Runner is configured in production");
+        }
     }
 
     private void validatePasswordResetConfiguration(List<String> violations) {

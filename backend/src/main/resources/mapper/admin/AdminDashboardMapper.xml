@@ -183,10 +183,24 @@
         WHERE status = 'PAID'
     </select>
 
+    <select id="paidOrdersRecent" resultType="long">
+        SELECT COUNT(*)
+        FROM app_payment_order
+        WHERE status = 'PAID'
+          AND created_at &gt;= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL #{days} DAY)
+    </select>
+
     <select id="totalRevenueCents" resultType="long">
         SELECT COALESCE(SUM(amount_cents), 0)
         FROM app_payment_order
         WHERE status = 'PAID'
+    </select>
+
+    <select id="revenueCentsRecent" resultType="long">
+        SELECT COALESCE(SUM(amount_cents), 0)
+        FROM app_payment_order
+        WHERE status = 'PAID'
+          AND created_at &gt;= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL #{days} DAY)
     </select>
 
     <select id="generationTrend" resultType="map">

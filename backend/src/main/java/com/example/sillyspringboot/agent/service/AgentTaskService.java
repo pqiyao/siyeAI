@@ -1,10 +1,15 @@
 package com.example.sillyspringboot.agent.service;
 
 import com.example.sillyspringboot.agent.mapper.AgentAdminMapper;
+import com.example.sillyspringboot.agent.tool.AgentEvaluationTool;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
@@ -16,6 +21,8 @@ import java.util.UUID;
 @Service
 public class AgentTaskService {
 
+    private static final Logger log = LoggerFactory.getLogger(AgentTaskService.class);
+
     private static final Set<String> RISK_LEVELS = Set.of(
             "READ_ONLY", "WRITE_REVERSIBLE", "EXTERNAL_SIDE_EFFECT", "DESTRUCTIVE", "PRODUCTION_OPERATION"
     );
@@ -26,10 +33,37 @@ public class AgentTaskService {
 
     private final AgentAdminMapper mapper;
     private final ObjectMapper objectMapper;
+    private final AgentEvaluationTool evaluationTool;
+    private final int platformMaxSteps;
+    private final long platformMaxTokens;
+    private final BigDecimal platformMaxCost;
+    @Value("${app.agent.daily-max-tokens:0}")
+    private long dailyMaxTokens;
+    @Value("${app.agent.daily-max-cost:0}")
+    private BigDecimal dailyMaxCost;
+    @Value("${app.agent.daily-max-tasks:0}")
+    private long dailyMaxTasks;
 
     public AgentTaskService(AgentAdminMapper mapper, ObjectMapper objectMapper) {
+        this(mapper, objectMapper, null, 32, 100_000_000L, new BigDecimal("1000000"));
+    }
+
+    public AgentTaskService(AgentAdminMapper mapper, ObjectMapper objectMapper, AgentEvaluationTool evaluationTool) {
+        this(mapper, objectMapper, evaluationTool, 32, 100_000_000L, new BigDecimal("1000000"));
+    }
+
+    @Autowired
+    public AgentTaskService(AgentAdminMapper mapper, ObjectMapper objectMapper, AgentEvaluationTool evaluationTool,
+                            @Value("${app.agent.platform-max-steps:32}") int platformMaxSteps,
+                            @Value("${app.agent.platform-max-tokens:100000000}") long platformMaxTokens,
+                            @Value("${app.agent.platform-max-cost:1000000}") BigDecimal platformMaxCost) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
+        this.evaluationTool = evaluationTool;
+        this.platformMaxSteps = Math.max(1, Math.min(platformMaxSteps, 500));
+        this.platformMaxTokens = Math.max(0L, platformMaxTokens);
+        this.platformMaxCost = platformMaxCost == null || platformMaxCost.signum() < 0
+                ? BigDecimal.ZERO : platformMaxCost;
     }
 
     @Transactional
@@ -52,7 +86,15 @@ public class AgentTaskService {
         }
 
         Map<String, Object> task = new LinkedHashMap<>();
-        task.put("taskKey", "agent-" + UUID.randomUUID().toString().replace("-", ""));
+        String idempotencyKey = text(body.get("idempotencyKey"), 128);
+        String taskKey = idempotencyKey == null
+                ? "agent-" + UUID.randomUUID().toString().replace("-", "")
+                : "agent-idem-" + sha256((adminId == null ? 0L : adminId) + ":" + idempotencyKey).substring(0, 48);
+        if (idempotencyKey != null) {
+            Map<String, Object> existing = mapper.findTaskByKey(taskKey);
+            if (existing != null && sameOwner(existing.get("createdBy"), adminId)) return existing;
+        }
+        task.put("taskKey", taskKey);
         task.put("taskType", taskType);
         task.put("title", title);
         task.put("objective", objective);
@@ -60,12 +102,18 @@ public class AgentTaskService {
         task.put("status", "DRAFT");
         task.put("riskLevel", riskLevel);
         task.put("createdBy", adminId);
+        task.put("tenantKey", tenantKey(body.get("tenantKey"), adminId));
         task.put("priority", boundedInt(body.get("priority"), 0, -100, 100));
-        task.put("maxSteps", boundedInt(body.get("maxSteps"), 50, 1, 500));
+        task.put("maxSteps", boundedInt(body.get("maxSteps"), Math.min(50, platformMaxSteps), 1, platformMaxSteps));
         task.put("maxRetries", boundedInt(body.get("maxRetries"), 3, 0, 10));
         task.put("maxRuntimeSeconds", boundedInt(body.get("maxRuntimeSeconds"), 3600, 60, 86_400));
-        task.put("maxTokens", boundedLong(body.get("maxTokens"), 0L, 0L, 100_000_000L));
-        task.put("maxCost", boundedDecimal(body.get("maxCost"), BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("1000000")));
+        task.put("maxTokens", boundedLong(body.get("maxTokens"), 0L, 0L, platformMaxTokens));
+        task.put("maxCost", boundedDecimal(body.get("maxCost"), BigDecimal.ZERO, BigDecimal.ZERO, platformMaxCost));
+
+        reserveTenantTaskQuota(String.valueOf(task.get("tenantKey")));
+        if (dailyBudgetExceeded()) {
+            throw new IllegalStateException("Agent 平台当日 Token 或费用配额已用尽，请稍后再试");
+        }
 
         if (mapper.insertTask(task) != 1) {
             throw new IllegalStateException("Agent 任务创建失败");
@@ -77,6 +125,35 @@ public class AgentTaskService {
             throw new IllegalStateException("Agent 任务创建后读取失败");
         }
         return persisted;
+    }
+
+    private boolean dailyBudgetExceeded() {
+        long tokens = Math.max(0L, dailyMaxTokens);
+        BigDecimal cost = dailyMaxCost == null || dailyMaxCost.signum() < 0 ? BigDecimal.ZERO : dailyMaxCost;
+        if ((tokens > 0L || cost.signum() > 0) && mapper.platformBudgetExceeded(tokens, cost) == 1) return true;
+        if (dailyMaxTasks > 0) {
+            Map<String, Object> usage = mapper.dailyBudgetUsage();
+            if (usage != null && number(usage.get("taskCount")) >= dailyMaxTasks) return true;
+        }
+        return false;
+    }
+
+    private static boolean sameOwner(Object owner, Long userId) {
+        if (userId == null || owner == null) return userId == null && owner == null;
+        try { return Long.parseLong(String.valueOf(owner)) == userId; }
+        catch (Exception ignored) { return false; }
+    }
+
+    private static String sha256(String value) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder(64);
+            for (byte item : digest) result.append(String.format("%02x", item));
+            return result.toString();
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 不可用", ex);
+        }
     }
 
     @Transactional
@@ -104,11 +181,34 @@ public class AgentTaskService {
         if ("CANCELLED".equals(transition.toStatus())) {
             mapper.cancelPendingSteps(id);
         }
-        if ("RETRY".equalsIgnoreCase(action)) {
-            mapper.resetFailedSteps(id);
+        int resetFailedSteps = 0;
+        int resetDegradedSteps = 0;
+        if ("RETRY".equalsIgnoreCase(action) || "REPLAN".equalsIgnoreCase(action)) {
+            resetFailedSteps = mapper.resetFailedSteps(id);
+        }
+        if ("REPLAN".equalsIgnoreCase(action)) {
+            resetDegradedSteps = mapper.resetDegradedSteps(id);
         }
         insertEvent(id, transition.eventType(), transition.summary(), null);
+        if ("REPLAN".equalsIgnoreCase(action)) {
+            insertEvent(id, "TASK_REPLAN_STEPS_RESET",
+                    "有限重规划已重置步骤：失败/取消 " + resetFailedSteps + "，降级及下游 " + resetDegradedSteps,
+                    null);
+        }
+        if (transition.terminal()) {
+            saveEvaluation(id);
+        }
         return mapper.findTask(id);
+    }
+
+    private void saveEvaluation(long taskId) {
+        if (evaluationTool == null) return;
+        try {
+            Map<String, Object> task = mapper.findTask(taskId);
+            if (task != null) evaluationTool.saveArtifact(taskId, 0L, task);
+        } catch (RuntimeException ex) {
+            log.warn("Agent cancellation evaluation save failed taskId={} cause={}", taskId, ex.getMessage());
+        }
     }
 
     private Transition transition(String currentStatus, String action) {
@@ -129,9 +229,13 @@ public class AgentTaskService {
                 }
                 yield new Transition("CANCELLED", false, 0, true, "TASK_CANCELLED", "Agent 任务已取消");
             }
-            case "RETRY" -> {
+            case "RETRY", "REPLAN" -> {
                 require(currentStatus, RETRYABLE_STATUSES, "当前状态不能重试");
-                yield new Transition("READY", true, 1, false, "TASK_RETRY_REQUESTED", "Agent 任务已进入重试队列");
+                String eventType = "REPLAN".equals(normalized) ? "TASK_REPLAN_REQUESTED" : "TASK_RETRY_REQUESTED";
+                String summary = "REPLAN".equals(normalized)
+                        ? "Agent 任务已按现有计划有限重规划并进入执行队列"
+                        : "Agent 任务已进入重试队列";
+                yield new Transition("READY", true, 1, false, eventType, summary);
             }
             default -> throw new IllegalArgumentException("任务操作无效");
         };
@@ -171,6 +275,40 @@ public class AgentTaskService {
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("约束条件格式无效");
         }
+    }
+
+    private void reserveTenantTaskQuota(String tenantKey) {
+        Map<String, Object> budget = mapper.findTenantBudget(tenantKey);
+        if (budget == null || !booleanValue(budget.get("enabled"))) return;
+        Map<String, Object> usage = mapper.tenantDailyBudgetUsage(tenantKey);
+        long maxTokens = valueOrZero(number(budget.get("maxDailyTokens")));
+        long maxTasks = valueOrZero(number(budget.get("maxDailyTasks")));
+        BigDecimal maxCost = decimalValue(budget.get("maxDailyCost"));
+        if (maxTokens > 0 && valueOrZero(number(usage.get("tokenUsage"))) >= maxTokens) throw new IllegalStateException("租户当日 Token 配额已用尽");
+        if (maxCost.signum() > 0 && decimalValue(usage.get("costUsage")).compareTo(maxCost) >= 0) throw new IllegalStateException("租户当日费用配额已用尽");
+        if (maxTasks <= 0) return;
+        mapper.resetTenantDailyTaskReservation(tenantKey);
+        if (mapper.reserveTenantDailyTask(tenantKey) != 1) {
+            throw new IllegalStateException("租户当日任务配额已用尽");
+        }
+    }
+
+    private static boolean booleanValue(Object value) { return value instanceof Boolean b ? b : "1".equals(String.valueOf(value)) || "true".equalsIgnoreCase(String.valueOf(value)); }
+    private static long valueOrZero(Long value) { return value == null ? 0L : Math.max(0L, value); }
+    private static BigDecimal decimalValue(Object value) { try { return value == null ? BigDecimal.ZERO : new BigDecimal(String.valueOf(value)); } catch (Exception ignored) { return BigDecimal.ZERO; } }
+
+    private static String tenantKey(Object raw, Long ownerId) {
+        String value = raw == null ? "" : String.valueOf(raw).trim();
+        if (value.isBlank()) {
+            return "platform";
+        }
+        if (value.length() > 120 || !value.matches("[a-z0-9][a-z0-9:_-]{0,119}")) {
+            throw new IllegalArgumentException("tenantKey 格式无效");
+        }
+        if (ownerId != null && ownerId > 0 && !value.equals("user:" + ownerId)) {
+            throw new IllegalArgumentException("用户任务不能指定其他 tenantKey");
+        }
+        return value;
     }
 
     private static String defaultText(Object value, String fallback, int maxLength) {

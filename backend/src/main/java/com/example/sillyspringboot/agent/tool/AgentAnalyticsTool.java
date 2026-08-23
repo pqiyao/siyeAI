@@ -42,14 +42,35 @@ public class AgentAnalyticsTool {
         result.put("rangeDays", days);
         result.put("startAt", startAt.toString());
         result.put("endAt", LocalDateTime.now().toString());
+        result.put("businessOverview", businessOverview(days));
         result.put("overview", safeMap(agentMapper.overview()));
         result.put("generationTrend", safe(dashboardMapper.generationTrend(days)));
+        result.put("trendSignals", trendSignals(result.get("generationTrend"), days));
         result.put("generationSummary", safeMap(dashboardMapper.generationOpsSummary(startAt)));
-        result.put("providerStats", safe(dashboardMapper.generationProviderStats(startAt)));
+        List<Map<String, Object>> providerStats = safe(dashboardMapper.generationProviderStats(startAt));
+        result.put("providerStats", providerStats);
+        result.put("providerSignals", providerSignals(providerStats));
         result.put("modelStats", safe(dashboardMapper.generationModelStats(startAt)));
         result.put("characterStats", safe(dashboardMapper.generationCharacterStats(startAt)));
         result.put("errorStats", safe(dashboardMapper.generationErrorStats(startAt)));
         result.put("hotCharacters", safe(dashboardMapper.hotCharacters(10)));
+        return result;
+    }
+
+    private Map<String, Object> businessOverview(int days) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalUsers", dashboardMapper.totalUsers());
+        result.put("totalConversations", dashboardMapper.totalConversations());
+        result.put("activeConversationsRecent", dashboardMapper.activeConversationsRecent(days));
+        result.put("totalMessages", dashboardMapper.totalMessages());
+        result.put("successfulAiResponses", dashboardMapper.successfulAiResponses());
+        result.put("totalCharacters", dashboardMapper.totalCharacters());
+        result.put("userCharacters", dashboardMapper.userCharacters());
+        result.put("totalPaidOrders", dashboardMapper.totalPaidOrders());
+        result.put("totalRevenueCents", dashboardMapper.totalRevenueCents());
+        result.put("paidOrdersRecent", dashboardMapper.paidOrdersRecent(days));
+        result.put("revenueCentsRecent", dashboardMapper.revenueCentsRecent(days));
+        result.put("topActiveUsers", safe(dashboardMapper.topActiveUsers(10)));
         return result;
     }
 
@@ -70,6 +91,22 @@ public class AgentAnalyticsTool {
         if (unpriced > 0) {
             warnings.add("存在未计价生成尝试：" + unpriced);
         }
+        Object trendSignals = summary.get("trendSignals");
+        if (trendSignals instanceof List<?> values) {
+            for (Object value : values) {
+                if (value != null && !String.valueOf(value).isBlank()) {
+                    warnings.add(String.valueOf(value));
+                }
+            }
+        }
+        Object providerSignals = summary.get("providerSignals");
+        if (providerSignals instanceof List<?> values) {
+            for (Object value : values) {
+                if (value != null && !String.valueOf(value).isBlank()) {
+                    warnings.add(String.valueOf(value));
+                }
+            }
+        }
         result.put("warnings", warnings);
         result.put("recommendations", List.of(
                 "优先查看供应商失败率和错误码分布",
@@ -78,6 +115,71 @@ public class AgentAnalyticsTool {
         ));
         result.put("passed", warnings.isEmpty());
         return result;
+    }
+
+    /**
+     * Compares the first and second half of the existing daily generation facts.
+     * These are deterministic signals, not causal business conclusions.
+     */
+    private List<String> trendSignals(Object rawTrend, int days) {
+        if (!(rawTrend instanceof List<?> rows) || rows.size() < 2) {
+            return List.of("趋势样本不足，暂不生成趋势判断");
+        }
+        int split = rows.size() / 2;
+        long firstGenerations = 0;
+        long secondGenerations = 0;
+        long firstFailures = 0;
+        long secondFailures = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, Object> row = map(rows.get(i));
+            long generations = whole(row.get("generations"));
+            long failures = whole(row.get("failureCount"));
+            if (i < split) {
+                firstGenerations += generations;
+                firstFailures += failures;
+            } else {
+                secondGenerations += generations;
+                secondFailures += failures;
+            }
+        }
+        List<String> signals = new ArrayList<>();
+        if (firstGenerations > 0) {
+            double change = (double) (secondGenerations - firstGenerations) / firstGenerations;
+            if (change <= -0.30d) {
+                signals.add("后半周期生成任务量较前半周期下降约 " + Math.round(-change * 100) + "%（需结合发布和流量记录核查）");
+            } else if (change >= 0.30d) {
+                signals.add("后半周期生成任务量较前半周期上升约 " + Math.round(change * 100) + "%（需结合活动和流量记录核查）");
+            }
+        }
+        double firstFailureRate = firstGenerations == 0 ? 0d : (double) firstFailures / firstGenerations;
+        double secondFailureRate = secondGenerations == 0 ? 0d : (double) secondFailures / secondGenerations;
+        if (secondGenerations > 0 && secondFailureRate >= 0.20d && secondFailureRate - firstFailureRate >= 0.10d) {
+            signals.add("后半周期生成失败率升至 " + Math.round(secondFailureRate * 100) + "%（较前半周期明显上升）");
+        }
+        if (signals.isEmpty()) {
+            signals.add("在最近 " + days + " 天已记录数据中，未发现超过阈值的生成量或失败率变化");
+        }
+        return signals;
+    }
+
+    private List<String> providerSignals(List<Map<String, Object>> providerStats) {
+        if (providerStats == null || providerStats.isEmpty()) {
+            return List.of("当前查询周期没有供应商生成事实");
+        }
+        List<String> signals = new ArrayList<>();
+        for (Map<String, Object> row : providerStats) {
+            String provider = String.valueOf(row.getOrDefault("providerKey", "unknown"));
+            long attempts = whole(row.get("attempts"));
+            double successRate = decimal(row.get("successRate"));
+            long fallbackAttempts = whole(row.get("fallbackAttempts"));
+            if (attempts >= 5 && successRate < 0.80d) {
+                signals.add("供应商 " + provider + " 成功率为 " + Math.round(successRate * 100) + "%（样本 " + attempts + " 次）");
+            }
+            if (attempts >= 5 && (double) fallbackAttempts / attempts >= 0.50d) {
+                signals.add("供应商 " + provider + " 回退调用占比达到 " + Math.round((double) fallbackAttempts / attempts * 100) + "%");
+            }
+        }
+        return signals.isEmpty() ? List.of("未发现达到阈值的供应商失败率或回退率信号") : signals;
     }
 
     public void saveArtifact(long taskId, long stepId, String key, String name, Map<String, Object> content) {

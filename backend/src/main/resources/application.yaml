@@ -211,6 +211,39 @@ app:
       return-url: ${APP_PAYMENT_EPAY_RETURN_URL:}
       default-pay-type: ${APP_PAYMENT_EPAY_DEFAULT_PAY_TYPE:}
     secrets-master-key: ${APP_PAYMENT_SECRETS_MASTER_KEY:}
+  agent:
+    platform-max-steps: ${APP_AGENT_PLATFORM_MAX_STEPS:32}
+    platform-max-tokens: ${APP_AGENT_PLATFORM_MAX_TOKENS:100000000}
+    platform-max-cost: ${APP_AGENT_PLATFORM_MAX_COST:1000000}
+    daily-max-tokens: ${APP_AGENT_DAILY_MAX_TOKENS:0}
+    daily-max-cost: ${APP_AGENT_DAILY_MAX_COST:0}
+    daily-max-tasks: ${APP_AGENT_DAILY_MAX_TASKS:0}
+    planner-model-enabled: ${APP_AGENT_PLANNER_MODEL_ENABLED:false}
+    runtime-planner-model-enabled: ${APP_AGENT_RUNTIME_PLANNER_MODEL_ENABLED:false}
+    alerts:
+      pending-approval-threshold: ${APP_AGENT_ALERT_PENDING_APPROVAL_THRESHOLD:10}
+      failed-task-threshold: ${APP_AGENT_ALERT_FAILED_TASK_THRESHOLD:1}
+    api:
+      allowed-hosts: ${APP_AGENT_API_ALLOWED_HOSTS:}
+      auth-header: ${APP_AGENT_API_AUTH_HEADER:Authorization}
+      auth-token: ${APP_AGENT_API_AUTH_TOKEN:}
+    web-search:
+      endpoint: ${APP_AGENT_WEB_SEARCH_ENDPOINT:}
+      allowed-hosts: ${APP_AGENT_WEB_SEARCH_ALLOWED_HOSTS:${APP_AGENT_API_ALLOWED_HOSTS:}}
+      auth-header: ${APP_AGENT_WEB_SEARCH_AUTH_HEADER:Authorization}
+      auth-token: ${APP_AGENT_WEB_SEARCH_AUTH_TOKEN:}
+    browser:
+      allowed-hosts: ${APP_AGENT_BROWSER_ALLOWED_HOSTS:${APP_AGENT_API_ALLOWED_HOSTS:}}
+    mcp:
+      endpoint: ${APP_AGENT_MCP_ENDPOINT:}
+      allowed-hosts: ${APP_AGENT_MCP_ALLOWED_HOSTS:}
+      allowed-methods: ${APP_AGENT_MCP_ALLOWED_METHODS:}
+      auth-header: ${APP_AGENT_MCP_AUTH_HEADER:Authorization}
+      auth-token: ${APP_AGENT_MCP_AUTH_TOKEN:}
+    code-runner:
+      image: ${APP_AGENT_CODE_RUNNER_IMAGE:}
+      user: ${APP_AGENT_CODE_RUNNER_USER:65532:65532}
+      require-digest: ${APP_AGENT_CODE_RUNNER_REQUIRE_DIGEST:false}
 
 telegram:
   bot-token: ${TELEGRAM_BOT_TOKEN:}

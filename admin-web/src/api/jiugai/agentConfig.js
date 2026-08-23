@@ -1,0 +1,28 @@
+import request from '@/utils/request'
+
+export const listAgentRoles = (params) => request({ url: '/admin/jiugai/agent/roles', method: 'get', params })
+export const getAgentRole = (id) => request({ url: `/admin/jiugai/agent/roles/${id}`, method: 'get' })
+export const createAgentRole = (data) => request({ url: '/admin/jiugai/agent/roles', method: 'post', data })
+export const activateAgentRole = (id) => request({ url: `/admin/jiugai/agent/roles/${id}/activate`, method: 'post' })
+
+export const listAgentWorkflows = (params) => request({ url: '/admin/jiugai/agent/workflows', method: 'get', params })
+export const getAgentWorkflow = (id) => request({ url: `/admin/jiugai/agent/workflows/${id}`, method: 'get' })
+export const createAgentWorkflow = (data) => request({ url: '/admin/jiugai/agent/workflows', method: 'post', data })
+export const activateAgentWorkflow = (id) => request({ url: `/admin/jiugai/agent/workflows/${id}/activate`, method: 'post' })
+
+export const listAgentConfigAudits = (params) => request({ url: '/admin/jiugai/agent/config-audit', method: 'get', params })
+export const getAgentBudget = (params) => request({ url: '/admin/jiugai/agent/budget', method: 'get', params })
+export const getAgentEvaluation = (params) => request({ url: '/admin/jiugai/agent/evaluation', method: 'get', params })
+export const getAgentSecurity = () => request({ url: '/admin/jiugai/agent/security', method: 'get' })
+export const listAgentArtifacts = (params) => request({ url: '/admin/jiugai/agent/artifacts', method: 'get', params })
+export const listAgentTenants = (params) => request({ url: '/admin/jiugai/agent/tenants', method: 'get', params })
+export const getAgentTenant = (tenantKey) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}`, method: 'get' })
+export const listAgentTenantMembers = (tenantKey, params) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/members`, method: 'get', params })
+export const addAgentTenantMember = (tenantKey, data) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/members`, method: 'post', data })
+export const changeAgentTenantMemberStatus = (tenantKey, userId, data) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/members/${userId}/status`, method: 'post', data })
+export const createAgentTenant = (data) => request({ url: '/admin/jiugai/agent/tenants', method: 'post', data })
+export const changeAgentTenantStatus = (tenantKey, data) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/status`, method: 'post', data })
+export const listAgentUsageLedger = (params) => request({ url: '/admin/jiugai/agent/usage-ledger', method: 'get', params })
+export const getAgentTenantUsageSummary = (tenantKey) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/usage-summary`, method: 'get' })
+export const getAgentTenantBudget = (tenantKey) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/budget`, method: 'get' })
+export const updateAgentTenantBudget = (tenantKey, data) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/budget`, method: 'post', data })

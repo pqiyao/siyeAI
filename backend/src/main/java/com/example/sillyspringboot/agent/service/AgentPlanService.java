@@ -480,7 +480,7 @@ public class AgentPlanService {
 
     private static String riskForTool(String toolName) {
         return switch (toolName == null ? "" : toolName) {
-            case "worldbook.create", "character.sync_st", "mcp.call", "code.run", "user.ticket.reply", "user.account.credit", "content.moderation.action" -> "EXTERNAL_SIDE_EFFECT";
+            case "worldbook.create", "character.sync_st", "mcp.call", "code.run", "dsh.session.create", "dsh.session.prompt", "dsh.browser.interact", "dsh.devops.build", "user.ticket.reply", "user.account.credit", "content.moderation.action" -> "EXTERNAL_SIDE_EFFECT";
             case "agent.handoff" -> "WRITE_REVERSIBLE";
             case "character.create", "character.publish", "story.create_outline", "story.write_chapter", "story.revise", "image.generate", "tts.generate", "artifact.render_html", "artifact.render_report", "artifact.package_zip" -> "WRITE_REVERSIBLE";
             default -> "READ_ONLY";
@@ -535,6 +535,15 @@ public class AgentPlanService {
             return new PlanSelection(fixed, "SYSTEM_TEMPLATE");
         }
         String objective = String.valueOf(task.get("objective")).toLowerCase();
+        if (containsAny(objective, "deepseek harness", "deepseek-harness", "dsh 会话", "dsh prompt", "dsh agent")) {
+            return new PlanSelection(templateFor("DSH_SESSION"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "dsh 平台巡检", "dsh platform audit", "dsh 能力检查")) {
+            return new PlanSelection(templateFor("DSH_PLATFORM_AUDIT"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "dsh browser", "browser 交互", "网页交互")) {
+            return new PlanSelection(templateFor("DSH_BROWSER"), "RULE_BASED_PLANNER");
+        }
         if (containsAny(objective, "巡检", "健康检查", "jvm", "磁盘", "git")) {
             return new PlanSelection(templateFor("SYSTEM_INSPECTION"), "RULE_BASED_PLANNER");
         }
@@ -548,7 +557,13 @@ public class AgentPlanService {
             return new PlanSelection(templateFor("CHARACTER_PUBLISH"), "RULE_BASED_PLANNER");
         }
         if (containsAny(objective, "生产发布", "部署服务", "构建产物", "回滚部署", "devops", "运维发布")) {
+            if (containsAny(objective, "完整发布", "发布部署回滚", "发布并健康检查", "deploy and rollback")) {
+                return new PlanSelection(templateFor("DSH_DEVOPS_RELEASE"), "RULE_BASED_PLANNER");
+            }
             return new PlanSelection(templateFor("DEVOPS_REVIEW"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "构建项目", "执行构建", "maven package", "dsh devops build")) {
+            return new PlanSelection(templateFor("DSH_DEVOPS_BUILD"), "RULE_BASED_PLANNER");
         }
         if (containsAny(objective, "同步角色", "同步到 sillytavern", "同步到st")) {
             return new PlanSelection(templateFor("CHARACTER_SYNC"), "RULE_BASED_PLANNER");
@@ -822,7 +837,7 @@ public class AgentPlanService {
 
     private static Set<String> constraintInputTools() {
         return Set.of(
-                "api.request", "web.search", "browser.open", "mcp.call", "code.run",
+                "api.request", "web.search", "browser.open", "dsh.browser.open", "dsh.browser.interact", "dsh.devops.inspect", "dsh.devops.build", "dsh.devops.rollback", "dsh.monitor.snapshot", "dsh.backup.inspect", "dsh.secret.status", "dsh.evaluate.run", "mcp.call", "code.run", "dsh.session.create", "dsh.session.prompt",
                 "user.profile.query", "user.account.query", "user.account.credit", "user.ticket.query", "user.ticket.reply",
                 "user.risk.query", "content.moderation.review", "content.moderation.action", "agent.handoff"
         );
@@ -893,7 +908,7 @@ public class AgentPlanService {
                 "character.publish", "character.sync_st", "story.create_outline", "story.write_chapter",
                 "story.check_continuity", "story.revise", "image.generate", "tts.generate",
                 "artifact.render_html", "artifact.package_zip", "analytics.query", "analytics.review",
-                "artifact.render_report", "artifact.evaluate", "content.moderation.review", "content.moderation.action", "user.profile.query", "user.ticket.query", "user.ticket.reply", "user.account.query", "user.account.credit", "user.risk.query", "agent.handoff", "system.health_check", "api.request", "web.search", "browser.open", "mcp.call", "code.run"
+                "artifact.render_report", "artifact.evaluate", "content.moderation.review", "content.moderation.action", "user.profile.query", "user.ticket.query", "user.ticket.reply", "user.account.query", "user.account.credit", "user.risk.query", "agent.handoff", "system.health_check", "api.request", "web.search", "browser.open", "dsh.browser.open", "dsh.browser.interact", "dsh.devops.inspect", "dsh.devops.build", "dsh.devops.publish", "dsh.devops.deploy", "dsh.devops.health", "dsh.devops.rollback", "dsh.monitor.snapshot", "dsh.backup.inspect", "dsh.secret.status", "dsh.evaluate.run", "mcp.call", "code.run", "dsh.session.create", "dsh.session.prompt"
         );
     }
 
@@ -922,6 +937,29 @@ public class AgentPlanService {
                     step("review", "结果复核", "Reviewer", "REVIEW", "analytics.review", List.of("query")),
                     step("report", "报告交付", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("review"))
             );
+            case "DSH_SESSION" -> List.of(
+                    step("requirements", "确认 DSH 会话目标", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("create_session", "创建 DSH 会话", "Developer", "AGENT_RUNTIME", "dsh.session.create", List.of("requirements")),
+                    step("prompt", "提交 DSH 任务目标", "Developer", "AGENT_RUNTIME", "dsh.session.prompt", List.of("create_session")),
+                    step("report", "记录 DSH 会话结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("prompt"))
+            );
+            case "DSH_PLATFORM_AUDIT" -> List.of(
+                    step("requirements", "确认 DSH 平台巡检范围", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("secrets", "检查受控凭据就绪状态", "Developer", "INSPECTION", "dsh.secret.status", List.of("requirements")),
+                    step("monitor", "采集系统监控快照", "Developer", "INSPECTION", "dsh.monitor.snapshot", List.of("requirements")),
+                    step("backup", "检查备份恢复准备状态", "Developer", "INSPECTION", "dsh.backup.inspect", List.of("monitor")),
+                    step("report", "生成 DSH 平台巡检报告", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("secrets", "backup")),
+                    step("evaluate", "评估巡检任务质量", "Reviewer", "REVIEW", "dsh.evaluate.run", List.of("report"))
+            );
+            case "DSH_BROWSER" -> List.of(
+                    step("requirements", "确认 DSH Browser 访问目标", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    stepWithInput("open", "打开白名单页面", "Researcher", "EXTERNAL", "dsh.browser.interact", List.of("requirements"), "{\"action\":\"open\"}"),
+                    stepWithInput("input", "填写非敏感页面字段", "Researcher", "EXTERNAL", "dsh.browser.interact", List.of("open"), "{\"action\":\"input\"}"),
+                    stepWithInput("click", "点击白名单安全控件", "Researcher", "EXTERNAL", "dsh.browser.interact", List.of("input"), "{\"action\":\"click\"}"),
+                    stepWithInput("extract", "提取页面内容", "Researcher", "EXTERNAL", "dsh.browser.interact", List.of("click"), "{\"action\":\"extract\"}"),
+                    stepWithInput("close", "关闭 Browser 会话", "Researcher", "EXTERNAL", "dsh.browser.interact", List.of("extract"), "{\"action\":\"close\"}"),
+                    step("report", "整理 Browser 结果", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("close"))
+            );
             case "SYSTEM_INSPECTION" -> List.of(
                     step("scope", "确定检查范围", "Planner", "PLANNING", "planner.analyze", List.of()),
                     step("inspect", "执行只读检查", "DevOps Inspector", "INSPECTION", "system.health_check", List.of("scope")),
@@ -936,8 +974,29 @@ public class AgentPlanService {
             );
             case "DEVOPS_REVIEW" -> List.of(
                     step("requirements", "确认发布与回滚范围", "Planner", "PLANNING", "planner.analyze", List.of()),
-                    step("inspect", "检查数据库、构建包与工作区", "DevOps Inspector", "INSPECTION", "system.health_check", List.of("requirements")),
-                    step("report", "生成发布审批材料", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("inspect"))
+                    step("inspect", "检查数据库、构建包与工作区", "DevOps Inspector", "INSPECTION", "dsh.devops.inspect", List.of("requirements")),
+                    step("build", "执行审批后的 Maven 构建", "Developer", "EXTERNAL", "dsh.devops.build", List.of("inspect")),
+                    step("report", "生成发布审批材料", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("build"))
+            );
+            case "DSH_DEVOPS_BUILD" -> List.of(
+                    step("requirements", "确认构建范围", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("build", "执行受控 Maven 构建", "Developer", "EXTERNAL", "dsh.devops.build", List.of("requirements")),
+                    step("report", "生成构建结果报告", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("build"))
+            );
+            case "DSH_DEVOPS_RELEASE" -> List.of(
+                    step("requirements", "确认发布范围", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("inspect", "检查发布前工作区", "DevOps Inspector", "INSPECTION", "dsh.devops.inspect", List.of("requirements")),
+                    step("build", "构建发布制品", "Developer", "EXTERNAL", "dsh.devops.build", List.of("inspect")),
+                    step("publish", "发布构建制品", "Developer", "EXTERNAL", "dsh.devops.publish", List.of("build")),
+                    step("deploy", "部署到受控本机目标", "Developer", "EXTERNAL", "dsh.devops.deploy", List.of("publish")),
+                    step("health", "执行部署健康检查", "DevOps Inspector", "EXTERNAL", "dsh.devops.health", List.of("deploy")),
+                    step("report", "生成发布报告", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("health"))
+            );
+            case "DSH_DEVOPS_ROLLBACK" -> List.of(
+                    step("requirements", "确认回滚范围", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("rollback", "按受控引用执行回滚", "Developer", "EXTERNAL", "dsh.devops.rollback", List.of("requirements")),
+                    step("health", "验证回滚后健康状态", "DevOps Inspector", "EXTERNAL", "dsh.devops.health", List.of("rollback")),
+                    step("report", "生成回滚报告", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("health"))
             );
             case "CHARACTER_PUBLISH" -> List.of(
                     step("requirements", "确认发布目标", "Planner", "PLANNING", "planner.analyze", List.of()),
@@ -1006,6 +1065,11 @@ public class AgentPlanService {
 
     private static StepDefinition step(String key, String name, String role, String type, String tool, List<String> dependsOn) {
         return new StepDefinition(key, name, role, type, tool, dependsOn, null);
+    }
+
+    private static StepDefinition stepWithInput(String key, String name, String role, String type, String tool,
+                                                List<String> dependsOn, String inputJson) {
+        return new StepDefinition(key, name, role, type, tool, dependsOn, inputJson);
     }
 
     private static List<StepDefinition> userQueryTemplate(String tool, String name, String role) {

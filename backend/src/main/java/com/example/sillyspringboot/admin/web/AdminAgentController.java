@@ -9,6 +9,7 @@ import com.example.sillyspringboot.agent.service.AgentPlanService;
 import com.example.sillyspringboot.agent.service.AgentArtifactStorageService;
 import com.example.sillyspringboot.agent.service.AgentConfigService;
 import com.example.sillyspringboot.agent.service.AgentTenantService;
+import com.example.sillyspringboot.agent.service.DeepSeekHarnessService;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
@@ -63,6 +64,7 @@ public class AdminAgentController {
     private final AgentArtifactStorageService artifactStorageService;
     private final AgentConfigService configService;
     private final AgentTenantService tenantService;
+    private final DeepSeekHarnessService deepSeekHarnessService;
 
     public AdminAgentController(
             AgentAdminQueryService queryService,
@@ -70,7 +72,8 @@ public class AdminAgentController {
             AgentPlanService planService,
             AgentArtifactStorageService artifactStorageService,
             AgentConfigService configService,
-            AgentTenantService tenantService
+            AgentTenantService tenantService,
+            DeepSeekHarnessService deepSeekHarnessService
     ) {
         this.queryService = queryService;
         this.taskService = taskService;
@@ -78,6 +81,7 @@ public class AdminAgentController {
         this.artifactStorageService = artifactStorageService;
         this.configService = configService;
         this.tenantService = tenantService;
+        this.deepSeekHarnessService = deepSeekHarnessService;
     }
 
     @GetMapping("/overview")
@@ -98,6 +102,50 @@ public class AdminAgentController {
     public Map<String, Object> releaseReadiness(HttpServletRequest request) {
         try { requirePlatformScope(request); return AdminAjaxResult.okData(queryService.releaseReadiness()); }
         catch (IllegalArgumentException e) { return AdminAjaxResult.error(e.getMessage()); }
+    }
+
+    @GetMapping("/dsh/status")
+    @AdminPermitted("agent:runtime:view")
+    public Map<String, Object> dshStatus(HttpServletRequest request) {
+        try { requirePlatformScope(request); return AdminAjaxResult.okData(deepSeekHarnessService.status()); }
+        catch (IllegalArgumentException e) { return AdminAjaxResult.error(e.getMessage()); }
+    }
+
+    @PostMapping("/dsh/rpc/{method:[a-zA-Z.]+}")
+    @AdminPermitted("agent:runtime:view")
+    public Map<String, Object> dshReadRpc(
+            @PathVariable String method,
+            @RequestBody(required = false) Map<String, Object> body,
+            HttpServletRequest request
+    ) {
+        try {
+            requirePlatformScope(request);
+            Map<String, Object> payload = body == null ? Map.of() : body;
+            return AdminAjaxResult.okData(deepSeekHarnessService.readRpc(method, payload));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return AdminAjaxResult.error(e.getMessage());
+        }
+    }
+
+    @GetMapping("/dsh/sessions/{sessionId:[A-Za-z0-9._:-]{1,160}}/export")
+    @AdminPermitted("agent:artifact:view")
+    public ResponseEntity<byte[]> dshSessionExport(
+            @PathVariable String sessionId,
+            HttpServletRequest request
+    ) {
+        try {
+            requirePlatformScope(request);
+            var response = deepSeekHarnessService.exportSession(sessionId);
+            MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
+            String contentType = response.headers().firstValue("content-type").orElse(null);
+            if (contentType != null) {
+                try { mediaType = MediaType.parseMediaType(contentType); } catch (IllegalArgumentException ignored) { }
+            }
+            return ResponseEntity.ok().contentType(mediaType).body(response.body());
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().contentType(MediaType.APPLICATION_JSON)
+                    .body(("{\"error\":\"" + e.getMessage().replace("\"", "'") + "\"}").getBytes(StandardCharsets.UTF_8));
+        }
     }
 
     @PostMapping("/tasks")
@@ -150,6 +198,7 @@ public class AdminAgentController {
             result.put("plan", detail.plan());
             result.put("steps", detail.steps());
             result.put("toolCalls", detail.toolCalls());
+            result.put("externalOperations", detail.externalOperations());
             result.put("artifacts", detail.artifacts());
             result.put("evaluation", detail.evaluation());
             return result;
@@ -769,6 +818,22 @@ public class AdminAgentController {
     public Map<String, Object> security(HttpServletRequest request) {
         try { requirePlatformScope(request); return AdminAjaxResult.okData(queryService.security()); }
         catch (IllegalArgumentException e) { return AdminAjaxResult.error(e.getMessage()); }
+    }
+
+    @GetMapping("/alerts")
+    @AdminPermitted("agent:security:view")
+    public Map<String, Object> alerts(@RequestParam(required = false) String status,
+                                      @RequestParam(defaultValue = "100") int limit,
+                                      HttpServletRequest request) {
+        try { requirePlatformScope(request); return AdminAjaxResult.okData(queryService.listPersistentAlerts(status, limit)); }
+        catch (IllegalArgumentException e) { return AdminAjaxResult.error(e.getMessage()); }
+    }
+
+    @PostMapping("/alerts/{id}/acknowledge")
+    @AdminPermitted("agent:security:view")
+    public Map<String, Object> acknowledgeAlert(@PathVariable long id, HttpServletRequest request) {
+        try { requirePlatformScope(request); queryService.acknowledgeAlert(id, adminId(request)); return AdminAjaxResult.ok(); }
+        catch (IllegalArgumentException | IllegalStateException e) { return AdminAjaxResult.error(e.getMessage()); }
     }
 
     @GetMapping("/artifacts")

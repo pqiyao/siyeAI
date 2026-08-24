@@ -156,6 +156,9 @@ public interface AgentAdminMapper {
 
     int approveToolStep(@Param("stepId") long stepId);
 
+    /** Consume the latest approved tool gate for exactly one execution attempt. */
+    int consumeApprovedToolApproval(@Param("stepId") long stepId);
+
     int rejectToolStep(@Param("stepId") long stepId,
                        @Param("errorCode") String errorCode,
                        @Param("errorMessage") String errorMessage);
@@ -178,6 +181,10 @@ public interface AgentAdminMapper {
 
     int insertToolCall(Map<String, Object> toolCall);
 
+    int insertDshBinding(Map<String, Object> binding);
+
+    int insertExternalOperation(Map<String, Object> operation);
+
     int insertUsageLedger(Map<String, Object> usage);
 
     long countUsageLedger(@Param("tenantKey") String tenantKey, @Param("taskId") Long taskId);
@@ -192,6 +199,16 @@ public interface AgentAdminMapper {
     Map<String, Object> findTenantBudget(@Param("tenantKey") String tenantKey);
 
     List<Map<String, Object>> listTenantBudgetAlerts();
+
+    int upsertAlert(Map<String, Object> alert);
+
+    List<Map<String, Object>> listAlerts(@Param("status") String status, @Param("limit") int limit);
+
+    int acknowledgeAlert(@Param("id") long id, @Param("adminId") long adminId);
+
+    int insertBackupRun(Map<String, Object> backupRun);
+
+    int insertSecretLease(Map<String, Object> lease);
 
 
     Map<String, Object> tenantDailyBudgetUsage(@Param("tenantKey") String tenantKey);
@@ -250,6 +267,8 @@ public interface AgentAdminMapper {
     List<Map<String, Object>> listSteps(@Param("taskId") long taskId);
 
     List<Map<String, Object>> listToolCalls(@Param("taskId") long taskId);
+
+    List<Map<String, Object>> listExternalOperations(@Param("taskId") long taskId);
 
     Map<String, Object> summarizeToolUsage(@Param("taskId") long taskId);
 

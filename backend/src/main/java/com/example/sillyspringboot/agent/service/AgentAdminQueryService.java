@@ -213,7 +213,34 @@ public class AgentAdminQueryService {
             alerts.add(alert("CRITICAL", "SECRET_IN_URL", "外部连接端点包含疑似密钥查询参数，已禁止在结果中回显；请改用环境变量凭据"));
         }
         if (alerts.isEmpty()) alerts.add(alert("INFO", "NO_ACTIVE_ALERT", "当前概览未发现达到阈值的 Agent 告警"));
+        persistAlerts(alerts);
         return alerts;
+    }
+
+    public List<Map<String, Object>> listPersistentAlerts(String status, int limit) {
+        String safeStatus = status == null ? "" : status.trim().toUpperCase();
+        if (!safeStatus.isBlank() && !Set.of("OPEN", "ACKNOWLEDGED").contains(safeStatus)) throw new IllegalArgumentException("告警状态无效");
+        return mapper.listAlerts(safeStatus, Math.max(1, Math.min(200, limit)));
+    }
+
+    public void acknowledgeAlert(long id, long adminId) {
+        if (id <= 0 || adminId <= 0) throw new IllegalArgumentException("告警编号无效");
+        if (mapper.acknowledgeAlert(id, adminId) != 1) throw new IllegalStateException("告警不存在或已确认");
+    }
+
+    private void persistAlerts(List<Map<String, Object>> alerts) {
+        if (alerts == null) return;
+        for (Map<String, Object> alert : alerts) {
+            String code = String.valueOf(alert.getOrDefault("code", "UNKNOWN"));
+            String message = String.valueOf(alert.getOrDefault("message", ""));
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("tenantKey", "platform");
+            row.put("fingerprint", Integer.toHexString((code + "|" + message).hashCode()));
+            row.put("severity", alert.getOrDefault("severity", "INFO"));
+            row.put("code", code);
+            row.put("message", message);
+            try { mapper.upsertAlert(row); } catch (RuntimeException ex) { log.warn("Agent alert persistence failed: {}", ex.getMessage()); }
+        }
     }
 
     private void addDailyBudgetAlert(List<Map<String, Object>> alerts, Map<String, Object> external) {
@@ -475,7 +502,7 @@ public class AgentAdminQueryService {
         }
         List<Map<String, Object>> artifacts = mapper.listArtifacts(id);
         return new TaskDetail(task, mapper.findLatestPlan(id), mapper.listSteps(id), mapper.listToolCalls(id),
-                artifacts, evaluationArtifact(artifacts));
+                mapper.listExternalOperations(id), artifacts, evaluationArtifact(artifacts));
     }
 
     public List<Map<String, Object>> listEvents(long taskId, long afterSeq, int limit) {
@@ -790,6 +817,7 @@ public class AgentAdminQueryService {
                              Map<String, Object> plan,
                              List<Map<String, Object>> steps,
                              List<Map<String, Object>> toolCalls,
+                             List<Map<String, Object>> externalOperations,
                              List<Map<String, Object>> artifacts,
                              Map<String, Object> evaluation) {}
 

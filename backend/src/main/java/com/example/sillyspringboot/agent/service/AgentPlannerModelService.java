@@ -34,7 +34,7 @@ public class AgentPlannerModelService {
     private static final Logger log = LoggerFactory.getLogger(AgentPlannerModelService.class);
     private static final int MAX_RESPONSE_CHARS = 256_000;
     private static final String ALLOWED_TOOLS = "planner.analyze,analytics.query,analytics.review,system.health_check," +
-            "web.search,browser.open,api.request,mcp.call,code.run,artifact.render_report,artifact.evaluate," +
+            "web.search,browser.open,dsh.browser.open,dsh.browser.interact,dsh.devops.inspect,dsh.devops.build,dsh.monitor.snapshot,dsh.backup.inspect,dsh.secret.status,dsh.evaluate.run,api.request,mcp.call,code.run,dsh.session.create,dsh.session.prompt,artifact.render_report,artifact.evaluate," +
             "character.create,character.validate,story.create_outline,story.write_chapter,story.check_continuity," +
             "story.revise,image.generate,tts.generate,artifact.render_html,artifact.package_zip";
 

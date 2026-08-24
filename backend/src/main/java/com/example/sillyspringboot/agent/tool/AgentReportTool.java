@@ -36,6 +36,13 @@ public class AgentReportTool {
         report.put("generatedAt", java.time.Instant.now().toString());
         report.put("usage", usageSummary(taskId, task));
         report.put("evaluation", evaluationTool.evaluate(task, stepId));
+        Map<String, Object> build = completedToolOutput(task.get("completedSteps"), "dsh.devops.build");
+        if (!build.isEmpty()) report.put("devopsBuild", build);
+        Map<String, Object> backupCheck = completedToolOutput(task.get("completedSteps"), "dsh.backup.inspect");
+        Map<String, Object> secretCheck = completedToolOutput(task.get("completedSteps"), "dsh.secret.status");
+        if (!backupCheck.isEmpty() || !secretCheck.isEmpty()) {
+            report.put("platformChecks", platformChecks(backupCheck, secretCheck));
+        }
         report.put("sourceArtifacts", artifacts == null ? List.of() : artifacts.stream()
                 .filter(row -> !"REPORT".equals(String.valueOf(row.get("artifactType")))
                         || !"agent-report".equals(String.valueOf(row.get("artifactKey"))))
@@ -51,7 +58,7 @@ public class AgentReportTool {
                     source.put("mimeType", row.get("mimeType"));
                     return source;
                 }).toList());
-        report.put("summary", summaryFor(task.get("taskType"), artifacts));
+        report.put("summary", summaryFor(task.get("taskType"), artifacts, build, backupCheck, secretCheck));
         String content = json(report);
         Map<String, Object> artifact = new LinkedHashMap<>();
         artifact.put("taskId", taskId);
@@ -77,11 +84,40 @@ public class AgentReportTool {
         return output;
     }
 
-    private Object summaryFor(Object taskType, List<Map<String, Object>> artifacts) {
+    private Object summaryFor(Object taskType, List<Map<String, Object>> artifacts, Map<String, Object> build,
+                              Map<String, Object> backupCheck, Map<String, Object> secretCheck) {
         long ready = artifacts == null ? 0 : artifacts.stream().filter(row -> "READY".equals(String.valueOf(row.get("status")))).count();
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("taskType", taskType == null ? "GENERAL" : taskType);
         summary.put("readyArtifactCount", ready);
+        if (!build.isEmpty()) {
+            summary.put("devopsBuildStatus", build.getOrDefault("status", "UNKNOWN"));
+            summary.put("devopsArtifact", build.getOrDefault("artifact", ""));
+            summary.put("devopsArtifactSizeBytes", build.getOrDefault("artifactSizeBytes", 0));
+            summary.put("devopsArtifactSha256", build.getOrDefault("artifactSha256", ""));
+        }
+        if (!backupCheck.isEmpty() || !secretCheck.isEmpty()) {
+            summary.put("platformChecks", platformChecks(backupCheck, secretCheck));
+        }
+        if (hasArtifact(artifacts, "system-health")) {
+            Map<String, Object> health = artifactContent(artifacts, "system-health");
+            Map<String, Object> release = map(health.get("releaseReadiness"));
+            Map<String, Object> logs = map(health.get("logs"));
+            Map<String, Object> monitoring = new LinkedHashMap<>();
+            monitoring.put("releaseStatus", release.getOrDefault("status", "UNKNOWN"));
+            monitoring.put("blockers", release.getOrDefault("blockers", List.of()));
+            monitoring.put("errorLineCount", number(logs.get("errorLineCount")));
+            monitoring.put("warningLineCount", number(logs.get("warningLineCount")));
+            monitoring.put("readOnly", true);
+            summary.put("monitoring", monitoring);
+            if (!build.isEmpty()) {
+                boolean buildReady = "SUCCEEDED".equalsIgnoreCase(String.valueOf(build.get("status")));
+                boolean checksReady = "READY_FOR_APPROVAL".equalsIgnoreCase(String.valueOf(release.get("status")));
+                summary.put("manualApprovalStatus", buildReady && checksReady
+                        ? "READY_FOR_MANUAL_APPROVAL" : "BLOCKED");
+                summary.put("manualApprovalRequired", true);
+            }
+        }
         boolean operationsReview = "OPERATIONS_REVIEW".equalsIgnoreCase(String.valueOf(taskType))
                 || (hasArtifact(artifacts, "system-health") && hasArtifact(artifacts, "analytics-data"));
         if (operationsReview) {
@@ -192,6 +228,38 @@ public class AgentReportTool {
             }
         }
         return Map.of();
+    }
+
+    private Map<String, Object> completedToolOutput(Object completedSteps, String toolName) {
+        if (!(completedSteps instanceof Iterable<?> rows)) return Map.of();
+        Map<String, Object> found = Map.of();
+        for (Object row : rows) {
+            if (!(row instanceof Map<?, ?> values)) continue;
+            if (!toolName.equals(String.valueOf(values.get("toolName")))) continue;
+            Object raw = values.get("outputJson");
+            if (raw == null || String.valueOf(raw).isBlank()) continue;
+            try {
+                JsonNode node = objectMapper.readTree(String.valueOf(raw));
+                if (node != null && node.isObject()) {
+                    Map<String, Object> parsed = objectMapper.convertValue(node, Map.class);
+                    if (!parsed.isEmpty()) found = parsed;
+                }
+            } catch (Exception ignored) { }
+        }
+        return found;
+    }
+
+    private Map<String, Object> platformChecks(Map<String, Object> backupCheck, Map<String, Object> secretCheck) {
+        Map<String, Object> checks = new LinkedHashMap<>();
+        if (!backupCheck.isEmpty()) {
+            checks.put("backup", backupCheck.getOrDefault("backup", Map.of()));
+        }
+        if (!secretCheck.isEmpty()) {
+            checks.put("credentialsConfigured", secretCheck.getOrDefault("credentialsConfigured", Map.of()));
+            checks.put("secretValuesExposed", secretCheck.getOrDefault("secretValuesExposed", false));
+        }
+        checks.put("readOnly", true);
+        return checks;
     }
 
     private static void addStatusSignal(List<String> signals, String name, Object status) {

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 public class AgentBuiltinToolExecutor {
@@ -39,6 +40,17 @@ public class AgentBuiltinToolExecutor {
     private final AgentUserTicketReplyTool userTicketReplyTool;
     private final AgentUserAccountCreditTool userAccountCreditTool;
     private final AgentContentModerationActionTool contentModerationActionTool;
+    private final AgentDshPromptTool dshPromptTool;
+    private final AgentDshSessionTool dshSessionTool;
+    private final AgentDshBrowserTool dshBrowserTool;
+    private final AgentDshDevopsInspectTool dshDevopsInspectTool;
+    private final AgentDshDevopsBuildTool dshDevopsBuildTool;
+    private final AgentDshMonitorTool dshMonitorTool;
+    private final AgentDshEvaluateTool dshEvaluateTool;
+    private final AgentDshBackupTool dshBackupTool;
+    private final AgentDshSecretStatusTool dshSecretStatusTool;
+    private final AgentDshBrowserInteractTool dshBrowserInteractTool;
+    private final AgentDshDevopsReleaseTool dshDevopsReleaseTool;
 
     public AgentBuiltinToolExecutor(
             ObjectMapper objectMapper,
@@ -69,7 +81,18 @@ public class AgentBuiltinToolExecutor {
             AgentBrowserOpenTool browserOpenTool,
             AgentUserTicketReplyTool userTicketReplyTool,
             AgentUserAccountCreditTool userAccountCreditTool,
-            AgentContentModerationActionTool contentModerationActionTool
+            AgentContentModerationActionTool contentModerationActionTool,
+            AgentDshPromptTool dshPromptTool,
+            AgentDshSessionTool dshSessionTool,
+            AgentDshBrowserTool dshBrowserTool,
+            AgentDshDevopsInspectTool dshDevopsInspectTool,
+            AgentDshDevopsBuildTool dshDevopsBuildTool,
+            AgentDshMonitorTool dshMonitorTool,
+            AgentDshEvaluateTool dshEvaluateTool,
+            AgentDshBackupTool dshBackupTool,
+            AgentDshSecretStatusTool dshSecretStatusTool,
+            AgentDshBrowserInteractTool dshBrowserInteractTool,
+            AgentDshDevopsReleaseTool dshDevopsReleaseTool
     ) {
         this.objectMapper = objectMapper;
         this.characterTool = characterTool;
@@ -100,6 +123,17 @@ public class AgentBuiltinToolExecutor {
         this.userTicketReplyTool = userTicketReplyTool;
         this.userAccountCreditTool = userAccountCreditTool;
         this.contentModerationActionTool = contentModerationActionTool;
+        this.dshPromptTool = dshPromptTool;
+        this.dshSessionTool = dshSessionTool;
+        this.dshBrowserTool = dshBrowserTool;
+        this.dshDevopsInspectTool = dshDevopsInspectTool;
+        this.dshDevopsBuildTool = dshDevopsBuildTool;
+        this.dshMonitorTool = dshMonitorTool;
+        this.dshEvaluateTool = dshEvaluateTool;
+        this.dshBackupTool = dshBackupTool;
+        this.dshSecretStatusTool = dshSecretStatusTool;
+        this.dshBrowserInteractTool = dshBrowserInteractTool;
+        this.dshDevopsReleaseTool = dshDevopsReleaseTool;
     }
 
     public ToolResult execute(Map<String, Object> step, Map<String, Object> task) {
@@ -192,6 +226,45 @@ public class AgentBuiltinToolExecutor {
         }
         if ("mcp.call".equals(toolName)) {
             return jsonResult(mcpCallTool.call(step), "已完成受控 MCP 调用");
+        }
+        if ("dsh.session.prompt".equals(toolName)) {
+            return jsonResult(dshPromptTool.prompt(step, task), "已提交审批后的 DSH Prompt");
+        }
+        if ("dsh.session.create".equals(toolName)) {
+            return jsonResult(dshSessionTool.create(step, task), "已创建审批后的 DSH 会话");
+        }
+        if ("dsh.browser.open".equals(toolName)) {
+            return jsonResult(dshBrowserTool.open(step), "已完成受控 DSH 浏览读取");
+        }
+        if ("dsh.devops.inspect".equals(toolName)) {
+            return jsonResult(dshDevopsInspectTool.inspect(step, task), "已完成受控 DSH DevOps 检查");
+        }
+        if ("dsh.devops.build".equals(toolName)) {
+            return jsonResult(dshDevopsBuildTool.build(step, task), "已完成审批后的 DSH DevOps 构建");
+        }
+        if (toolName.startsWith("dsh.devops.")) {
+            String action = toolName.substring("dsh.devops.".length());
+            if (Set.of("publish", "deploy", "health", "rollback").contains(action)) {
+                return jsonResult(dshDevopsReleaseTool.run(action, step, task), "已完成审批后的 DSH DevOps " + action);
+            }
+        }
+        if ("dsh.monitor.snapshot".equals(toolName)) {
+            return jsonResult(dshMonitorTool.snapshot(step, task), "已完成受控 DSH 监控快照");
+        }
+        if ("dsh.evaluate.run".equals(toolName)) {
+            return jsonResult(dshEvaluateTool.evaluate(task), "已完成受控 DSH 评估");
+        }
+        if ("dsh.backup.inspect".equals(toolName)) {
+            return jsonResult(dshBackupTool.inspect(step, task), "已完成受控 DSH 备份检查");
+        }
+        if ("dsh.secret.status".equals(toolName)) {
+            return jsonResult(dshSecretStatusTool.status(), "已完成受控 DSH 凭据状态检查");
+        }
+        if ("dsh.secret.lease".equals(toolName)) {
+            return jsonResult(dshSecretStatusTool.lease(step, task), "已创建短期 DSH 凭据租约引用");
+        }
+        if ("dsh.browser.interact".equals(toolName)) {
+            return jsonResult(dshBrowserInteractTool.interact(step, task), "已完成审批后的 DSH Browser 操作");
         }
         if ("code.run".equals(toolName)) {
             return jsonResult(codeRunnerTool.run(step), "已完成隔离代码执行");

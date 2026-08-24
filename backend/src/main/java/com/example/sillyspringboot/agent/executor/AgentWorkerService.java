@@ -42,7 +42,7 @@ public class AgentWorkerService {
             "artifact.render_report", "artifact.evaluate", "content.moderation.review",
             "content.moderation.action", "user.profile.query", "user.ticket.query", "user.ticket.reply",
             "user.account.query", "user.account.credit", "user.risk.query", "agent.handoff",
-            "system.health_check", "api.request", "web.search", "browser.open", "mcp.call", "code.run"
+            "system.health_check", "api.request", "web.search", "browser.open", "dsh.browser.open", "dsh.browser.interact", "dsh.devops.inspect", "dsh.devops.build", "dsh.devops.publish", "dsh.devops.deploy", "dsh.devops.health", "dsh.devops.rollback", "dsh.monitor.snapshot", "dsh.backup.inspect", "dsh.secret.status", "dsh.secret.lease", "dsh.evaluate.run", "mcp.call", "code.run", "dsh.session.create", "dsh.session.prompt"
     );
     private static final int LEASE_SECONDS = 60;
     private static final String WORKER_ID = "agent-worker-" + UUID.randomUUID().toString().replace("-", "");
@@ -185,8 +185,11 @@ public class AgentWorkerService {
             }
             requireAllowedRole(toolDefinition, candidate);
             if (Boolean.TRUE.equals(asBoolean(toolDefinition.get("approvalRequired")))) {
-                requestToolApproval(taskId, stepId, toolDefinition, candidate);
-                return;
+                // An approved gate is single-use. Failed/retried attempts must obtain a new approval.
+                if (mapper.consumeApprovedToolApproval(stepId) != 1) {
+                    requestToolApproval(taskId, stepId, toolDefinition, candidate);
+                    return;
+                }
             }
             toolCall.put("taskId", taskId);
             toolCall.put("stepId", stepId);
@@ -204,6 +207,7 @@ public class AgentWorkerService {
             taskContext.put("completedSteps", mapper.listSteps(taskId));
             AgentBuiltinToolExecutor.ToolResult result = toolExecutor.execute(candidate, taskContext);
             long durationMs = elapsedMs(startedNanos);
+            recordExternalOperation(taskId, stepId, result.outputJson());
             UsageDelta usage = refreshUsage(taskId, startingTokens, startingCost);
             mapper.finishToolCall(toolCallId, "SUCCEEDED", result.outputSummary(), null, null, durationMs,
                     usage.tokenUsage(), usage.costAmount(), null, null);
@@ -363,6 +367,31 @@ public class AgentWorkerService {
                     taskId, stepId, candidate.get("toolName"), message);
         } finally {
             leaseRenewal.cancel(false);
+        }
+    }
+
+    private void recordExternalOperation(long taskId, long stepId, String outputJson) {
+        if (outputJson == null || outputJson.isBlank()) return;
+        try {
+            JsonNode root = objectMapper.readTree(outputJson);
+            if (root == null || !root.isObject()) return;
+            String operationId = root.path("operationId").asText("").trim();
+            String capability = root.path("capability").asText("").trim();
+            if (operationId.isBlank() || capability.isBlank()) return;
+            Map<String, Object> operation = new LinkedHashMap<>();
+            operation.put("operationId", operationId);
+            operation.put("taskId", taskId);
+            operation.put("stepId", stepId);
+            operation.put("capability", capability);
+            operation.put("status", root.path("status").asText("SUCCEEDED"));
+            operation.put("approvalId", null);
+            operation.put("rollbackRef", root.path("rollbackRef").asText(null));
+            operation.put("outputArtifact", root.path("artifact").asText(null));
+            operation.put("outputSummary", clip(outputJson, 4_000));
+            operation.put("metadataJson", clip(outputJson, 12_000));
+            mapper.insertExternalOperation(operation);
+        } catch (Exception ex) {
+            log.warn("Agent external operation bridge failed taskId={} stepId={}: {}", taskId, stepId, ex.getMessage());
         }
     }
 

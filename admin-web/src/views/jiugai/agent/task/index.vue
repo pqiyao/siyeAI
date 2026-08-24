@@ -42,7 +42,7 @@
         <el-form-item label="任务标题"><el-input v-model="createForm.title" maxlength="255" show-word-limit placeholder="例如：制作三章互动悬疑故事" /></el-form-item>
         <el-form-item label="任务目标" required><el-input v-model="createForm.objective" type="textarea" :rows="6" maxlength="20000" show-word-limit placeholder="清楚描述 Agent 需要完成的目标、范围和交付物" /></el-form-item>
         <el-row :gutter="16">
-          <el-col :span="12"><el-form-item label="任务类型"><el-select v-model="createForm.taskType" style="width: 100%"><el-option label="通用任务" value="GENERAL" /><el-option label="内容创作" value="CONTENT_CREATION" /><el-option label="数据分析" value="DATA_ANALYSIS" /><el-option label="系统检查" value="SYSTEM_INSPECTION" /></el-select></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="任务类型"><el-select v-model="createForm.taskType" style="width: 100%"><el-option label="通用任务" value="GENERAL" /><el-option label="DSH Agent" value="DSH_SESSION" /><el-option label="DSH Browser" value="DSH_BROWSER" /><el-option label="DSH DevOps 构建" value="DSH_DEVOPS_BUILD" /><el-option label="DSH DevOps 发布" value="DSH_DEVOPS_RELEASE" /><el-option label="DSH DevOps 回滚" value="DSH_DEVOPS_ROLLBACK" /><el-option label="DSH 平台巡检" value="DSH_PLATFORM_AUDIT" /><el-option label="内容创作" value="CONTENT_CREATION" /><el-option label="数据分析" value="DATA_ANALYSIS" /><el-option label="系统检查" value="SYSTEM_INSPECTION" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="风险等级"><el-select v-model="createForm.riskLevel" style="width: 100%"><el-option label="只读" value="READ_ONLY" /><el-option label="可恢复写入" value="WRITE_REVERSIBLE" /></el-select></el-form-item></el-col>
         </el-row>
       </el-form>

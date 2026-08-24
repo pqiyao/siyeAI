@@ -56,6 +56,29 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" class="panel-card">
+      <template #header><div class="panel-title">DSH 外部操作</div></template>
+      <el-table :data="externalOperations" empty-text="当前还没有 DSH 外部操作记录">
+        <el-table-column prop="capability" label="能力" min-width="190" />
+        <el-table-column prop="operationId" label="操作 ID" min-width="260" show-overflow-tooltip />
+        <el-table-column prop="status" label="状态" width="110"><template #default="scope"><el-tag size="small" :type="statusType(scope.row.status)">{{ statusLabel(scope.row.status) }}</el-tag></template></el-table-column>
+        <el-table-column prop="rollbackRef" label="回滚引用" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="createdAt" label="时间" width="180" />
+      </el-table>
+    </el-card>
+
+    <el-card v-if="devopsBuild" shadow="never" class="panel-card build-card">
+      <template #header><div class="panel-title">DevOps 构建发布材料</div></template>
+      <el-descriptions :column="4" border>
+        <el-descriptions-item label="构建状态">{{ devopsBuild.status || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="人工审批状态"><el-tag size="small" :type="manualApprovalStatus === 'READY_FOR_MANUAL_APPROVAL' ? 'success' : 'warning'">{{ manualApprovalStatus || '未判断' }}</el-tag></el-descriptions-item>
+        <el-descriptions-item label="制品大小">{{ formatBytes(devopsBuild.artifactSizeBytes) }}</el-descriptions-item>
+        <el-descriptions-item label="制品路径"><span class="break-text">{{ devopsBuild.artifact || '-' }}</span></el-descriptions-item>
+        <el-descriptions-item label="SHA-256" :span="4"><span class="hash-text">{{ devopsBuild.artifactSha256 || '-' }}</span></el-descriptions-item>
+      </el-descriptions>
+      <div class="build-note">仅表示构建制品已生成；上传、部署和回滚仍需单独审批。</div>
+    </el-card>
+
     <el-row :gutter="16">
       <el-col :xs="24">
         <el-card shadow="never" class="panel-card">
@@ -168,6 +191,7 @@ const task = ref({})
 const plan = ref({})
 const steps = ref([])
 const toolCalls = ref([])
+const externalOperations = ref([])
 const events = ref([])
 const artifacts = ref([])
 const contentVisible = ref(false)
@@ -198,6 +222,20 @@ const planText = computed(() => {
   if (!value) return '-'
   try { return JSON.stringify(JSON.parse(value), null, 2) } catch { return String(value) }
 })
+const devopsBuild = computed(() => {
+  const report = artifacts.value.find(item => item.artifactKey === 'agent-report' && item.contentJson)
+  if (!report) return null
+  try {
+    return JSON.parse(report.contentJson)?.devopsBuild || null
+  } catch {
+    return null
+  }
+})
+const manualApprovalStatus = computed(() => {
+  const report = artifacts.value.find(item => item.artifactKey === 'agent-report' && item.contentJson)
+  if (!report) return ''
+  try { return JSON.parse(report.contentJson)?.summary?.manualApprovalStatus || '' } catch { return '' }
+})
 
 function taskId() {
   const id = Number(route.params.id)
@@ -221,6 +259,7 @@ async function load() {
     plan.value = taskResponse.plan || {}
     steps.value = taskResponse.steps || []
     toolCalls.value = taskResponse.toolCalls || []
+    externalOperations.value = taskResponse.externalOperations || []
     events.value = eventResponse.data || []
     eventCursor = events.value.reduce((cursor, event) => Math.max(cursor, Number(event.eventSeq) || 0), eventCursor)
     artifacts.value = artifactResponse.data || []
@@ -418,5 +457,8 @@ onBeforeUnmount(stopEventStream)
 .artifact-content { max-height: 60vh; margin: 0; padding: 14px; overflow: auto; color: #303133; background: #f5f7fa; border: 1px solid #ebeef5; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }
 .plan-meta { margin-bottom: 14px; }
 .plan-content { max-height: 55vh; }
+.break-text, .hash-text { word-break: break-all; }
+.hash-text { font-family: monospace; }
+.build-note { margin-top: 10px; color: #909399; font-size: 12px; }
 @media (max-width: 700px) { .page-heading { flex-direction: column; } .heading-actions { width: 100%; } }
 </style>

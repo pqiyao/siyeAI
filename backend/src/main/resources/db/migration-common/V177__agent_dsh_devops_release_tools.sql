@@ -1,0 +1,7 @@
+INSERT INTO app_agent_tool_definition (tool_key, version, display_name, category, handler_type, risk_level, input_schema, output_schema, allowed_roles_json, description, timeout_seconds, max_retries, idempotent, approval_required, enabled)
+VALUES
+('dsh.devops.publish', '1.0', 'DSH DevOps 发布制品', 'AGENT_RUNTIME', 'BUILTIN', 'EXTERNAL_SIDE_EFFECT', '{"type":"object","additionalProperties":false}', '{"type":"object"}', '["Developer","DevOps Inspector"]', '将已审批构建制品复制到受控发布目录并记录 SHA-256。', 120, 1, 1, 1, 1),
+('dsh.devops.deploy', '1.0', 'DSH DevOps 部署', 'AGENT_RUNTIME', 'BUILTIN', 'EXTERNAL_SIDE_EFFECT', '{"type":"object","additionalProperties":false}', '{"type":"object"}', '["Developer","DevOps Inspector"]', '将受控发布制品部署到本机配置目标并保留回滚引用。', 120, 1, 0, 1, 1),
+('dsh.devops.health', '1.0', 'DSH DevOps 健康检查', 'AGENT_RUNTIME', 'BUILTIN', 'EXTERNAL_SIDE_EFFECT', '{"type":"object","additionalProperties":false}', '{"type":"object"}', '["Developer","DevOps Inspector"]', '检查配置部署目标的健康接口。', 30, 1, 1, 1, 1),
+('dsh.devops.rollback', '1.0', 'DSH DevOps 回滚', 'AGENT_RUNTIME', 'BUILTIN', 'EXTERNAL_SIDE_EFFECT', '{"type":"object","properties":{"rollbackRef":{"type":"string","maxLength":500}},"additionalProperties":false}', '{"type":"object"}', '["Developer","DevOps Inspector"]', '使用受控回滚引用恢复上一个本地部署制品。', 120, 1, 0, 1, 1)
+ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), input_schema=VALUES(input_schema), output_schema=VALUES(output_schema), description=VALUES(description), timeout_seconds=VALUES(timeout_seconds), enabled=VALUES(enabled), updated_at=CURRENT_TIMESTAMP;

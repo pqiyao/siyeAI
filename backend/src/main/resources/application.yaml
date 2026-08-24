@@ -244,6 +244,24 @@ app:
       image: ${APP_AGENT_CODE_RUNNER_IMAGE:}
       user: ${APP_AGENT_CODE_RUNNER_USER:65532:65532}
       require-digest: ${APP_AGENT_CODE_RUNNER_REQUIRE_DIGEST:false}
+    dsh:
+      enabled: ${APP_AGENT_DSH_ENABLED:false}
+      base-url: ${APP_AGENT_DSH_BASE_URL:http://127.0.0.1:8091}
+      profile: ${APP_AGENT_DSH_PROFILE:web}
+      timeout-ms: ${APP_AGENT_DSH_TIMEOUT_MS:1500}
+      workspace-root: ${APP_AGENT_DSH_WORKSPACE_ROOT:}
+      browser-worker:
+        enabled: ${APP_AGENT_DSH_BROWSER_WORKER_ENABLED:false}
+        endpoint: ${APP_AGENT_DSH_BROWSER_WORKER_ENDPOINT:http://127.0.0.1:8092/api/browser}
+        token: ${APP_AGENT_DSH_BROWSER_WORKER_TOKEN:}
+      devops-build:
+        enabled: ${APP_AGENT_DSH_DEVOPS_BUILD_ENABLED:false}
+        timeout-seconds: ${APP_AGENT_DSH_DEVOPS_BUILD_TIMEOUT_SECONDS:900}
+      devops-release:
+        enabled: ${APP_AGENT_DSH_DEVOPS_RELEASE_ENABLED:false}
+        release-root: ${APP_AGENT_DSH_DEVOPS_RELEASE_ROOT:}
+        deployment-root: ${APP_AGENT_DSH_DEVOPS_DEPLOYMENT_ROOT:}
+        health-url: ${APP_AGENT_DSH_DEVOPS_HEALTH_URL:http://127.0.0.1:8080/actuator/health}
 
 telegram:
   bot-token: ${TELEGRAM_BOT_TOKEN:}

@@ -702,6 +702,16 @@
         WHERE id = #{stepId} AND status = 'WAITING_APPROVAL'
     </update>
 
+    <update id="consumeApprovedToolApproval">
+        UPDATE app_agent_approval
+        SET status = 'CONSUMED', updated_at = CURRENT_TIMESTAMP
+        WHERE step_id = #{stepId}
+          AND approval_type = 'TOOL'
+          AND status = 'APPROVED'
+        ORDER BY id DESC
+        LIMIT 1
+    </update>
+
     <update id="rejectToolStep">
         UPDATE app_agent_step
         SET status = 'FAILED',
@@ -792,6 +802,37 @@
         )
     </insert>
 
+    <insert id="insertDshBinding" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_dsh_binding (
+            task_id, session_id, tenant_key, workspace, preset, status
+        ) VALUES (
+            #{taskId}, #{sessionId}, #{tenantKey}, #{workspace}, #{preset}, #{status}
+        )
+        ON DUPLICATE KEY UPDATE
+            session_id = VALUES(session_id),
+            workspace = VALUES(workspace),
+            preset = VALUES(preset),
+            status = VALUES(status),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <insert id="insertExternalOperation" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_external_operation (
+            operation_id, task_id, step_id, capability, status, approval_id,
+            rollback_ref, output_artifact, output_summary, metadata_json
+        ) VALUES (
+            #{operationId}, #{taskId}, #{stepId}, #{capability}, #{status}, #{approvalId},
+            #{rollbackRef}, #{outputArtifact}, #{outputSummary}, #{metadataJson}
+        )
+        ON DUPLICATE KEY UPDATE
+            status = VALUES(status),
+            rollback_ref = VALUES(rollback_ref),
+            output_artifact = VALUES(output_artifact),
+            output_summary = VALUES(output_summary),
+            metadata_json = VALUES(metadata_json),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
     <insert id="insertUsageLedger" parameterType="map">
         INSERT INTO app_agent_usage_ledger (
             task_id, step_id, tenant_key, idempotency_key, tool_name, attempt,
@@ -868,6 +909,42 @@
           AND t.status = 'ACTIVE'
           AND (b.max_daily_tokens &gt; 0 OR b.max_daily_cost &gt; 0 OR b.max_daily_tasks &gt; 0)
     </select>
+
+    <insert id="upsertAlert" parameterType="map">
+        INSERT INTO app_agent_alert (tenant_key, fingerprint, severity, code, message, status, first_seen_at, last_seen_at)
+        VALUES (#{tenantKey}, #{fingerprint}, #{severity}, #{code}, #{message}, 'OPEN', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE severity = VALUES(severity), message = VALUES(message), status = CASE WHEN status = 'ACKNOWLEDGED' THEN 'OPEN' ELSE status END, last_seen_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <select id="listAlerts" resultType="map">
+        SELECT id, tenant_key AS tenantKey, fingerprint, severity, code, message, status,
+               first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt,
+               acknowledged_by AS acknowledgedBy, acknowledged_at AS acknowledgedAt
+        FROM app_agent_alert
+        <where><if test="status != null and status != ''">status = #{status}</if></where>
+        ORDER BY last_seen_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="acknowledgeAlert">
+        UPDATE app_agent_alert SET status = 'ACKNOWLEDGED', acknowledged_by = #{adminId}, acknowledged_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND status = 'OPEN'
+    </update>
+
+    <insert id="insertBackupRun" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_backup_run (
+            task_id, step_id, backup_type, backup_path, content_hash, size_bytes,
+            verified, restore_tested, status
+        ) VALUES (
+            #{taskId}, #{stepId}, #{backupType}, #{backupPath}, #{contentHash}, #{sizeBytes},
+            #{verified}, #{restoreTested}, #{status}
+        )
+    </insert>
+
+    <insert id="insertSecretLease" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_agent_secret_lease (lease_id, tenant_key, provider, status, expires_at)
+        VALUES (#{leaseId}, #{tenantKey}, #{provider}, 'ACTIVE', #{expiresAt})
+    </insert>
 
     <insert id="upsertTenantBudget" parameterType="map">
         INSERT INTO app_agent_tenant_budget
@@ -1210,6 +1287,25 @@
         LEFT JOIN app_agent_step s ON s.id = c.step_id
         WHERE c.task_id = #{taskId}
         ORDER BY c.created_at ASC, c.id ASC
+    </select>
+
+    <select id="listExternalOperations" resultType="map">
+        SELECT id,
+               operation_id AS operationId,
+               task_id AS taskId,
+               step_id AS stepId,
+               capability,
+               status,
+               approval_id AS approvalId,
+               rollback_ref AS rollbackRef,
+               output_artifact AS outputArtifact,
+               output_summary AS outputSummary,
+               metadata_json AS metadataJson,
+               created_at AS createdAt,
+               updated_at AS updatedAt
+        FROM app_agent_external_operation
+        WHERE task_id = #{taskId}
+        ORDER BY created_at ASC, id ASC
     </select>
 
     <select id="summarizeToolUsage" resultType="map">

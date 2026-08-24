@@ -11,12 +11,14 @@
     <el-card shadow="never">
       <el-form :inline="true" class="toolbar">
         <el-form-item><el-select v-model="query.status" placeholder="全部状态" clearable style="width: 150px" @change="load"><el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
+        <el-form-item><el-select v-if="tenantScopes.length" v-model="query.tenantKey" placeholder="授权租户" clearable style="width: 190px" @change="load"><el-option v-for="scope in tenantScopes" :key="scope.tenantKey" :label="scope.tenantKey" :value="scope.tenantKey" /></el-select><el-input v-else v-model="query.tenantKey" placeholder="租户 Key" clearable style="width: 180px" @keyup.enter="load" /></el-form-item>
         <el-form-item><el-input v-model="query.keyword" placeholder="类型、目标或原因" clearable style="width: 240px" @keyup.enter="load" /></el-form-item>
         <el-button type="primary" :loading="loading" @click="load">查询</el-button>
         <el-button :loading="loading" @click="load">刷新</el-button>
       </el-form>
       <el-table v-loading="loading" :data="rows" empty-text="当前没有可展示的审批记录">
         <el-table-column prop="id" label="审批 ID" width="120" />
+        <el-table-column prop="tenantKey" label="租户" width="150" show-overflow-tooltip />
         <el-table-column label="类型" width="150"><template #default="scope">{{ approvalTypeLabel(scope.row.approvalType) }}</template></el-table-column>
         <el-table-column prop="targetSummary" label="目标摘要" min-width="260" show-overflow-tooltip />
         <el-table-column label="状态" width="120"><template #default="scope"><el-tag :type="approvalType(scope.row.status)">{{ approvalLabel(scope.row.status) }}</el-tag></template></el-table-column>
@@ -38,11 +40,13 @@
 
 <script setup name="JgAgentApproval">
 import { approveAgentApproval, listAgentApprovals, rejectAgentApproval } from '@/api/jiugai/agentApproval'
+import { listMyAgentTenantScopes } from '@/api/jiugai/agentConfig'
 
 const loading = ref(false)
 const rows = ref([])
 const total = ref(0)
-const query = reactive({ pageNum: 1, pageSize: 20, status: '', keyword: '' })
+const query = reactive({ pageNum: 1, pageSize: 20, status: '', keyword: '', tenantKey: '' })
+const tenantScopes = ref([])
 const statuses = [
   { value: 'PENDING', label: '待审批' },
   { value: 'APPROVED', label: '已通过' },
@@ -97,7 +101,15 @@ async function load() {
   }
 }
 
-onMounted(load)
+async function loadTenantScopes() {
+  try {
+    const response = await listMyAgentTenantScopes()
+    tenantScopes.value = Array.isArray(response) ? response : (response.data || [])
+    if (tenantScopes.value.length && !query.tenantKey) query.tenantKey = tenantScopes.value[0].tenantKey
+  } catch (e) { tenantScopes.value = [] }
+}
+
+onMounted(async () => { await loadTenantScopes(); await load() })
 </script>
 
 <style scoped>

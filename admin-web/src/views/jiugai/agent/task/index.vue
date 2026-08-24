@@ -12,7 +12,7 @@
       <el-form :inline="true" class="toolbar">
         <el-form-item><el-select v-model="query.status" placeholder="全部状态" clearable style="width: 170px" @change="load"><el-option v-for="item in statuses" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
         <el-form-item><el-input v-model="query.keyword" placeholder="任务标题或目标" clearable style="width: 240px" @keyup.enter="load" /></el-form-item>
-        <el-form-item><el-input v-model="query.tenantKey" placeholder="租户 Key" clearable style="width: 170px" @keyup.enter="load" /></el-form-item>
+        <el-form-item><el-select v-if="tenantScopes.length" v-model="query.tenantKey" placeholder="授权租户" clearable style="width: 190px" @change="load"><el-option v-for="scope in tenantScopes" :key="scope.tenantKey" :label="scope.tenantKey" :value="scope.tenantKey" /></el-select><el-input v-else v-model="query.tenantKey" placeholder="租户 Key" clearable style="width: 170px" @keyup.enter="load" /></el-form-item>
         <el-button type="primary" :loading="loading" @click="load">查询</el-button>
         <el-button :loading="loading" @click="load">刷新</el-button>
       </el-form>
@@ -38,6 +38,7 @@
 
     <el-dialog v-model="createVisible" title="创建 Agent 任务" width="620px" destroy-on-close>
       <el-form :model="createForm" label-position="top">
+        <el-form-item label="租户 Key"><el-input v-model="createForm.tenantKey" maxlength="120" placeholder="普通管理员填写已授权租户；平台管理员可留空" /></el-form-item>
         <el-form-item label="任务标题"><el-input v-model="createForm.title" maxlength="255" show-word-limit placeholder="例如：制作三章互动悬疑故事" /></el-form-item>
         <el-form-item label="任务目标" required><el-input v-model="createForm.objective" type="textarea" :rows="6" maxlength="20000" show-word-limit placeholder="清楚描述 Agent 需要完成的目标、范围和交付物" /></el-form-item>
         <el-row :gutter="16">
@@ -52,6 +53,7 @@
 
 <script setup name="JgAgentTask">
 import { createAgentTask, listAgentTasks } from '@/api/jiugai/agentTask'
+import { listMyAgentTenantScopes } from '@/api/jiugai/agentConfig'
 
 const { proxy } = getCurrentInstance()
 const router = useRouter()
@@ -61,7 +63,8 @@ const createVisible = ref(false)
 const rows = ref([])
 const total = ref(0)
 const query = reactive({ pageNum: 1, pageSize: 20, status: '', keyword: '', tenantKey: '' })
-const createForm = reactive({ title: '', objective: '', taskType: 'GENERAL', riskLevel: 'READ_ONLY' })
+const createForm = reactive({ tenantKey: '', title: '', objective: '', taskType: 'GENERAL', riskLevel: 'READ_ONLY' })
+const tenantScopes = ref([])
 const statuses = [
   { value: 'DRAFT', label: '草稿' },
   { value: 'PLANNING', label: '规划中' },
@@ -91,6 +94,10 @@ async function submitCreate() {
     proxy.$modal.msgWarning('请填写任务目标')
     return
   }
+  if (tenantScopes.value.length && !String(createForm.tenantKey || '').trim()) {
+    proxy.$modal.msgWarning('请选择已授权租户')
+    return
+  }
   saving.value = true
   try {
     await createAgentTask(createForm)
@@ -117,7 +124,18 @@ async function load() {
   }
 }
 
-onMounted(load)
+async function loadTenantScopes() {
+  try {
+    const response = await listMyAgentTenantScopes()
+    tenantScopes.value = Array.isArray(response) ? response : (response.data || [])
+    if (tenantScopes.value.length && !query.tenantKey) query.tenantKey = tenantScopes.value[0].tenantKey
+    if (tenantScopes.value.length && !createForm.tenantKey) createForm.tenantKey = tenantScopes.value[0].tenantKey
+  } catch (e) {
+    tenantScopes.value = []
+  }
+}
+
+onMounted(async () => { await loadTenantScopes(); await load() })
 </script>
 
 <style scoped>

@@ -52,12 +52,17 @@ public class AgentEvaluationTool {
                 .filter(row -> "READY".equals(String.valueOf(row.get("status")))
                         && isDegraded(row.get("contentJson")))
                 .count();
+        long degradedSteps = steps == null ? 0 : steps.stream()
+                .filter(row -> "SUCCEEDED".equals(String.valueOf(row.get("status")))
+                        && isDegraded(row.get("outputJson")))
+                .count();
         List<String> missingRequiredArtifacts = missingRequiredArtifacts(task, artifacts);
         double stepRate = totalSteps == 0 ? 0D : (double) succeededSteps / totalSteps;
         double artifactRate = totalArtifacts == 0 ? 1D : (double) readyArtifacts / totalArtifacts;
         long unpriced = usage == null ? 0L : number(usage.get("unpricedCalls"));
         int score = (int) Math.round(stepRate * 60D + artifactRate * 30D + (failedSteps == 0 ? 10D : 0D));
-        if (degradedArtifacts > 0) score = Math.max(0, score - Math.min(20, (int) degradedArtifacts * 5));
+        long degradedCount = degradedArtifacts + degradedSteps;
+        if (degradedCount > 0) score = Math.max(0, score - Math.min(25, (int) degradedCount * 5));
         String verdict = score >= 85 && failedSteps == 0 ? "PASS" : score >= 60 ? "WARN" : "FAIL";
         if (!missingRequiredArtifacts.isEmpty()) {
             verdict = "FAIL";
@@ -80,10 +85,11 @@ public class AgentEvaluationTool {
         result.put("totalArtifacts", totalArtifacts);
         result.put("readyArtifacts", readyArtifacts);
         result.put("degradedArtifacts", degradedArtifacts);
+        result.put("degradedSteps", degradedSteps);
         result.put("unpricedCalls", unpriced);
         result.put("requiredArtifacts", requiredArtifacts(task));
         result.put("missingRequiredArtifacts", missingRequiredArtifacts);
-        result.put("recommendations", recommendations(failedSteps, degradedArtifacts, unpriced, missingRequiredArtifacts));
+        result.put("recommendations", recommendations(failedSteps, degradedCount, unpriced, missingRequiredArtifacts));
         return result;
     }
 

@@ -23,12 +23,17 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Comparator;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Read-only local health snapshot. It intentionally exposes no shell or SQL input. */
 @Component
 public class AgentSystemInspectionTool {
+
+    private static final Pattern MIGRATION_FILE = Pattern.compile("^V(\\d+)__.*\\.sql$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern MIGRATION_VERSION = Pattern.compile("(\\d+)");
 
     private final AgentAdminMapper agentMapper;
     private final ObjectMapper objectMapper;
@@ -93,7 +98,11 @@ public class AgentSystemInspectionTool {
                                                  Map<String, Object> git) {
         List<String> blockers = new ArrayList<>();
         if (!"UP".equals(String.valueOf(database.get("status")))) blockers.add("DATABASE_NOT_READY");
+        if (Boolean.TRUE.equals(database.get("migrationVersionMismatch"))) {
+            blockers.add("MIGRATION_VERSION_MISMATCH");
+        }
         if (!"AVAILABLE".equals(String.valueOf(build.get("status")))) blockers.add("BUILD_ARTIFACT_MISSING");
+        if (Boolean.FALSE.equals(build.get("artifactFresh"))) blockers.add("BUILD_ARTIFACT_STALE");
         if ("DIRTY".equals(String.valueOf(git.get("workingTree")))) blockers.add("WORKTREE_DIRTY");
         if (!Boolean.TRUE.equals(backup.get("recoveryReady"))) blockers.add("BACKUP_NOT_RECOVERY_READY");
         return Map.of(
@@ -194,7 +203,15 @@ public class AgentSystemInspectionTool {
                     result.put("originalJarSha256", sha256(original));
                 }
             }
-            result.put("status", Files.isDirectory(classes) ? "AVAILABLE" : "MISSING");
+            boolean classesAvailable = Files.isDirectory(classes);
+            boolean jarAvailable = Files.isRegularFile(jar);
+            boolean artifactFresh = artifactFresh(classesAvailable, jarAvailable,
+                    jarAvailable ? Files.getLastModifiedTime(jar).toMillis() : 0L,
+                    classesAvailable ? Files.getLastModifiedTime(classes).toMillis() : 0L);
+            result.put("classesAvailable", classesAvailable);
+            result.put("jarAvailable", jarAvailable);
+            result.put("artifactFresh", artifactFresh);
+            result.put("status", classesAvailable && jarAvailable ? "AVAILABLE" : "MISSING");
         } catch (Exception ex) {
             result.put("status", "UNKNOWN");
             result.put("message", ex.getClass().getSimpleName() + ": " + clip(ex.getMessage(), 500));
@@ -373,11 +390,45 @@ public class AgentSystemInspectionTool {
             );
             result.put("flyway", row);
             result.put("status", Boolean.TRUE.equals(row.get("success")) || "1".equals(String.valueOf(row.get("success"))) ? "UP" : "DEGRADED");
+            addSourceMigrationSnapshot(result, row.get("version"));
         } catch (Exception e) {
             result.put("status", "UNKNOWN");
             result.put("message", "无法读取 Flyway 状态：" + e.getClass().getSimpleName());
         }
         return result;
+    }
+
+    private void addSourceMigrationSnapshot(Map<String, Object> result, Object installedVersion) {
+        Path migrationRoot = repositoryRoot.resolve("src/main/resources/db").normalize();
+        try (java.util.stream.Stream<Path> files = Files.walk(migrationRoot)) {
+            int sourceMax = files.filter(Files::isRegularFile)
+                    .map(path -> path.getFileName().toString())
+                    .map(MIGRATION_FILE::matcher)
+                    .filter(Matcher::matches)
+                    .mapToInt(match -> Integer.parseInt(match.group(1)))
+                    .max().orElse(0);
+            int installed = parseMigrationVersion(installedVersion);
+            result.put("sourceMigrationMaxVersion", sourceMax);
+            result.put("installedMigrationVersion", installed);
+            result.put("migrationVersionMismatch", sourceMax > 0 && installed > 0 && sourceMax > installed);
+            result.put("sourceMigrationStatus", sourceMax > 0 ? "AVAILABLE" : "MISSING");
+        } catch (Exception ex) {
+            result.put("sourceMigrationStatus", "UNKNOWN");
+            result.put("sourceMigrationMessage", clip(ex.getClass().getSimpleName() + ": " + ex.getMessage(), 500));
+        }
+    }
+
+    static int parseMigrationVersion(Object value) {
+        if (value == null) return 0;
+        Matcher matcher = MIGRATION_VERSION.matcher(String.valueOf(value));
+        if (!matcher.find()) return 0;
+        try { return Integer.parseInt(matcher.group(1)); }
+        catch (RuntimeException ignored) { return 0; }
+    }
+
+    static boolean artifactFresh(boolean classesAvailable, boolean jarAvailable,
+                                 long jarModifiedMillis, long classesModifiedMillis) {
+        return !classesAvailable || (jarAvailable && jarModifiedMillis >= classesModifiedMillis);
     }
 
     private Map<String, Object> storageSnapshot() {

@@ -34,6 +34,9 @@ public interface AgentAdminMapper {
 
     int insertStep(Map<String, Object> step);
 
+    int deleteRuntimeReplanSteps(@Param("taskId") long taskId,
+                                 @Param("stepIds") List<Long> stepIds);
+
     int updateTaskPlanSummary(@Param("taskId") long taskId,
                               @Param("totalSteps") int totalSteps,
                               @Param("currentStepId") long currentStepId);
@@ -81,9 +84,13 @@ public interface AgentAdminMapper {
 
     int recoverExpiredSteps(@Param("now") LocalDateTime now);
 
+    List<Map<String, Object>> listRecoverableExpiredSteps(@Param("now") LocalDateTime now);
+
     int failExhaustedSteps(@Param("now") LocalDateTime now);
 
     int failTasksWithFailedSteps();
+
+    int cancelStepsForFailedTasks();
 
     int completeStep(@Param("stepId") long stepId,
                      @Param("owner") String owner,
@@ -254,19 +261,23 @@ public interface AgentAdminMapper {
 
     long countArtifactCenter(@Param("artifactType") String artifactType,
                              @Param("status") String status,
-                             @Param("keyword") String keyword);
+                             @Param("keyword") String keyword,
+                             @Param("tenantKey") String tenantKey);
 
     List<Map<String, Object>> listArtifactCenter(@Param("artifactType") String artifactType,
                                                  @Param("status") String status,
                                                  @Param("keyword") String keyword,
+                                                 @Param("tenantKey") String tenantKey,
                                                  @Param("offset") int offset,
                                                  @Param("limit") int limit);
 
     long countApprovals(@Param("status") String status,
-                        @Param("keyword") String keyword);
+                        @Param("keyword") String keyword,
+                        @Param("tenantKey") String tenantKey);
 
     List<Map<String, Object>> listApprovals(@Param("status") String status,
                                             @Param("keyword") String keyword,
+                                            @Param("tenantKey") String tenantKey,
                                             @Param("offset") int offset,
                                             @Param("limit") int limit);
 
@@ -391,6 +402,10 @@ public interface AgentAdminMapper {
 
     Map<String, Object> findTenant(@Param("tenantKey") String tenantKey);
 
+    int ensureTenant(@Param("tenantKey") String tenantKey,
+                     @Param("displayName") String displayName,
+                     @Param("createdBy") Long createdBy);
+
     int insertTenant(Map<String, Object> tenant);
 
     int updateTenantStatus(@Param("tenantKey") String tenantKey,
@@ -413,4 +428,17 @@ public interface AgentAdminMapper {
                                  @Param("status") String status,
                                  @Param("memberRole") String memberRole,
                                  @Param("updatedBy") Long updatedBy);
+
+    List<Map<String, Object>> listAdminTenantScopes(@Param("adminId") long adminId,
+                                                    @Param("status") String status);
+
+    Map<String, Object> findAdminTenantScope(@Param("adminId") long adminId,
+                                             @Param("tenantKey") String tenantKey);
+
+    int upsertAdminTenantScope(Map<String, Object> scope);
+
+    int updateAdminTenantScopeStatus(@Param("adminId") long adminId,
+                                     @Param("tenantKey") String tenantKey,
+                                     @Param("status") String status,
+                                     @Param("updatedBy") Long updatedBy);
 }

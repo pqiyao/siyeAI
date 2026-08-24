@@ -182,8 +182,13 @@ public class AgentConfigService {
                 throw new IllegalArgumentException("工作流 stepsJson 数量无效");
             }
             Set<String> keys = new HashSet<>();
+            Map<String, Set<String>> dependenciesByKey = new LinkedHashMap<>();
             for (JsonNode step : steps) {
-                if (!step.isObject() || !step.path("key").isTextual() || !keys.add(step.path("key").asText())) {
+                if (!step.isObject() || !step.path("key").isTextual()) {
+                    throw new IllegalArgumentException("工作流步骤 key 无效或重复");
+                }
+                String key = step.path("key").asText().trim();
+                if (key.isBlank() || key.length() > 100 || !keys.add(key)) {
                     throw new IllegalArgumentException("工作流步骤 key 无效或重复");
                 }
                 String role = step.path("agentRole").asText("");
@@ -191,10 +196,57 @@ public class AgentConfigService {
                 if (!roles.contains(role) || !tools.contains(tool)) {
                     throw new IllegalArgumentException("工作流步骤超出角色或工具白名单");
                 }
+                JsonNode dependencies = step.get("dependsOn");
+                if (dependencies != null && !dependencies.isNull() && !dependencies.isArray()) {
+                    throw new IllegalArgumentException("工作流步骤 dependsOn 必须是数组");
+                }
+                Set<String> dependencyKeys = new HashSet<>();
+                if (dependencies != null && dependencies.isArray()) {
+                    for (JsonNode dependency : dependencies) {
+                        if (!dependency.isTextual() || dependency.asText().isBlank()) {
+                            throw new IllegalArgumentException("工作流步骤依赖无效");
+                        }
+                        String dependencyKey = dependency.asText().trim();
+                        if (!dependencyKeys.add(dependencyKey)) {
+                            throw new IllegalArgumentException("工作流步骤依赖重复: " + key);
+                        }
+                    }
+                }
+                dependenciesByKey.put(key, dependencyKeys);
+            }
+            for (Map.Entry<String, Set<String>> entry : dependenciesByKey.entrySet()) {
+                for (String dependency : entry.getValue()) {
+                    if (!keys.contains(dependency) || entry.getKey().equals(dependency)) {
+                        throw new IllegalArgumentException("工作流步骤依赖无效: " + entry.getKey() + " -> " + dependency);
+                    }
+                }
+            }
+            for (String key : keys) {
+                if (hasDependencyCycle(key, dependenciesByKey, new HashSet<>(), new HashSet<>())) {
+                    throw new IllegalArgumentException("工作流存在循环依赖");
+                }
             }
         } catch (JsonProcessingException ex) {
             throw new IllegalArgumentException("工作流 JSON 无效", ex);
         }
+    }
+
+    private static boolean hasDependencyCycle(String key, Map<String, Set<String>> dependenciesByKey,
+                                              Set<String> visiting, Set<String> visited) {
+        if (visited.contains(key)) {
+            return false;
+        }
+        if (!visiting.add(key)) {
+            return true;
+        }
+        for (String dependency : dependenciesByKey.getOrDefault(key, Set.of())) {
+            if (hasDependencyCycle(dependency, dependenciesByKey, visiting, visited)) {
+                return true;
+            }
+        }
+        visiting.remove(key);
+        visited.add(key);
+        return false;
     }
 
     private Set<String> stringSet(JsonNode node, String label) {

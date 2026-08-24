@@ -95,9 +95,21 @@ public class AgentWorkerService {
     )
     public void dispatchReadySteps() {
         try {
-            int recovered = mapper.recoverExpiredSteps(LocalDateTime.now());
+            LocalDateTime reconcileAt = LocalDateTime.now();
+            List<Map<String, Object>> recoverable = mapper.listRecoverableExpiredSteps(reconcileAt);
+            int recovered = mapper.recoverExpiredSteps(reconcileAt);
+            if (recovered > 0 && recoverable != null) {
+                for (Map<String, Object> row : recoverable) {
+                    long taskId = number(row.get("taskId"));
+                    long stepId = number(row.get("stepId"));
+                    if (taskId > 0 && stepId > 0) {
+                        insertEvent(taskId, stepId, "STEP_LEASE_RECOVERED", "Worker 租约已过期，步骤重新排队");
+                    }
+                }
+            }
             int exhausted = mapper.failExhaustedSteps(LocalDateTime.now());
             int failedTasks = mapper.failTasksWithFailedSteps();
+            int cancelledOrphanSteps = mapper.cancelStepsForFailedTasks();
             int expiredSteps = mapper.failExpiredApprovalSteps();
             int expiredTasks = mapper.failExpiredApprovalTasks();
             int expiredPlans = mapper.rejectExpiredPlans();
@@ -105,9 +117,9 @@ public class AgentWorkerService {
             if (recovered > 0) {
                 log.warn("Agent worker recovered expired steps count={}", recovered);
             }
-            if (exhausted > 0 || failedTasks > 0 || expiredSteps > 0 || expiredTasks > 0 || expiredPlans > 0 || expiredApprovals > 0) {
-                log.warn("Agent worker reconciled leases/approvals exhaustedSteps={} failedTasks={} expiredSteps={} expiredTasks={} expiredPlans={} expiredApprovals={}",
-                        exhausted, failedTasks, expiredSteps, expiredTasks, expiredPlans, expiredApprovals);
+            if (exhausted > 0 || failedTasks > 0 || cancelledOrphanSteps > 0 || expiredSteps > 0 || expiredTasks > 0 || expiredPlans > 0 || expiredApprovals > 0) {
+                log.warn("Agent worker reconciled leases/approvals exhaustedSteps={} failedTasks={} cancelledOrphanSteps={} expiredSteps={} expiredTasks={} expiredPlans={} expiredApprovals={}",
+                        exhausted, failedTasks, cancelledOrphanSteps, expiredSteps, expiredTasks, expiredPlans, expiredApprovals);
             }
             List<Map<String, Object>> candidates = mapper.listReadySteps(BATCH_SIZE);
             if (candidates == null || candidates.isEmpty()) {
@@ -159,6 +171,10 @@ public class AgentWorkerService {
                 stopForTenantBudget(taskId, stepId, owner);
                 return;
             }
+            if (!tenantActive(tenantKey(candidate))) {
+                stopForTenantStatus(taskId, stepId, owner);
+                return;
+            }
             if (platformBudgetExceeded()) {
                 stopForPlatformBudget(taskId, stepId, owner);
                 return;
@@ -194,6 +210,10 @@ public class AgentWorkerService {
             recordUsageLedger(taskId, stepId, candidate, attempt, usage, "SUCCEEDED");
             if (mapper.completeStep(stepId, owner, clip(result.outputJson(), 60_000), result.outputSummary()) != 1) {
                 throw new IllegalStateException("步骤状态已变化，无法写入成功结果");
+            }
+            if (!tenantActive(tenantKey(candidate))) {
+                stopForTenantStatus(taskId, stepId, null);
+                return;
             }
             mapper.updateTaskProgress(taskId);
             int runtimeReplanSteps = maybeAutoReplanDegraded(taskId, result.outputJson());
@@ -492,6 +512,26 @@ public class AgentWorkerService {
         }
     }
 
+    private void stopForTenantStatus(long taskId, long stepId, String owner) {
+        mapper.cancelPendingSteps(taskId);
+        if (owner != null) {
+            mapper.failStep(stepId, owner, "TENANT_NOT_ACTIVE", "租户已暂停或停用，Agent 任务停止执行");
+        }
+        if (mapper.failTask(taskId, "TENANT_NOT_ACTIVE", "租户已暂停或停用，Agent 任务停止执行") == 1) {
+            insertEvent(taskId, null, "TENANT_NOT_ACTIVE", "租户已暂停或停用，Agent 任务停止执行");
+        }
+    }
+
+    private boolean tenantActive(String tenantKey) {
+        Map<String, Object> tenant = mapper.findTenant(tenantKey);
+        // Keep legacy platform tasks runnable when the tenant directory was introduced
+        // after the task was created; all explicit tenants still require ACTIVE state.
+        if ((tenant == null || tenant.isEmpty()) && "platform".equals(tenantKey)) {
+            return true;
+        }
+        return tenant != null && "ACTIVE".equalsIgnoreCase(String.valueOf(tenant.getOrDefault("status", "DISABLED")));
+    }
+
     private static String tenantKey(Map<String, Object> candidate) {
         Object value = candidate == null ? null : candidate.get("tenantKey");
         return value == null || String.valueOf(value).isBlank() ? "platform" : String.valueOf(value);
@@ -518,6 +558,7 @@ public class AgentWorkerService {
         if (outputJson == null || outputJson.isBlank()) {
             return 0;
         }
+        List<Long> insertedStepIds = new ArrayList<>();
         try {
             JsonNode root = objectMapper.readTree(outputJson);
             JsonNode extension = root == null ? null : root.get("runtimeReplan");
@@ -635,15 +676,31 @@ public class AgentWorkerService {
             }
             for (Map<String, Object> addition : additions) {
                 if (mapper.insertStep(addition) != 1) {
+                    cleanupRuntimeReplanSteps(taskId, insertedStepIds);
                     return rejectRuntimeReplan(taskId, "运行时重规划步骤保存失败");
                 }
+                insertedStepIds.add(number(addition.get("id")));
             }
             if (mapper.incrementTaskTotalSteps(taskId, additions.size()) != 1) {
+                cleanupRuntimeReplanSteps(taskId, insertedStepIds);
                 return rejectRuntimeReplan(taskId, "运行时重规划任务步骤总数更新失败");
             }
             return additions.size();
         } catch (Exception ex) {
+            cleanupRuntimeReplanSteps(taskId, insertedStepIds);
             return rejectRuntimeReplan(taskId, "运行时重规划结果格式无效: " + clip(rootCauseMessage(ex), 300));
+        }
+    }
+
+    private void cleanupRuntimeReplanSteps(long taskId, List<Long> insertedStepIds) {
+        if (insertedStepIds == null || insertedStepIds.isEmpty()) {
+            return;
+        }
+        try {
+            mapper.deleteRuntimeReplanSteps(taskId, insertedStepIds);
+        } catch (RuntimeException cleanupError) {
+            log.error("Agent runtime replan compensation failed taskId={} stepIds={}",
+                    taskId, insertedStepIds, cleanupError);
         }
     }
 

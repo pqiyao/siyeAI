@@ -88,6 +88,7 @@ public class AgentReportTool {
             Map<String, Object> operationSummary = operationsSummary(artifacts);
             summary.put("signals", operationSummary.get("signals"));
             summary.put("recommendations", operationSummary.get("recommendations"));
+            summary.put("proposedActions", operationSummary.get("proposedActions"));
         }
         return summary;
     }
@@ -105,6 +106,17 @@ public class AgentReportTool {
         if (warnings instanceof List<?> values) {
             for (Object value : values) {
                 if (value != null && !String.valueOf(value).isBlank()) signals.add(String.valueOf(value));
+            }
+        }
+        List<Map<String, Object>> proposedActions = new java.util.ArrayList<>();
+        Object reviewActions = review.get("proposedActions");
+        if (reviewActions instanceof List<?> values) {
+            for (Object value : values) {
+                if (value instanceof Map<?, ?> item) {
+                    Map<String, Object> action = new LinkedHashMap<>();
+                    item.forEach((key, itemValue) -> action.put(String.valueOf(key), itemValue));
+                    proposedActions.add(action);
+                }
             }
         }
         Map<String, Object> analytics = artifactContent(artifacts, "analytics-data");
@@ -162,6 +174,7 @@ public class AgentReportTool {
         Map<String, Object> summary = new LinkedHashMap<>();
         summary.put("signals", signals);
         summary.put("recommendations", recommendations);
+        summary.put("proposedActions", proposedActions);
         summary.put("releaseReadiness", release);
         summary.put("writeActions", List.of("无；所有发布、账户、审核和配置变更都需要单独审批"));
         return summary;

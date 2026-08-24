@@ -10,7 +10,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
@@ -20,7 +23,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 /** Packages the validated Agent content outputs into one downloadable ZIP. */
@@ -113,6 +118,7 @@ public class AgentPackageTool {
         manifest.put("sourceArtifacts", sourceArtifacts);
 
         byte[] zipBytes = buildZip(manifest, characters, worldbook, outline, chapters, continuity, imageArtifacts, audioArtifacts, htmlArtifact);
+        verifyZip(zipBytes, files);
         AgentArtifactStorageService.StoredFile stored = storageService.storeZip(taskId, zipBytes);
         String manifestJson = json(manifest);
 
@@ -195,6 +201,32 @@ public class AgentPackageTool {
             return bytes.toByteArray();
         } catch (Exception e) {
             throw new IllegalStateException("作品 ZIP 生成失败", e);
+        }
+    }
+
+    /** Validate the bytes before persisting a package artifact. */
+    static void verifyZip(byte[] bytes, List<String> requiredFiles) {
+        if (bytes == null || bytes.length == 0) throw new IllegalStateException("作品 ZIP 为空");
+        Set<String> entries = new java.util.HashSet<>();
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(bytes), StandardCharsets.UTF_8)) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                String name = entry.getName();
+                if (name == null || name.isBlank() || !entries.add(name)) {
+                    throw new IllegalStateException("作品 ZIP 存在空文件名或重复条目");
+                }
+                input.transferTo(OutputStream.nullOutputStream());
+            }
+        } catch (IOException ex) {
+            throw new IllegalStateException("作品 ZIP 完整性校验失败", ex);
+        }
+        if (entries.isEmpty()) throw new IllegalStateException("作品 ZIP 不包含任何文件");
+        if (requiredFiles != null) {
+            for (String required : requiredFiles) {
+                if (required == null || required.isBlank() || !entries.contains(required)) {
+                    throw new IllegalStateException("作品 ZIP 缺少必需文件: " + required);
+                }
+            }
         }
     }
 

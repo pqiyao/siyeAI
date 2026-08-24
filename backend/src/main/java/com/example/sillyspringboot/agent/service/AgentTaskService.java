@@ -68,6 +68,16 @@ public class AgentTaskService {
 
     @Transactional
     public Map<String, Object> create(Map<String, Object> body, Long adminId) {
+        return createInternal(body, adminId, false);
+    }
+
+    /** Backend administrators may create platform or authorized tenant tasks. */
+    @Transactional
+    public Map<String, Object> createAdminTask(Map<String, Object> body, Long adminId) {
+        return createInternal(body, adminId, true);
+    }
+
+    private Map<String, Object> createInternal(Map<String, Object> body, Long adminId, boolean adminScope) {
         if (body == null) {
             throw new IllegalArgumentException("请求体不能为空");
         }
@@ -102,7 +112,7 @@ public class AgentTaskService {
         task.put("status", "DRAFT");
         task.put("riskLevel", riskLevel);
         task.put("createdBy", adminId);
-        task.put("tenantKey", tenantKey(body.get("tenantKey"), adminId));
+        task.put("tenantKey", tenantKey(body.get("tenantKey"), adminId, adminScope));
         task.put("priority", boundedInt(body.get("priority"), 0, -100, 100));
         task.put("maxSteps", boundedInt(body.get("maxSteps"), Math.min(50, platformMaxSteps), 1, platformMaxSteps));
         task.put("maxRetries", boundedInt(body.get("maxRetries"), 3, 0, 10));
@@ -278,6 +288,16 @@ public class AgentTaskService {
     }
 
     private void reserveTenantTaskQuota(String tenantKey) {
+        Map<String, Object> tenant = mapper.findTenant(tenantKey);
+        if (tenant == null && tenantKey.startsWith("user:")) {
+            Long ownerId = parseUserTenantId(tenantKey);
+            mapper.ensureTenant(tenantKey, "User " + ownerId, ownerId);
+            tenant = mapper.findTenant(tenantKey);
+        }
+        if (tenant == null) throw new IllegalStateException("Agent 租户不存在");
+        if (!"ACTIVE".equalsIgnoreCase(String.valueOf(tenant.getOrDefault("status", "DISABLED")))) {
+            throw new IllegalStateException("Agent 租户当前未启用，不能创建任务");
+        }
         Map<String, Object> budget = mapper.findTenantBudget(tenantKey);
         if (budget == null || !booleanValue(budget.get("enabled"))) return;
         Map<String, Object> usage = mapper.tenantDailyBudgetUsage(tenantKey);
@@ -293,11 +313,19 @@ public class AgentTaskService {
         }
     }
 
+    private static Long parseUserTenantId(String tenantKey) {
+        try {
+            long id = Long.parseLong(tenantKey.substring("user:".length()));
+            if (id > 0) return id;
+        } catch (Exception ignored) { }
+        throw new IllegalArgumentException("用户租户标识无效");
+    }
+
     private static boolean booleanValue(Object value) { return value instanceof Boolean b ? b : "1".equals(String.valueOf(value)) || "true".equalsIgnoreCase(String.valueOf(value)); }
     private static long valueOrZero(Long value) { return value == null ? 0L : Math.max(0L, value); }
     private static BigDecimal decimalValue(Object value) { try { return value == null ? BigDecimal.ZERO : new BigDecimal(String.valueOf(value)); } catch (Exception ignored) { return BigDecimal.ZERO; } }
 
-    private static String tenantKey(Object raw, Long ownerId) {
+    private static String tenantKey(Object raw, Long ownerId, boolean adminScope) {
         String value = raw == null ? "" : String.valueOf(raw).trim();
         if (value.isBlank()) {
             return "platform";
@@ -305,7 +333,7 @@ public class AgentTaskService {
         if (value.length() > 120 || !value.matches("[a-z0-9][a-z0-9:_-]{0,119}")) {
             throw new IllegalArgumentException("tenantKey 格式无效");
         }
-        if (ownerId != null && ownerId > 0 && !value.equals("user:" + ownerId)) {
+        if (!adminScope && ownerId != null && ownerId > 0 && !value.equals("user:" + ownerId)) {
             throw new IllegalArgumentException("用户任务不能指定其他 tenantKey");
         }
         return value;

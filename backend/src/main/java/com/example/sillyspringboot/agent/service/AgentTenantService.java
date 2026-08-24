@@ -31,7 +31,9 @@ public class AgentTenantService {
         row.put("createdBy", operatorId);
         row.put("updatedBy", operatorId);
         if (mapper.insertTenant(row) != 1) throw new IllegalStateException("Agent 租户创建失败");
-        return mapper.findTenant(key);
+        Map<String, Object> result = mapper.findTenant(key);
+        audit("TENANT", result, key, "CREATE", operatorId, "Created Agent tenant");
+        return result;
     }
 
     @Transactional
@@ -42,7 +44,9 @@ public class AgentTenantService {
         if (mapper.findTenant(key) == null) throw new IllegalArgumentException("Agent 租户不存在");
         if ("platform".equals(key) && !"ACTIVE".equals(status)) throw new IllegalArgumentException("platform 租户不能停用");
         if (mapper.updateTenantStatus(key, status, operatorId) != 1) throw new IllegalStateException("租户状态更新失败");
-        return mapper.findTenant(key);
+        Map<String, Object> result = mapper.findTenant(key);
+        audit("TENANT", result, key, "STATUS_" + status, operatorId, "Changed Agent tenant status");
+        return result;
     }
 
     @Transactional
@@ -56,7 +60,9 @@ public class AgentTenantService {
         row.put("tenantKey", key); row.put("maxDailyTokens", tokens); row.put("maxDailyTasks", tasks);
         row.put("maxDailyCost", cost); row.put("enabled", 1); row.put("updatedBy", operatorId);
         if (mapper.upsertTenantBudget(row) != 1) throw new IllegalStateException("租户预算保存失败");
-        return mapper.findTenantBudget(key);
+        Map<String, Object> result = mapper.findTenantBudget(key);
+        audit("TENANT_BUDGET", result, key, "UPDATE", operatorId, "Updated Agent tenant budget");
+        return result;
     }
 
     public Map<String, Object> budget(String rawKey) {
@@ -83,6 +89,7 @@ public class AgentTenantService {
             Map<String, Object> result = new LinkedHashMap<>(existing);
             result.put("memberRole", role);
             result.put("status", "ACTIVE");
+            audit("TENANT_MEMBER", result, key + ":" + userId, "RESTORE", operatorId, "Restored Agent tenant member");
             return result;
         }
         Map<String, Object> row = new LinkedHashMap<>();
@@ -92,7 +99,9 @@ public class AgentTenantService {
         row.put("status", "ACTIVE");
         row.put("createdBy", operatorId);
         if (mapper.insertTenantMember(row) != 1) throw new IllegalStateException("租户成员创建失败");
-        return mapper.findTenantMember(key, userId);
+        Map<String, Object> result = mapper.findTenantMember(key, userId);
+        audit("TENANT_MEMBER", result, key + ":" + userId, "CREATE", operatorId, "Created Agent tenant member");
+        return result;
     }
 
     @Transactional
@@ -104,7 +113,68 @@ public class AgentTenantService {
         if (mapper.updateTenantMemberStatus(key, userId, status, null, operatorId) != 1) {
             throw new IllegalStateException("租户成员状态更新失败");
         }
-        return mapper.findTenantMember(key, userId);
+        Map<String, Object> result = mapper.findTenantMember(key, userId);
+        audit("TENANT_MEMBER", result, key + ":" + userId, "STATUS_" + status, operatorId, "Changed Agent tenant member status");
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> upsertAdminScope(Object rawAdminId, String rawTenantKey,
+                                                Object rawRole, Long operatorId) {
+        long adminId = userId(rawAdminId);
+        String key = tenantKey(rawTenantKey);
+        if (mapper.findTenant(key) == null) throw new IllegalArgumentException("Agent 租户不存在");
+        String role = rawRole == null ? "VIEWER" : String.valueOf(rawRole).trim().toUpperCase();
+        if (!Set.of("OWNER", "ADMIN", "VIEWER").contains(role)) throw new IllegalArgumentException("管理员租户角色无效");
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("adminId", adminId); row.put("tenantKey", key); row.put("accessRole", role);
+        row.put("status", "ACTIVE"); row.put("createdBy", operatorId); row.put("updatedBy", operatorId);
+        if (mapper.upsertAdminTenantScope(row) != 1) throw new IllegalStateException("管理员租户范围保存失败");
+        Map<String, Object> result = mapper.findAdminTenantScope(adminId, key);
+        audit("ADMIN_TENANT_SCOPE", result, adminId + ":" + key, "UPSERT", operatorId, "Updated administrator tenant scope");
+        return result;
+    }
+
+    @Transactional
+    public Map<String, Object> changeAdminScopeStatus(Object rawAdminId, String rawTenantKey,
+                                                       String rawStatus, Long operatorId) {
+        long adminId = userId(rawAdminId);
+        String key = tenantKey(rawTenantKey);
+        String status = rawStatus == null ? "ACTIVE" : rawStatus.trim().toUpperCase();
+        if (!Set.of("ACTIVE", "SUSPENDED", "REMOVED").contains(status)) throw new IllegalArgumentException("管理员租户范围状态无效");
+        if (mapper.findAdminTenantScope(adminId, key) == null) throw new IllegalArgumentException("管理员租户范围不存在");
+        if (mapper.updateAdminTenantScopeStatus(adminId, key, status, operatorId) != 1) throw new IllegalStateException("管理员租户范围状态更新失败");
+        Map<String, Object> result = mapper.findAdminTenantScope(adminId, key);
+        audit("ADMIN_TENANT_SCOPE", result, adminId + ":" + key, "STATUS_" + status, operatorId, "Changed administrator tenant scope status");
+        return result;
+    }
+
+    public java.util.List<Map<String, Object>> adminScopes(Object rawAdminId) {
+        return mapper.listAdminTenantScopes(userId(rawAdminId), "ACTIVE");
+    }
+
+    public boolean hasAdminTenantAccess(long adminId, String rawTenantKey, String requiredRole) {
+        String key = tenantKey(rawTenantKey);
+        Map<String, Object> scope = mapper.findAdminTenantScope(adminId, key);
+        if (scope == null || !"ACTIVE".equalsIgnoreCase(String.valueOf(scope.get("status")))) return false;
+        String role = String.valueOf(scope.getOrDefault("accessRole", "VIEWER")).toUpperCase();
+        return switch (requiredRole == null ? "VIEWER" : requiredRole.toUpperCase()) {
+            case "OWNER" -> "OWNER".equals(role);
+            case "ADMIN" -> "OWNER".equals(role) || "ADMIN".equals(role);
+            default -> true;
+        };
+    }
+
+    private void audit(String type, Map<String, Object> row, String key, String action, Long operatorId, String summary) {
+        Map<String, Object> audit = new LinkedHashMap<>();
+        audit.put("configType", type);
+        audit.put("configId", row == null ? null : row.get("id"));
+        audit.put("configKey", key);
+        audit.put("version", null);
+        audit.put("action", action);
+        audit.put("operatorId", operatorId);
+        audit.put("summary", summary);
+        if (mapper.insertConfigAudit(audit) != 1) throw new IllegalStateException("Agent 租户审计写入失败");
     }
 
     private static String tenantKey(String value) {

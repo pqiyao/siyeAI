@@ -23,6 +23,7 @@ export const changeAgentTenantMemberStatus = (tenantKey, userId, data) => reques
 export const createAgentTenant = (data) => request({ url: '/admin/jiugai/agent/tenants', method: 'post', data })
 export const changeAgentTenantStatus = (tenantKey, data) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/status`, method: 'post', data })
 export const listAgentUsageLedger = (params) => request({ url: '/admin/jiugai/agent/usage-ledger', method: 'get', params })
+export const listMyAgentTenantScopes = () => request({ url: '/admin/jiugai/agent/admin-scopes/me', method: 'get' })
 export const getAgentTenantUsageSummary = (tenantKey) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/usage-summary`, method: 'get' })
 export const getAgentTenantBudget = (tenantKey) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/budget`, method: 'get' })
 export const updateAgentTenantBudget = (tenantKey, data) => request({ url: `/admin/jiugai/agent/tenants/${tenantKey}/budget`, method: 'post', data })

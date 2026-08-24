@@ -113,7 +113,56 @@ public class AgentAnalyticsTool {
                 "对未计价模型补充模型价格配置",
                 "将报告中的时间范围与线上发布记录一起核对"
         ));
+        result.put("proposedActions", proposedActions(warnings, successRate, unpriced));
         result.put("passed", warnings.isEmpty());
+        return result;
+    }
+
+    /**
+     * Emits reviewable action proposals without executing any write operation.
+     * Each proposal carries its evidence and approval boundary so a later
+     * workflow can route it through the normal approval/audit chain.
+     */
+    static List<Map<String, Object>> proposedActions(List<String> warnings,
+                                                      double successRate,
+                                                      long unpriced) {
+        List<Map<String, Object>> actions = new ArrayList<>();
+        if (successRate > 0 && successRate < 0.95d) {
+            actions.add(action("REVIEW_PROVIDER_HEALTH", "复核供应商健康度",
+                    "生成成功率低于 95%，先核对供应商错误码、超时和回退记录",
+                    "LOW", false, warnings));
+        }
+        if (unpriced > 0) {
+            actions.add(action("CONFIGURE_MODEL_PRICING", "补充模型价格配置",
+                    "发现未计价生成尝试，补价前需要确认供应商和模型映射",
+                    "MEDIUM", true, warnings));
+        }
+        if (warnings.stream().anyMatch(item -> item.contains("趋势") || item.contains("周期")
+                || item.contains("供应商"))) {
+            actions.add(action("COMPARE_RELEASE_AND_TRAFFIC", "核对发布与流量记录",
+                    "检测到趋势或供应商信号，需与发布记录和流量变化做人工对照",
+                    "LOW", false, warnings));
+        }
+        if (actions.isEmpty()) {
+            actions.add(action("CONTINUE_OBSERVATION", "继续只读观察",
+                    "当前没有达到阈值的异常信号，下一周期使用相同口径复核",
+                    "LOW", false, List.of("未发现需要处置的阈值信号")));
+        }
+        return actions;
+    }
+
+    private static Map<String, Object> action(String key, String title, String rationale,
+                                               String riskLevel, boolean approvalRequired,
+                                               List<String> evidence) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("actionKey", key);
+        result.put("title", title);
+        result.put("rationale", rationale);
+        result.put("riskLevel", riskLevel);
+        result.put("approvalRequired", approvalRequired);
+        result.put("executable", false);
+        result.put("status", "PROPOSED");
+        result.put("evidence", List.copyOf(evidence));
         return result;
     }
 

@@ -522,6 +522,8 @@ public class AgentPlanService {
                     proposal = modelProposal(plannerModelService.propose(task));
                 } catch (IllegalArgumentException ex) {
                     log.warn("Agent Planner 模型提案未通过解析，回退固定模板: {}", ex.getMessage());
+                    insertEvent(idOf(task, "任务"), "PLAN_MODEL_PROPOSAL_REJECTED",
+                            "模型计划提案未通过校验，已回退规则计划: " + shortText(ex.getMessage(), null, 500));
                 }
             }
             if (proposal != null) {
@@ -544,6 +546,9 @@ public class AgentPlanService {
         }
         if (containsAny(objective, "发布角色", "发布角色卡")) {
             return new PlanSelection(templateFor("CHARACTER_PUBLISH"), "RULE_BASED_PLANNER");
+        }
+        if (containsAny(objective, "生产发布", "部署服务", "构建产物", "回滚部署", "devops", "运维发布")) {
+            return new PlanSelection(templateFor("DEVOPS_REVIEW"), "RULE_BASED_PLANNER");
         }
         if (containsAny(objective, "同步角色", "同步到 sillytavern", "同步到st")) {
             return new PlanSelection(templateFor("CHARACTER_SYNC"), "RULE_BASED_PLANNER");
@@ -928,6 +933,11 @@ public class AgentPlanService {
                     step("inspect", "执行系统健康检查", "DevOps Inspector", "INSPECTION", "system.health_check", List.of("requirements")),
                     step("analytics_review", "复核运营指标", "Reviewer", "REVIEW", "analytics.review", List.of("analytics")),
                     step("report", "生成系统与运营报告", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("analytics_review", "inspect"))
+            );
+            case "DEVOPS_REVIEW" -> List.of(
+                    step("requirements", "确认发布与回滚范围", "Planner", "PLANNING", "planner.analyze", List.of()),
+                    step("inspect", "检查数据库、构建包与工作区", "DevOps Inspector", "INSPECTION", "system.health_check", List.of("requirements")),
+                    step("report", "生成发布审批材料", "Delivery Agent", "DELIVERY", "artifact.render_report", List.of("inspect"))
             );
             case "CHARACTER_PUBLISH" -> List.of(
                     step("requirements", "确认发布目标", "Planner", "PLANNING", "planner.analyze", List.of()),

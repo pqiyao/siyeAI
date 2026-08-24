@@ -49,7 +49,7 @@ public class AgentCodeRunnerTool {
         }
         if (image.isBlank() || image.contains(" ") || image.contains("\"") || image.contains("'")
                 || (requireDigest && !image.matches(".+@sha256:[0-9a-fA-F]{64}"))
-                || !runAsUser.matches("[0-9]{1,10}:[0-9]{1,10}")) {
+                || !isNonRootUser(runAsUser)) {
             throw new IllegalStateException(requireDigest ? "code.run 必须配置 digest 固定的 Docker 镜像" : "code.run 尚未配置有效 Docker 镜像");
         }
         List<String> command = new ArrayList<>(List.of(
@@ -122,6 +122,16 @@ public class AgentCodeRunnerTool {
     }
 
     private static String text(Object value) { return value == null ? "" : String.valueOf(value).trim(); }
+
+    private static boolean isNonRootUser(String value) {
+        if (value == null || !value.matches("[0-9]{1,10}:[0-9]{1,10}")) return false;
+        String[] ids = value.split(":", -1);
+        try {
+            return Long.parseLong(ids[0]) > 0 && Long.parseLong(ids[1]) > 0;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
+    }
 
     private static final class LimitedReader implements Runnable {
         private final InputStream input;

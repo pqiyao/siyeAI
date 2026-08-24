@@ -170,14 +170,14 @@ public class AgentAdminQueryService {
         return result;
     }
 
-    public PageResult artifacts(int pageNum, int pageSize, String artifactType, String status, String keyword) {
+    public PageResult artifacts(int pageNum, int pageSize, String artifactType, String status, String keyword, String tenantKey) {
         String safeType = clip(artifactType, 64);
         String safeStatus = clip(status, 32);
         String safeKeyword = clip(keyword, 128);
         PageWindow page = page(pageNum, pageSize);
         return new PageResult(
-                mapper.countArtifactCenter(safeType, safeStatus, safeKeyword),
-                mapper.listArtifactCenter(safeType, safeStatus, safeKeyword, page.offset(), page.size())
+                mapper.countArtifactCenter(safeType, safeStatus, safeKeyword, safeTenantKey(tenantKey)),
+                mapper.listArtifactCenter(safeType, safeStatus, safeKeyword, safeTenantKey(tenantKey), page.offset(), page.size())
         );
     }
 
@@ -301,10 +301,9 @@ public class AgentAdminQueryService {
         boolean webConfigured = configured(webSearchEndpoint) && configured(webSearchAllowedHosts);
         boolean browserConfigured = configured(browserAllowedHosts);
         boolean mcpConfigured = configured(mcpEndpoint) && configured(mcpAllowedHosts);
-        boolean codeRunnerConfigured = configured(codeRunnerImage);
+        boolean codeRunnerConfigured = validCodeRunnerImage(codeRunnerImage);
         boolean codeRunnerImagePinned = codeRunnerConfigured && codeRunnerImage.matches(".+@sha256:[0-9a-fA-F]{64}");
-        boolean codeRunnerSandboxReady = codeRunnerConfigured && codeRunnerUser != null
-                && codeRunnerUser.matches("[0-9]{1,10}:[0-9]{1,10}")
+        boolean codeRunnerSandboxReady = codeRunnerConfigured && nonRootUser(codeRunnerUser)
                 && (!codeRunnerRequireDigest || codeRunnerImagePinned);
         boolean webSecretInUrl = sensitiveUrl(webSearchEndpoint);
         boolean mcpSecretInUrl = sensitiveUrl(mcpEndpoint);
@@ -327,6 +326,20 @@ public class AgentAdminQueryService {
         result.put("secretsExposed", false);
         result.put("note", "仅报告连接和凭据状态，不显示端点、密钥或凭据；当前凭据通过环境变量注入，真实调用仍需工具白名单和审批");
         return result;
+    }
+
+    private static boolean nonRootUser(String value) {
+        if (value == null || !value.matches("[0-9]{1,10}:[0-9]{1,10}")) return false;
+        String[] ids = value.split(":", -1);
+        try {
+            return Long.parseLong(ids[0]) > 0 && Long.parseLong(ids[1]) > 0;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
+    }
+
+    private static boolean validCodeRunnerImage(String value) {
+        return configured(value) && !value.contains(" ") && !value.contains("\"") && !value.contains("'");
     }
 
     private Map<String, Object> dailyBudgetUsage() {
@@ -401,7 +414,7 @@ public class AgentAdminQueryService {
                 "runningTasks", mapper.listTasks("RUNNING", null, null, null, 0, 50),
                 "readyTasks", mapper.listTasks("READY", null, null, null, 0, 50),
                 "waitingApprovalTasks", mapper.listTasks("WAITING_APPROVAL", null, null, null, 0, 50),
-                "pendingApprovals", mapper.listApprovals("PENDING", null, 0, 50)
+                "pendingApprovals", mapper.listApprovals("PENDING", null, null, 0, 50)
         ));
         result.put("toolReadiness", overview.get("toolReadiness"));
         result.put("externalReadiness", overview.get("externalReadiness"));
@@ -460,7 +473,9 @@ public class AgentAdminQueryService {
         if (task == null || task.isEmpty()) {
             return null;
         }
-        return new TaskDetail(task, mapper.findLatestPlan(id), mapper.listSteps(id), mapper.listToolCalls(id));
+        List<Map<String, Object>> artifacts = mapper.listArtifacts(id);
+        return new TaskDetail(task, mapper.findLatestPlan(id), mapper.listSteps(id), mapper.listToolCalls(id),
+                artifacts, evaluationArtifact(artifacts));
     }
 
     public List<Map<String, Object>> listEvents(long taskId, long afterSeq, int limit) {
@@ -484,12 +499,37 @@ public class AgentAdminQueryService {
         return mapper.findArtifact(taskId, key, 1);
     }
 
-    public PageResult listApprovals(int pageNum, int pageSize, String status, String keyword) {
+    private Map<String, Object> evaluationArtifact(List<Map<String, Object>> artifacts) {
+        if (artifacts == null) return null;
+        for (Map<String, Object> artifact : artifacts) {
+            if (!"agent-evaluation".equals(String.valueOf(artifact.get("artifactKey")))) continue;
+            Object content = artifact.get("contentJson");
+            if (content == null || String.valueOf(content).isBlank()) return null;
+            try {
+                JsonNode node = objectMapper.readTree(String.valueOf(content));
+                if (node == null || !node.isObject()) return null;
+                Map<String, Object> result = new LinkedHashMap<>();
+                node.fields().forEachRemaining(entry -> result.put(entry.getKey(), objectMapper.convertValue(entry.getValue(), Object.class)));
+                return result;
+            } catch (Exception ex) {
+                log.warn("Agent evaluation artifact parse failed: {}", ex.getMessage());
+                return null;
+            }
+        }
+        return null;
+    }
+
+    public Map<String, Object> findApproval(long approvalId) {
+        validateId(approvalId, "审批编号");
+        return mapper.findApproval(approvalId);
+    }
+
+    public PageResult listApprovals(int pageNum, int pageSize, String status, String keyword, String tenantKey) {
         String safeStatus = optionalEnum(status, APPROVAL_STATUSES, "审批状态");
         PageWindow page = page(pageNum, pageSize);
         return new PageResult(
-                mapper.countApprovals(safeStatus, clip(keyword, 128)),
-                mapper.listApprovals(safeStatus, clip(keyword, 128), page.offset(), page.size())
+                mapper.countApprovals(safeStatus, clip(keyword, 128), safeTenantKey(tenantKey)),
+                mapper.listApprovals(safeStatus, clip(keyword, 128), safeTenantKey(tenantKey), page.offset(), page.size())
         );
     }
 
@@ -667,7 +707,7 @@ public class AgentAdminQueryService {
                             String name = field.getKey();
                             if (Set.of("score", "verdict", "stepSuccessRate", "artifactReadyRate", "totalSteps",
                                     "succeededSteps", "failedSteps", "totalArtifacts", "readyArtifacts",
-                                    "degradedArtifacts", "unpricedCalls", "recommendations",
+                                    "degradedArtifacts", "degradedSteps", "unpricedCalls", "recommendations",
                                     "minimumEvaluationScore", "evaluationGatePassed").contains(name)) {
                                 row.put(name, objectMapper.convertValue(field.getValue(), Object.class));
                             }
@@ -749,7 +789,9 @@ public class AgentAdminQueryService {
     public record TaskDetail(Map<String, Object> task,
                              Map<String, Object> plan,
                              List<Map<String, Object>> steps,
-                             List<Map<String, Object>> toolCalls) {}
+                             List<Map<String, Object>> toolCalls,
+                             List<Map<String, Object>> artifacts,
+                             Map<String, Object> evaluation) {}
 
     private record PageWindow(int offset, int size) {}
 }

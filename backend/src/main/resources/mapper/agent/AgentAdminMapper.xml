@@ -124,6 +124,16 @@
         )
     </insert>
 
+    <delete id="deleteRuntimeReplanSteps">
+        DELETE FROM app_agent_step
+        WHERE task_id = #{taskId}
+          AND status = 'BLOCKED'
+          AND id IN
+        <foreach collection="stepIds" item="stepId" open="(" separator="," close=")">
+            #{stepId}
+        </foreach>
+    </delete>
+
     <update id="updateTaskPlanSummary">
         UPDATE app_agent_task
         SET total_steps = #{totalSteps},
@@ -178,6 +188,7 @@
         SELECT
             a.id,
             a.task_id AS taskId,
+            (SELECT t.tenant_key FROM app_agent_task t WHERE t.id = a.task_id LIMIT 1) AS tenantKey,
             a.step_id AS stepId,
             a.approval_type AS approvalType,
             a.status,
@@ -202,6 +213,7 @@
         SELECT
             a.id,
             a.task_id AS taskId,
+            (SELECT t.tenant_key FROM app_agent_task t WHERE t.id = a.task_id LIMIT 1) AS tenantKey,
             a.step_id AS stepId,
             a.approval_type AS approvalType,
             a.status,
@@ -317,6 +329,17 @@
           AND attempt_count &lt; max_attempts
     </update>
 
+    <select id="listRecoverableExpiredSteps" resultType="map">
+        SELECT id AS stepId, task_id AS taskId
+        FROM app_agent_step
+        WHERE status = 'RUNNING'
+          AND lease_until IS NOT NULL
+          AND lease_until &lt; #{now}
+          AND attempt_count &lt; max_attempts
+        ORDER BY id ASC
+        LIMIT 100
+    </select>
+
     <update id="failExhaustedSteps">
         UPDATE app_agent_step
         SET status = 'FAILED',
@@ -343,6 +366,20 @@
               SELECT 1 FROM app_agent_step s
               WHERE s.task_id = app_agent_task.id AND s.status = 'FAILED'
           )
+    </update>
+
+    <update id="cancelStepsForFailedTasks">
+        UPDATE app_agent_step s
+        JOIN app_agent_task t ON t.id = s.task_id
+        SET s.status = 'CANCELLED',
+            s.error_code = COALESCE(s.error_code, 'TASK_FAILED'),
+            s.error_message = COALESCE(s.error_message, 'Parent Agent task failed'),
+            s.lease_owner = NULL,
+            s.lease_until = NULL,
+            s.finished_at = COALESCE(s.finished_at, CURRENT_TIMESTAMP),
+            s.updated_at = CURRENT_TIMESTAMP
+        WHERE t.status = 'FAILED'
+          AND s.status IN ('PENDING', 'BLOCKED', 'READY', 'RUNNING', 'WAITING_APPROVAL', 'RETRY_WAITING')
     </update>
 
     <update id="completeStep">
@@ -1231,6 +1268,7 @@
 
     <sql id="ArtifactCenterWhere">
         <where>
+            <if test="tenantKey != null and tenantKey != ''">AND t.tenant_key = #{tenantKey}</if>
             <if test="artifactType != null and artifactType != ''">AND a.artifact_type = #{artifactType}</if>
             <if test="status != null and status != ''">AND a.status = #{status}</if>
             <if test="keyword != null and keyword != ''">
@@ -1248,7 +1286,7 @@
     </select>
 
     <select id="listArtifactCenter" resultType="map">
-        SELECT a.id, a.task_id AS taskId, t.task_key AS taskKey, t.task_type AS taskType,
+        SELECT a.id, a.task_id AS taskId, t.task_key AS taskKey, t.tenant_key AS tenantKey, t.task_type AS taskType,
                a.step_id AS stepId, a.artifact_key AS artifactKey, a.artifact_type AS artifactType,
                a.name, a.version, a.status, a.uri, a.content_hash AS contentHash,
                a.size_bytes AS sizeBytes, a.mime_type AS mimeType,
@@ -1262,6 +1300,7 @@
 
     <sql id="ApprovalWhere">
         <where>
+            <if test="tenantKey != null and tenantKey != ''">AND EXISTS (SELECT 1 FROM app_agent_task t_scope WHERE t_scope.id = a.task_id AND t_scope.tenant_key = #{tenantKey})</if>
             <if test="status != null and status != ''">AND a.status = #{status}</if>
             <if test="keyword != null and keyword != ''">
                 AND (
@@ -1723,6 +1762,12 @@
         FROM app_agent_tenant WHERE tenant_key = #{tenantKey} LIMIT 1
     </select>
 
+    <insert id="ensureTenant">
+        INSERT INTO app_agent_tenant (tenant_key, display_name, status, created_by, updated_by)
+        VALUES (#{tenantKey}, #{displayName}, 'ACTIVE', #{createdBy}, #{createdBy})
+        ON DUPLICATE KEY UPDATE tenant_key = VALUES(tenant_key)
+    </insert>
+
     <insert id="insertTenant" parameterType="map" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO app_agent_tenant (tenant_key, display_name, status, created_by, updated_by)
         VALUES (#{tenantKey}, #{displayName}, #{status}, #{createdBy}, #{updatedBy})
@@ -1749,6 +1794,42 @@
         ORDER BY updated_at DESC, id DESC
         LIMIT #{limit} OFFSET #{offset}
     </select>
+
+    <select id="listAdminTenantScopes" resultType="map">
+        SELECT id, admin_id AS adminId, tenant_key AS tenantKey,
+               access_role AS accessRole, status,
+               created_by AS createdBy, updated_by AS updatedBy,
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM app_agent_admin_tenant_scope
+        WHERE admin_id = #{adminId}
+        <if test="status != null and status != ''">AND status = #{status}</if>
+        ORDER BY updated_at DESC, id DESC
+    </select>
+
+    <select id="findAdminTenantScope" resultType="map">
+        SELECT id, admin_id AS adminId, tenant_key AS tenantKey,
+               access_role AS accessRole, status,
+               created_by AS createdBy, updated_by AS updatedBy,
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM app_agent_admin_tenant_scope
+        WHERE admin_id = #{adminId} AND tenant_key = #{tenantKey}
+        LIMIT 1
+    </select>
+
+    <insert id="upsertAdminTenantScope" parameterType="map">
+        INSERT INTO app_agent_admin_tenant_scope
+            (admin_id, tenant_key, access_role, status, created_by, updated_by)
+        VALUES (#{adminId}, #{tenantKey}, #{accessRole}, #{status}, #{createdBy}, #{updatedBy})
+        ON DUPLICATE KEY UPDATE
+            access_role = VALUES(access_role), status = VALUES(status),
+            updated_by = VALUES(updated_by), updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <update id="updateAdminTenantScopeStatus">
+        UPDATE app_agent_admin_tenant_scope
+        SET status = #{status}, updated_by = #{updatedBy}, updated_at = CURRENT_TIMESTAMP
+        WHERE admin_id = #{adminId} AND tenant_key = #{tenantKey}
+    </update>
 
     <select id="findTenantMember" resultType="map">
         SELECT id, tenant_key AS tenantKey, user_id AS userId, member_role AS memberRole,

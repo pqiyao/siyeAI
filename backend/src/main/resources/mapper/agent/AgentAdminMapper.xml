@@ -4,6 +4,43 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.sillyspringboot.agent.mapper.AgentAdminMapper">
 
+    <insert id="insertXiaoyeRoleCardDraft" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO app_xiaoye_role_card_draft (
+            draft_key, owner_admin_id, payload_json, status, expires_at
+        ) VALUES (
+            #{draftKey}, #{ownerAdminId}, #{payloadJson}, #{status}, #{expiresAt}
+        )
+    </insert>
+
+    <select id="findXiaoyeRoleCardDraft" resultType="map">
+        SELECT id, draft_key AS draftKey, owner_admin_id AS ownerAdminId,
+               payload_json AS payloadJson, status, expires_at AS expiresAt,
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM app_xiaoye_role_card_draft
+        WHERE draft_key = #{draftKey} AND owner_admin_id = #{ownerAdminId}
+          AND status = 'OPEN' AND expires_at > CURRENT_TIMESTAMP
+        LIMIT 1
+    </select>
+
+    <update id="updateXiaoyeRoleCardDraft" parameterType="map">
+        UPDATE app_xiaoye_role_card_draft
+        SET payload_json = #{payloadJson}, expires_at = #{expiresAt}, updated_at = CURRENT_TIMESTAMP
+        WHERE draft_key = #{draftKey} AND owner_admin_id = #{ownerAdminId}
+          AND status = 'OPEN' AND expires_at > CURRENT_TIMESTAMP
+    </update>
+
+    <update id="closeXiaoyeRoleCardDraft">
+        UPDATE app_xiaoye_role_card_draft
+        SET status = #{status}, updated_at = CURRENT_TIMESTAMP
+        WHERE draft_key = #{draftKey} AND owner_admin_id = #{ownerAdminId} AND status = 'OPEN'
+    </update>
+
+    <update id="expireXiaoyeRoleCardDrafts">
+        UPDATE app_xiaoye_role_card_draft
+        SET status = 'EXPIRED', updated_at = CURRENT_TIMESTAMP
+        WHERE status = 'OPEN' AND expires_at &lt;= #{now}
+    </update>
+
     <insert id="insertTask" parameterType="map" useGeneratedKeys="true" keyProperty="id" keyColumn="id">
         INSERT INTO app_agent_task (
             task_key, task_type, title, objective, constraints_json, status, risk_level, created_by, tenant_key,

@@ -73,7 +73,7 @@ class ApiV1TavernReplySuggestionsBillingTest {
 
     @Test
     void successfulSuggestionsCompleteTheReservedTicket() {
-        when(chat.suggestReplies(99L, "token", "draft", "", "", ""))
+        when(chat.suggestReplies(99L, "token", "draft", "", "", "", "suggest-request-1"))
                 .thenReturn(List.of("reply"));
 
         ApiV1Result<java.util.Map<String, Object>> result = controller.replySuggestions(payload());
@@ -85,7 +85,7 @@ class ApiV1TavernReplySuggestionsBillingTest {
     @Test
     void failedSuggestionsRefundTheReservedTicket() {
         RuntimeException failure = new RuntimeException("upstream failed");
-        when(chat.suggestReplies(99L, "token", "draft", "", "", ""))
+        when(chat.suggestReplies(99L, "token", "draft", "", "", "", "suggest-request-1"))
                 .thenThrow(failure);
 
         assertThrows(RuntimeException.class, () -> controller.replySuggestions(payload()));
@@ -111,14 +111,14 @@ class ApiV1TavernReplySuggestionsBillingTest {
                 "client-1", 7L, EntitlementPolicyService.ChatQuotaAction.GENERATE,
                 resolved, "suggest-request-1", 99L)).thenReturn(ticket);
         when(chat.suggestReplies(
-                99L, "token", "draft", "SYSTEM", "", "chat.offer.premium"))
+                99L, "token", "draft", "SYSTEM", "", "chat.offer.premium", "suggest-request-1"))
                 .thenReturn(List.of("reply"));
 
         ApiV1Result<java.util.Map<String, Object>> result = controller.replySuggestions(payload);
 
         assertEquals(List.of("reply"), result.data().get("suggestions"));
         verify(chat).suggestReplies(
-                99L, "token", "draft", "SYSTEM", "", "chat.offer.premium");
+                99L, "token", "draft", "SYSTEM", "", "chat.offer.premium", "suggest-request-1");
         verify(entitlement).recordSuccessfulChat(ticket, true);
     }
 

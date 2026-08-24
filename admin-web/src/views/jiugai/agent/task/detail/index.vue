@@ -57,8 +57,8 @@
     </el-row>
 
     <el-card shadow="never" class="panel-card">
-      <template #header><div class="panel-title">DSH 外部操作</div></template>
-      <el-table :data="externalOperations" empty-text="当前还没有 DSH 外部操作记录">
+      <template #header><div class="panel-title">外部操作记录</div></template>
+      <el-table :data="externalOperations" empty-text="当前还没有外部操作记录">
         <el-table-column prop="capability" label="能力" min-width="190" />
         <el-table-column prop="operationId" label="操作 ID" min-width="260" show-overflow-tooltip />
         <el-table-column prop="status" label="状态" width="110"><template #default="scope"><el-tag size="small" :type="statusType(scope.row.status)">{{ statusLabel(scope.row.status) }}</el-tag></template></el-table-column>

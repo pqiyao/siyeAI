@@ -31,6 +31,10 @@ public class AdminCharacterPayload {
     private String stAvatarUrl;
     private String occupationLabel;
     private String tagsJson;
+    /** 小叶工作台的未落库世界书草稿；保存角色卡时只用于校验和解析关联名称。 */
+    private String worldbookJson;
+    /** 仅由管理员确认保存时使用，不作为角色卡业务字段落库。 */
+    private Boolean confirmed;
     private Boolean vipOnly;
     private Boolean unlockedDefault;
     private Boolean clientVisible;
@@ -209,6 +213,22 @@ public class AdminCharacterPayload {
 
     public void setTagsJson(String tagsJson) {
         this.tagsJson = tagsJson;
+    }
+
+    public String getWorldbookJson() {
+        return worldbookJson;
+    }
+
+    public void setWorldbookJson(String worldbookJson) {
+        this.worldbookJson = worldbookJson;
+    }
+
+    public Boolean getConfirmed() {
+        return confirmed;
+    }
+
+    public void setConfirmed(Boolean confirmed) {
+        this.confirmed = confirmed;
     }
 
     public Boolean getVipOnly() {

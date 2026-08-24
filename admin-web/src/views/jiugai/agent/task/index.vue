@@ -17,32 +17,32 @@
         <el-button :loading="loading" @click="load">刷新</el-button>
       </el-form>
 
-      <el-table v-loading="loading" :data="rows" row-key="id" empty-text="当前没有 Agent 任务">
-        <el-table-column prop="id" label="ID" width="90" />
+      <el-table v-loading="loading" :data="rows" row-key="id" empty-text="当前没有智能体任务">
+        <el-table-column prop="id" label="编号" width="90" />
         <el-table-column label="任务" min-width="240">
           <template #default="scope">
             <strong>{{ scope.row.title }}</strong>
-            <div class="muted">{{ scope.row.taskKey }} · {{ scope.row.taskType }}</div>
+            <div class="muted">{{ taskTypeLabel(scope.row.taskType) }}</div>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="130"><template #default="scope"><el-tag :type="statusType(scope.row.status)">{{ statusLabel(scope.row.status) }}</el-tag></template></el-table-column>
         <el-table-column label="进度" width="120"><template #default="scope">{{ scope.row.completedSteps || 0 }} / {{ scope.row.totalSteps || 0 }}</template></el-table-column>
-        <el-table-column prop="riskLevel" label="风险" width="150" />
+        <el-table-column label="风险" width="150"><template #default="scope">{{ riskLabel(scope.row.riskLevel) }}</template></el-table-column>
         <el-table-column prop="tenantKey" label="租户" width="150" show-overflow-tooltip />
-        <el-table-column prop="tokenUsage" label="Token" width="110" />
+        <el-table-column prop="tokenUsage" label="令牌用量" width="110" />
         <el-table-column prop="updatedAt" label="更新时间" width="180" />
         <el-table-column label="操作" width="100" fixed="right"><template #default="scope"><el-button link type="primary" @click="openDetail(scope.row)">详情</el-button></template></el-table-column>
       </el-table>
       <pagination v-show="total > 0" :total="total" v-model:page="query.pageNum" v-model:limit="query.pageSize" @pagination="load" />
     </el-card>
 
-    <el-dialog v-model="createVisible" title="创建 Agent 任务" width="620px" destroy-on-close>
+    <el-dialog v-model="createVisible" title="创建智能体任务" width="620px" destroy-on-close>
       <el-form :model="createForm" label-position="top">
         <el-form-item label="租户 Key"><el-input v-model="createForm.tenantKey" maxlength="120" placeholder="普通管理员填写已授权租户；平台管理员可留空" /></el-form-item>
         <el-form-item label="任务标题"><el-input v-model="createForm.title" maxlength="255" show-word-limit placeholder="例如：制作三章互动悬疑故事" /></el-form-item>
         <el-form-item label="任务目标" required><el-input v-model="createForm.objective" type="textarea" :rows="6" maxlength="20000" show-word-limit placeholder="清楚描述 Agent 需要完成的目标、范围和交付物" /></el-form-item>
         <el-row :gutter="16">
-            <el-col :span="12"><el-form-item label="任务类型"><el-select v-model="createForm.taskType" style="width: 100%"><el-option label="通用任务" value="GENERAL" /><el-option label="DSH Agent" value="DSH_SESSION" /><el-option label="DSH Browser" value="DSH_BROWSER" /><el-option label="DSH DevOps 构建" value="DSH_DEVOPS_BUILD" /><el-option label="DSH DevOps 发布" value="DSH_DEVOPS_RELEASE" /><el-option label="DSH DevOps 回滚" value="DSH_DEVOPS_ROLLBACK" /><el-option label="DSH 平台巡检" value="DSH_PLATFORM_AUDIT" /><el-option label="内容创作" value="CONTENT_CREATION" /><el-option label="数据分析" value="DATA_ANALYSIS" /><el-option label="系统检查" value="SYSTEM_INSPECTION" /></el-select></el-form-item></el-col>
+            <el-col :span="12"><el-form-item label="任务类型"><el-select v-model="createForm.taskType" style="width: 100%"><el-option label="通用任务" value="GENERAL" /><el-option label="小叶对话" value="DSH_SESSION" /><el-option label="网页交互" value="DSH_BROWSER" /><el-option label="项目构建" value="DSH_DEVOPS_BUILD" /><el-option label="发布部署" value="DSH_DEVOPS_RELEASE" /><el-option label="版本回滚" value="DSH_DEVOPS_ROLLBACK" /><el-option label="平台巡检" value="DSH_PLATFORM_AUDIT" /><el-option label="内容创作" value="CONTENT_CREATION" /><el-option label="数据分析" value="DATA_ANALYSIS" /><el-option label="系统检查" value="SYSTEM_INSPECTION" /></el-select></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="风险等级"><el-select v-model="createForm.riskLevel" style="width: 100%"><el-option label="只读" value="READ_ONLY" /><el-option label="可恢复写入" value="WRITE_REVERSIBLE" /></el-select></el-form-item></el-col>
         </el-row>
       </el-form>
@@ -83,6 +83,9 @@ const statusNames = Object.fromEntries(statuses.map(item => [item.value, item.la
 
 const statusLabel = (status) => statusNames[status] || status || '-'
 const statusType = (status) => ({ RUNNING: 'primary', WAITING_APPROVAL: 'warning', SUCCEEDED: 'success', PARTIAL_SUCCESS: 'warning', FAILED: 'danger', CANCELLED: 'info' }[status] || 'info')
+const taskTypeNames = { GENERAL: '通用任务', DSH_SESSION: '小叶对话', DSH_BROWSER: '网页交互', DSH_DEVOPS_BUILD: '项目构建', DSH_DEVOPS_RELEASE: '发布部署', DSH_DEVOPS_ROLLBACK: '版本回滚', DSH_PLATFORM_AUDIT: '平台巡检', CONTENT_CREATION: '内容创作', DATA_ANALYSIS: '数据分析', SYSTEM_INSPECTION: '系统检查' }
+const taskTypeLabel = (value) => taskTypeNames[value] || value || '-'
+const riskLabel = (value) => ({ READ_ONLY: '只读', WRITE_REVERSIBLE: '可恢复写入', EXTERNAL_SIDE_EFFECT: '外部操作', DESTRUCTIVE: '破坏性操作', PRODUCTION_OPERATION: '生产操作' }[value] || value || '-')
 
 function openCreate() {
   Object.assign(createForm, { title: '', objective: '', taskType: 'GENERAL', riskLevel: 'READ_ONLY' })

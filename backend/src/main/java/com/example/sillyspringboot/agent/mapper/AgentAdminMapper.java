@@ -11,6 +11,19 @@ import java.math.BigDecimal;
 @Mapper
 public interface AgentAdminMapper {
 
+    int insertXiaoyeRoleCardDraft(Map<String, Object> draft);
+
+    Map<String, Object> findXiaoyeRoleCardDraft(@Param("draftKey") String draftKey,
+                                                @Param("ownerAdminId") long ownerAdminId);
+
+    int updateXiaoyeRoleCardDraft(Map<String, Object> draft);
+
+    int closeXiaoyeRoleCardDraft(@Param("draftKey") String draftKey,
+                                 @Param("ownerAdminId") long ownerAdminId,
+                                 @Param("status") String status);
+
+    int expireXiaoyeRoleCardDrafts(@Param("now") java.time.LocalDateTime now);
+
     int insertTask(Map<String, Object> task);
 
     Map<String, Object> findTaskByKey(@Param("taskKey") String taskKey);

@@ -1,0 +1,18 @@
+import request from '@/utils/request'
+
+export const getXiaoyeBootstrap = (params = {}) => request({ url: '/admin/jiugai/xiaoye/bootstrap', method: 'get', params })
+export const createXiaoyeConversation = (data = {}) => request({ url: '/admin/jiugai/xiaoye/conversations', method: 'post', data })
+export const listXiaoyeConversations = () => request({ url: '/admin/jiugai/xiaoye/conversations', method: 'get' })
+export const sendXiaoyeMessage = (conversationId, message) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/messages`, method: 'post', data: { message }, timeout: 120000 })
+export const listXiaoyeMessages = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/messages`, method: 'get' })
+export const listXiaoyeEvents = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/events`, method: 'get' })
+export const validateXiaoyeRoleCard = (data) => request({ url: '/admin/jiugai/xiaoye/role-card/validate', method: 'post', data })
+export const createXiaoyeRoleCardDraft = (data) => request({ url: '/admin/jiugai/xiaoye/role-card/draft', method: 'post', data })
+export const updateXiaoyeRoleCardDraft = (draftId, data) => request({ url: `/admin/jiugai/xiaoye/role-card/draft/${encodeURIComponent(draftId)}`, method: 'put', data })
+export const saveXiaoyeRoleCardDraft = (draftId) => request({ url: `/admin/jiugai/xiaoye/role-card/draft/${encodeURIComponent(draftId)}/save`, method: 'post', data: { confirmed: true } })
+export const saveXiaoyeRoleCard = (data) => request({ url: '/admin/jiugai/xiaoye/role-card/save', method: 'post', data })
+export const getXiaoyeTask = (id) => request({ url: `/admin/jiugai/agent/tasks/${id}`, method: 'get' })
+export const saveXiaoyeWorldbook = (data) => request({ url: '/admin/jiugai/xiaoye/worldbook/save', method: 'post', data, timeout: 120000 })
+export const downloadXiaoyeArtifact = (taskId, artifactKey) => request({ url: `/admin/jiugai/agent/tasks/${taskId}/artifacts/${encodeURIComponent(artifactKey)}/download`, method: 'get', responseType: 'blob' })
+export const approveXiaoyeApproval = (id, data = {}) => request({ url: `/admin/jiugai/agent/approvals/${id}/approve`, method: 'post', data })
+export const rejectXiaoyeApproval = (id, data = {}) => request({ url: `/admin/jiugai/agent/approvals/${id}/reject`, method: 'post', data })

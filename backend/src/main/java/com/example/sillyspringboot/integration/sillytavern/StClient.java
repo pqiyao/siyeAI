@@ -52,13 +52,20 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterImportRequest;
 
 /**
  * 閸烆垯绔撮崗浣筋啅閸欐垼鎹?ST 閸樼喎顫?HTTP 鐠嬪啰鏁ら惃鍕閿涙稖鐭惧鍕矌瀵洜鏁?{@link StApiPaths}閵? */
 public final class StClient {
+    private static final Set<String> AUXILIARY_SIDECAR_MODES = Set.of(
+            "semantic_annotation",
+            "memory_structured_extract",
+            "memory_rollup"
+    );
 
     private static final Logger log = LoggerFactory.getLogger(StClient.class);
     private static final Pattern VISION_SPECIAL_TOKEN_PATTERN = Pattern.compile("<\\|[A-Za-z0-9_:-]+\\|>");
@@ -917,6 +924,7 @@ public final class StClient {
                 String line;
                 StringBuilder dataBuf = new StringBuilder();
                 boolean emittedContent = false;
+                boolean completed = false;
                 StreamDiagnostics diagnostics = new StreamDiagnostics();
                 while (!control.isCancelled() && (line = reader.readLine()) != null) {
                     if (line.isEmpty()) {
@@ -928,6 +936,7 @@ public final class StClient {
                         StreamChunkResult result = emitStreamData(data, request, observedOnChunk, idx);
                         diagnostics.observe(data, result);
                         emittedContent = emittedContent || result.emittedContent();
+                        completed = completed || result.done();
                         if (result.done()) {
                             if (!emittedContent) {
                                 throw providerTransientFailure(diagnostics.emptyResponseMessage("st runtime generate"));
@@ -960,6 +969,7 @@ public final class StClient {
                     StreamChunkResult result = emitStreamData(data, request, observedOnChunk, idx);
                     diagnostics.observe(data, result);
                     emittedContent = emittedContent || result.emittedContent();
+                    completed = completed || result.done();
                     if (result.done()) {
                         if (!emittedContent) {
                             throw providerTransientFailure(diagnostics.emptyResponseMessage("st runtime generate"));
@@ -968,8 +978,14 @@ public final class StClient {
                         return;
                     }
                 }
-                if (!control.isCancelled() && !emittedContent) {
-                    throw providerTransientFailure(diagnostics.emptyResponseMessage("st runtime generate"));
+                if (!control.isCancelled() && completed) {
+                    emitDoneChunk(request, observedOnChunk, idx, null);
+                    return;
+                }
+                if (!control.isCancelled()) {
+                    throw providerTransientFailure(emittedContent
+                            ? "st runtime generate stream ended before finish marker"
+                            : diagnostics.emptyResponseMessage("st runtime generate"));
                 }
             }
         } catch (Exception e) {
@@ -1106,7 +1122,8 @@ public final class StClient {
     }
 
     static boolean isAuxiliarySidecarRequest(ChatGenerateRequest request) {
-        return request != null && "semantic_annotation".equalsIgnoreCase(firstNonBlank(request.mode()));
+        return request != null
+                && AUXILIARY_SIDECAR_MODES.contains(firstNonBlank(request.mode()).toLowerCase(Locale.ROOT));
     }
 
     private void recordProviderFailure(RuntimeProviderOverride provider, String message) {
@@ -1414,6 +1431,7 @@ public final class StClient {
                 String line;
                 StringBuilder dataBuf = new StringBuilder();
                 boolean emittedContent = false;
+                boolean completed = false;
                 StreamDiagnostics diagnostics = new StreamDiagnostics();
                 while (!control.isCancelled() && (line = reader.readLine()) != null) {
                     if (line.isEmpty()) {
@@ -1425,6 +1443,7 @@ public final class StClient {
                         StreamChunkResult result = emitStreamData(data, request, onChunk, idx);
                         diagnostics.observe(data, result);
                         emittedContent = emittedContent || result.emittedContent();
+                        completed = completed || result.done();
                         if (result.done()) {
                             if (!emittedContent) {
                                 throw providerTransientFailure(diagnostics.emptyResponseMessage("st generate"));
@@ -1458,6 +1477,7 @@ public final class StClient {
                     StreamChunkResult result = emitStreamData(data, request, onChunk, idx);
                     diagnostics.observe(data, result);
                     emittedContent = emittedContent || result.emittedContent();
+                    completed = completed || result.done();
                     if (result.done()) {
                         if (!emittedContent) {
                             throw providerTransientFailure(diagnostics.emptyResponseMessage("st generate"));
@@ -1466,8 +1486,14 @@ public final class StClient {
                         return;
                     }
                 }
-                if (!control.isCancelled() && !emittedContent) {
-                    throw providerTransientFailure(diagnostics.emptyResponseMessage("st generate"));
+                if (!control.isCancelled() && completed) {
+                    emitDoneChunk(request, onChunk, idx, null);
+                    return;
+                }
+                if (!control.isCancelled()) {
+                    throw providerTransientFailure(emittedContent
+                            ? "st generate stream ended before finish marker"
+                            : diagnostics.emptyResponseMessage("st generate"));
                 }
             }
         } catch (Exception e) {

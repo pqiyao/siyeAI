@@ -165,6 +165,25 @@ class ChatPresetServiceTest {
     }
 
     @Test
+    void staleGlobalDefaultRowIsNormalizedAtReadTime() throws Exception {
+        Fixture fixture = fixture();
+        AppConversationStBinding binding = new AppConversationStBinding();
+        binding.setUserId(USER_ID);
+        AppChatPreset preset = preset(1L, null, "PUBLIC", true);
+        preset.setName("Default");
+        preset.setGlobalDefault(true);
+        // Simulate a row synchronized before the global-default normalization
+        // was introduced. Runtime resolution must still match ST's 1000/65536.
+        preset.setBundleJson("{\"generation\":{\"openai_max_tokens\":2805,\"openai_max_context\":2000000}}");
+        when(fixture.presetMapper.findEnabledGlobalDefault()).thenReturn(preset);
+
+        JsonNode resolved = new ObjectMapper().readTree(fixture.service.resolveRuntimePresetBundle(binding));
+
+        assertThat(resolved.path("generation").path("openai_max_tokens").asInt()).isEqualTo(1000);
+        assertThat(resolved.path("generation").path("openai_max_context").asInt()).isEqualTo(65536);
+    }
+
+    @Test
     void conversationPresetTakesPriorityOverGlobalDefault() throws Exception {
         Fixture fixture = fixture();
         AppConversationStBinding binding = new AppConversationStBinding();

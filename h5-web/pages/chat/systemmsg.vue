@@ -1,6 +1,7 @@
 <template>
 	<view class="page">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 		<tavern-nav-bar :title="pageTitle" mode="dark" @back="goBack" />
 		<scroll-view scroll-y class="scroll" :show-scrollbar="false">
 			<view v-if="loading" class="empty empty--loading">
@@ -34,6 +35,7 @@
 
 <script>
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
+import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 
 const tavernApi = require('@/common/tavernApi.js');
 const tavernErrors = require('@/common/tavernErrors.js');
@@ -88,7 +90,7 @@ const SYSTEM_MSG_TEXT = {
 };
 
 export default {
-	components: { TavernNavBar },
+	components: { TavernNavBar, LiquidGlassCanvas },
 	data() {
 		return {
 			list: [],
@@ -431,6 +433,15 @@ export default {
 			transform: translateX(100%);
 		}
 	}
+
+	/* System messages use the same light liquid-glass shell as the user area. */
+	.page { position:relative; overflow:hidden; background: radial-gradient(circle at 8% 0%,rgba(121,211,224,.28),transparent 34%), radial-gradient(circle at 92% 14%,rgba(239,169,205,.2),transparent 30%), linear-gradient(180deg,#edf8fc 0%,#e4f1f7 58%,#f8eff5 100%); }
+	.page::before { content:''; position:fixed; inset:0; pointer-events:none; background:linear-gradient(120deg,rgba(255,255,255,.28),transparent 36%,rgba(104,194,210,.1)); }
+	.card, .empty { background: rgba(247,253,255,.4); border-color:rgba(255,255,255,.72); box-shadow:0 18rpx 42rpx rgba(42,91,112,.12), inset 0 1rpx 0 rgba(255,255,255,.86); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+	.card-title { color:#20485b; }
+	.card-body, .time { color:#607b8a; }
+	.page > .liquid-glass-canvas { position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.9; }
+	.page > .tavern-nav-bar, .page > .scroll { position:relative; z-index:3; }
 </style>
 
 <style>

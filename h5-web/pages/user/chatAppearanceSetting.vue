@@ -1,6 +1,7 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 		<tavern-nav-bar :title="ui.title" mode="dark" @back="goBack" />
 		<scroll-view class="body" scroll-y :show-scrollbar="false">
 			<view v-if="characterId" class="scope-switcher">
@@ -336,6 +337,7 @@
 </template>
 
 <script>
+	import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 import MessageBubble from '@/components/tavern/message-bubble.vue';
 import MessageContent from '@/components/tavern/message-content.vue';
@@ -367,6 +369,7 @@ function appearanceDraftSignature(config, scopeMode, inheritance) {
 }
 
 export default {
+	components: { LiquidGlassCanvas },
 	components: { TavernNavBar, MessageBubble, MessageContent, MessageActions, VoiceMessageCard },
 	data() {
 		const initialConfig = loadAppearanceConfigSafely();
@@ -461,7 +464,7 @@ export default {
 			return getAppearanceCopy(getLanguageCode());
 		},
 		customPresets() {
-			return this.presets.filter((item) => item && !item.system).map((item) => {
+			return this.presets.filter((item) => item && !item.system && item.code !== 'fengyue' && item.code !== 'liquid').map((item) => {
 				const translated = this.ui.presets[item.code];
 				return Object.assign({}, item, {
 					name: translated ? translated[0] : item.name,
@@ -2634,4 +2637,128 @@ export default {
 		min-width: 140rpx;
 	}
 }
+
+/* Liquid studio layout: a clear two-column preset board and full-width
+ * controls prevent the narrow left rail seen on small H5 viewports. */
+.page {
+	background:
+		radial-gradient(circle at 8% 4%, rgba(117, 211, 223, 0.26), transparent 30%),
+		radial-gradient(circle at 92% 18%, rgba(235, 167, 205, 0.22), transparent 28%),
+		linear-gradient(180deg, #eef8fc 0%, #e4f1f8 52%, #f7eef5 100%);
+}
+
+.body {
+	padding-top: 14rpx;
+}
+
+.hero-panel,
+.section,
+.scope-switcher,
+.sync-state {
+	border: 1rpx solid rgba(255, 255, 255, 0.72);
+	background: rgba(247, 253, 255, 0.34);
+	box-shadow: 0 20rpx 46rpx rgba(48, 103, 126, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
+	backdrop-filter: blur(8px);
+	-webkit-backdrop-filter: blur(8px);
+}
+
+.hero-panel {
+	background: linear-gradient(145deg, rgba(255, 255, 255, 0.54), rgba(210, 240, 247, 0.34));
+}
+
+.preview-chat {
+	min-height: 300rpx;
+	background: linear-gradient(135deg, rgba(54, 77, 91, 0.58), rgba(88, 112, 125, 0.38));
+	border-color: rgba(255, 255, 255, 0.44);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.24), 0 18rpx 36rpx rgba(35, 82, 104, 0.15);
+}
+
+.preset-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 14rpx;
+	width: 100%;
+}
+
+.preset {
+	width: auto;
+	min-width: 0;
+	min-height: 176rpx;
+	padding: 14rpx;
+	background: rgba(255, 255, 255, 0.42);
+	border-color: rgba(255, 255, 255, 0.7);
+}
+
+.preset-visual {
+	height: 82rpx;
+	margin-bottom: 14rpx;
+	background: rgba(227, 243, 248, 0.52);
+}
+
+.preset-name {
+	font-size: 26rpx;
+}
+
+.preset-desc {
+	font-size: 20rpx;
+	line-height: 1.35;
+}
+
+.choice-grid,
+.mode-grid--read,
+.mode-grid--split,
+.mode-grid--advanced,
+.mode-grid--tone {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10rpx;
+}
+
+.mode-grid--read .mode,
+.mode-grid--split .mode,
+.mode-grid--advanced .mode,
+.mode-grid--tone .mode {
+	width: auto;
+	min-width: 0;
+}
+
+.control-grid {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 8rpx;
+}
+
+.control {
+	min-height: 76rpx;
+	height: auto;
+	padding: 10rpx 14rpx;
+	border-radius: 18rpx;
+	background: rgba(255, 255, 255, 0.3);
+}
+
+.control .control-label {
+	flex-basis: 150rpx;
+	min-width: 150rpx;
+}
+
+.actions {
+	padding: 14rpx 0 calc(8rpx + env(safe-area-inset-bottom));
+	background: rgba(226, 243, 248, 0.78);
+	backdrop-filter: blur(12px);
+}
+
+@media (max-width: 420px) {
+	.preset-grid,
+	.mode-grid--advanced,
+	.mode-grid--tone {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.control .control-label {
+		flex-basis: 132rpx;
+		min-width: 132rpx;
+	}
+}
+
+.page > .liquid-glass-canvas { position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.9; }
+.page > .tavern-nav-bar, .page > .body { position:relative; z-index:3; }
 </style>

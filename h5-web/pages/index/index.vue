@@ -1,6 +1,7 @@
 ﻿<template>
 	<view class="root" :class="localeFontClass">
 		<image class="global-bg-image" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 		<scroll-view
 			scroll-y
 			class="page-scroll"
@@ -498,6 +499,7 @@
 </template>
 
 <script>
+	import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 	import { applyTavernTabBarLabels, syncTavernTabBar } from '@/common/tavernTabBar.js';
 	const tavernInboxBadge = require('@/common/tavernInboxBadge.js');
 	const { getTavernUiText } = require('@/common/tavernUiI18n.js');
@@ -519,7 +521,8 @@
 		return index >= 0 ? index : DISCOVER_TAG_CATEGORY_ORDER.length;
 	}
 
-	export default {
+export default {
+	components: { LiquidGlassCanvas },
 		data() {
 			const runtimeFeatureConfig = require('@/common/tavernApi.js').getRuntimeFeatureConfig();
 			return {
@@ -2454,6 +2457,8 @@
 	.page-box {
 		padding-bottom: 20rpx;
 	}
+	.root > .liquid-glass-canvas { position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.72; }
+	.root > .page-scroll { z-index:3; }
 
 	.illustration-entry-card {
 		position: relative;
@@ -3789,4 +3794,23 @@
 			transform: translateX(100%);
 		}
 	}
+
+	/* Discover home: visible liquid hierarchy instead of flat white cards. */
+	.root {
+		background: radial-gradient(circle at 8% 0%, rgba(116, 211, 224, .28), transparent 34%), radial-gradient(circle at 92% 12%, rgba(239, 169, 205, .2), transparent 30%), linear-gradient(180deg, #edf8fc 0%, #e3f1f7 56%, #f8eff5 100%);
+	}
+	.root::after { content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none; background: linear-gradient(125deg, rgba(255,255,255,.32), transparent 30%, rgba(91,190,204,.08) 72%, rgba(239,169,205,.1)); }
+	/* The discovery header is part of the page canvas, not a boxed card. */
+	.disc-header { margin: 0; padding: 18rpx 28rpx 20rpx; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+	.brand-logo { width: 76rpx; height: 76rpx; border: 3rpx solid rgba(255,255,255,.82); box-shadow: 0 10rpx 22rpx rgba(45,115,132,.14); }
+	.icon-btn, .search-row, .feed-tab { background: rgba(255,255,255,.42); border-color: rgba(255,255,255,.72); box-shadow: inset 0 1rpx 0 rgba(255,255,255,.72), 0 8rpx 18rpx rgba(46,97,118,.08); }
+	.search-row { height: 82rpx; }
+	.feed-tab { height: 64rpx; }
+	.feed-tab.on { background: linear-gradient(135deg, rgba(81,172,185,.9), rgba(120,204,210,.82)); color: #fff; box-shadow: 0 10rpx 22rpx rgba(57,139,153,.2); }
+	.illustration-entry-card, .card-top { border-color: rgba(255,255,255,.78); background: rgba(247,253,255,.42); box-shadow: 0 20rpx 48rpx rgba(43,96,118,.13), inset 0 1rpx 0 rgba(255,255,255,.82); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+	.card-top { border-radius: 32rpx; }
+	.g3-inner, .card-disc { filter: drop-shadow(0 18rpx 26rpx rgba(29,76,97,.18)); }
+	.g3-inner::after, .card-disc::after { content: ''; position: absolute; inset: 0; z-index: 6; border-radius: 36rpx; pointer-events: none; border: 2rpx solid rgba(255,255,255,.5); box-shadow: inset 0 1rpx 0 rgba(255,255,255,.66), inset 0 -2rpx 0 rgba(48,134,148,.18); }
+	.card-visual { border-radius: 36rpx; }
+	.card-grade, .g3-likes, .mini-tag, .float-tag { backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 </style>

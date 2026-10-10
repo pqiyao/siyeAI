@@ -770,6 +770,7 @@ function normalizeRuntimeFeatureConfig(source) {
 		imageGenerationEnabled: raw.imageGenerationEnabled !== false,
 		voiceFeatureEnabled: raw.voiceFeatureEnabled !== false,
 		illustrationEntryEnabled: raw.illustrationEntryEnabled !== false,
+		agentWorkbenchEntryVisible: raw.agentWorkbenchEntryVisible === true,
 		rechargeEntryVisible: raw.rechargeEntryVisible !== false,
 		checkinEntryVisible: raw.checkinEntryVisible !== false,
 		systemChatPresetEntryVisible: raw.systemChatPresetEntryVisible !== false,
@@ -865,6 +866,10 @@ function isLongTermMemoryEnabled() {
 
 function isIllustrationEntryEnabled() {
 	return getRuntimeFeatureConfig().illustrationEntryEnabled !== false;
+}
+
+function isAgentWorkbenchEntryVisible() {
+	return getRuntimeFeatureConfig().agentWorkbenchEntryVisible !== false;
 }
 
 function isRechargeEntryVisible() {
@@ -3591,6 +3596,7 @@ module.exports = {
 	isVoiceFeatureEnabled: isVoiceFeatureEnabled,
 	isLongTermMemoryEnabled: isLongTermMemoryEnabled,
 	isIllustrationEntryEnabled: isIllustrationEntryEnabled,
+	isAgentWorkbenchEntryVisible: isAgentWorkbenchEntryVisible,
 	isRechargeEntryVisible: isRechargeEntryVisible,
 	isCheckinEntryVisible: isCheckinEntryVisible,
 	isSystemChatPresetEntryVisible: isSystemChatPresetEntryVisible,

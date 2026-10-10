@@ -9,9 +9,9 @@
         </p>
       </div>
       <div class="hero-badge">
-        <span>生成成功率</span>
+        <span>{{ activeRangeLabel }}生成成功率</span>
         <strong>{{ successRateText }}</strong>
-        <small>统计范围基于生成任务执行结果</small>
+        <small>{{ latestGenerationText }}</small>
       </div>
     </section>
 
@@ -28,7 +28,7 @@
           <div class="panel-header panel-header--spread">
             <div>
               <span>生成趋势</span>
-              <small>Success / Failure</small>
+              <small>{{ activeRangeLabel }} · Success / Failure</small>
             </div>
             <el-radio-group v-model="trendRange" size="small" class="trend-actions" @change="load">
               <el-radio-button v-for="item in trendRangeOptions" :key="item.value" :label="item.value">
@@ -37,7 +37,13 @@
             </el-radio-group>
           </div>
         </template>
-        <div ref="trendRef" class="chart"></div>
+        <div v-show="hasGenerationTrendData" ref="trendRef" class="chart"></div>
+        <el-empty
+          v-if="!hasGenerationTrendData"
+          class="trend-empty"
+          :description="`${activeRangeLabel}暂无生成数据；${latestGenerationText}`"
+          :image-size="72"
+        />
       </el-card>
 
       <el-card class="panel scope-panel" shadow="never">
@@ -197,7 +203,8 @@ const metrics = reactive({
   totalTasks: 0,
   totalPaidOrders: 0,
   totalRevenueYuan: '0.00',
-  successRate: 0
+  successRate: 0,
+  latestGenerationAt: null
 })
 
 const topActiveUsers = ref([])
@@ -215,12 +222,12 @@ let latestRequestId = 0
 const metricCards = computed(() => [
   {
     key: 'characters',
-    label: '角色总量',
+    label: '有效角色',
     value: metrics.totalCharacters
   },
   {
     key: 'users',
-    label: '用户总量',
+    label: '累计用户',
     value: metrics.totalUsers
   },
   {
@@ -230,17 +237,17 @@ const metricCards = computed(() => [
   },
   {
     key: 'successfulResponses',
-    label: '成功 AI 响应次数',
+    label: '累计成功 AI 响应',
     value: metrics.successfulAiResponses
   },
   {
     key: 'tasks',
-    label: '生成任务',
+    label: `${activeRangeLabel.value}生成任务`,
     value: metrics.totalTasks
   },
   {
     key: 'orders',
-    label: '已支付订单',
+    label: '累计已支付订单',
     value: metrics.totalPaidOrders
   },
   {
@@ -252,6 +259,19 @@ const metricCards = computed(() => [
 
 const successRateText = computed(() => `${Math.round((metrics.successRate || 0) * 100)}%`)
 const ownerTopList = computed(() => ownerSummary.value?.topOwners || [])
+const activeRangeLabel = computed(() => {
+  const label = trendRangeOptions.find((item) => item.value === trendRange.value)?.label || '14天'
+  return label === '全部' ? '全部时间' : `近${label}`
+})
+const hasGenerationTrendData = computed(() =>
+  generationTrend.value.some((item) => Number(item.generations || 0) > 0)
+)
+const latestGenerationText = computed(() => {
+  if (!metrics.latestGenerationAt) return '暂无生成记录'
+  const date = new Date(metrics.latestGenerationAt)
+  if (Number.isNaN(date.getTime())) return `最近生成：${metrics.latestGenerationAt}`
+  return `最近生成：${date.toLocaleString()}`
+})
 
 function load(options = {}) {
   const silent = options?.silent === true
@@ -515,6 +535,10 @@ onBeforeUnmount(() => {
   }
 
   .chart {
+    height: 340px;
+  }
+
+  .trend-empty {
     height: 340px;
   }
 

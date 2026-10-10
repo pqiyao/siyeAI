@@ -1,6 +1,7 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 		<tavern-nav-bar :title="copy.title" mode="dark" @back="goBack" />
 		<scroll-view scroll-y class="scroll" :show-scrollbar="false">
 			<view v-if="ticket.ticketNo" class="card ticket-card">
@@ -70,6 +71,7 @@
 
 <script>
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
+import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 
 const tavernApi = require('@/common/tavernApi.js');
 const tavernErrors = require('@/common/tavernErrors.js');
@@ -269,7 +271,7 @@ function currentCopy() {
 }
 
 export default {
-	components: { TavernNavBar },
+	components: { TavernNavBar, LiquidGlassCanvas },
 	data() {
 		return {
 			loading: false,
@@ -720,4 +722,6 @@ export default {
 	background: rgba(244, 166, 196, 0.22);
 	color: #9f4464;
 }
+.page > .liquid-glass-canvas { position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.9; }
+.page > .tavern-nav-bar, .page > .scroll { position:relative; z-index:3; }
 </style>

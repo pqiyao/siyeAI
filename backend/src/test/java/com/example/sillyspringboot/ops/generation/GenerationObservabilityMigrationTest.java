@@ -174,7 +174,16 @@ class GenerationObservabilityMigrationTest {
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'app_xiaoye_role_card_draft'",
                 Integer.class
         ));
-        assertEquals("183", jdbc.queryForObject(
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'app_agent_xiaoye_conversation'",
+                Integer.class
+        ));
+        assertEquals(5, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'app_agent_xiaoye_conversation' "
+                        + "AND column_name IN ('session_id', 'admin_id', 'tenant_key', 'preset', 'status')",
+                Integer.class
+        ));
+        assertEquals("184", jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class
         ));

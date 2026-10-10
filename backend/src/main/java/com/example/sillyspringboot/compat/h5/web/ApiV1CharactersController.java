@@ -328,7 +328,9 @@ public class ApiV1CharactersController {
         card.put("cover", portrait);
         card.put("avatar_thumb", portraitAvatarThumb);
         card.put("cover_thumb", portraitCoverThumb);
-        card.put("chat_background_url", stAssetUrls.resolve(firstNonBlank(item.chatBackgroundUrl(), item.coverUrl(), "")));
+        // 用户端聊天背景按角色资产回退：单独背景 -> 封面 -> 头像，避免没有背景时丢失角色视觉识别。
+        card.put("chat_background_url", stAssetUrls.resolve(firstNonBlank(
+                item.chatBackgroundUrl(), item.coverUrl(), item.avatarUrl(), item.stAvatarUrl(), "")));
         card.put("creator", blankToDefault(item.creatorName(), "SillyTavern"));
         card.put("creator_handle", formatCreatorHandle(item.creatorHandle()));
 
@@ -460,7 +462,8 @@ public class ApiV1CharactersController {
         card.put("avatar_thumb", portraitAvatarThumb);
         card.put("cover_thumb", portraitCoverThumb);
         card.put("cover_detail", portraitDetail);
-        card.put("chat_background_url", stAssetUrls.resolve(firstNonBlank(row.getChatBackgroundUrl(), row.getCoverUrl(), "")));
+        card.put("chat_background_url", stAssetUrls.resolve(firstNonBlank(
+                row.getChatBackgroundUrl(), row.getCoverUrl(), row.getAvatarUrl(), row.getStAvatarUrl(), "")));
         card.put("tagline", tagline);
         card.put("bio", bio);
         card.put("public_profile", buildPublicDetailProfile(row, detail, cleanSummary));

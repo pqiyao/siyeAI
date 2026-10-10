@@ -1,6 +1,7 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 		<tavern-nav-bar :title="uiText.title" mode="light" @back="goBack" />
 		<view class="hero">
 			<text class="hero-title">{{ uiText.title }}</text>
@@ -29,6 +30,7 @@
 
 <script>
 	import fuiButton from '@/components/firstui/fui-button/fui-button.vue';
+	import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 	import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
 	import { refreshI18nViews } from '@/common/i18nRefresh.js';
 	const { getLocaleOptions, getTavernUiText, getLanguageIndex } = require('@/common/tavernUiI18n.js');
@@ -36,7 +38,8 @@
 	export default {
 		components: {
 			fuiButton,
-			TavernNavBar
+			TavernNavBar,
+			LiquidGlassCanvas
 		},
 		data() {
 			return {
@@ -194,4 +197,19 @@
 		padding: 20rpx 30rpx calc(28rpx + env(safe-area-inset-bottom));
 		background: linear-gradient(180deg, rgba(247, 251, 253, 0), rgba(247, 251, 253, 0.92) 34%);
 	}
+
+	/* Liquid glass language picker */
+	.page {
+		position: relative;
+		overflow: hidden;
+		background: radial-gradient(circle at 8% 0%, rgba(122, 213, 224, .28), transparent 34%), radial-gradient(circle at 92% 16%, rgba(240, 170, 207, .2), transparent 30%), linear-gradient(180deg, #eef8fc 0%, #e5f2f8 54%, #f8f0f5 100%);
+	}
+	.page::before { content: ''; position: fixed; inset: 0; pointer-events: none; background: linear-gradient(120deg, rgba(255,255,255,.3), transparent 32%, rgba(255,255,255,.08) 70%, rgba(109,205,215,.12)); }
+	.hero, .row { background: rgba(247, 253, 255, .38); border-color: rgba(255,255,255,.72); box-shadow: 0 18rpx 42rpx rgba(47,96,117,.12), inset 0 1rpx 0 rgba(255,255,255,.86); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+	.hero { margin-top: 18rpx; }
+	.row { background: rgba(255,255,255,.3); }
+	.row--active { background: linear-gradient(135deg, rgba(218,246,249,.62), rgba(255,239,247,.52)); border-color: rgba(63,157,171,.42); }
+	.footer { background: linear-gradient(180deg, rgba(238,248,252,0), rgba(238,248,252,.82) 35%); }
+	.page > .liquid-glass-canvas { position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.9; }
+	.page > .tavern-nav-bar, .page > .hero, .page > .scroll, .page > .footer { position:relative; z-index:3; }
 </style>

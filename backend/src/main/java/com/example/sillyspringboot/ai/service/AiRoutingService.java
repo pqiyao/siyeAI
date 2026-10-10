@@ -270,7 +270,10 @@ public class AiRoutingService {
         }
         boolean accountEnabled = bool(body == null ? null : body.get("accountEnabled"), true);
         int connectTimeoutSeconds = intValue(body == null ? null : body.get("connectTimeoutSeconds"), 10, 1, 60);
-        int requestTimeoutSeconds = intValue(body == null ? null : body.get("requestTimeoutSeconds"), 90, 5, 600);
+        // Provider request timeout is the upper bound for obtaining a response
+        // from the selected upstream. Keep it below the overall chat timeout so
+        // a stalled upstream cannot occupy a generation worker for ten minutes.
+        int requestTimeoutSeconds = intValue(body == null ? null : body.get("requestTimeoutSeconds"), 180, 5, 600);
         String note = trim(body == null ? null : body.get("note"), 255);
         boolean connectionChanged = current != null && (
                 !Objects.equals(current.getVendor(), vendor)
@@ -473,7 +476,7 @@ public class AiRoutingService {
                 account.setApiKeyCipher(crypto.encrypt(plainKey));
                 account.setEnabled(true);
                 account.setConnectTimeoutSeconds(10);
-                account.setRequestTimeoutSeconds(90);
+                account.setRequestTimeoutSeconds(180);
                 account.setNote("从 ST 旧聊天供应商复制，旧配置保留");
                 mapper.insertAccount(account);
 
@@ -708,7 +711,7 @@ public class AiRoutingService {
                     parseProtocol(row.getProtocolType(), capability), safe(row.getModelName()),
                     safe(row.getVoiceName()),
                     intValue(row.getConnectTimeoutSeconds(), 10, 1, 60),
-                    intValue(row.getRequestTimeoutSeconds(), 90, 5, 600),
+                    intValue(row.getRequestTimeoutSeconds(), 180, 5, 600),
                     row.getSortOrder() == null ? active.size() + 1 : row.getSortOrder()
             );
             LocalDateTime openUntil = row.getCircuitOpenUntil();
@@ -787,7 +790,7 @@ public class AiRoutingService {
                 safe(body == null ? null : body.get("modelName")),
                 safe(body == null ? null : body.get("voiceName")),
                 intValue(body == null ? null : body.get("connectTimeoutSeconds"), 10, 1, 60),
-                intValue(body == null ? null : body.get("requestTimeoutSeconds"), 90, 5, 600)
+                intValue(body == null ? null : body.get("requestTimeoutSeconds"), 180, 5, 600)
         );
     }
 

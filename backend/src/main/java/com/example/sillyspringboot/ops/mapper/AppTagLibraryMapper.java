@@ -29,7 +29,7 @@ public interface AppTagLibraryMapper {
 
     void updateById(AppTagLibrary row);
 
-    void deleteById(@Param("id") long id);
+    int deleteById(@Param("id") long id);
 
     int deleteByIds(@Param("ids") List<Long> ids);
 }

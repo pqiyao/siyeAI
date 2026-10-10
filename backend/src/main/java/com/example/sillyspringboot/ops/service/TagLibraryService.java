@@ -119,8 +119,8 @@ public class TagLibraryService {
     }
 
     @Transactional
-    public void remove(long id) {
-        tagLibraryMapper.deleteById(id);
+    public int remove(long id) {
+        return tagLibraryMapper.deleteById(id);
     }
 
     @Transactional

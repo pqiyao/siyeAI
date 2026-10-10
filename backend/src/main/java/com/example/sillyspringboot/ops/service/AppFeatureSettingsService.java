@@ -60,6 +60,9 @@ public class AppFeatureSettingsService {
             settings.setIllustrationEntryEnabled(
                     boolVal(body.get("illustrationEntryEnabled"), settings.isIllustrationEntryEnabled())
             );
+            settings.setAgentWorkbenchEntryVisible(
+                    boolVal(body.get("agentWorkbenchEntryVisible"), settings.isAgentWorkbenchEntryVisible())
+            );
             settings.setRechargeEntryVisible(
                     boolVal(body.get("rechargeEntryVisible"), settings.isRechargeEntryVisible())
             );
@@ -111,6 +114,7 @@ public class AppFeatureSettingsService {
         data.put("imageGenerationEnabled", settings.isImageGenerationEnabled());
         data.put("voiceFeatureEnabled", settings.isVoiceFeatureEnabled());
         data.put("illustrationEntryEnabled", settings.isIllustrationEntryEnabled());
+        data.put("agentWorkbenchEntryVisible", settings.isAgentWorkbenchEntryVisible());
         data.put("rechargeEntryVisible", settings.isRechargeEntryVisible());
         data.put("checkinEntryVisible", settings.isCheckinEntryVisible());
         data.put("systemChatPresetEntryVisible", settings.isSystemChatPresetEntryVisible());

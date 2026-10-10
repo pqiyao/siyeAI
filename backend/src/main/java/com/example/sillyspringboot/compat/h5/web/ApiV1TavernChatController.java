@@ -14,7 +14,9 @@ import com.example.sillyspringboot.chat.service.ChatGenerationTimeout;
 import com.example.sillyspringboot.chat.service.MediaConcurrencyGate;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
 import com.example.sillyspringboot.ai.service.AiChatModelService;
+import com.example.sillyspringboot.character.entity.AppCharacter;
 import com.example.sillyspringboot.character.entity.AppCharacterMember;
+import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -98,6 +100,9 @@ public class ApiV1TavernChatController {
 
     @Autowired(required = false)
     private CharacterStudioMapper characterStudioMapper;
+
+    @Autowired(required = false)
+    private AppCharacterMapper characterMapper;
 
     private final ObjectMapper memberVoiceMapper = new ObjectMapper();
 
@@ -422,15 +427,21 @@ public class ApiV1TavernChatController {
         H5UserAiProviderService.UserTtsSettings activeTtsSettings = userByokTts
                 ? userAiProviderService.resolveActiveTtsSettingsForUser(userId)
                 : null;
+        MemberVoiceOverride characterVoice = resolveCharacterVoiceOverride(
+                payload,
+                activeTtsSettings == null ? "" : activeTtsSettings.providerSource(),
+                !userByokTts);
         boolean roleOverrideActive = userByokTts && ttsOverrideScopeMatchesProvider(
                 payload.getTtsProviderSource(), activeTtsSettings);
-        String roleModelOverride = roleOverrideActive ? firstVoiceValue(payload.getTtsModelName(), "") : "";
+        String roleModelOverride = roleOverrideActive
+                ? firstVoiceValue(payload.getTtsModelName(), characterVoice.modelName())
+                : characterVoice.modelName();
         String roleVoiceOverride = roleOverrideActive || !userByokTts
-                ? firstVoiceValue(payload.getTtsVoiceName(), "")
-                : "";
+                ? firstVoiceValue(payload.getTtsVoiceName(), characterVoice.voiceName())
+                : characterVoice.voiceName();
         String roleTemplateOverride = roleOverrideActive || !userByokTts
-                ? firstVoiceValue(payload.getTtsVoiceTemplateCode(), "")
-                : "";
+                ? firstVoiceValue(payload.getTtsVoiceTemplateCode(), characterVoice.voiceTemplateCode())
+                : characterVoice.voiceTemplateCode();
         H5EntitlementService.AccessTicket ttsTicket = null;
         boolean ttsChargeCreated = false;
         if (!userByokTts) {
@@ -548,10 +559,44 @@ public class ApiV1TavernChatController {
         return MemberVoiceOverride.EMPTY;
     }
 
+    private MemberVoiceOverride resolveCharacterVoiceOverride(
+            H5ChatPayload payload,
+            String activeProviderSource,
+            boolean officialMode
+    ) {
+        if (characterMapper == null || payload == null || payload.getCharacterId() == null
+                || payload.getCharacterId() <= 0) {
+            return MemberVoiceOverride.EMPTY;
+        }
+        try {
+            AppCharacter character = characterMapper.findById(payload.getCharacterId());
+            if (character == null || character.getStExtraJson() == null
+                    || character.getStExtraJson().isBlank()) {
+                return MemberVoiceOverride.EMPTY;
+            }
+            JsonNode extra = memberVoiceMapper.readTree(character.getStExtraJson());
+            JsonNode voice = extra.path("voiceConfig");
+            if (!voice.isObject()) voice = extra;
+            if (voice.has("enabled") && !voice.path("enabled").asBoolean(false)) {
+                return MemberVoiceOverride.EMPTY;
+            }
+            String providerSource = voiceJsonText(voice, "ttsProviderSource", "providerSource");
+            if (!officialMode && (providerSource.isBlank()
+                    || !sameProviderSource(providerSource, activeProviderSource))) {
+                return MemberVoiceOverride.EMPTY;
+            }
+            return new MemberVoiceOverride(
+                    voiceJsonText(voice, "ttsModelName", "modelName"),
+                    voiceJsonText(voice, "ttsVoiceName", "voiceName", "voice"),
+                    voiceJsonText(voice, "ttsVoiceTemplateCode", "voiceTemplateCode", "templateCode"));
+        } catch (Exception ex) {
+            log.warn("character voice config skipped characterId={}", payload.getCharacterId(), ex);
+            return MemberVoiceOverride.EMPTY;
+        }
+    }
+
     private void requireMemberVoiceCharacterVisible(H5ChatPayload payload, long userId) {
-        if (characterStudioMapper == null || payload == null || payload.getCharacterId() == null
-                || payload.getCharacterId() <= 0 || payload.getSpeakerMemberId() == null
-                || payload.getSpeakerMemberId() <= 0) {
+        if (payload == null || payload.getCharacterId() == null || payload.getCharacterId() <= 0) {
             return;
         }
         entitlementService.requireCharacterVisibleToUser(payload.getCharacterId(), userId);

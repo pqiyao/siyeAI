@@ -13,6 +13,7 @@ public class AppFeatureSettings {
     private boolean imageGenerationEnabled = true;
     private boolean voiceFeatureEnabled = true;
     private boolean illustrationEntryEnabled = true;
+    private boolean agentWorkbenchEntryVisible = false;
     private boolean rechargeEntryVisible = true;
     private boolean checkinEntryVisible = true;
     private boolean systemChatPresetEntryVisible = true;
@@ -87,6 +88,14 @@ public class AppFeatureSettings {
 
     public void setIllustrationEntryEnabled(boolean illustrationEntryEnabled) {
         this.illustrationEntryEnabled = illustrationEntryEnabled;
+    }
+
+    public boolean isAgentWorkbenchEntryVisible() {
+        return agentWorkbenchEntryVisible;
+    }
+
+    public void setAgentWorkbenchEntryVisible(boolean agentWorkbenchEntryVisible) {
+        this.agentWorkbenchEntryVisible = agentWorkbenchEntryVisible;
     }
 
     public boolean isRechargeEntryVisible() {

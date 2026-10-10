@@ -143,7 +143,8 @@ public class AppChatCompatibilityService {
                 FRONTEND_BRIDGE_ADAPTER_READY,
                 config.isFallbackToRuntime(),
                 Math.max(0, config.getWorldbookProbeCacheSeconds()),
-                worldbookProbeCache.size()
+                worldbookProbeCache.size(),
+                config.isStRuntimeAuthoritative()
         );
     }
 
@@ -418,7 +419,8 @@ public class AppChatCompatibilityService {
             boolean frontendBridgeReady,
             boolean fallbackToRuntime,
             int worldbookProbeCacheSeconds,
-            int worldbookProbeCacheSize
+            int worldbookProbeCacheSize,
+            boolean stRuntimeAuthoritative
     ) {
     }
 }

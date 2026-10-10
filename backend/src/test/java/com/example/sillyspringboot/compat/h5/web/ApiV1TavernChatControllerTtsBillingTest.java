@@ -8,7 +8,9 @@ import com.example.sillyspringboot.chat.service.ChatAuditService;
 import com.example.sillyspringboot.chat.service.ChatGenerationDispatcher;
 import com.example.sillyspringboot.chat.service.MediaConcurrencyGate;
 import com.example.sillyspringboot.chat.service.ChatSnapshotService;
+import com.example.sillyspringboot.character.entity.AppCharacter;
 import com.example.sillyspringboot.character.entity.AppCharacterMember;
+import com.example.sillyspringboot.character.mapper.AppCharacterMapper;
 import com.example.sillyspringboot.character.mapper.CharacterStudioMapper;
 import com.example.sillyspringboot.compat.h5.service.H5ClientUidAuthService;
 import com.example.sillyspringboot.compat.h5.service.H5UserAiProviderService;
@@ -59,6 +61,7 @@ class ApiV1TavernChatControllerTtsBillingTest {
     @Mock StModelRoutingService modelRoutingService;
     @Mock UserTtsVoiceService userTtsVoiceService;
     @Mock CharacterStudioMapper characterStudioMapper;
+    @Mock AppCharacterMapper characterMapper;
 
     private ApiV1TavernChatController controller;
 
@@ -83,6 +86,7 @@ class ApiV1TavernChatControllerTtsBillingTest {
                 userTtsVoiceService
         );
         ReflectionTestUtils.setField(controller, "characterStudioMapper", characterStudioMapper);
+        ReflectionTestUtils.setField(controller, "characterMapper", characterMapper);
     }
 
     @Test
@@ -137,6 +141,37 @@ class ApiV1TavernChatControllerTtsBillingTest {
 
         verify(entitlementService).requireCharacterVisibleToUser(99L, 7L);
         verify(characterStudioMapper).listMembers(99L);
+        verify(entitlementService, never()).guardTts("client-1");
+    }
+
+    @Test
+    void characterVoiceConfigIsUsedWhenRequestAndMemberHaveNoOverride() {
+        H5ChatPayload payload = new H5ChatPayload();
+        payload.setClientUid("client-1");
+        payload.setContent("hello");
+        payload.setCharacterId(99L);
+        AppCharacter character = new AppCharacter();
+        character.setStExtraJson("""
+                {"voiceConfig":{"enabled":true,"providerSource":"siliconflow",
+                "voiceName":"card-voice","voiceTemplateCode":"card-template"}}
+                """);
+        when(h5Auth.requireAuthenticatedTokenForClientUid("client-1")).thenReturn("token-1");
+        when(chatService.resolveUserId("token-1")).thenReturn(7L);
+        when(userAiProviderService.isCustomModeSelectedForUser(7L)).thenReturn(true);
+        when(userAiProviderService.resolveActiveTtsSettingsForUser(7L)).thenReturn(
+                new H5UserAiProviderService.UserTtsSettings(
+                        "siliconflow", "tts-model", "", "", "key", "https://tts.example"));
+        when(characterMapper.findById(99L)).thenReturn(character);
+        when(chatAudioSpeechService.synthesizeForUser(
+                7L, "hello", "", "card-voice", "card-template", null, "siliconflow"))
+                .thenReturn(new ChatAudioSpeechService.AudioSpeechResult(
+                        new byte[]{1}, "audio/mpeg", "tts-model", "card-voice"));
+
+        assertThat(controller.synthesizeSpeech(payload).data())
+                .containsEntry("voiceName", "card-voice");
+
+        verify(entitlementService).requireCharacterVisibleToUser(99L, 7L);
+        verify(characterMapper).findById(99L);
         verify(entitlementService, never()).guardTts("client-1");
     }
 

@@ -1,6 +1,7 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 		<tavern-nav-bar mode="dark" :show-back="false">
 			<template #center>
 				<view class="title-wrap">
@@ -99,6 +100,7 @@
 	import { applyTavernTabBarLabels, syncTavernTabBar } from '@/common/tavernTabBar.js';
 	const tavernInboxBadge = require('@/common/tavernInboxBadge.js');
 	import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
+	import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 
 	const tavernApi = require('@/common/tavernApi.js');
 	const tavernErrors = require('@/common/tavernErrors.js');
@@ -122,7 +124,7 @@
 	}
 
 	export default {
-		components: { TavernNavBar },
+		components: { TavernNavBar, LiquidGlassCanvas },
 		data() {
 			return {
 				sessions: [],
@@ -779,6 +781,15 @@
 	.scroll-pad {
 		height: calc(#{$tavern-tabbar-spacer} + 40rpx + env(safe-area-inset-bottom));
 	}
+
+	.page { background: radial-gradient(circle at 8% 0%,rgba(121,211,224,.28),transparent 34%), radial-gradient(circle at 92% 12%,rgba(239,169,205,.2),transparent 30%), linear-gradient(180deg,#edf8fc 0%,#e4f1f7 58%,#f8eff5 100%); }
+	.card { background: rgba(247,253,255,.4); border-color:rgba(255,255,255,.72); box-shadow:0 18rpx 42rpx rgba(42,91,112,.12), inset 0 1rpx 0 rgba(255,255,255,.86); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+	.card-system--ad { background: linear-gradient(135deg,rgba(218,245,249,.62),rgba(255,239,247,.46)); }
+	.section-title { color:#547180; }
+	.card-title { color:#20485b; }
+	.card-author, .card-desc { color:#66808e; }
+	.page > .liquid-glass-canvas { position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.9; }
+	.page > .tavern-nav-bar, .page > .section-head, .page > .inbox-banner, .page > .scroll { position:relative; z-index:3; }
 </style>
 
 <style>

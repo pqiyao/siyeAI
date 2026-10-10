@@ -26,6 +26,9 @@ app:
     login-max-attempts: ${APP_RUOYI_LOGIN_MAX_ATTEMPTS:5}
     login-window-seconds: ${APP_RUOYI_LOGIN_WINDOW_SECONDS:300}
     login-block-seconds: ${APP_RUOYI_LOGIN_BLOCK_SECONDS:900}
+    agent-service-token: ${APP_RUOYI_AGENT_SERVICE_TOKEN:}
+    agent-service-username: ${APP_RUOYI_AGENT_SERVICE_USERNAME:}
+    agent-service-token-file: ${APP_RUOYI_AGENT_SERVICE_TOKEN_FILE:}
   memory:
     llm-enabled: ${APP_MEMORY_LLM_ENABLED:true}
     max-messages: ${APP_MEMORY_MAX_MESSAGES:80}
@@ -84,6 +87,8 @@ app:
       max-content-chars: ${APP_CHAT_SEMANTIC_ANNOTATION_MAX_CONTENT_CHARS:12000}
     compatibility:
       mode: ${APP_CHAT_COMPATIBILITY_MODE:runtime}
+      # ST owns roleplay prompt construction for ordinary text chats. Java remains the product/business layer.
+      st-runtime-authoritative: ${APP_CHAT_ST_RUNTIME_AUTHORITATIVE:true}
       frontend-bridge-enabled: ${APP_CHAT_FRONTEND_BRIDGE_ENABLED:false}
       fallback-to-runtime: ${APP_CHAT_COMPATIBILITY_FALLBACK_TO_RUNTIME:false}
       worldbook-probe-cache-seconds: ${APP_CHAT_WORLDBOOK_PROBE_CACHE_SECONDS:300}
@@ -220,6 +225,7 @@ app:
     daily-max-tasks: ${APP_AGENT_DAILY_MAX_TASKS:0}
     planner-model-enabled: ${APP_AGENT_PLANNER_MODEL_ENABLED:false}
     runtime-planner-model-enabled: ${APP_AGENT_RUNTIME_PLANNER_MODEL_ENABLED:false}
+    ruic-skill-root: ${APP_AGENT_RUIC_SKILL_ROOT:}
     alerts:
       pending-approval-threshold: ${APP_AGENT_ALERT_PENDING_APPROVAL_THRESHOLD:10}
       failed-task-threshold: ${APP_AGENT_ALERT_FAILED_TASK_THRESHOLD:1}
@@ -262,6 +268,9 @@ app:
         release-root: ${APP_AGENT_DSH_DEVOPS_RELEASE_ROOT:}
         deployment-root: ${APP_AGENT_DSH_DEVOPS_DEPLOYMENT_ROOT:}
         health-url: ${APP_AGENT_DSH_DEVOPS_HEALTH_URL:http://127.0.0.1:8080/actuator/health}
+    remote-ops:
+      enabled: ${APP_AGENT_REMOTE_OPS_ENABLED:true}
+      config-file: ${APP_AGENT_REMOTE_OPS_CONFIG_FILE:}
 
 telegram:
   bot-token: ${TELEGRAM_BOT_TOKEN:}

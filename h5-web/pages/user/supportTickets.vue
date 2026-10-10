@@ -1,6 +1,7 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 		<tavern-nav-bar :title="copy.title" mode="dark" @back="goBack" />
 		<view class="body">
 			<view class="toolbar-card">
@@ -58,6 +59,7 @@
 
 <script>
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
+import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 
 const tavernApi = require('@/common/tavernApi.js');
 const tavernErrors = require('@/common/tavernErrors.js');
@@ -197,7 +199,7 @@ function currentCopy() {
 }
 
 export default {
-	components: { TavernNavBar },
+	components: { TavernNavBar, LiquidGlassCanvas },
 	data() {
 		return {
 			loading: false,
@@ -518,4 +520,17 @@ export default {
 .primary-btn {
 	background: linear-gradient(135deg, #348fb8 0%, #76d2dd 62%, #f4a6c4 100%);
 }
+
+/* Frosted ticket stack with liquid edge highlights */
+.page { position: relative; overflow: hidden; background: radial-gradient(circle at 8% 0%, rgba(121,211,224,.28), transparent 34%), radial-gradient(circle at 90% 14%, rgba(239,169,205,.2), transparent 30%), linear-gradient(180deg,#edf8fc 0%,#e3f1f7 58%,#f8eff5 100%); }
+.page::before { content:''; position:fixed; inset:0; pointer-events:none; background:linear-gradient(120deg,rgba(255,255,255,.28),transparent 36%,rgba(104,194,210,.1)); }
+.body { padding: 16rpx 22rpx calc(32rpx + env(safe-area-inset-bottom)); }
+.toolbar-card, .empty-card, .ticket-card { background: rgba(247,253,255,.42); border-color: rgba(255,255,255,.72); box-shadow: 0 18rpx 44rpx rgba(42,91,112,.12), inset 0 1rpx 0 rgba(255,255,255,.86); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.toolbar-card { background: linear-gradient(135deg,rgba(218,245,249,.6),rgba(255,239,247,.42)); }
+.status-chip { color:#4c7080; background:rgba(255,255,255,.34); border-color:rgba(255,255,255,.62); }
+.status-chip.active { color:#1f6074; background:rgba(255,255,255,.84); border-color:rgba(75,164,178,.34); box-shadow:0 8rpx 18rpx rgba(46,116,135,.12); }
+.ticket-status { color:#2f7082; background:rgba(212,244,248,.68); }
+.ticket-card:active, .primary-btn:active, .ghost-btn:active { transform: translateY(1rpx); }
+.page > .liquid-glass-canvas { position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.9; }
+.page > .tavern-nav-bar, .page > .body { position:relative; z-index:3; }
 </style>

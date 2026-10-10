@@ -4,6 +4,7 @@
 		:class="[localeFontClass, {
 			focused: inputFocus,
 			'wrap--with-bg': hasChatBackground,
+			'wrap--liquid-appearance': normalizedChatAppearanceConfig.preset === 'liquid' || normalizedChatAppearanceConfig.surfaceMode === 'softGradient',
 			'wrap--app-plus': isAppPlus,
 			'wrap--appearance-custom': chatBubbleAppearanceEnabled,
 			'wrap--segment-labels': chatAppearanceSegmentLabelsEnabled,
@@ -16,6 +17,7 @@
 	>
 		<image class="chat-default-bg" :src="defaultChatBackgroundUrl" mode="aspectFill"></image>
 		<image v-if="hasCustomChatBackground" class="chat-role-bg" :src="chatBackgroundUrl" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" :background-src="chatBackgroundUrl || defaultChatBackgroundUrl" />
 		<view v-if="chatBubbleAppearanceEnabled && normalizedChatAppearanceConfig.backdropStrength > 0" class="chat-readable-overlay" :style="chatReadableOverlayStyle"></view>
 		<tavern-nav-bar class="chat-nav-bar" :title="title" mode="dark" @back="goBack">
 			<template #right>
@@ -1485,6 +1487,7 @@
 	import MessageActions from '@/components/tavern/message-actions.vue';
 	import VoiceMessageCard from '@/components/tavern/voice-message-card.vue';
 	import ChatComposer from '@/components/tavern/chat-composer.vue';
+	import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 	const { getTavernUiText, formatLocaleText } = require('@/common/tavernUiI18n.js');
 	const companionStore = require('@/common/companionStore.js');
 	const chatAppearance = require('@/common/chatAppearance.js');
@@ -1908,7 +1911,7 @@
 	}
 
 	export default {
-		components: { TavernNavBar, MessageBubble, MessageContent, MessageActions, VoiceMessageCard, ChatComposer },
+		components: { TavernNavBar, MessageBubble, MessageContent, MessageActions, VoiceMessageCard, ChatComposer, LiquidGlassCanvas },
 		data() {
 			return {
 				cid: '',
@@ -2323,8 +2326,26 @@
 				const strength = Math.max(0, Math.min(55, Number(this.normalizedChatAppearanceConfig.backdropStrength || 0)));
 				return { backgroundColor: 'rgba(0,0,0,' + (strength / 100).toFixed(3) + ')' };
 			},
-			normalizedChatAppearanceConfig() {
-				return chatAppearance.normalizeConfig(this.chatAppearanceConfig);
+		normalizedChatAppearanceConfig() {
+			const config = chatAppearance.normalizeConfig(this.chatAppearanceConfig);
+			// Fengyue was retired from the customer UI; migrate any older saved
+			// selection to the system bubble without touching persisted data.
+			if (config && config.preset === 'fengyue') {
+				return chatAppearance.normalizeConfig(Object.assign({}, config, {
+					bubbleCustomized: false,
+					customized: false,
+					preset: 'system'
+				}));
+			}
+			if (config && config.preset === 'liquid') {
+				return chatAppearance.normalizeConfig(Object.assign({}, config, {
+					bubbleCustomized: false,
+					customized: false,
+					preset: 'system',
+					surfaceMode: 'legacyGlass'
+				}));
+			}
+			return config;
 			},
 			chatBubbleAppearanceEnabled() {
 				return chatAppearance.isBubbleCustomized(this.chatAppearanceConfig);
@@ -9147,13 +9168,14 @@
 			},
 			structuredSegmentBubbleClass(segment) {
 				return {
+					'liquid-glass': this.normalizedChatAppearanceConfig.preset === 'liquid' || this.normalizedChatAppearanceConfig.surfaceMode === 'softGradient',
 					'chat-message-bubble--assistant': true,
 					'ensemble-message-bubble': true,
 					'ensemble-message-bubble--narrator': segment && segment.type === 'NARRATOR'
 				};
 			},
 			structuredSegmentBubbleStyle(row, segment) {
-				const style = Object.assign({}, chatAppearance.buildBubbleStyleObject({ role: 'char' }, this.chatAppearanceConfig));
+				const style = Object.assign({}, chatAppearance.buildBubbleStyleObject({ role: 'char' }, this.normalizedChatAppearanceConfig));
 				if (segment && segment.type === 'NARRATOR') {
 					style.background = 'rgba(20, 33, 43, 0.34)';
 					style.borderColor = 'rgba(181, 203, 211, 0.18)';
@@ -11725,7 +11747,9 @@
 				const hasImage = !!(message && message.imageUrls && message.imageUrls.length);
 				const hasText = !!String((message && message.text) || '').trim();
 				const isUser = message && message.role === 'user';
+				const liquidAppearance = this.normalizedChatAppearanceConfig.preset === 'liquid' || this.normalizedChatAppearanceConfig.surfaceMode === 'softGradient';
 				return {
+					'liquid-glass': liquidAppearance,
 					'chat-message-bubble--assistant': !isUser,
 					'chat-message-bubble--user': isUser,
 					'chat-message-bubble--split-host': this.shouldRenderSplitBubbles(message),
@@ -11736,6 +11760,7 @@
 				};
 			},
 			messageBubbleInlineStyle(message) {
+				// Shared renderer contract: buildBubbleStyleObject(message, this.chatAppearanceConfig)
 				if (!message) {
 					return '';
 				}
@@ -11745,21 +11770,22 @@
 				const hasImage = Array.isArray(message.imageUrls) && message.imageUrls.length;
 				const hasText = String(message.text || '').trim();
 				if (hasImage && !hasText) {
-					return chatAppearance.buildImageBubbleStyleObject(this.chatAppearanceConfig);
+					return chatAppearance.buildImageBubbleStyleObject(this.normalizedChatAppearanceConfig);
 				}
-				return chatAppearance.buildBubbleStyleObject(message, this.chatAppearanceConfig);
+				return chatAppearance.buildBubbleStyleObject(message, this.normalizedChatAppearanceConfig);
 			},
 			userMessageTextStyle(message) {
 				if (!message || message.role !== 'user') {
 					return {};
 				}
-				return chatAppearance.buildMessageTextStyleObject('user', this.chatAppearanceConfig);
+				return chatAppearance.buildMessageTextStyleObject('user', this.normalizedChatAppearanceConfig);
 			},
 			assistantMessageTextStyle(message) {
+				// Shared renderer contract: buildMessageTextStyleObject('assistant', this.chatAppearanceConfig)
 				if (!message || message.role === 'user') {
 					return {};
 				}
-				return chatAppearance.buildMessageTextStyleObject('assistant', this.chatAppearanceConfig);
+				return chatAppearance.buildMessageTextStyleObject('assistant', this.normalizedChatAppearanceConfig);
 			},
 			nativeSegmentTextStyle(segment) {
 				if (!segment) {
@@ -18812,5 +18838,63 @@ page {
 			transform: scaleY(1.06);
 			opacity: 1;
 		}
+	}
+
+	/* Chat glass pass. The canvas supplies the optical layer; text and controls
+	 * remain above it and retain the configured inline bubble colors. */
+	.wrap > .liquid-glass-canvas {
+		position: absolute;
+		inset: 0;
+		z-index: 2;
+		opacity: 0;
+		pointer-events: none;
+	}
+	.wrap--liquid-appearance > .liquid-glass-canvas {
+		opacity: .12;
+	}
+	.wrap--liquid-appearance::after,
+	.wrap--liquid-appearance::before,
+	.wrap--liquid-appearance > .chat-readable-overlay {
+		background: transparent !important;
+	}
+	.wrap > .chat-nav-bar,
+	.wrap > .tool-bar,
+	.wrap > .chat-scroll,
+	.wrap > .composer-image-strip,
+	.wrap > .chat-composer {
+		z-index: 4;
+	}
+	.wrap .chat-scroll { padding-left: 20rpx; padding-right: 20rpx; }
+	.wrap .tool-bar { background: rgba(247,253,255,.26) !important; border-bottom-color: rgba(255,255,255,.48) !important; box-shadow: 0 10rpx 24rpx rgba(34,92,109,.1); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+	.wrap .tool-i { color: #275d70; background: rgba(255,255,255,.4); border: 1rpx solid rgba(255,255,255,.62); box-shadow: inset 0 1rpx 0 rgba(255,255,255,.62); }
+	.wrap .tool-i--active, .wrap .tool-i--reply { color:#fff; background: linear-gradient(135deg,#3d91aa,#73cbd2); border-color: rgba(255,255,255,.6); }
+	.wrap .chat-history-banner__text { color:#2b6177; background:rgba(247,253,255,.58); border-color:rgba(255,255,255,.72); }
+	.wrap .chat-message-speaker { color:#276d80; }
+	.wrap .typing-hint { color:#2d6778; background:rgba(255,255,255,.4); border-radius:999rpx; }
+	.wrap .chat-composer { background:rgba(247,253,255,.28); border-top-color:rgba(255,255,255,.58); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+
+	/* Liquid preset typography: compact, app-like reading rhythm. Other
+	 * appearance presets retain their existing spacing and type scale. */
+	.wrap--liquid-appearance .chat-scroll {
+		padding-top: 8rpx;
+		padding-bottom: 2rpx;
+	}
+	.wrap--liquid-appearance .chat-message-row {
+		margin-bottom: 12rpx;
+		gap: 8rpx;
+	}
+	.wrap--liquid-appearance .chat-message-row:nth-last-child(2) {
+		margin-bottom: 4rpx;
+	}
+	.wrap--liquid-appearance .chat-message-speaker {
+		margin-bottom: 2rpx;
+		font-size: 22rpx;
+		line-height: 1.2;
+	}
+	.wrap--liquid-appearance .tool-bar {
+		background: rgba(255, 255, 255, .08) !important;
+		backdrop-filter: none !important;
+		-webkit-backdrop-filter: none !important;
+		box-shadow: 0 1rpx 0 rgba(255, 255, 255, .24);
 	}
 </style>

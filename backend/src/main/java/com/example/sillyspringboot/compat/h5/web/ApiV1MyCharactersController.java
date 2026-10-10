@@ -711,8 +711,11 @@ public class ApiV1MyCharactersController {
         row.setAvatarUrl(safeAvatar);
         row.setCoverUrl(safeAvatar);
         row.setTagsJson(toJsonArray(detail == null ? null : detail.tags()));
-        boolean hasEmbeddedCharacterBook = detail != null && !trimToEmpty(detail.embeddedCharacterBookJson()).isBlank();
-        row.setStWorldNamesJson(hasEmbeddedCharacterBook ? null : toJsonArray(detail == null ? null : detail.worldNames()));
+        // Embedded character_book does not replace extensions.world. Preserve
+        // both sources so a private uploaded card behaves like the same card
+        // in the ST browser (and remains available to runtime worldbook
+        // resolution after edits/imports).
+        row.setStWorldNamesJson(toJsonArray(detail == null ? null : detail.worldNames()));
         row.setStExtraJson(importedExtraJson(detail));
         row.setOccupationLabel("");
         row.setGameplayType("");

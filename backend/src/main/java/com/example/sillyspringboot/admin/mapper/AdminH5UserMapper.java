@@ -27,6 +27,8 @@ public interface AdminH5UserMapper {
 
     Map<String, Object> findDetail(@Param("userId") long userId);
 
+    Map<String, Object> findByUsername(@Param("username") String username);
+
     List<Map<String, Object>> listRecentConversationsByUser(
             @Param("userId") long userId,
             @Param("limit") int limit

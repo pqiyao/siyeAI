@@ -3,7 +3,7 @@
     <template v-if="hasOneShowingChild(item.children, item) && (!onlyOneChild.children || onlyOneChild.noShowingChildren) && !item.alwaysShow">
       <app-link v-if="onlyOneChild.meta" :to="resolvePath(onlyOneChild.path, onlyOneChild.query)">
         <el-menu-item :index="resolvePath(onlyOneChild.path)" :class="{ 'submenu-title-noDropdown': !isNest }">
-          <svg-icon :icon-class="onlyOneChild.meta.icon || (item.meta && item.meta.icon)"/>
+          <svg-icon :icon-class="resolveIcon(onlyOneChild.meta.icon || (item.meta && item.meta.icon))"/>
           <template #title><span class="menu-title" :title="hasTitle(onlyOneChild.meta.title)">{{ onlyOneChild.meta.title }}</span></template>
         </el-menu-item>
       </app-link>
@@ -11,7 +11,7 @@
 
     <el-sub-menu v-else ref="subMenu" :index="resolvePath(item.path)" teleported>
       <template v-if="item.meta" #title>
-        <svg-icon :icon-class="item.meta && item.meta.icon" />
+        <svg-icon :icon-class="resolveIcon(item.meta && item.meta.icon)" />
         <span class="menu-title" :title="hasTitle(item.meta.title)">{{ item.meta.title }}</span>
       </template>
 
@@ -49,6 +49,20 @@ const props = defineProps({
 })
 
 const onlyOneChild = ref({})
+
+// Keep backend menu metadata stable while providing a visible icon when a
+// deployment has not yet bundled a newly introduced icon name.
+const iconFallbacks = {
+  cpu: 'component',
+  checked: 'checkbox',
+  document: 'documentation',
+  'data-analysis': 'dashboard'
+}
+
+function resolveIcon(icon) {
+  const value = String(icon || '').trim()
+  return iconFallbacks[value] || value || 'list'
+}
 
 function hasOneShowingChild(children = [], parent) {
   if (!children) {

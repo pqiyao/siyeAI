@@ -28,6 +28,96 @@
 	min-width: 0;
 	box-sizing: border-box;
 	overflow: visible;
+	isolation: isolate;
+}
+
+/* Optical shell: the inline renderer owns the fill, while these layers add
+ * the liquid-glass bend and chromatic rim without covering the text. */
+.chat-message-bubble.liquid-glass {
+	transform: translateZ(0);
+	-webkit-transform: translateZ(0);
+	background-clip: padding-box;
+	font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+	font-weight: 500;
+	color: #172a33;
+	backdrop-filter: blur(3px) saturate(118%);
+	-webkit-backdrop-filter: blur(3px) saturate(118%);
+}
+
+.chat-message-bubble.liquid-glass .chat-message-markdown,
+.chat-message-bubble.liquid-glass .chat-message-user-text,
+.chat-message-bubble.liquid-glass .chat-message-segment-text {
+	font-family: inherit;
+	font-weight: 500;
+	color: #172a33;
+	-webkit-text-fill-color: #172a33;
+}
+
+.chat-message-bubble.liquid-glass .chat-message-markdown .st-chat-seg,
+.chat-message-bubble.liquid-glass .chat-message-markdown .st-chat-seg * {
+	color: #172a33;
+	-webkit-text-fill-color: #172a33;
+}
+
+/* Shared liquid edge: the fill still comes from the appearance config, while
+ * this optical rim gives every bubble a soft inner bend without blurring text. */
+.chat-message-bubble.liquid-glass::after {
+	content: '';
+	position: absolute;
+	inset: 1rpx;
+	border-radius: inherit;
+	pointer-events: none;
+	background: linear-gradient(120deg, rgba(255,255,255,.58), transparent 24%, transparent 68%, rgba(83,170,181,.22));
+	mix-blend-mode: screen;
+	opacity: .9;
+	box-shadow: inset 0 -1rpx 0 rgba(31, 100, 115, .24), inset 0 1rpx 0 rgba(255,255,255,.8);
+	background-size: 220% 220%;
+	animation: liquid-sheen 8s ease-in-out infinite;
+}
+
+.chat-message-bubble.liquid-glass::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	pointer-events: none;
+	background: radial-gradient(ellipse at 18% -8%, rgba(255,255,255,.62), transparent 36%), linear-gradient(155deg, transparent 0%, rgba(255,255,255,.13) 46%, transparent 72%);
+	mix-blend-mode: screen;
+	opacity: .92;
+	box-shadow: inset 1rpx 0 0 rgba(255,255,255,.34), inset -1rpx 0 0 rgba(85,177,185,.18);
+	animation: liquid-breathe 6s ease-in-out infinite;
+}
+
+.chat-message-bubble.liquid-glass.chat-message-bubble--assistant::after {
+	background: linear-gradient(120deg, rgba(255,255,255,.62), transparent 26%, transparent 67%, rgba(100,190,204,.26));
+}
+
+.chat-message-bubble.liquid-glass.chat-message-bubble--user::after {
+	background: linear-gradient(120deg, rgba(255,255,255,.62), transparent 24%, transparent 68%, rgba(236,160,201,.24));
+}
+
+@keyframes liquid-sheen {
+	0%, 100% { background-position: 0% 0%; opacity: .82; }
+	50% { background-position: 100% 100%; opacity: 1; }
+}
+
+@keyframes liquid-breathe {
+	0%, 100% { transform: scale(1); opacity: .82; }
+	50% { transform: scale(1.008); opacity: 1; }
+}
+
+.chat-message-bubble.liquid-glass > * {
+	position: relative;
+	z-index: 2;
+}
+
+/* A light optical keyline around glyphs keeps semantic colors legible when a
+ * bright illustration sits directly behind the glass. */
+.chat-message-bubble.liquid-glass .chat-message-markdown,
+.chat-message-bubble.liquid-glass .chat-message-user-text,
+.chat-message-bubble.liquid-glass .chat-message-segment-text,
+.chat-message-bubble.liquid-glass .chat-message-speaker {
+	text-shadow: 0 1rpx 2rpx rgba(255, 255, 255, .72), 0 0 1rpx rgba(26, 79, 91, .18);
 }
 
 .chat-message-bubble--split-host .message-content,

@@ -42,6 +42,7 @@ class AdminH5UserLifecycleServiceTest {
         transactionStatus = mock(TransactionStatus.class);
         when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
         when(cleanupMapper.lockAppUser(7L)).thenReturn(7L);
+        when(cleanupMapper.deleteAppUser(7L)).thenReturn(1);
         when(cleanupMapper.listConversationStRefs(7L)).thenReturn(List.of(Map.of(
                 "stAvatarUrl", "/characters/example.png",
                 "stChatFileName", "chat.jsonl"

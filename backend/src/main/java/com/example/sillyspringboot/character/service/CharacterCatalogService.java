@@ -295,9 +295,11 @@ public class CharacterCatalogService {
                 && !detail.alternateGreetings().isEmpty()) {
             row.setAlternateGreetingsJson(toJsonArray(detail.alternateGreetings()));
         }
-        boolean hasEmbeddedCharacterBook = detail != null && !trimToEmpty(detail.embeddedCharacterBookJson()).isBlank();
-        if (!hasEmbeddedCharacterBook
-                && (isNew || isBlank(row.getStWorldNamesJson()))
+        // An embedded character book and an external ST world book are
+        // independent sources. Keep extensions.world even when the card also
+        // contains character_book; dropping it makes imported/self-authored
+        // cards diverge from the same card in the ST browser.
+        if ((isNew || isBlank(row.getStWorldNamesJson()))
                 && detail != null
                 && detail.worldNames() != null
                 && !detail.worldNames().isEmpty()) {

@@ -317,7 +317,34 @@ public class ChatPresetService {
                 return null;
             }
         }
-        return withRuntimeMetadata(preset, preset.getBundleJson());
+        // The ST settings file is the source of truth for the global default.
+        // A previously synchronized DB row may still contain the legacy runtime
+        // override (for example max_tokens=2805). Normalize it at read time so
+        // existing conversations immediately use the same effective defaults as
+        // the ST browser, without requiring a destructive data migration or a
+        // manual re-sync. This is applied only to the public global default;
+        // explicitly selected public/private presets retain their own values.
+        String bundleJson = preset.getBundleJson();
+        if (Boolean.TRUE.equals(preset.getGlobalDefault())) {
+            try {
+                JsonNode parsed = objectMapper.readTree(bundleJson);
+                if (parsed != null && parsed.isObject()) {
+                    ObjectNode root = ((ObjectNode) parsed).deepCopy();
+                    JsonNode generationNode = root.path("generation");
+                    ObjectNode generation = generationNode.isObject()
+                            ? (ObjectNode) generationNode
+                            : objectMapper.createObjectNode();
+                    generation.put("openai_max_tokens", 1000);
+                    generation.put("openai_max_context", 65536);
+                    root.set("generation", generation);
+                    bundleJson = objectMapper.writeValueAsString(root);
+                }
+            } catch (Exception ignored) {
+                // Fall back to the persisted bundle; malformed rows are handled
+                // by the normal runtime preset validation path.
+            }
+        }
+        return withRuntimeMetadata(preset, bundleJson);
     }
 
     @Transactional(readOnly = true)

@@ -1,11 +1,31 @@
 import request from '@/utils/request'
 
 export const getXiaoyeBootstrap = (params = {}) => request({ url: '/admin/jiugai/xiaoye/bootstrap', method: 'get', params })
+export const getXiaoyePlatformAuthorization = () => request({ url: '/admin/jiugai/xiaoye/mcp/authorization', method: 'get' })
 export const createXiaoyeConversation = (data = {}) => request({ url: '/admin/jiugai/xiaoye/conversations', method: 'post', data })
 export const listXiaoyeConversations = () => request({ url: '/admin/jiugai/xiaoye/conversations', method: 'get' })
-export const sendXiaoyeMessage = (conversationId, message) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/messages`, method: 'post', data: { message }, timeout: 120000 })
+const turnRequestId = () => `ui-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+const sendXiaoyeMessageWithoutAttachments = (conversationId, message, mode) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/messages`, method: 'post', data: { message, mode, requestId: turnRequestId() }, timeout: 120000 })
+export const sendXiaoyeMessage = (conversationId, message, mode = 'CHAT', content = undefined) => {
+  if (!Array.isArray(content) || !content.length) return sendXiaoyeMessageWithoutAttachments(conversationId, message, mode)
+  return request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/messages`, method: 'post', data: { message, mode, requestId: turnRequestId(), content }, timeout: 120000 })
+}
 export const listXiaoyeMessages = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/messages`, method: 'get' })
+export const getXiaoyeAttachment = (conversationId, attachmentId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/attachments/${encodeURIComponent(attachmentId)}`, method: 'get', timeout: 30000 })
+export const searchXiaoyePlatform = (conversationId, data = {}) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/platform/search`, method: 'post', data, timeout: 30000 })
+export const queryXiaoyePlatformMetric = (conversationId, data = {}) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/platform/metrics`, method: 'post', data, timeout: 30000 })
+export const respondXiaoyeQuestion = (conversationId, rpcId, data = {}) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/questions/${encodeURIComponent(rpcId)}/respond`, method: 'post', data, timeout: 30000 })
+export const respondXiaoyeApproval = (conversationId, rpcId, outcome) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/approvals/${encodeURIComponent(rpcId)}/respond`, method: 'post', data: { outcome }, timeout: 30000 })
 export const listXiaoyeEvents = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/events`, method: 'get' })
+export const renameXiaoyeConversation = (conversationId, title) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/rename`, method: 'post', data: { title } })
+export const forkXiaoyeConversation = (conversationId, atSeq) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/fork`, method: 'post', data: atSeq == null ? {} : { atSeq } })
+export const cancelXiaoyeConversation = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/cancel`, method: 'post' })
+export const archiveXiaoyeConversation = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/archive`, method: 'post' })
+export const getXiaoyeConversationModels = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/models`, method: 'get' })
+export const selectXiaoyeConversationModel = (conversationId, data) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/model`, method: 'post', data })
+export const listXiaoyeConversationSkills = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/skills`, method: 'get' })
+export const listXiaoyeConversationSubagents = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/subagents`, method: 'get' })
+export const exportXiaoyeConversation = (conversationId) => request({ url: `/admin/jiugai/xiaoye/conversations/${encodeURIComponent(conversationId)}/export`, method: 'get', responseType: 'blob' })
 export const validateXiaoyeRoleCard = (data) => request({ url: '/admin/jiugai/xiaoye/role-card/validate', method: 'post', data })
 export const createXiaoyeRoleCardDraft = (data) => request({ url: '/admin/jiugai/xiaoye/role-card/draft', method: 'post', data })
 export const updateXiaoyeRoleCardDraft = (draftId, data) => request({ url: `/admin/jiugai/xiaoye/role-card/draft/${encodeURIComponent(draftId)}`, method: 'put', data })
@@ -16,3 +36,4 @@ export const saveXiaoyeWorldbook = (data) => request({ url: '/admin/jiugai/xiaoy
 export const downloadXiaoyeArtifact = (taskId, artifactKey) => request({ url: `/admin/jiugai/agent/tasks/${taskId}/artifacts/${encodeURIComponent(artifactKey)}/download`, method: 'get', responseType: 'blob' })
 export const approveXiaoyeApproval = (id, data = {}) => request({ url: `/admin/jiugai/agent/approvals/${id}/approve`, method: 'post', data })
 export const rejectXiaoyeApproval = (id, data = {}) => request({ url: `/admin/jiugai/agent/approvals/${id}/reject`, method: 'post', data })
+export const configureXiaoyeKey = (apiKey) => request({ url: '/admin/jiugai/xiaoye/config/deepseek-key', method: 'post', data: { apiKey } })

@@ -3,9 +3,10 @@ package com.example.sillyspringboot.admin.mapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.time.LocalDateTime;
 
 @Mapper
 public interface AdminDashboardMapper {
@@ -26,9 +27,11 @@ public interface AdminDashboardMapper {
 
     long successfulAiResponses();
 
-    long totalTasks();
+    long totalTasks(@Param("startDate") LocalDate startDate);
 
-    long successTasks();
+    long successTasks(@Param("startDate") LocalDate startDate);
+
+    LocalDateTime latestGenerationAt();
 
     long totalPaidOrders();
 
@@ -38,7 +41,7 @@ public interface AdminDashboardMapper {
 
     long revenueCentsRecent(@Param("days") int days);
 
-    List<Map<String, Object>> generationTrend(@Param("days") Integer days);
+    List<Map<String, Object>> generationTrend(@Param("startDate") LocalDate startDate);
 
     List<Map<String, Object>> topActiveUsers(@Param("limit") int limit);
 

@@ -1,6 +1,7 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="global-bg-image" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 			<view v-if="charLoading" class="loading-wrap">
 			<text class="loading-txt">{{ detailLoadingText }}</text>
 		</view>
@@ -196,8 +197,12 @@ const tavernApi = require('@/common/tavernApi.js');
 const tavernCharacterAccess = require('@/common/tavernCharacterAccess.js');
 const INTERACTION_PATCH_KEY = 'jg_character_interaction_patch';
 const { getTavernUiText, getLanguageCode, formatLocaleText } = require('@/common/tavernUiI18n.js');
+import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 
 export default {
+	components: {
+		LiquidGlassCanvas
+	},
 	data() {
 		return {
 			char: null,
@@ -936,6 +941,7 @@ export default {
 	position: absolute;
 	inset: 0;
 	z-index: 2;
+	opacity: .92;
 	background: linear-gradient(180deg, rgba(7, 10, 18, 0.03) 0%, rgba(7, 10, 18, 0) 32%, rgba(9, 11, 20, 0.08) 74%, rgba(9, 11, 20, 0.22) 100%);
 }
 
@@ -2174,5 +2180,75 @@ export default {
 	.chrome-main-title {
 		max-width: 230rpx;
 	}
+}
+
+/* Liquid glass pass: the WebGL canvas supplies the refracted surface. DOM
+ * layers stay transparent and crisp so copy/buttons remain readable. */
+.page > .liquid-glass-canvas {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	z-index: 2;
+	pointer-events: none;
+}
+
+.sheet-card {
+	background: rgba(231, 246, 250, 0.16);
+	border-color: rgba(255, 255, 255, 0.62);
+	box-shadow: 0 -24rpx 64rpx rgba(29, 77, 96, 0.18), inset 0 1rpx 0 rgba(255, 255, 255, 0.72), inset 0 -2rpx 0 rgba(65, 133, 150, 0.14);
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+
+.panel-glass,
+.detail-item,
+.mode-item,
+.privacy-card,
+.action-pill,
+.cta-panel {
+	background: rgba(245, 252, 253, 0.22);
+	border-color: rgba(255, 255, 255, 0.58);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.72), inset 0 -1rpx 0 rgba(73, 135, 151, 0.12), 0 16rpx 34rpx rgba(38, 86, 106, 0.1);
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+
+.lead-panel {
+	background: linear-gradient(135deg, rgba(220, 247, 249, 0.34), rgba(255, 235, 246, 0.18));
+}
+
+.action-pill {
+	min-height: 76rpx;
+	background: rgba(255, 255, 255, 0.28);
+}
+
+.lead-meta-item,
+.opening-preview,
+.privacy-card,
+.detail-item,
+.mode-item {
+	background: rgba(255, 255, 255, 0.24);
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+
+.cta-shell {
+	background: linear-gradient(180deg, rgba(229, 246, 250, 0) 0%, rgba(229, 246, 250, 0.18) 40%, rgba(229, 246, 250, 0.38) 100%);
+}
+
+.cta-panel {
+	background: rgba(247, 253, 254, 0.3);
+}
+
+.hero-eyebrow,
+.hero-chip,
+.chrome-btn,
+.chrome-title-wrap {
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+	background: rgba(255, 255, 255, 0.34);
+	border-color: rgba(255, 255, 255, 0.64);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.7), 0 12rpx 28rpx rgba(24, 66, 84, 0.12);
 }
 </style>

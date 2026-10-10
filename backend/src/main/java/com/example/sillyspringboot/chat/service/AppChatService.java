@@ -496,13 +496,19 @@ public class AppChatService {
         String userName = displayNameForSt(user, userId, binding);
         String userPersona = personaForSt(userId);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
-        List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
-        String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
+        List<String> inlineImageUrls = chatImageContentService.resolveInlineDataUrls(req.getImageUrls());
+        String attachmentMode = normalizeAttachmentMode(req.getAttachmentMode(), inlineImageUrls);
+        boolean nativeTextRuntime = isNativeTextRuntime(attachmentMode, inlineImageUrls, c.getCharacterId());
+        // Memory is still attached as a ST worldbook source. The runtime, not
+        // Java, decides whether/how it is triggered and where it is inserted.
+        List<String> worldNames = worldNamesForGeneration(
+                req.getConversationId(), activeBranchId, binding, c.getCharacterId());
+        String tailMemoryPrompt = nativeTextRuntime
+                ? ""
+                : tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
         String runtimePresetBundle = runtimePresetBundleForGeneration(binding);
         AppChatCompatibilityService.Decision compatibilityDecision =
                 recordCompatibilityDecision(req.getConversationId(), bundle, binding, worldNames, runtimePresetBundle);
-        List<String> inlineImageUrls = chatImageContentService.resolveInlineDataUrls(req.getImageUrls());
-        String attachmentMode = normalizeAttachmentMode(req.getAttachmentMode(), inlineImageUrls);
         String attachmentHint = normalizeAttachmentHint(req.getAttachmentHint());
         boolean useInlineImages = !inlineImageUrls.isEmpty() && !ATTACHMENT_MODE_EXPRESSION.equals(attachmentMode);
         ensureVisionModelReadyForImages(
@@ -531,17 +537,23 @@ public class AppChatService {
                 attachmentMode,
                 attachmentHint
         );
-        String ensemblePlan = buildEnsemblePlan(
-                c.getCharacterId(), req.getConversationId(), activeBranchId, runtimeUserMessage,
-                userModelOverride, req.getChatRouteKey());
-        CharacterStudioRuntimePrompt studioPrompt = buildCharacterStudioRuntimePrompt(
-                c.getCharacterId(), req.getConversationId(), activeBranchId, runtimeUserMessage, ensemblePlan);
-        String tailSystemPrompt = combineSystemPrompts(
-                studioPrompt.tail(),
-                tailMemoryPrompt,
-                buildExpressionTailPrompt(expressionHints, avoidExpressionHints),
-                buildReplySplitTailPrompt(req.getReplySplitMode())
-        );
+        String ensemblePlan = nativeTextRuntime
+                ? ""
+                : buildEnsemblePlan(
+                        c.getCharacterId(), req.getConversationId(), activeBranchId, runtimeUserMessage,
+                        userModelOverride, req.getChatRouteKey());
+        CharacterStudioRuntimePrompt studioPrompt = nativeTextRuntime
+                ? CharacterStudioRuntimePrompt.EMPTY
+                : buildCharacterStudioRuntimePrompt(
+                        c.getCharacterId(), req.getConversationId(), activeBranchId, runtimeUserMessage, ensemblePlan);
+        String tailSystemPrompt = nativeTextRuntime
+                ? ""
+                : combineSystemPrompts(
+                        studioPrompt.tail(),
+                        tailMemoryPrompt,
+                        buildExpressionTailPrompt(expressionHints, avoidExpressionHints),
+                        buildReplySplitTailPrompt(req.getReplySplitMode())
+                );
         boolean forwardInlineImages = useInlineImages && !ATTACHMENT_MODE_PHOTO.equals(attachmentMode);
         boolean needsPromptMessages = forwardInlineImages;
         List<ChatMessage> promptMessages = !needsPromptMessages
@@ -619,23 +631,33 @@ public class AppChatService {
         String userName = displayNameForSt(user, userId, binding);
         String userPersona = personaForSt(userId);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
-        List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
-        String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
+        boolean nativeTextRuntime = isNativeTextRuntime("", List.of(), c.getCharacterId());
+        List<String> worldNames = worldNamesForGeneration(
+                req.getConversationId(), activeBranchId, binding, c.getCharacterId());
+        String tailMemoryPrompt = nativeTextRuntime
+                ? ""
+                : tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
         String runtimePresetBundle = runtimePresetBundleForGeneration(binding);
         AppChatCompatibilityService.Decision compatibilityDecision =
                 recordCompatibilityDecision(req.getConversationId(), bundle, binding, worldNames, runtimePresetBundle);
         List<ChatMessage> promptMessages = List.of();
-        String ensemblePlan = buildEnsemblePlan(
-                c.getCharacterId(), req.getConversationId(), activeBranchId, "",
-                userModelOverride, req.getChatRouteKey());
-        CharacterStudioRuntimePrompt studioPrompt = buildCharacterStudioRuntimePrompt(
-                c.getCharacterId(), req.getConversationId(), activeBranchId, "", ensemblePlan);
-        String tailSystemPrompt = combineSystemPrompts(
-                studioPrompt.tail(),
-                tailMemoryPrompt,
-                buildExpressionTailPrompt(req.getExpressionHints(), req.getAvoidExpressionHints()),
-                buildReplySplitTailPrompt(req.getReplySplitMode())
-        );
+        String ensemblePlan = nativeTextRuntime
+                ? ""
+                : buildEnsemblePlan(
+                        c.getCharacterId(), req.getConversationId(), activeBranchId, "",
+                        userModelOverride, req.getChatRouteKey());
+        CharacterStudioRuntimePrompt studioPrompt = nativeTextRuntime
+                ? CharacterStudioRuntimePrompt.EMPTY
+                : buildCharacterStudioRuntimePrompt(
+                        c.getCharacterId(), req.getConversationId(), activeBranchId, "", ensemblePlan);
+        String tailSystemPrompt = nativeTextRuntime
+                ? ""
+                : combineSystemPrompts(
+                        studioPrompt.tail(),
+                        tailMemoryPrompt,
+                        buildExpressionTailPrompt(req.getExpressionHints(), req.getAvoidExpressionHints()),
+                        buildReplySplitTailPrompt(req.getReplySplitMode())
+                );
         ChatGenerateRequest stReq = new ChatGenerateRequest(
                 req.getConversationId(),
                 null,
@@ -709,24 +731,34 @@ public class AppChatService {
         String userName = displayNameForSt(user, userId, binding);
         String userPersona = personaForSt(userId);
         String charName = bundle == null || bundle.detail() == null ? "" : nz(bundle.detail().name());
-        List<String> worldNames = worldNamesForGeneration(req.getConversationId(), activeBranchId, binding, c.getCharacterId());
-        String tailMemoryPrompt = tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
+        boolean nativeTextRuntime = isNativeTextRuntime("", List.of(), c.getCharacterId());
+        List<String> worldNames = worldNamesForGeneration(
+                req.getConversationId(), activeBranchId, binding, c.getCharacterId());
+        String tailMemoryPrompt = nativeTextRuntime
+                ? ""
+                : tailMemoryPromptForGeneration(req.getConversationId(), activeBranchId);
         String runtimePresetBundle = runtimePresetBundleForGeneration(binding);
         AppChatCompatibilityService.Decision compatibilityDecision =
                 recordCompatibilityDecision(req.getConversationId(), bundle, binding, worldNames, runtimePresetBundle);
         List<ChatMessage> promptMessages = List.of();
         snapshotService.saveSnapshotFromDb(req.getConversationId(), activeBranchId, 800);
-        String ensemblePlan = buildEnsemblePlan(
-                c.getCharacterId(), req.getConversationId(), activeBranchId, "",
-                userModelOverride, req.getChatRouteKey());
-        CharacterStudioRuntimePrompt studioPrompt = buildCharacterStudioRuntimePrompt(
-                c.getCharacterId(), req.getConversationId(), activeBranchId, "", ensemblePlan);
-        String tailSystemPrompt = combineSystemPrompts(
-                studioPrompt.tail(),
-                tailMemoryPrompt,
-                buildExpressionTailPrompt(req.getExpressionHints(), req.getAvoidExpressionHints()),
-                buildReplySplitTailPrompt(req.getReplySplitMode())
-        );
+        String ensemblePlan = nativeTextRuntime
+                ? ""
+                : buildEnsemblePlan(
+                        c.getCharacterId(), req.getConversationId(), activeBranchId, "",
+                        userModelOverride, req.getChatRouteKey());
+        CharacterStudioRuntimePrompt studioPrompt = nativeTextRuntime
+                ? CharacterStudioRuntimePrompt.EMPTY
+                : buildCharacterStudioRuntimePrompt(
+                        c.getCharacterId(), req.getConversationId(), activeBranchId, "", ensemblePlan);
+        String tailSystemPrompt = nativeTextRuntime
+                ? ""
+                : combineSystemPrompts(
+                        studioPrompt.tail(),
+                        tailMemoryPrompt,
+                        buildExpressionTailPrompt(req.getExpressionHints(), req.getAvoidExpressionHints()),
+                        buildReplySplitTailPrompt(req.getReplySplitMode())
+                );
         ChatGenerateRequest stReq = new ChatGenerateRequest(
                 req.getConversationId(),
                 null,
@@ -2034,6 +2066,41 @@ public class AppChatService {
 
     private String runtimePresetBundleForGeneration(AppConversationStBinding binding) {
         return chatPresetService == null ? null : chatPresetService.resolveRuntimePresetBundle(binding);
+    }
+
+    /**
+     * ST is the sole roleplay/prompt authority for ordinary text generation.
+     * Image and expression requests intentionally keep their product-specific
+     * multimodal handling because they are not native ST text-chat semantics.
+     */
+    private boolean isNativeTextRuntime(String attachmentMode, List<String> inlineImageUrls, long characterId) {
+        if (!isStRuntimeAuthoritative()) {
+            return false;
+        }
+        try {
+            EnsembleChatService.EnsembleContext ensembleContext = ensembleChatService == null
+                    ? null
+                    : ensembleChatService.loadContext(characterId);
+            if (ensembleContext != null && ensembleContext.enabled()) {
+                // Ensemble cards retain their explicit product protocol until the
+                // native ST group-chat path is implemented separately.
+                return false;
+            }
+        } catch (Exception ex) {
+            log.warn("ensemble compatibility probe skipped characterId={} cause={}",
+                    characterId, rootCauseMessage(ex));
+        }
+        if (inlineImageUrls != null && !inlineImageUrls.isEmpty()) {
+            return false;
+        }
+        String mode = attachmentMode == null ? "" : attachmentMode.trim().toLowerCase(Locale.ROOT);
+        return mode.isBlank();
+    }
+
+    private boolean isStRuntimeAuthoritative() {
+        return chatProperties != null
+                && chatProperties.getCompatibility() != null
+                && chatProperties.getCompatibility().isStRuntimeAuthoritative();
     }
 
     private AppChatCompatibilityService.Decision recordCompatibilityDecision(

@@ -164,6 +164,39 @@ const PRESETS = Object.freeze([
 		patch: {}
 	},
 	{
+		code: 'liquid',
+		name: '水光液态',
+		desc: '轻透青蓝折射边缘，适合长对话阅读。',
+		patch: {
+			fontSize: 26,
+			lineHeight: 1.5,
+			radius: 20,
+			opacity: 58,
+			bubblePaddingY: 10,
+			bubblePaddingX: 16,
+			charMaxWidth: 84,
+			userMaxWidth: 78,
+			backdropStrength: 8,
+			surfaceMode: 'softGradient',
+			surfaceBorderOpacity: 34,
+			sideBorderWidth: 3,
+			sideBorderOpacity: 76,
+			shadowStrength: 34,
+			blurRadius: 3,
+			contentTone: 'dark',
+			charBubbleColor: '#eaf7f8',
+			userBubbleColor: '#d8f1ef',
+			charBorderColor: '#72b9c2',
+			userBorderColor: '#4f9e9b',
+			baseTextColor: '#172a33',
+			userTextColor: '#152f38',
+			speechColor: '#111827',
+			actionColor: '#124c3d',
+			thoughtColor: '#3b2a5a',
+			narrationColor: '#1d3640'
+		}
+	},
+	{
 		code: 'fengyue',
 		name: '风月轻语',
 		desc: '清晰高对比文字与轻透磨砂底框。',
@@ -1304,7 +1337,9 @@ function isBubbleCustomized(config) {
 function setBubbleCustomized(config, enabled) {
 	var next = normalizeConfig(config);
 	if (enabled === true && !next.bubbleCustomized) {
-		return applyPreset(next, 'fengyue');
+		// The retired liquid preset must not be reintroduced when enabling
+		// customization from an older saved configuration.
+		return applyPreset(next, 'classic');
 	}
 	if (enabled !== true) {
 		return applyPreset(next, 'system');
@@ -1316,9 +1351,23 @@ function setBubbleCustomized(config, enabled) {
 }
 
 function bubbleBackground(hex, opacityPercent, surfaceMode) {
-	var alpha = clampNumber(opacityPercent, 0, 100, DEFAULT_CONFIG.opacity) / 100;
+	// Keep the surface translucent enough for the background to show through;
+	// readability is handled by the independent text color token.
+	// Keep the surface translucent; optical density comes from the rim/highlight
+	// layers in message-bubble.vue so the configured text remains crisp.
+	var percent = clampNumber(opacityPercent, 0, 100, DEFAULT_CONFIG.opacity) / 100;
+	// The liquid preset uses a pale optical body. It remains translucent while
+	// providing a calm reading field over illustrated chat backgrounds.
+	var alpha = surfaceMode === 'softGradient'
+		? 0.16 + percent * 0.24
+		: 0.10 + percent * 0.38;
 	if (surfaceMode === 'flat') return rgba(hex, alpha);
-	var delta = surfaceMode === 'softGradient' ? 0.035 : 0.08;
+	var delta = surfaceMode === 'softGradient' ? 0.065 : 0.05;
+	if (surfaceMode === 'softGradient') {
+		// Liquid mode uses one uniform transparent pane. Do not tint the body
+		// with a gradient; color separation belongs to the border/rim only.
+		return rgba('#ffffff', 0.12);
+	}
 	return 'linear-gradient(180deg,' + rgba(hex, alpha) + ' 0%,' + rgba(hex, Math.max(0.28, alpha - delta)) + ' 100%)';
 }
 
@@ -1415,7 +1464,8 @@ function buildAppBubbleStyle(message, config) {
 			? 'border-right:' + runtimeRpx(c.sideBorderWidth) + ' solid ' + surface.sideBorder + '!important'
 			: 'border-left:' + runtimeRpx(c.sideBorderWidth) + ' solid ' + surface.sideBorder + '!important')
 		: (isUser ? 'border-right:0!important' : 'border-left:0!important');
-	var blur = c.blurRadius > 0 ? 'blur(' + runtimeRpx(c.blurRadius) + ') saturate(104%)' : 'none';
+	var effectiveBlurRadius = c.surfaceMode === 'softGradient' ? Math.max(3, c.blurRadius) : c.blurRadius;
+	var blur = effectiveBlurRadius > 0 ? 'blur(' + runtimeRpx(effectiveBlurRadius) + ') saturate(112%)' : 'none';
 	return [
 		'max-width:' + (isUser ? c.userMaxWidth : c.charMaxWidth) + '% !important',
 		'margin:0 ' + runtimeRpx(8) + '!important',
@@ -1442,7 +1492,8 @@ function buildBubbleStyleObject(message, config) {
 	var surface = bubbleSurface(c, isUser);
 	var textColor = isUser ? c.userTextColor : c.baseTextColor;
 	var content = buildEmbeddedContentTokens(c, isUser);
-	var blur = c.blurRadius > 0 ? 'blur(' + runtimeRpx(c.blurRadius) + ') saturate(104%)' : 'none';
+	var effectiveBlurRadius = c.surfaceMode === 'softGradient' ? Math.max(3, c.blurRadius) : c.blurRadius;
+	var blur = effectiveBlurRadius > 0 ? 'blur(' + runtimeRpx(effectiveBlurRadius) + ') saturate(112%)' : 'none';
 	var style = {
 		'max-width': novelLayout ? '90%' : runtimeBubbleMaxWidth(isUser ? c.userMaxWidth : c.charMaxWidth, isUser),
 		'margin': '0 ' + runtimeRpx(8),
@@ -1630,6 +1681,14 @@ function segmentColor(type, config) {
 
 function buildSegmentColors(config) {
 	var c = normalizeConfig(config);
+	if (c.surfaceMode === 'softGradient') {
+		return {
+			speech: '#172a33',
+			action: '#172a33',
+			thought: '#172a33',
+			narration: '#172a33'
+		};
+	}
 	return {
 		speech: c.speechColor,
 		action: c.actionColor,

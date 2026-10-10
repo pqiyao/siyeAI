@@ -43,9 +43,11 @@ public class AdminDashboardService {
 
     public Map<String, Object> overview(String trendRange) {
         Map<String, Object> metrics = new LinkedHashMap<>();
-        long totalTasks = dashboardMapper.totalTasks();
-        long successTasks = dashboardMapper.successTasks();
         Integer trendDays = resolveTrendDays(trendRange);
+        LocalDate trendStartDate = trendDays == null ? null : LocalDate.now()
+                .minusDays(Math.max(1, trendDays) - 1L);
+        long totalTasks = dashboardMapper.totalTasks(trendStartDate);
+        long successTasks = dashboardMapper.successTasks(trendStartDate);
         metrics.put("totalCharacters", dashboardMapper.totalCharacters());
         metrics.put("systemCharacters", dashboardMapper.systemCharacters());
         metrics.put("userCharacters", dashboardMapper.userCharacters());
@@ -56,6 +58,7 @@ public class AdminDashboardService {
         metrics.put("successfulAiResponses", dashboardMapper.successfulAiResponses());
         metrics.put("totalTasks", totalTasks);
         metrics.put("successRate", totalTasks <= 0 ? 0d : (double) successTasks / (double) totalTasks);
+        metrics.put("latestGenerationAt", dashboardMapper.latestGenerationAt());
         metrics.put("totalPaidOrders", dashboardMapper.totalPaidOrders());
         metrics.put("totalRevenueYuan", String.format(Locale.ROOT, "%.2f", dashboardMapper.totalRevenueCents() / 100.0d));
 
@@ -64,20 +67,18 @@ public class AdminDashboardService {
 
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("metrics", metrics);
-        data.put("generationTrend", normalizeGenerationTrend(dashboardMapper.generationTrend(trendDays), trendDays));
+        data.put("generationTrend", normalizeGenerationTrend(dashboardMapper.generationTrend(trendStartDate), trendDays));
         data.put("trendRange", normalizeTrendRange(trendRange));
         data.put("topActiveUsers", decorateTopUsers(dashboardMapper.topActiveUsers(8)));
         data.put("hotCharacters", dashboardMapper.hotCharacters(8));
         data.put("latestNotices", noticeRows);
         data.put("userCreatedStats", characterService.userCreatedStats(8));
-        data.put("generationOps", generationOps(trendDays));
+        data.put("generationOps", generationOps(trendStartDate, trendDays));
         return data;
     }
 
-    private Map<String, Object> generationOps(Integer trendDays) {
-        LocalDateTime startAt = trendDays == null ? null : LocalDate.now()
-                .minusDays(Math.max(1, trendDays) - 1L)
-                .atStartOfDay();
+    private Map<String, Object> generationOps(LocalDate trendStartDate, Integer trendDays) {
+        LocalDateTime startAt = trendStartDate == null ? null : trendStartDate.atStartOfDay();
         Map<String, Object> generationOps = new LinkedHashMap<>();
         Map<String, Object> summary = dashboardMapper.generationOpsSummary(startAt);
         generationOps.put("summary", summary == null ? Map.of() : summary);
@@ -124,7 +125,7 @@ public class AdminDashboardService {
 
     private static List<Map<String, Object>> normalizeGenerationTrend(List<Map<String, Object>> rows, Integer trendDays) {
         if (trendDays == null) {
-            return rows == null ? List.of() : rows;
+            return decorateGenerationTrend(rows);
         }
         Map<String, Map<String, Object>> byDay = new HashMap<>();
         if (rows != null) {
@@ -150,6 +151,25 @@ public class AdminDashboardService {
             normalized.add(out);
         }
         return normalized;
+    }
+
+    private static List<Map<String, Object>> decorateGenerationTrend(List<Map<String, Object>> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> decorated = new java.util.ArrayList<>(rows.size());
+        for (Map<String, Object> row : rows) {
+            String dayKey = text(firstValue(row, "dayKey", "daykey", "DAYKEY", "day_key", "DAY_KEY"));
+            Map<String, Object> out = new LinkedHashMap<>(row);
+            out.put("dayKey", dayKey);
+            try {
+                out.put("date", DAY_LABEL_FMT.format(LocalDate.parse(dayKey)));
+            } catch (Exception ignored) {
+                out.put("date", dayKey);
+            }
+            decorated.add(out);
+        }
+        return decorated;
     }
 
     private static List<Map<String, Object>> normalizeGenerationLatencyTrend(

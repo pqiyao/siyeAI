@@ -83,6 +83,14 @@
 
         <div class="runtime-item">
           <div class="runtime-item__meta">
+            <div class="runtime-item__title">显示 AI 创作工作台入口</div>
+            <div class="runtime-item__desc">默认关闭。开启后仅 SVIP 用户能在用户端“我的”页看到入口；不会删除已有任务，也不影响已保存的任务数据。</div>
+          </div>
+          <el-switch v-model="runtimeSettings.agentWorkbenchEntryVisible" />
+        </div>
+
+        <div class="runtime-item">
+          <div class="runtime-item__meta">
             <div class="runtime-item__title">显示充值入口</div>
             <div class="runtime-item__desc">关闭后只隐藏用户端的钱包充值、会员套餐入口和充值引导，不会停用支付回调、订单到账或后台对账。</div>
           </div>
@@ -487,6 +495,7 @@ const runtimeSettings = reactive({
   imageGenerationEnabled: true,
   voiceFeatureEnabled: true,
   illustrationEntryEnabled: true,
+  agentWorkbenchEntryVisible: false,
   rechargeEntryVisible: true,
   checkinEntryVisible: true,
   systemChatPresetEntryVisible: true,
@@ -512,6 +521,7 @@ function applyRuntimeSettings(data) {
   runtimeSettings.userCharacterPromotionEnabled = data.userCharacterPromotionEnabled === true
   runtimeSettings.userByokEnabled = data.userByokEnabled === true
   runtimeSettings.illustrationEntryEnabled = data.illustrationEntryEnabled !== false
+  runtimeSettings.agentWorkbenchEntryVisible = data.agentWorkbenchEntryVisible === true
   runtimeSettings.rechargeEntryVisible = data.rechargeEntryVisible !== false
   runtimeSettings.checkinEntryVisible = data.checkinEntryVisible !== false
   runtimeSettings.systemChatPresetEntryVisible = data.systemChatPresetEntryVisible !== false
@@ -615,6 +625,7 @@ function submitRuntimeSettings() {
     userCharacterPromotionEnabled: runtimeSettings.userCharacterPromotionEnabled,
     userByokEnabled: runtimeSettings.userByokEnabled,
     illustrationEntryEnabled: runtimeSettings.illustrationEntryEnabled,
+    agentWorkbenchEntryVisible: runtimeSettings.agentWorkbenchEntryVisible,
     rechargeEntryVisible: runtimeSettings.rechargeEntryVisible,
     checkinEntryVisible: runtimeSettings.checkinEntryVisible,
     systemChatPresetEntryVisible: runtimeSettings.systemChatPresetEntryVisible,

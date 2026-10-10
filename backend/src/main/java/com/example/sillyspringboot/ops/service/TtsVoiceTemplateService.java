@@ -92,13 +92,14 @@ public class TtsVoiceTemplateService {
     }
 
     @Transactional
-    public void remove(long id) {
+    public int remove(long id) {
         AppTtsVoiceTemplate row = templateMapper.findById(id);
         if (row == null) {
-            return;
+            return 0;
         }
-        templateMapper.deleteById(id);
+        int affected = templateMapper.deleteById(id);
         instanceMapper.deleteByTemplateCode(row.getTemplateCode());
+        return affected;
     }
 
     @Transactional(readOnly = true)

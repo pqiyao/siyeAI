@@ -1,10 +1,10 @@
 var app = getApp();
 /**
  * Self-hosted JG Tavern backend config.
- * Local development：SillySpringboot 默认 http://127.0.0.1:8080（与旧 JG 8081 区分）。
+ * Local development：SillySpringboot 默认 http://127.0.0.1:18085。
  * Production H5 defaults to same-origin reverse proxy mode.
  */
-var LOCAL_API_ORIGIN = 'http://127.0.0.1:8080';
+var LOCAL_API_ORIGIN = 'http://127.0.0.1:18085';
 var APP_API_ORIGIN = 'https://siyeai.pengqiyao.cn';
 var REMOTE_API_ORIGIN = '';
 var REMOTE_IMG_ORIGIN = '';

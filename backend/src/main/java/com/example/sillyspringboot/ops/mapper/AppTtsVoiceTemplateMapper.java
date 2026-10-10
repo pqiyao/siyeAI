@@ -28,5 +28,5 @@ public interface AppTtsVoiceTemplateMapper {
 
     void updateById(AppTtsVoiceTemplate row);
 
-    void deleteById(@Param("id") long id);
+    int deleteById(@Param("id") long id);
 }

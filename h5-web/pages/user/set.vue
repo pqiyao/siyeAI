@@ -1,6 +1,7 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 		<tavern-nav-bar :title="pageCopy.title" mode="dark" @back="goBack" />
 		<view class="body">
 			<view class="sheet">
@@ -60,6 +61,7 @@
 
 <script>
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
+import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 const tavernApi = require('@/common/tavernApi.js');
 const appUpdate = require('@/common/appUpdate.js');
 const { getLanguageCode } = require('@/common/tavernUiI18n.js');
@@ -113,7 +115,7 @@ const COPY = {
 };
 
 export default {
-	components: { TavernNavBar },
+	components: { TavernNavBar, LiquidGlassCanvas },
 	data() {
 		return {
 			voiceFeatureEnabled: true,
@@ -261,5 +263,8 @@ export default {
 	font-size: 22rpx;
 	color: #718a96;
 }
+
+.page > .liquid-glass-canvas { position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.9; }
+.page > .tavern-nav-bar, .page > .body { position:relative; z-index:3; }
 
 </style>

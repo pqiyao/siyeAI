@@ -119,6 +119,8 @@
 				this.util.request('index/article_info', { id: 1 }, 'POST').then((res) => {
 					const safe = this.sanitizeHtml(res.data.content);
 					this.$store.commit('setxieyi', safe);
+				}).catch(() => {
+					this.$store.commit('setxieyi', '');
 				});
 			},
 			// 根据IP自动设置语言

@@ -21,6 +21,10 @@ public class RuoYiAdminProperties {
     private int loginMaxAttempts = 5;
     private int loginWindowSeconds = 300;
     private int loginBlockSeconds = 900;
+    /** Long-lived, revocable token for the local Agent service account. */
+    private String agentServiceToken = "";
+    private String agentServiceUsername = "";
+    private String agentServiceTokenFile = "";
 
     public String getUsername() {
         return username;
@@ -124,6 +128,30 @@ public class RuoYiAdminProperties {
 
     public void setLoginBlockSeconds(int loginBlockSeconds) {
         this.loginBlockSeconds = loginBlockSeconds;
+    }
+
+    public String getAgentServiceToken() {
+        return agentServiceToken;
+    }
+
+    public void setAgentServiceToken(String agentServiceToken) {
+        this.agentServiceToken = agentServiceToken;
+    }
+
+    public String getAgentServiceUsername() {
+        return agentServiceUsername;
+    }
+
+    public void setAgentServiceUsername(String agentServiceUsername) {
+        this.agentServiceUsername = agentServiceUsername;
+    }
+
+    public String getAgentServiceTokenFile() {
+        return agentServiceTokenFile;
+    }
+
+    public void setAgentServiceTokenFile(String agentServiceTokenFile) {
+        this.agentServiceTokenFile = agentServiceTokenFile;
     }
 
     public static class Account {

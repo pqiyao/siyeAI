@@ -26,9 +26,9 @@ const usePermissionStore = defineStore('permission', {
     generateRoutes() {
       return new Promise((resolve) => {
         getRouters().then((res) => {
-          const sidebarData = JSON.parse(JSON.stringify(res.data))
-          const rewriteData = JSON.parse(JSON.stringify(res.data))
-          const defaultData = JSON.parse(JSON.stringify(res.data))
+          const sidebarData = hideRetiredAgentRoutes(JSON.parse(JSON.stringify(res.data)))
+          const rewriteData = hideRetiredAgentRoutes(JSON.parse(JSON.stringify(res.data)))
+          const defaultData = hideRetiredAgentRoutes(JSON.parse(JSON.stringify(res.data)))
           const sidebarRoutes = filterAsyncRouter(sidebarData)
           const rewriteRoutes = filterAsyncRouter(rewriteData, false, true)
           const defaultRoutes = filterAsyncRouter(defaultData)
@@ -66,6 +66,15 @@ function filterAsyncRouter(asyncRouterMap, lastRouter = false, type = false) {
       delete route.children
       delete route.redirect
     }
+    return true
+  })
+}
+
+function hideRetiredAgentRoutes(routes) {
+  return routes.filter((route) => {
+    const parentPath = String(route.path || '')
+    if (parentPath === '/agent/artifact' || parentPath === 'artifact' && route.component?.includes?.('agent/artifact')) return false
+    if (Array.isArray(route.children)) route.children = hideRetiredAgentRoutes(route.children)
     return true
   })
 }

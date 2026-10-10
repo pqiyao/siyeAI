@@ -153,28 +153,57 @@
         ), 0)
     </select>
 
-    <select id="totalTasks" resultType="long">
+    <sql id="GenerationTaskFacts">
+        SELECT d.stat_day AS day_key, d.status, d.task_count
+        FROM app_generation_task_daily_stat d
+        <where>
+            <if test="startDate != null">
+                d.stat_day &gt;= #{startDate}
+            </if>
+        </where>
+        UNION ALL
+        SELECT e.event_day AS day_key, e.status, 1 AS task_count
+        FROM app_generation_stat_event e
+        <where>
+            <if test="startDate != null">
+                e.event_day &gt;= #{startDate}
+            </if>
+        </where>
+        UNION ALL
         SELECT
-            COALESCE((SELECT SUM(task_count) FROM app_generation_task_daily_stat), 0)
-            + (SELECT COUNT(*) FROM app_generation_stat_event)
-            + (
-                SELECT COUNT(*)
-                FROM app_generation_task t
-                LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
-                WHERE e.id IS NULL
-            )
+            DATE(COALESCE(t.queued_at, t.started_at, t.finished_at)) AS day_key,
+            COALESCE(NULLIF(t.status, ''), 'QUEUED') AS status,
+            1 AS task_count
+        FROM app_generation_task t
+        LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
+        <where>
+            e.id IS NULL
+            <if test="startDate != null">
+                AND DATE(COALESCE(t.queued_at, t.started_at, t.finished_at))
+                    &gt;= #{startDate}
+            </if>
+        </where>
+    </sql>
+
+    <select id="totalTasks" resultType="long">
+        SELECT COALESCE(SUM(task_count), 0)
+        FROM (<include refid="GenerationTaskFacts"/>) facts
     </select>
 
     <select id="successTasks" resultType="long">
-        SELECT
-            COALESCE((SELECT SUM(task_count) FROM app_generation_task_daily_stat WHERE status = 'SUCCESS'), 0)
-            + (SELECT COUNT(*) FROM app_generation_stat_event WHERE status = 'SUCCESS')
-            + (
-                SELECT COUNT(*)
-                FROM app_generation_task t
-                LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
-                WHERE e.id IS NULL AND t.status = 'SUCCESS'
-            )
+        SELECT COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN task_count ELSE 0 END), 0)
+        FROM (<include refid="GenerationTaskFacts"/>) facts
+    </select>
+
+    <select id="latestGenerationAt" resultType="java.time.LocalDateTime">
+        SELECT MAX(latest_at)
+        FROM (
+            SELECT CAST(MAX(stat_day) AS DATETIME) AS latest_at FROM app_generation_task_daily_stat
+            UNION ALL
+            SELECT CAST(MAX(event_day) AS DATETIME) AS latest_at FROM app_generation_stat_event
+            UNION ALL
+            SELECT MAX(COALESCE(finished_at, started_at, queued_at)) AS latest_at FROM app_generation_task
+        ) latest
     </select>
 
     <select id="totalPaidOrders" resultType="long">
@@ -205,47 +234,12 @@
 
     <select id="generationTrend" resultType="map">
         SELECT
-            DATE_FORMAT(day_key, '%Y-%m-%d') AS dayKey,
-            DATE_FORMAT(day_key, '%m-%d') AS date,
+            day_key AS dayKey,
+            day_key AS date,
             SUM(task_count) AS generations,
             SUM(CASE WHEN status = 'SUCCESS' THEN task_count ELSE 0 END) AS successCount,
             SUM(CASE WHEN status IN ('FAILED', 'STOPPED') THEN task_count ELSE 0 END) AS failureCount
-        FROM (
-            SELECT
-                d.stat_day AS day_key,
-                d.status,
-                d.task_count
-            FROM app_generation_task_daily_stat d
-            <where>
-                <if test="days != null">
-                    d.stat_day &gt;= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
-                </if>
-            </where>
-            UNION ALL
-            SELECT
-                e.event_day AS day_key,
-                e.status,
-                1 AS task_count
-            FROM app_generation_stat_event e
-            <where>
-                <if test="days != null">
-                    e.event_day >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
-                </if>
-            </where>
-            UNION ALL
-            SELECT
-                DATE(COALESCE(t.queued_at, t.started_at, t.finished_at, CURRENT_TIMESTAMP)) AS day_key,
-                COALESCE(NULLIF(t.status, ''), 'QUEUED') AS status,
-                1 AS task_count
-            FROM app_generation_task t
-            LEFT JOIN app_generation_stat_event e ON e.task_id = t.id
-            <where>
-                e.id IS NULL
-                <if test="days != null">
-                    AND DATE(COALESCE(t.queued_at, t.started_at, t.finished_at, CURRENT_TIMESTAMP)) >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
-                </if>
-            </where>
-        ) s
+        FROM (<include refid="GenerationTaskFacts"/>) s
         GROUP BY day_key
         ORDER BY day_key ASC
     </select>

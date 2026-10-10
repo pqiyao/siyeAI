@@ -51,6 +51,12 @@ public class AppChatProperties {
          * frontend_bridge: require the high compatibility path for every chat.
          */
         private String mode = "runtime";
+        /**
+         * When enabled, ordinary text roleplay delegates prompt construction to the
+         * SillyTavern runtime without adding product-side prompt protocols.
+         * Business services still own auth, billing, persistence and branches.
+         */
+        private boolean stRuntimeAuthoritative = true;
         private boolean frontendBridgeEnabled = false;
         private boolean fallbackToRuntime = false;
         private int worldbookProbeCacheSeconds = 300;
@@ -66,6 +72,14 @@ public class AppChatProperties {
 
         public void setMode(String mode) {
             this.mode = mode == null ? "runtime" : mode;
+        }
+
+        public boolean isStRuntimeAuthoritative() {
+            return stRuntimeAuthoritative;
+        }
+
+        public void setStRuntimeAuthoritative(boolean stRuntimeAuthoritative) {
+            this.stRuntimeAuthoritative = stRuntimeAuthoritative;
         }
 
         public boolean isFrontendBridgeEnabled() {

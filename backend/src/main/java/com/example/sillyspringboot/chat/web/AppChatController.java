@@ -714,7 +714,7 @@ public class AppChatController {
     private static void sendQuietly(SseEmitter emitter, String eventName, ChatSseEvent payload) {
         try {
             emitter.send(SseEmitter.event().name(eventName).data(payload));
-        } catch (IOException ignored) {
+        } catch (IOException | IllegalStateException ignored) {
             // 客户端断开：交由上层 complete
         }
     }

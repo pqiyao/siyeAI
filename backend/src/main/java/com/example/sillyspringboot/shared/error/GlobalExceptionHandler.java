@@ -13,6 +13,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.LinkedHashMap;
@@ -112,6 +114,21 @@ public class GlobalExceptionHandler {
                 traceId, method, path, ex.getSupportedMethods());
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
                 .body(AppErrorResponse.of(ErrorCode.VALIDATION_FAILED, "request method is not supported", traceId));
+    }
+
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncClientDisconnect(AsyncRequestNotUsableException ex) {
+        // SSE clients routinely disconnect during navigation and reconnects. The
+        // response is already committed as text/event-stream, so writing a JSON
+        // error would only produce a second exception and a misleading 500 log.
+        log.debug("async response closed by client traceId={} message={}", traceId(), ex.getMessage());
+    }
+
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public void handleAsyncRequestTimeout(AsyncRequestTimeoutException ex) {
+        // A timed-out SSE response is already committed. Let the browser
+        // reconnect instead of trying to serialize an application error into it.
+        log.debug("async response timed out traceId={} message={}", traceId(), ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

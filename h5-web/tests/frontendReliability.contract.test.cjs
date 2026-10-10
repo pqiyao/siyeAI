@@ -19,6 +19,7 @@ const identitySignatureSource = api.slice(api.indexOf('function getViewerIdentit
 assert(!identitySignatureSource.includes("'|token:'"), 'viewer identity signature must not expose auth tokens');
 assert(/!forceRefresh\s*&&[\s\S]{0,120}runtimeFeatureConfigFetchedAt > 0[\s\S]{0,160}RUNTIME_FEATURE_CONFIG_CACHE_MS/.test(api), 'runtime feature config cache must expire instead of trusting stored data forever');
 assert(api.includes('illustrationEntryEnabled: raw.illustrationEntryEnabled !== false'), 'illustration entry must default to visible for backward compatibility');
+assert(api.includes('agentWorkbenchEntryVisible: raw.agentWorkbenchEntryVisible === true'), 'agent workbench entry must default to hidden until explicitly enabled');
 
 const home = read('pages/index/index.vue');
 assert(home.includes('v-if="isJgDiscover && illustrationEntryEnabled"'), 'home illustration entry must obey the runtime switch');
@@ -27,6 +28,13 @@ assert(/onShow\(\)[\s\S]{0,500}syncIllustrationEntryVisibility\(true\)/.test(hom
 const userCenter = read('pages/user/user.vue');
 assert(userCenter.includes('v-if="illustrationEntryEnabled" class="illustration-site-card"'), 'user-center illustration entry must obey the runtime switch');
 assert(/onShow\(\)[\s\S]{0,350}syncIllustrationEntryVisibility\(true\)/.test(userCenter), 'user center must refresh the illustration entry switch when shown');
+assert(userCenter.includes("item.key !== 'agentWorkbench'"), 'user-center agent workbench shortcut must obey the runtime switch');
+assert(userCenter.includes('vipType >= 2'), 'user-center agent workbench shortcut must require SVIP');
+assert(/onShow\(\)[\s\S]{0,450}syncAgentWorkbenchEntryVisibility\(true\)/.test(userCenter), 'user center must refresh the agent workbench switch when shown');
+
+const agentWorkbench = read('pages/user/agentWorkbench.vue');
+assert(!agentWorkbench.includes('把一句想法，变成可交付作品'), 'agent workbench must not render the removed hero banner');
+assert(agentWorkbench.includes('AI 创作工作台仅对 SVIP 用户开放'), 'agent workbench must guard direct access for non-SVIP users');
 
 const forget = read('pages/login/forget.vue');
 assert(!forget.includes('index/forgetPwd') && !forget.includes('/ems/send'), 'legacy missing password-reset endpoints must not be used');

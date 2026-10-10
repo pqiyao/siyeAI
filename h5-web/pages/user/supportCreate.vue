@@ -1,6 +1,7 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
 		<tavern-nav-bar :title="copy.title" mode="dark" @back="goBack" />
 		<scroll-view scroll-y class="scroll" :show-scrollbar="false">
 			<view class="hero-card">
@@ -97,6 +98,7 @@
 
 <script>
 import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
+import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 
 const tavernApi = require('@/common/tavernApi.js');
 const tavernErrors = require('@/common/tavernErrors.js');
@@ -313,7 +315,7 @@ function currentCopy() {
 }
 
 export default {
-	components: { TavernNavBar },
+	components: { TavernNavBar, LiquidGlassCanvas },
 	data() {
 		return {
 			typeOptions: [],
@@ -910,7 +912,21 @@ export default {
 	background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(36, 75, 102, 0.54) 100%);
 }
 
-.attach-name {
-	color: #fff;
-}
+	.attach-name {
+		color: #fff;
+	}
+
+	/* Calm translucent support form */
+	.page { position: relative; overflow: hidden; background: radial-gradient(circle at 8% 0%, rgba(121,211,224,.26), transparent 34%), radial-gradient(circle at 92% 12%, rgba(239,169,205,.2), transparent 30%), linear-gradient(180deg,#edf8fc 0%,#e4f1f7 58%,#f8eff5 100%); }
+	.page::before { content:''; position:fixed; inset:0; pointer-events:none; background:linear-gradient(120deg,rgba(255,255,255,.28),transparent 34%,rgba(108,194,210,.1)); }
+	.scroll { padding: 16rpx 22rpx; }
+	.hero-card, .card, .submit-card { background: rgba(247,253,255,.4); border-color: rgba(255,255,255,.72); box-shadow: 0 18rpx 44rpx rgba(42,91,112,.12), inset 0 1rpx 0 rgba(255,255,255,.86); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+	.hero-card { background: linear-gradient(135deg,rgba(218,245,249,.62),rgba(255,239,247,.44)); }
+	.context-tag, .type-chip { background: rgba(255,255,255,.32); border-color: rgba(255,255,255,.62); }
+	.type-chip.active { background: linear-gradient(135deg,#3c91ad,#73cbd3); border-color: rgba(255,255,255,.72); }
+	.input, .textarea { background: rgba(255,255,255,.38); border-color: rgba(255,255,255,.72); color:#24495c; }
+	.attach-empty { background: rgba(255,255,255,.24); border-color: rgba(255,255,255,.56); }
+	.submit-card { display:flex; align-items:center; justify-content:space-between; gap:18rpx; }
+	.page > .liquid-glass-canvas { position:absolute; inset:0; z-index:2; pointer-events:none; opacity:.9; }
+	.page > .tavern-nav-bar, .page > .scroll { position:relative; z-index:3; }
 </style>

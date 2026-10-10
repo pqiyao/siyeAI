@@ -23,6 +23,8 @@ class AppFeatureSettingsServiceTest {
 
         assertTrue(service.getSettings().isIllustrationEntryEnabled());
         assertTrue((Boolean) service.toMap(service.getSettings()).get("illustrationEntryEnabled"));
+        assertFalse(service.getSettings().isAgentWorkbenchEntryVisible());
+        assertFalse((Boolean) service.toMap(service.getSettings()).get("agentWorkbenchEntryVisible"));
         assertTrue(service.getSettings().isRechargeEntryVisible());
         assertTrue((Boolean) service.toMap(service.getSettings()).get("rechargeEntryVisible"));
         assertTrue(service.getSettings().isCheckinEntryVisible());
@@ -96,6 +98,20 @@ class AppFeatureSettingsServiceTest {
         ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
         verify(mapper).upsert(eq("app_feature_settings"), json.capture());
         assertTrue(json.getValue().contains("\"illustrationEntryEnabled\":false"));
+    }
+
+    @Test
+    void agentWorkbenchEntryCanBeExplicitlyHiddenAndIsSerialized() {
+        AppRuntimeSettingMapper mapper = mock(AppRuntimeSettingMapper.class);
+        AppFeatureSettingsService service = new AppFeatureSettingsService(mapper);
+
+        AppFeatureSettings saved = service.saveSettings(Map.of("agentWorkbenchEntryVisible", false));
+
+        assertFalse(saved.isAgentWorkbenchEntryVisible());
+        assertFalse((Boolean) service.toMap(saved).get("agentWorkbenchEntryVisible"));
+        ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+        verify(mapper).upsert(eq("app_feature_settings"), json.capture());
+        assertTrue(json.getValue().contains("\"agentWorkbenchEntryVisible\":false"));
     }
 
     @Test

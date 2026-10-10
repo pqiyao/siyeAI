@@ -12,10 +12,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class StClientAuxiliaryRequestTest {
 
     @Test
-    void onlySemanticAnnotationModeIsIsolatedFromProviderHealth() {
+    void auxiliaryModesAreIsolatedFromProviderHealth() {
         assertTrue(StClient.isAuxiliarySidecarRequest(request("semantic_annotation")));
         assertTrue(StClient.isAuxiliarySidecarRequest(request("SEMANTIC_ANNOTATION")));
+        assertTrue(StClient.isAuxiliarySidecarRequest(request("memory_structured_extract")));
+        assertTrue(StClient.isAuxiliarySidecarRequest(request("MEMORY_ROLLUP")));
         assertFalse(StClient.isAuxiliarySidecarRequest(request("generate")));
+        assertFalse(StClient.isAuxiliarySidecarRequest(request("chat.default")));
         assertFalse(StClient.isAuxiliarySidecarRequest(null));
     }
 

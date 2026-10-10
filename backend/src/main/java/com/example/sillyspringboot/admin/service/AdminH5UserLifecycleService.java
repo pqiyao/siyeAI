@@ -79,9 +79,24 @@ public class AdminH5UserLifecycleService {
         cleanupExternalResources(userId, cleanupTaskIds, cleanupWarnings);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("deleted", true);
+        result.put("deletedId", userId);
+        result.put("affectedRows", 1);
+        result.put("databaseVerified", true);
         result.put("cleanupWarningCount", cleanupWarnings.size());
         result.put("cleanupWarnings", cleanupWarnings);
         return result;
+    }
+
+    public Map<String, Object> deleteUserByUsername(String username) {
+        String value = username == null ? "" : username.trim();
+        if (value.isBlank()) throw new IllegalArgumentException("username must not be blank");
+        Map<String, Object> user = adminH5UserMapper.findByUsername(value);
+        if (user == null || user.isEmpty()) throw new IllegalArgumentException("user not found: " + value);
+        Object rawId = user.get("id");
+        long id;
+        try { id = rawId instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(rawId)); }
+        catch (Exception ex) { throw new IllegalStateException("用户 ID 无效: " + value, ex); }
+        return deleteUserById(id);
     }
 
     private List<String> deleteDatabaseRecords(long userId) {
@@ -149,7 +164,10 @@ public class AdminH5UserLifecycleService {
         cleanupMapper.deletePrivateChatPresetsByUser(userId);
         cleanupMapper.deleteCharacterPromotionsBySourceUser(userId);
         cleanupMapper.deleteOwnedCharacters(userId);
-        cleanupMapper.deleteAppUser(userId);
+        int deletedUserRows = cleanupMapper.deleteAppUser(userId);
+        if (deletedUserRows != 1) {
+            throw new IllegalStateException("用户删除未生效，影响行数=" + deletedUserRows);
+        }
         return cleanupTaskIds == null ? List.of() : List.copyOf(cleanupTaskIds);
     }
 

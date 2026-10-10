@@ -224,6 +224,13 @@
         LIMIT 1
     </select>
 
+    <select id="findByUsername" resultType="map">
+        SELECT id, username
+        FROM app_user
+        WHERE username = #{username}
+        LIMIT 1
+    </select>
+
     <select id="listRecentConversationsByUser" resultType="map">
         SELECT
             c.id AS conversationId,

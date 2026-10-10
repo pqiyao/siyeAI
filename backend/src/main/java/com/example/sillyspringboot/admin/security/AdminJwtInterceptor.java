@@ -10,21 +10,27 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+
 @Component
 public class AdminJwtInterceptor implements HandlerInterceptor {
 
     private final RuoYiAdminJwtService jwtService;
     private final RuoYiAdminAccessService accessService;
     private final ObjectMapper objectMapper;
+    private final AgentServiceCredentialProvider serviceCredentials;
 
     public AdminJwtInterceptor(
             RuoYiAdminJwtService jwtService,
             RuoYiAdminAccessService accessService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            AgentServiceCredentialProvider serviceCredentials
     ) {
         this.jwtService = jwtService;
         this.accessService = accessService;
         this.objectMapper = objectMapper;
+        this.serviceCredentials = serviceCredentials;
     }
 
     @Override
@@ -38,7 +44,8 @@ public class AdminJwtInterceptor implements HandlerInterceptor {
             return false;
         }
         try {
-            String username = jwtService.parseUsername(token);
+            String username = serviceAccountUsername(request, token);
+            if (username == null) username = jwtService.parseUsername(token);
             RuoYiAdminAccessService.AdminSession session = accessService.loadSession(username);
             if (session == null) {
                 writeJson(response, HttpServletResponse.SC_OK, AdminAjaxResult.unauthorized("登录已失效"));
@@ -64,6 +71,18 @@ public class AdminJwtInterceptor implements HandlerInterceptor {
             writeJson(response, HttpServletResponse.SC_OK, AdminAjaxResult.unauthorized("登录已失效"));
             return false;
         }
+    }
+
+    /** Service credentials are deliberately restricted to Agent/Xiaoye APIs. */
+    private String serviceAccountUsername(HttpServletRequest request, String token) {
+        AgentServiceCredentialProvider.Credentials credentials = serviceCredentials.resolve();
+        String configured = credentials.token();
+        String username = credentials.username();
+        if (!credentials.configured()) return null;
+        String path = request.getRequestURI();
+        if (!(path.startsWith("/admin/jiugai/agent") || path.startsWith("/admin/jiugai/xiaoye"))) return null;
+        return MessageDigest.isEqual(configured.getBytes(StandardCharsets.UTF_8), token.getBytes(StandardCharsets.UTF_8))
+                ? username.trim() : null;
     }
 
     private void writeJson(HttpServletResponse response, int status, Object payload) throws Exception {

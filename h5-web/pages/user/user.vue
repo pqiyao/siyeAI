@@ -1,6 +1,10 @@
 <template>
 	<view class="page" :class="localeFontClass">
 		<image class="app-page-bg" src="/static/login.png" mode="aspectFill"></image>
+		<liquid-glass-canvas />
+		<view class="page-ambient page-ambient--cyan"></view>
+		<view class="page-ambient page-ambient--violet"></view>
+		<view class="page-grain"></view>
 
 		<view class="hero-card">
 			<view class="hero-topline">
@@ -155,6 +159,7 @@
 </template>
 
 <script>
+import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 import { applyTavernTabBarLabels, syncTavernTabBar } from '@/common/tavernTabBar.js';
 
 const tavernApi = require('@/common/tavernApi.js');
@@ -217,6 +222,9 @@ const AI_SETTINGS_COPY = {
 };
 
 export default {
+	components: {
+		LiquidGlassCanvas
+	},
 	data() {
 		const runtimeFeatureConfig = tavernApi.getRuntimeFeatureConfig();
 		const runtimeFeatureConfigReady = typeof tavernApi.hasRuntimeFeatureConfigSnapshot === 'function' && tavernApi.hasRuntimeFeatureConfigSnapshot();
@@ -227,6 +235,7 @@ export default {
 			tavernStats: { fav: 0, chats: 0, chars: 0 },
 			storeProfileAccessSignature: '',
 			illustrationEntryEnabled: runtimeFeatureConfig.illustrationEntryEnabled !== false,
+			agentWorkbenchEntryVisible: runtimeFeatureConfig.agentWorkbenchEntryVisible === true,
 			rechargeEntryVisible: runtimeFeatureConfig.rechargeEntryVisible !== false,
 			rechargeEntryReady: runtimeFeatureConfigReady,
 			checkinEntryVisible: runtimeFeatureConfig.checkinEntryVisible !== false,
@@ -253,6 +262,13 @@ export default {
 		hasToken() {
 			const u = this.authUser || {};
 			return !!(u && u.token);
+		},
+		agentWorkbenchVisibleForUser() {
+			const profile = this.storeProfile || {};
+			const user = this.authUser || {};
+			const vipType = Number(profile.vipType != null ? profile.vipType : user.vipType);
+			const vipActive = profile.vipActive != null ? profile.vipActive : user.vipActive;
+			return this.agentWorkbenchEntryVisible && Number.isFinite(vipType) && vipType >= 2 && vipActive !== false;
 		},
 		displayAvatar() {
 			const avatar = this.storeProfile.avatar;
@@ -377,7 +393,7 @@ export default {
 			return formatLocaleText(this.uiText.walletSubtitle, { gold: this.goldDisplay });
 		},
 		shortcutList() {
-			return [
+			const items = [
 				{
 					key: 'favorites',
 					name: this.uiText.shortcutFavoritesName,
@@ -404,6 +420,7 @@ export default {
 					iconPath: '/static/user/u6.png'
 				}
 			];
+			return this.agentWorkbenchVisibleForUser ? items : items.filter((item) => item.key !== 'agentWorkbench');
 		},
 		serviceList() {
 			getTavernUiText('language');
@@ -452,6 +469,7 @@ export default {
 		this.syncAuthUser();
 		this.loadPage();
 		this.syncIllustrationEntryVisibility(true);
+		this.syncAgentWorkbenchEntryVisibility(true);
 		this.syncRechargeEntryVisibility(true);
 		this.syncCheckinEntryVisibility(false);
 		try {
@@ -467,6 +485,15 @@ export default {
 		} catch (e) {}
 	},
 	methods: {
+		syncAgentWorkbenchEntryVisibility(forceRefresh) {
+			this.agentWorkbenchEntryVisible = typeof tavernApi.isAgentWorkbenchEntryVisible === 'function'
+				? tavernApi.isAgentWorkbenchEntryVisible()
+				: true;
+			return tavernApi.fetchAppRuntimeConfig(forceRefresh === true).then((config) => {
+				this.agentWorkbenchEntryVisible = config && config.agentWorkbenchEntryVisible === true;
+				return this.agentWorkbenchEntryVisible;
+			}).catch(() => this.agentWorkbenchEntryVisible);
+		},
 		syncIllustrationEntryVisibility(forceRefresh) {
 			this.illustrationEntryEnabled = tavernApi.isIllustrationEntryEnabled();
 			return tavernApi.fetchAppRuntimeConfig(forceRefresh === true).then((config) => {
@@ -1888,6 +1915,258 @@ export default {
 	height: 78rpx;
 	padding: 0 28rpx;
 	box-sizing: border-box;
+}
+
+/* Liquid glass v2: background → glass → content. The blur is intentionally
+ * restrained so the surface keeps its watery refraction instead of becoming
+ * a flat frosted overlay. */
+.page {
+	--ink: #183749;
+	--muted: #587486;
+	--teal: #167f8c;
+	--teal-bright: #58c7c3;
+	--glass-fill: rgba(245, 252, 253, 0.46);
+	--glass-fill-soft: rgba(245, 252, 253, 0.30);
+	--glass-stroke: rgba(255, 255, 255, 0.72);
+	--glass-shadow: 0 22rpx 60rpx rgba(43, 86, 110, 0.16);
+	background:
+		radial-gradient(circle at 4% 4%, rgba(255, 255, 255, 0.58), transparent 34%),
+		linear-gradient(180deg, rgba(224, 242, 250, 0.18), rgba(246, 235, 249, 0.08));
+	color: var(--ink);
+	}
+
+.app-page-bg {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	z-index: -5;
+	opacity: 0.18;
+	filter: saturate(0.95) contrast(0.98);
+	}
+
+.page-ambient,
+.page-grain {
+	position: fixed;
+	pointer-events: none;
+	z-index: -3;
+}
+
+.page-ambient {
+	border-radius: 50%;
+	filter: blur(4rpx);
+	mix-blend-mode: screen;
+}
+
+.page-ambient--cyan {
+	width: 520rpx;
+	height: 520rpx;
+	top: 140rpx;
+	right: -210rpx;
+	background: radial-gradient(circle, rgba(89, 201, 201, 0.26), rgba(89, 201, 201, 0) 70%);
+}
+
+.page-ambient--violet {
+	width: 440rpx;
+	height: 440rpx;
+	left: -180rpx;
+	top: 760rpx;
+	background: radial-gradient(circle, rgba(184, 144, 226, 0.2), rgba(184, 144, 226, 0) 72%);
+}
+
+.page-grain {
+	inset: 0;
+	opacity: 0.12;
+	mix-blend-mode: soft-light;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.17'/%3E%3C/svg%3E");
+}
+
+.hero-card,
+.wallet-card,
+.checkin-entry,
+.quota-card,
+.illustration-site-card,
+.section-card {
+	background: transparent !important;
+	border: 1rpx solid var(--glass-stroke);
+	box-shadow: var(--glass-shadow), inset 0 1rpx 0 rgba(255, 255, 255, 0.92), inset 0 -1rpx 0 rgba(76, 136, 155, 0.1);
+	/* The actual glass pass is rendered by LiquidGlassCanvas. Keep DOM cards
+	 * crisp so text/content never gets blurred twice. */
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+
+.hero-card::after,
+.wallet-card::after,
+.section-card::after,
+.quota-card::after,
+.checkin-entry::after,
+.illustration-site-card::after {
+	content: '';
+	position: absolute;
+	inset: 1rpx;
+	border-radius: inherit;
+	pointer-events: none;
+	background: linear-gradient(115deg, rgba(255, 255, 255, 0.38), transparent 24%, transparent 72%, rgba(255, 255, 255, 0.16));
+	mix-blend-mode: screen;
+	opacity: 0.72;
+}
+
+.hero-card,
+.wallet-card {
+	border-radius: 38rpx;
+	}
+
+.hero-card {
+	padding: 32rpx;
+	background: transparent !important;
+	}
+
+.wallet-card {
+	margin-top: 22rpx;
+	padding: 30rpx;
+	background: transparent !important;
+	}
+
+.section-card {
+	border-radius: 30rpx;
+	padding: 24rpx 22rpx;
+	}
+
+.section-card + .section-card {
+	margin-top: 18rpx;
+}
+
+.quota-card,
+.checkin-entry,
+.illustration-site-card {
+	border-radius: 26rpx;
+	}
+
+.metric-pill,
+.hero-status-chip,
+.member-chip,
+.shortcut-item,
+.service-item {
+	background: rgba(255, 255, 255, 0.34);
+	border: 1rpx solid rgba(255, 255, 255, 0.58);
+	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.65), inset 0 -1rpx 0 rgba(52, 122, 140, 0.08);
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+
+.metric-pill {
+	padding: 20rpx 16rpx;
+	border-radius: 24rpx;
+	}
+
+.member-chip {
+	padding: 11rpx 18rpx;
+	background: rgba(26, 124, 139, 0.12);
+	}
+
+.member-chip-text,
+.nickname,
+.metric-value,
+.hero-status-text,
+.wallet-value,
+.quota-card-value,
+.section-title,
+.shortcut-name,
+.service-name,
+.checkin-entry-title {
+	color: var(--ink);
+	text-shadow: 0 1rpx 0 rgba(255, 255, 255, 0.42);
+}
+
+.hero-kicker,
+.wallet-kicker,
+.quota-card-label,
+.illustration-site-kicker {
+	color: var(--teal);
+	font-weight: 800;
+	letter-spacing: 1.4rpx;
+}
+
+.account-line,
+.account-id,
+.metric-label,
+.wallet-sub,
+.quota-card-note,
+.section-note,
+.service-desc,
+.checkin-entry-sub,
+.illustration-site-desc {
+	color: var(--muted);
+	font-weight: 600;
+	}
+
+.nickname {
+	font-size: 40rpx;
+	letter-spacing: -0.5rpx;
+	}
+
+.edit-btn,
+.wallet-main-btn {
+	background: linear-gradient(135deg, #177c8a 0%, #45b9b5 58%, #71d4c6 100%);
+	box-shadow: 0 14rpx 26rpx rgba(28, 126, 137, 0.24), inset 0 1rpx 0 rgba(255, 255, 255, 0.48);
+	}
+
+.wallet-soft-btn {
+	background: rgba(255, 255, 255, 0.42);
+	border-color: rgba(27, 127, 142, 0.22);
+	color: #176d7b;
+	}
+
+.checkin-entry.is-claimable {
+	background: linear-gradient(145deg, rgba(247, 255, 254, 0.82), rgba(221, 249, 244, 0.58));
+	border-color: rgba(44, 166, 164, 0.52);
+	box-shadow: 0 18rpx 36rpx rgba(41, 153, 157, 0.16), inset 0 1rpx 0 #fff;
+	}
+
+.shortcut-item,
+.service-item {
+	border-radius: 22rpx;
+	}
+
+.shortcut-item {
+	min-height: 178rpx;
+	padding: 24rpx 18rpx;
+	}
+
+.shortcut-icon-shell,
+.service-icon-shell {
+	background: linear-gradient(145deg, rgba(255, 255, 255, 0.74), rgba(102, 200, 200, 0.16));
+	border: 1rpx solid rgba(255, 255, 255, 0.7);
+	box-shadow: 0 9rpx 20rpx rgba(43, 111, 133, 0.1), inset 0 1rpx 0 rgba(255, 255, 255, 0.92);
+	}
+
+.shortcut-name,
+.service-name {
+	font-weight: 800;
+	}
+
+.service-item {
+	padding: 20rpx 18rpx;
+	}
+
+.service-arrow {
+	color: #177b89;
+	background: rgba(73, 188, 187, 0.14);
+	border-color: rgba(38, 145, 151, 0.2);
+	}
+
+.illustration-site-title {
+	color: #22506a;
+	}
+
+@media (max-width: 350px) {
+	.page { padding-left: 18rpx; padding-right: 18rpx; }
+	.hero-card, .wallet-card { padding: 24rpx; }
+	.nickname { font-size: 35rpx; }
+	.edit-btn { min-width: 112rpx; padding: 0 16rpx; }
+	.metric-label { font-size: 19rpx; }
 }
 
 </style>

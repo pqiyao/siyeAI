@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -29,7 +30,12 @@ class AdminDashboardGenerationOpsMapperTest {
 
     @Test
     void generationOperationsQueriesWorkOnAnEmptyMigratedSchema() {
+        LocalDate startDate = LocalDate.now().minusDays(13);
         LocalDateTime startAt = LocalDateTime.now().minusDays(14);
+        assertThat(mapper.totalTasks(startDate)).isZero();
+        assertThat(mapper.successTasks(startDate)).isZero();
+        assertNotNull(mapper.generationTrend(startDate));
+        assertThat(mapper.latestGenerationAt()).isNull();
         assertNotNull(mapper.generationOpsSummary(startAt));
         assertNotNull(mapper.generationLatencyTrend(startAt));
         assertNotNull(mapper.generationProviderStats(startAt));

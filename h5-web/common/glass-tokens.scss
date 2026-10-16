@@ -1,0 +1,17 @@
+/* Shared light glass tokens. Pages may alias these into local CSS variables. */
+$jg-glass-ink: #203846;
+$jg-glass-muted: #647b8b;
+$jg-glass-accent: #4f93a3;
+$jg-glass-accent-strong: #3e8dab;
+$jg-glass-accent-soft: rgba(213, 239, 247, 0.72);
+$jg-glass-pink: #b65f83;
+$jg-glass-line: rgba(103, 157, 178, 0.2);
+$jg-glass-paper: rgba(255, 255, 255, 0.42);
+$jg-glass-soft: rgba(232, 246, 251, 0.7);
+$jg-glass-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.68);
+$jg-glass-blur: 18rpx;
+
+@mixin jg-glass-blur {
+	backdrop-filter: blur($jg-glass-blur);
+	-webkit-backdrop-filter: blur($jg-glass-blur);
+}

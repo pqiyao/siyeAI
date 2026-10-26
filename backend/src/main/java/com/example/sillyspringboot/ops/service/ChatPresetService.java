@@ -45,18 +45,21 @@ public class ChatPresetService {
     private final AppConversationMapper conversationMapper;
     private final AppConversationStBindingMapper bindingMapper;
     private final StClient stClient;
+    private final ChatRuntimeDefaultSettingsService runtimeDefaultSettingsService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ChatPresetService(
             AppChatPresetMapper presetMapper,
             AppConversationMapper conversationMapper,
             AppConversationStBindingMapper bindingMapper,
-            StClient stClient
+            StClient stClient,
+            ChatRuntimeDefaultSettingsService runtimeDefaultSettingsService
     ) {
         this.presetMapper = presetMapper;
         this.conversationMapper = conversationMapper;
         this.bindingMapper = bindingMapper;
         this.stClient = stClient;
+        this.runtimeDefaultSettingsService = runtimeDefaultSettingsService;
     }
 
     @Transactional
@@ -99,11 +102,8 @@ public class ChatPresetService {
                 preset.setApiType(API_OPENAI);
                 preset.setSourceName(name);
                 preset.setName(name);
-                JsonNode effectiveGeneration = "default".equalsIgnoreCase(name.trim())
-                        ? normalizeGlobalDefaultGeneration(generation)
-                        : generation;
-                preset.setDescription(buildDescription(effectiveGeneration));
-                preset.setBundleJson(buildBundleJson(effectiveGeneration));
+                preset.setDescription(buildDescription(generation));
+                preset.setBundleJson(buildBundleJson(generation));
                 preset.setEnabled(true);
                 preset.setSourceAvailable(true);
                 preset.setGlobalDefault("default".equalsIgnoreCase(name.trim()));
@@ -318,13 +318,6 @@ public class ChatPresetService {
                 return null;
             }
         }
-        // The ST settings file is the source of truth for the global default.
-        // A previously synchronized DB row may still contain the legacy runtime
-        // override (for example max_tokens=2805). Normalize it at read time so
-        // existing conversations immediately use the same effective defaults as
-        // the ST browser, without requiring a destructive data migration or a
-        // manual re-sync. This is applied only to the public global default;
-        // explicitly selected public/private presets retain their own values.
         String bundleJson = preset.getBundleJson();
         if (Boolean.TRUE.equals(preset.getGlobalDefault())) {
             try {
@@ -335,8 +328,9 @@ public class ChatPresetService {
                     ObjectNode generation = generationNode.isObject()
                             ? (ObjectNode) generationNode
                             : objectMapper.createObjectNode();
-                    generation.put("openai_max_tokens", 2536);
-                    generation.put("openai_max_context", 300000);
+                    ChatRuntimeDefaultSettingsService.Settings defaults = runtimeDefaultSettingsService.current();
+                    generation.put("openai_max_tokens", defaults.maxTokens());
+                    generation.put("openai_max_context", defaults.maxContext());
                     root.set("generation", generation);
                     bundleJson = objectMapper.writeValueAsString(root);
                 }
@@ -647,15 +641,6 @@ public class ChatPresetService {
         root.put("api_type", API_OPENAI);
         root.put("source_type", SOURCE_ST_PLATFORM);
         return objectMapper.writeValueAsString(root);
-    }
-
-    private JsonNode normalizeGlobalDefaultGeneration(JsonNode generation) {
-        ObjectNode normalized = generation != null && generation.isObject()
-                ? ((ObjectNode) generation).deepCopy()
-                : objectMapper.createObjectNode();
-        normalized.put("openai_max_tokens", 2536);
-        normalized.put("openai_max_context", 300000);
-        return normalized;
     }
 
     private String buildDescription(JsonNode generation) {

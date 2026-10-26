@@ -1318,6 +1318,7 @@ function draftPayload(confirmSharedAccountChange = false) {
 }
 
 function discoverModels() {
+  if (discovering.value) return Promise.resolve()
   discovering.value = true
   return discoverAiModels(draftPayload())
     .then((res) => {
@@ -1333,6 +1334,7 @@ function discoverModels() {
 }
 
 function probeDraft() {
+  if (probing.value) return Promise.resolve()
   probing.value = true
   return probeAiCapability(draftPayload())
     .then((res) => {
@@ -1349,7 +1351,9 @@ function probeSaved(row) {
 }
 
 function submitProvider() {
+  if (savingProvider.value) return Promise.resolve()
   const save = (confirmed = false) => {
+    if (savingProvider.value) return Promise.resolve()
     savingProvider.value = true
     return saveAiProvider(draftPayload(confirmed))
     .then(() => {

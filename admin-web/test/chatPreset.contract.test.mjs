@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const preset = fs.readFileSync(path.join(root, 'src/views/jiugai/chatpreset/index.vue'), 'utf8')
 const entitlement = fs.readFileSync(path.join(root, 'src/views/jiugai/entitlement/index.vue'), 'utf8')
+const presetApi = fs.readFileSync(path.join(root, 'src/api/jiugai/chatPreset.js'), 'utf8')
 
 test('聊天预设后台明确展示 ST 来源状态并阻止启用失效来源', () => {
   assert.match(preset, /label="ST 来源"/)
@@ -21,6 +22,15 @@ test('ST 同步结果展示导入、跳过、失效数量和有界警告详情',
   assert.match(preset, /Array\.isArray\(data\.warnings\)/)
   assert.match(preset, /warnings\.slice\(0, 5\)/)
   assert.match(preset, /proxy\.\$modal\.msgWarning\(/)
+})
+
+test('系统默认参数从独立接口读取保存并沿用预设编辑权限', () => {
+  assert.match(preset, /系统默认聊天参数/)
+  assert.match(preset, /getChatPresetGlobalDefault\(\)/)
+  assert.match(preset, /saveChatPresetGlobalDefault\(\{ maxTokens, maxContext \}\)/)
+  assert.match(preset, /v-hasPermi="\['content:chat-preset:edit'\]"/)
+  assert.match(presetApi, /url: '\/admin\/jiugai\/chat-preset\/global-default'/)
+  assert.match(presetApi, /method: 'put'/)
 })
 
 test('站点规则提供系统预设和我的预设两个独立显示开关', () => {

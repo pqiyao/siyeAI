@@ -1,6 +1,7 @@
 package com.example.sillyspringboot.admin.web;
 
 import com.example.sillyspringboot.ops.service.ChatPresetService;
+import com.example.sillyspringboot.ops.service.ChatRuntimeDefaultSettingsService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import org.junit.jupiter.api.Test;
 
@@ -17,7 +18,8 @@ class AdminJiugaiChatPresetControllerTest {
     @Test
     void statusRequiresJsonBoolean() {
         ChatPresetService service = mock(ChatPresetService.class);
-        AdminJiugaiChatPresetController controller = new AdminJiugaiChatPresetController(service);
+        AdminJiugaiChatPresetController controller = new AdminJiugaiChatPresetController(
+                service, mock(ChatRuntimeDefaultSettingsService.class));
 
         assertThatThrownBy(() -> controller.status(12L, Map.of("enabled", "1")))
                 .isInstanceOf(BusinessException.class)
@@ -33,10 +35,26 @@ class AdminJiugaiChatPresetControllerTest {
     void statusAcceptsJsonBoolean() {
         ChatPresetService service = mock(ChatPresetService.class);
         when(service.updateStatus(12L, true)).thenReturn(true);
-        AdminJiugaiChatPresetController controller = new AdminJiugaiChatPresetController(service);
+        AdminJiugaiChatPresetController controller = new AdminJiugaiChatPresetController(
+                service, mock(ChatRuntimeDefaultSettingsService.class));
 
         controller.status(12L, Map.of("enabled", true));
 
         verify(service).updateStatus(12L, true);
+    }
+
+    @Test
+    void globalDefaultParametersAreSavedThroughDedicatedSettingsService() {
+        ChatRuntimeDefaultSettingsService settings = mock(ChatRuntimeDefaultSettingsService.class);
+        when(settings.save(Map.of("maxTokens", 2536, "maxContext", 300000)))
+                .thenReturn(new ChatRuntimeDefaultSettingsService.Settings(2536, 300000, "database"));
+        when(settings.toMap(new ChatRuntimeDefaultSettingsService.Settings(2536, 300000, "database")))
+                .thenReturn(Map.of("maxTokens", 2536, "maxContext", 300000, "source", "database"));
+        AdminJiugaiChatPresetController controller = new AdminJiugaiChatPresetController(
+                mock(ChatPresetService.class), settings);
+
+        controller.updateGlobalDefault(Map.of("maxTokens", 2536, "maxContext", 300000));
+
+        verify(settings).save(Map.of("maxTokens", 2536, "maxContext", 300000));
     }
 }

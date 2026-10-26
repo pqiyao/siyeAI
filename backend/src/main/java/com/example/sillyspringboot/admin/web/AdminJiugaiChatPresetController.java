@@ -3,6 +3,7 @@ package com.example.sillyspringboot.admin.web;
 import com.example.sillyspringboot.admin.security.AdminPermitted;
 import com.example.sillyspringboot.admin.web.support.AdminAjaxResult;
 import com.example.sillyspringboot.ops.service.ChatPresetService;
+import com.example.sillyspringboot.ops.service.ChatRuntimeDefaultSettingsService;
 import com.example.sillyspringboot.shared.error.BusinessException;
 import com.example.sillyspringboot.shared.error.ErrorCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -23,9 +24,14 @@ import java.util.Map;
 public class AdminJiugaiChatPresetController {
 
     private final ChatPresetService chatPresetService;
+    private final ChatRuntimeDefaultSettingsService runtimeDefaultSettingsService;
 
-    public AdminJiugaiChatPresetController(ChatPresetService chatPresetService) {
+    public AdminJiugaiChatPresetController(
+            ChatPresetService chatPresetService,
+            ChatRuntimeDefaultSettingsService runtimeDefaultSettingsService
+    ) {
         this.chatPresetService = chatPresetService;
+        this.runtimeDefaultSettingsService = runtimeDefaultSettingsService;
     }
 
     @GetMapping("/list")
@@ -56,6 +62,21 @@ public class AdminJiugaiChatPresetController {
     @AdminPermitted("content:chat-preset:edit")
     public Map<String, Object> syncSt() {
         return AdminAjaxResult.okData(chatPresetService.syncOpenAiPlatformPresetsFromSt());
+    }
+
+    @GetMapping("/global-default")
+    public Map<String, Object> globalDefault() {
+        return AdminAjaxResult.okData(runtimeDefaultSettingsService.toMap(
+                runtimeDefaultSettingsService.current()
+        ));
+    }
+
+    @PutMapping("/global-default")
+    @AdminPermitted("content:chat-preset:edit")
+    public Map<String, Object> updateGlobalDefault(@RequestBody(required = false) Map<String, Object> body) {
+        return AdminAjaxResult.okData(runtimeDefaultSettingsService.toMap(
+                runtimeDefaultSettingsService.save(body)
+        ));
     }
 
     @PutMapping("/{id}/status")

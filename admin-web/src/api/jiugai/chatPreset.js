@@ -32,6 +32,21 @@ export function syncStChatPresets() {
   })
 }
 
+export function getChatPresetGlobalDefault() {
+  return sillyRequest({
+    url: '/admin/jiugai/chat-preset/global-default',
+    method: 'get'
+  })
+}
+
+export function saveChatPresetGlobalDefault(data) {
+  return sillyRequest({
+    url: '/admin/jiugai/chat-preset/global-default',
+    method: 'put',
+    data
+  })
+}
+
 export function updateChatPresetStatus(id, enabled) {
   return sillyRequest({
     url: '/admin/jiugai/chat-preset/' + id + '/status',

@@ -30,6 +30,10 @@ class EnsembleChatMigrationTest {
 
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         assertThat(jdbc.queryForObject(
+                "SELECT setting_value FROM app_runtime_setting WHERE setting_key = 'chat_runtime_default'",
+                String.class
+        )).isEqualTo("{\"maxTokens\":1000,\"maxContext\":65536}");
+        assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'app_message_segment'",
                 Integer.class
         )).isEqualTo(1);

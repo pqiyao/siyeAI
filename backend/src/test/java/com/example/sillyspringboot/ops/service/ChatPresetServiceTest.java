@@ -156,6 +156,8 @@ class ChatPresetServiceTest {
         preset.setGlobalDefault(true);
         preset.setBundleJson("{\"generation\":{\"openai_max_tokens\":1000,\"openai_max_context\":65536}}");
         when(fixture.presetMapper.findEnabledGlobalDefault()).thenReturn(preset);
+        when(fixture.runtimeDefaultSettingsService.current()).thenReturn(
+                new ChatRuntimeDefaultSettingsService.Settings(1000, 65536, "legacy-default"));
 
         JsonNode resolved = new ObjectMapper().readTree(fixture.service.resolveRuntimePresetBundle(binding));
 
@@ -165,22 +167,24 @@ class ChatPresetServiceTest {
     }
 
     @Test
-    void staleGlobalDefaultRowIsNormalizedAtReadTime() throws Exception {
+    void globalRuntimeSettingsOverrideOnlyTheDefaultPresetSnapshot() throws Exception {
         Fixture fixture = fixture();
         AppConversationStBinding binding = new AppConversationStBinding();
         binding.setUserId(USER_ID);
         AppChatPreset preset = preset(1L, null, "PUBLIC", true);
         preset.setName("Default");
         preset.setGlobalDefault(true);
-        // Simulate a row synchronized before the global-default normalization
-        // was introduced. Runtime resolution must still match ST's 1000/65536.
+        // The ST snapshot can contain different values; app runtime policy wins
+        // only when this row is selected as the global default.
         preset.setBundleJson("{\"generation\":{\"openai_max_tokens\":2805,\"openai_max_context\":2000000}}");
         when(fixture.presetMapper.findEnabledGlobalDefault()).thenReturn(preset);
+        when(fixture.runtimeDefaultSettingsService.current()).thenReturn(
+                new ChatRuntimeDefaultSettingsService.Settings(2536, 300000, "database"));
 
         JsonNode resolved = new ObjectMapper().readTree(fixture.service.resolveRuntimePresetBundle(binding));
 
-        assertThat(resolved.path("generation").path("openai_max_tokens").asInt()).isEqualTo(1000);
-        assertThat(resolved.path("generation").path("openai_max_context").asInt()).isEqualTo(65536);
+        assertThat(resolved.path("generation").path("openai_max_tokens").asInt()).isEqualTo(2536);
+        assertThat(resolved.path("generation").path("openai_max_context").asInt()).isEqualTo(300000);
     }
 
     @Test
@@ -196,10 +200,11 @@ class ChatPresetServiceTest {
 
         assertThat(resolved.path("_effective_preset_id").asLong()).isEqualTo(5L);
         verify(fixture.presetMapper, never()).findEnabledGlobalDefault();
+        verify(fixture.runtimeDefaultSettingsService, never()).current();
     }
 
     @Test
-    void syncingDefaultForcesApprovedGlobalBudgets() throws Exception {
+    void syncingDefaultPreservesStSnapshotBudgets() throws Exception {
         Fixture fixture = fixture();
         JsonNode envelope = new ObjectMapper().readTree("""
                 {"openai_setting_names":["Default"],
@@ -214,8 +219,8 @@ class ChatPresetServiceTest {
         verify(fixture.presetMapper).upsertPlatformPreset(captor.capture());
         JsonNode generation = new ObjectMapper().readTree(captor.getValue().getBundleJson()).path("generation");
         assertThat(captor.getValue().getGlobalDefault()).isTrue();
-        assertThat(generation.path("openai_max_tokens").asInt()).isEqualTo(1000);
-        assertThat(generation.path("openai_max_context").asInt()).isEqualTo(65536);
+        assertThat(generation.path("openai_max_tokens").asInt()).isEqualTo(300);
+        assertThat(generation.path("openai_max_context").asInt()).isEqualTo(4095);
     }
 
     @Test
@@ -391,9 +396,12 @@ class ChatPresetServiceTest {
         AppConversationMapper conversationMapper = mock(AppConversationMapper.class);
         AppConversationStBindingMapper bindingMapper = mock(AppConversationStBindingMapper.class);
         StClient stClient = mock(StClient.class);
+        ChatRuntimeDefaultSettingsService runtimeDefaultSettingsService = mock(ChatRuntimeDefaultSettingsService.class);
         when(presetMapper.lockOwnerUser(USER_ID)).thenReturn(USER_ID);
-        ChatPresetService service = new ChatPresetService(presetMapper, conversationMapper, bindingMapper, stClient);
-        return new Fixture(service, presetMapper, conversationMapper, bindingMapper, stClient);
+        ChatPresetService service = new ChatPresetService(
+                presetMapper, conversationMapper, bindingMapper, stClient, runtimeDefaultSettingsService);
+        return new Fixture(service, presetMapper, conversationMapper, bindingMapper, stClient,
+                runtimeDefaultSettingsService);
     }
 
     private record Fixture(
@@ -401,7 +409,8 @@ class ChatPresetServiceTest {
             AppChatPresetMapper presetMapper,
             AppConversationMapper conversationMapper,
             AppConversationStBindingMapper bindingMapper,
-            StClient stClient
+            StClient stClient,
+            ChatRuntimeDefaultSettingsService runtimeDefaultSettingsService
     ) {
     }
 }

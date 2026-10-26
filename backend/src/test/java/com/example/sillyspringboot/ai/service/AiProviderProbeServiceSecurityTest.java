@@ -36,6 +36,19 @@ class AiProviderProbeServiceSecurityTest {
     }
 
     @Test
+    void allowsFakeIpCompatibilityOnlyForBuiltinProviderHost() {
+        AiRoutingService.DraftCredential deepseek = draft(AiCapability.CHAT, "deepseek");
+        AiRoutingService.DraftCredential custom = draft(AiCapability.CHAT, "custom");
+
+        assertThat(AiProviderProbeService.allowsProviderFakeIp(
+                deepseek, URI.create("https://api.deepseek.com/v1/models"))).isTrue();
+        assertThat(AiProviderProbeService.allowsProviderFakeIp(
+                deepseek, URI.create("https://example.com/v1/models"))).isFalse();
+        assertThat(AiProviderProbeService.allowsProviderFakeIp(
+                custom, URI.create("https://api.deepseek.com/v1/models"))).isFalse();
+    }
+
+    @Test
     void providerCatalogRejectsPlaintextCredentialEndpoints() {
         AiProviderCatalogService catalog = new AiProviderCatalogService();
 
@@ -194,8 +207,12 @@ class AiProviderProbeServiceSecurityTest {
     }
 
     private static AiRoutingService.DraftCredential draft(AiCapability capability) {
+        return draft(capability, "custom");
+    }
+
+    private static AiRoutingService.DraftCredential draft(AiCapability capability, String vendor) {
         return new AiRoutingService.DraftCredential(
-                null, null, "custom", "https://example.com/v1", "key", capability,
+                null, null, vendor, "https://example.com/v1", "key", capability,
                 "model", "", 10, 90);
     }
 

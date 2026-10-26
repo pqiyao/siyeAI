@@ -39,6 +39,17 @@ public class AiProviderProbeService {
     private static final int MAX_ERROR_BODY = 2_000;
     private static final int MAX_MODELS = 2_000;
     private static final int MAX_RESPONSE_BODY = 16 * 1024 * 1024;
+    private static final Map<String, String> BUILTIN_PROVIDER_HOSTS = Map.of(
+            "siliconflow", "api.siliconflow.cn",
+            "openai", "api.openai.com",
+            "openrouter", "openrouter.ai",
+            "deepseek", "api.deepseek.com",
+            "groq", "api.groq.com",
+            "mistralai", "api.mistral.ai",
+            "moonshot", "api.moonshot.cn",
+            "xai", "api.x.ai",
+            "fireworks", "api.fireworks.ai"
+    );
     private static final byte[] STT_PROBE_WAV = loadSttProbeWav();
     private static final String VISION_PROBE_IMAGE =
             "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAABxSURBVFhH7c6xDQBADIPA7L/0fw8VShtLtCfPm3mrlhuBteXuwB24A3fgDtyBO7AW+CdHsE5gjWCdwBrBOoE1gnUCawTrBNYI1gmsEawTWCNYJ7BGsE5gjWCdwBrBOoE1gnUCawTrBNYI1gmsEawTGPv33vSmDAD7zQAAAABJRU5ErkJggg==";
@@ -260,7 +271,7 @@ public class AiProviderProbeService {
 
     private HttpRequest.Builder requestBuilder(AiRoutingService.DraftCredential draft, String path, String accept) {
         URI target = URI.create(trimTrailingSlash(draft.baseUrl()) + path);
-        validatePublicTarget(target);
+        validatePublicTarget(target, allowsProviderFakeIp(draft, target));
         return HttpRequest.newBuilder(target)
                 .timeout(Duration.ofSeconds(draft.requestTimeoutSeconds()))
                 .header("Authorization", "Bearer " + draft.apiKey())
@@ -273,7 +284,7 @@ public class AiProviderProbeService {
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         try {
-            validatePublicTarget(request.uri());
+            validatePublicTarget(request.uri(), allowsProviderFakeIp(draft, request.uri()));
             HttpResponse<InputStream> raw = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
             byte[] body;
             try (InputStream input = raw.body()) {
@@ -429,6 +440,10 @@ public class AiProviderProbeService {
     }
 
     static void validatePublicTarget(URI target) {
+        validatePublicTarget(target, false);
+    }
+
+    private static void validatePublicTarget(URI target, boolean allowProviderFakeIp) {
         if (target == null
                 || target.getScheme() == null
                 || !"https".equalsIgnoreCase(target.getScheme())
@@ -443,6 +458,9 @@ public class AiProviderProbeService {
                 throw validation("探测地址无法解析");
             }
             for (InetAddress address : addresses) {
+                if (allowProviderFakeIp && isProviderFakeIp(address)) {
+                    continue;
+                }
                 if (!isPublicAddress(address)) {
                     throw validation("探测地址指向内网或保留网络，已拒绝访问");
                 }
@@ -452,6 +470,25 @@ public class AiProviderProbeService {
         } catch (IOException ex) {
             throw validation("探测地址无法解析");
         }
+    }
+
+    static boolean allowsProviderFakeIp(AiRoutingService.DraftCredential draft, URI target) {
+        if (draft == null || target == null || target.getHost() == null) {
+            return false;
+        }
+        String expectedHost = BUILTIN_PROVIDER_HOSTS.get(
+                draft.vendor() == null ? "" : draft.vendor().trim().toLowerCase(Locale.ROOT));
+        return expectedHost != null && expectedHost.equalsIgnoreCase(target.getHost());
+    }
+
+    private static boolean isProviderFakeIp(InetAddress address) {
+        byte[] bytes = address == null ? null : address.getAddress();
+        if (!(address instanceof Inet4Address) || bytes == null || bytes.length != 4) {
+            return false;
+        }
+        int a = bytes[0] & 0xff;
+        int b = bytes[1] & 0xff;
+        return a == 198 && b >= 18 && b <= 19;
     }
 
     private static boolean isPublicAddress(InetAddress address) {

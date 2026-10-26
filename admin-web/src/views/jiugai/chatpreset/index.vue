@@ -5,8 +5,41 @@
       type="info"
       :closable="false"
       show-icon
-      title="这里管理从 ST OpenAI Settings 同步来的官方聊天预设。ST 中消失或损坏的预设会标记为来源失效并停止用户会话使用；本页不会写 ST 全局 settings。"
+      title="官方预设是 ST 同步快照；下方全局默认运行参数单独保存，ST 同步不会覆盖。"
     />
+
+    <el-card class="mb12" shadow="never">
+      <template #header>
+        <div class="card-head">
+          <span>系统默认聊天参数</span>
+          <el-tag :type="globalDefault.source === 'database' ? 'success' : 'info'" effect="plain">
+            {{ globalDefault.source === 'database' ? '数据库配置' : '兼容默认值' }}
+          </el-tag>
+        </div>
+      </template>
+      <el-alert
+        class="mb12"
+        type="info"
+        :closable="false"
+        title="仅对使用“系统默认”的会话生效；会话明确选择的官方预设或我的预设不受影响。"
+      />
+      <el-form :model="globalDefault" inline label-width="130px">
+        <el-form-item label="最大输出 Token">
+          <el-input-number v-model="globalDefault.maxTokens" :min="64" :max="8192" :step="64" />
+        </el-form-item>
+        <el-form-item label="最大上下文长度">
+          <el-input-number v-model="globalDefault.maxContext" :min="2048" :max="300000" :step="1024" />
+        </el-form-item>
+        <el-form-item>
+          <el-button
+            v-hasPermi="['content:chat-preset:edit']"
+            type="primary"
+            :loading="savingGlobalDefault"
+            @click="handleSaveGlobalDefault"
+          >保存全局参数</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
 
     <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
       <el-form-item label="关键词" prop="keyword">
@@ -181,9 +214,11 @@
 <script setup name="JgChatPreset">
 import {
   delChatPreset,
+  getChatPresetGlobalDefault,
   getChatPreset,
   listChatPreset,
   syncStChatPresets,
+  saveChatPresetGlobalDefault,
   updateChatPresetSort,
   updateChatPresetStatus
 } from '@/api/jiugai/chatPreset'
@@ -199,6 +234,8 @@ const presetList = ref([])
 const total = ref(0)
 const detailOpen = ref(false)
 const detail = ref({})
+const savingGlobalDefault = ref(false)
+const globalDefault = reactive({ maxTokens: 1000, maxContext: 65536, source: 'legacy-default' })
 
 const queryParams = reactive({
   pageNum: 1,
@@ -225,6 +262,41 @@ function getList() {
     })
     .finally(() => {
       loading.value = false
+    })
+}
+
+function loadGlobalDefault() {
+  getChatPresetGlobalDefault()
+    .then((res) => {
+      Object.assign(globalDefault, res.data || {})
+    })
+    .catch((e) => {
+      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '加载系统默认聊天参数失败'))
+    })
+}
+
+function handleSaveGlobalDefault() {
+  const maxTokens = Number(globalDefault.maxTokens)
+  const maxContext = Number(globalDefault.maxContext)
+  if (!Number.isInteger(maxTokens) || maxTokens < 64 || maxTokens > 8192) {
+    proxy.$modal.msgError('最大输出 Token 必须为 64–8192 的整数')
+    return
+  }
+  if (!Number.isInteger(maxContext) || maxContext < Math.max(2048, maxTokens + 512) || maxContext > 300000) {
+    proxy.$modal.msgError('最大上下文长度必须为 maxTokens + 512 至 300000')
+    return
+  }
+  savingGlobalDefault.value = true
+  saveChatPresetGlobalDefault({ maxTokens, maxContext })
+    .then((res) => {
+      Object.assign(globalDefault, res.data || {})
+      proxy.$modal.msgSuccess('系统默认聊天参数已保存')
+    })
+    .catch((e) => {
+      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '保存系统默认聊天参数失败'))
+    })
+    .finally(() => {
+      savingGlobalDefault.value = false
     })
 }
 
@@ -335,9 +407,17 @@ function summaryValue(row, key) {
 }
 
 getList()
+loadGlobalDefault()
 </script>
 
 <style scoped>
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .mb12 {
   margin-bottom: 12px;
 }

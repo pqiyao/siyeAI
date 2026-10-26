@@ -78,6 +78,45 @@ public class ConversationMemoryCleanupService {
         memoryMapper.deleteByConversationId(conversationId);
     }
 
+    /** Queue ST worldbook cleanup while allowing character database deletion to commit. */
+    @Transactional
+    public void clearConversationMemoryForCharacterDeletion(long conversationId, long sourceUserId) {
+        if (conversationId <= 0 || sourceUserId <= 0) {
+            return;
+        }
+        Set<Long> branchIds = new LinkedHashSet<>();
+        branchIds.add(0L);
+        List<AppConversationMemory> memories = memoryMapper.listByConversationId(conversationId);
+        if (memories != null) {
+            memories.stream()
+                    .filter(memory -> memory != null && memory.getBranchId() != null && memory.getBranchId() > 0)
+                    .map(AppConversationMemory::getBranchId)
+                    .forEach(branchIds::add);
+        }
+        List<Long> knownBranchIds = branchMapper.listAllIdsByConversationId(conversationId);
+        if (knownBranchIds != null) {
+            knownBranchIds.stream()
+                    .filter(branchId -> branchId != null && branchId > 0)
+                    .forEach(branchIds::add);
+        }
+        for (Long branchId : branchIds) {
+            Long scopedBranchId = branchId != null && branchId > 0 ? branchId : null;
+            try {
+                String worldName = worldbookSyncService.resolveWorldName(conversationId, scopedBranchId);
+                if (worldName == null || worldName.isBlank()) {
+                    continue;
+                }
+                externalCleanupTaskService.enqueueMemoryWorldbookSetDeletion(
+                        sourceUserId, conversationId, worldName.trim());
+            } catch (RuntimeException ex) {
+                log.warn("memory worldbook cleanup was not queued during character deletion conversationId={} branchId={}: {}",
+                        conversationId, scopedBranchId, ex.toString());
+            }
+        }
+        entryMapper.softDeleteByConversationId(conversationId);
+        memoryMapper.deleteByConversationId(conversationId);
+    }
+
     @Transactional
     public void clearBranchMemory(long conversationId, long branchId, long sourceUserId) {
         if (conversationId <= 0 || branchId <= 0 || sourceUserId <= 0) {

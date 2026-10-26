@@ -38,6 +38,7 @@ const appearance = require(path.join(projectRoot, 'common', 'chatAppearance.js')
 const chatMarkdown = require(path.join(projectRoot, 'common', 'chatMarkdown.js'));
 const structuredContent = require(path.join(projectRoot, 'common', 'chatStructuredContent.js'));
 const chatSource = fs.readFileSync(path.join(projectRoot, 'pages', 'tavern', 'tavernChat.vue'), 'utf8');
+const chatMessageListSource = fs.readFileSync(path.join(projectRoot, 'components', 'tavern', 'chat-message-list.vue'), 'utf8');
 const settingSource = fs.readFileSync(path.join(projectRoot, 'pages', 'user', 'chatAppearanceSetting.vue'), 'utf8');
 const bubbleSource = fs.readFileSync(path.join(projectRoot, 'components', 'tavern', 'message-bubble.vue'), 'utf8');
 const messageComponentSources = [
@@ -169,14 +170,16 @@ assert.strictEqual(softContentVars['--chat-user-content-accent'], '#3f8d91', 'li
 assert(chatSource.includes("'chat-message-bubble--assistant'"), 'shared assistant bubble class must be present');
 assert(chatSource.includes('buildBubbleStyleObject(message, this.chatAppearanceConfig)'), 'both runtimes must bind the shared bubble style object');
 assert(chatSource.includes('buildMessageTextStyleObject(\'assistant\', this.chatAppearanceConfig)'), 'assistant text must use the shared style object');
-assert(chatSource.includes('nativeSegmentTextStyle(seg)'), 'APP segment text settings must bind directly');
+assert(chatMessageListSource.includes('controller.nativeSegmentTextStyle(seg)'), 'APP segment text settings must bind directly');
+assert(chatSource.includes('<chat-message-list :controller="chatMessageListController"></chat-message-list>'), 'the chat page must mount the extracted message list');
+assert(!/<scroll-view\s+class="chat-scroll"/.test(chatSource), 'the chat page must delegate its message scroll view to ChatMessageList');
 assert(chatSource.includes('if (this.isStreamingAssistantRow(message))'), 'streaming replies must stay in one stable bubble until generation completes');
 assert(bubbleSource.includes('margin-bottom: 14rpx;'), 'segmented bubble spacing must leave visible breathing room');
 assert(bubbleSource.includes('gap: 10rpx;'), 'semantic segments inside a bubble must not be visually cramped');
 assert(settingSource.includes('margin-bottom: 14rpx;'), 'appearance preview spacing must match the real chat page');
 assert(bubbleSource.includes('class="chat-message-bubble"'), 'bubble component must expose one platform-neutral root');
-assert(/\.chat-message-row\s*\{[\s\S]*?display:\s*flex;[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;/.test(chatSource), 'the chat page must own message-row layout because the row is outside the bubble component scope');
-assert(/\.chat-message-avatar\s*\{[\s\S]*?min-width:\s*72rpx;[\s\S]*?max-width:\s*72rpx;[\s\S]*?object-fit:\s*cover;/.test(chatSource), 'the chat page must own fixed avatar sizing and cropping');
+assert(/\.chat-message-row\s*\{[\s\S]*?display:\s*flex;[\s\S]*?width:\s*100%;[\s\S]*?min-width:\s*0;/.test(chatMessageListSource), 'ChatMessageList must own message-row layout outside the bubble component');
+assert(/\.chat-message-avatar\s*\{[\s\S]*?min-width:\s*72rpx;[\s\S]*?max-width:\s*72rpx;[\s\S]*?object-fit:\s*cover;/.test(chatMessageListSource), 'ChatMessageList must own fixed avatar sizing and cropping');
 assert(!bubbleSource.includes('.chat-message-avatar {') && !bubbleSource.includes('.chat-message-row {'), 'bubble component styles must not target parent-owned rows or avatars');
 assert(!bubbleSource.includes('!important'), 'shared bubble component must not need priority overrides');
 assert(!chatSource.includes('bubble--app-plus'), 'legacy APP bubble selectors must stay removed from the chat page');

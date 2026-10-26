@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
-const chat = fs.readFileSync(path.join(root, 'pages', 'tavern', 'tavernChat.vue'), 'utf8');
+const chat = fs.readFileSync(path.join(root, 'pages', 'tavern', 'tavernChat.vue'), 'utf8')
+	+ fs.readFileSync(path.join(root, 'components', 'tavern', 'chat-message-list.vue'), 'utf8');
 const api = fs.readFileSync(path.join(root, 'common', 'tavernApi.js'), 'utf8');
 
 assert.match(chat, /characterImagePanel\.consistencyMode === 'free'/);
@@ -24,7 +25,7 @@ assert.match(api, /persistGeneratedRemoteImageViaUni\(resolvedRemoteUrl, persist
 assert.match(api, /var resolvedRemoteUrl = resolveJgAssetUrl\(safeUrl\)/);
 assert.match(api, /persistOptions\.requirePersisted === true/);
 assert.match(chat, /requirePersisted: this\.isAppPlus/);
-assert.match(chat, /@preview-image="previewChatMessageImages\(m, \$event\)"/);
+assert.match(chat, /@preview-image="(?:controller\.)?previewChatMessageImages\(m, \$event\)"/);
 assert.match(chat, /previewChatMessageImages\(message, index\)[\s\S]*?uni\.previewImage\(/);
 assert.match(chat, /characterImageGlobalState\.imageCanUse === false/);
 

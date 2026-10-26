@@ -12,8 +12,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class H5SocialService {
@@ -98,51 +101,132 @@ public class H5SocialService {
         if (cards == null || cards.isEmpty()) {
             return;
         }
-        if (clientUid == null || clientUid.isBlank()) {
-            for (Map<String, Object> card : cards) {
-                if (card != null) {
-                    applyCountsOnly(card, null);
-                }
+        Long userId = null;
+        if (clientUid != null && !clientUid.isBlank()) {
+            try {
+                String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
+                userId = tokenService.validateAndLoadUser(token).getId();
+            } catch (Exception ignored) {
+                // 社交态失败时仅降级，保证发现页可用。
             }
-            return;
         }
 
-        Long userId = null;
+        List<Long> characterIds = extractCharacterIds(cards);
+        if (characterIds.isEmpty()) {
+            return;
+        }
+        Map<Long, PublicCounts> countsByCharacter = new HashMap<>();
+        boolean countsLoaded = false;
         try {
-            String token = h5Auth.requireAuthenticatedTokenForClientUid(clientUid);
-            userId = tokenService.validateAndLoadUser(token).getId();
+            for (Map<String, Object> row : socialMapper.listInteractionCounts(characterIds)) {
+                long characterId = mapLong(row, "characterId");
+                if (characterId > 0) {
+                    countsByCharacter.put(characterId, new PublicCounts(
+                            mapLong(row, "likeCount"),
+                            mapLong(row, "dislikeCount")));
+                }
+            }
+            countsLoaded = true;
         } catch (Exception ignored) {
-            // 社交态失败时仅降级，保证发现页可用。
+            // 保留卡片已有的数据库计数，社交统计异常不能阻塞首页。
+        }
+
+        Set<Long> favoriteIds = Set.of();
+        Map<Long, String> votesByCharacter = Map.of();
+        boolean userStateLoaded = userId == null;
+        if (userId != null) {
+            try {
+                favoriteIds = new HashSet<>(socialMapper.listFavoriteCharacterIdsForUser(userId, characterIds));
+                Map<Long, String> loadedVotes = new HashMap<>();
+                for (Map<String, Object> row : socialMapper.listVotesForUser(userId, characterIds)) {
+                    long characterId = mapLong(row, "characterId");
+                    if (characterId > 0) {
+                        Object vote = mapValue(row, "vote");
+                        loadedVotes.put(characterId, vote == null ? "" : String.valueOf(vote));
+                    }
+                }
+                votesByCharacter = loadedVotes;
+                userStateLoaded = true;
+            } catch (Exception ignored) {
+                // 保留默认收藏/投票状态，社交统计异常不能阻塞首页。
+            }
         }
 
         for (Map<String, Object> card : cards) {
-            if (card != null) {
-                applyCountsOnly(card, userId);
+            if (card == null) {
+                continue;
+            }
+            long characterId = cardId(card);
+            if (characterId <= 0) {
+                continue;
+            }
+            if (countsLoaded) {
+                PublicCounts counts = countsByCharacter.getOrDefault(characterId, new PublicCounts(0L, 0L));
+                card.put("like_count", counts.likes());
+                card.put("dislike_count", counts.dislikes());
+            } else {
+                card.putIfAbsent("like_count", 0L);
+                card.putIfAbsent("dislike_count", 0L);
+            }
+            if (userId != null && userStateLoaded) {
+                card.put("is_favorite", favoriteIds.contains(characterId));
+                String vote = votesByCharacter.get(characterId);
+                card.put("user_vote", vote == null || vote.isBlank() ? "" : vote);
+            } else {
+                card.putIfAbsent("is_favorite", false);
+                card.putIfAbsent("user_vote", "");
             }
         }
     }
 
-    private void applyCountsOnly(Map<String, Object> card, Long userId) {
-        Object idObj = card.get("id");
-        long characterId = idObj instanceof Number number ? number.longValue() : 0L;
-        if (characterId <= 0) {
-            return;
+    private static List<Long> extractCharacterIds(List<Map<String, Object>> cards) {
+        Set<Long> ids = new java.util.LinkedHashSet<>();
+        for (Map<String, Object> card : cards) {
+            long id = cardId(card);
+            if (id > 0) {
+                ids.add(id);
+            }
         }
-
-        long likes = socialMapper.countVoteByCharacter(characterId, "like");
-        long dislikes = socialMapper.countVoteByCharacter(characterId, "dislike");
-        card.put("like_count", likes);
-        card.put("dislike_count", dislikes);
-        if (userId == null) {
-            card.putIfAbsent("is_favorite", false);
-            card.putIfAbsent("user_vote", "");
-            return;
-        }
-
-        card.put("is_favorite", socialMapper.isFavorite(userId, characterId));
-        String vote = socialMapper.findVote(userId, characterId);
-        card.put("user_vote", vote == null || vote.isBlank() ? "" : vote);
+        return new ArrayList<>(ids);
     }
+
+    private static long cardId(Map<String, Object> card) {
+        Object value = card == null ? null : card.get("id");
+        return value instanceof Number number ? number.longValue() : parseLong(value);
+    }
+
+    private static long mapLong(Map<String, Object> row, String key) {
+        return parseLong(mapValue(row, key));
+    }
+
+    private static Object mapValue(Map<String, Object> row, String key) {
+        if (row == null) {
+            return null;
+        }
+        Object direct = row.get(key);
+        if (direct != null) {
+            return direct;
+        }
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            if (entry.getKey() != null && entry.getKey().replace("_", "").equalsIgnoreCase(key.replace("_", ""))) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private static long parseLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
+    private record PublicCounts(long likes, long dislikes) {}
 
     @Transactional
     public InteractionResult toggleInteraction(String token, long characterId, String action) {

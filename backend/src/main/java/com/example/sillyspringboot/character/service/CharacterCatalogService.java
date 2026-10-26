@@ -14,6 +14,7 @@ import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterGetReq
 import com.example.sillyspringboot.integration.sillytavern.dto.StCharacterSummary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,17 +65,22 @@ public class CharacterCatalogService {
     @Transactional
     public List<AppCharacterSummaryDto> syncFeed(int limit) {
         int lim = Math.max(1, Math.min(500, limit));
-        refreshFeedFromStIfDue();
         return listFromDbOnly(lim);
+    }
+
+    /**
+     * ST 目录同步属于后台维护工作，不应阻塞首页发现列表请求。
+     * 首页始终读取本地目录；后台刷新失败时保留上一次成功的数据。
+     */
+    @Scheduled(initialDelay = 10_000L, fixedDelay = 300_000L)
+    @Transactional
+    public void refreshFeedInBackground() {
+        refreshFeedFromSt(false);
     }
 
     @Transactional
     public void refreshFeedFromStNow() {
         refreshFeedFromSt(true);
-    }
-
-    private void refreshFeedFromStIfDue() {
-        refreshFeedFromSt(false);
     }
 
     private void refreshFeedFromSt(boolean force) {

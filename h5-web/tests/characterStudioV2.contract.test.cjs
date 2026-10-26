@@ -4,7 +4,9 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
 const editor = fs.readFileSync(path.join(root, 'pages/tavern/tavernEditor.vue'), 'utf8');
-const chat = fs.readFileSync(path.join(root, 'pages/tavern/tavernChat.vue'), 'utf8');
+const chat = fs.readFileSync(path.join(root, 'pages/tavern/tavernChat.vue'), 'utf8')
+	+ fs.readFileSync(path.join(root, 'components/tavern/chat-message-list.vue'), 'utf8')
+	+ fs.readFileSync(path.join(root, 'components/tavern/chat-branch-panel.vue'), 'utf8');
 const api = fs.readFileSync(path.join(root, 'common/tavernApi.js'), 'utf8');
 const membersEditor = fs.readFileSync(path.join(root, 'components/tavern/character-members-editor.vue'), 'utf8');
 const openingsEditor = fs.readFileSync(path.join(root, 'components/tavern/character-openings-editor.vue'), 'utf8');

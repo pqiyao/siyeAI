@@ -1,4 +1,4 @@
-﻿<template>
+<template>
 	<view
 		class="wrap"
 		:class="[localeFontClass, {
@@ -72,367 +72,7 @@
 					@tap="toggleReplySuggestions"
 				>{{ tx('reply_help_title', 'AI帮答') }}</text>
 			</view>
-		<scroll-view
-			class="chat-scroll"
-			:class="{ 'chat-scroll--preparing': !chatViewportReady }"
-			scroll-y
-			:scroll-into-view="scrollTo"
-			:scroll-with-animation="chatScrollWithAnimation"
-			@scroll="onChatScroll"
-			@scrolltoupper="onChatScrollToUpper"
-			@scrolltolower="onChatScrollToLower"
-			@touchstart="onChatTouchStart"
-			@touchmove="onChatTouchMove"
-			@touchend="onChatTouchEnd"
-			@touchcancel="onChatTouchEnd"
-			:upper-threshold="60"
-			:lower-threshold="80"
-		>
-			<view
-				class="chat-scroll-content"
-				@touchstart="onChatTouchStart"
-				@touchmove="onChatTouchMove"
-				@touchend="onChatTouchEnd"
-				@touchcancel="onChatTouchEnd"
-			>
-				<view v-if="showHistoryLoadBanner()" class="chat-history-banner" :class="{ 'chat-history-banner--loading': messageHistoryLoading }">
-					<text class="chat-history-banner__text">{{ historyLoadBannerText() }}</text>
-				</view>
-				<view
-					v-for="m in messages"
-					:key="m.id"
-					:id="'m-' + m.id"
-					class="chat-message-row"
-					:class="[
-						m.role === 'user' ? 'chat-message-row--user' : 'chat-message-row--assistant',
-						{
-							'chat-message-row--read-empty': !messageVisibleInReadMode(m)
-						}
-					]"
-				>
-					<template v-if="shouldRenderStructuredAssistant(m)">
-						<view class="ensemble-message-list">
-							<view
-								v-for="(speakerSegment, speakerIndex) in structuredAssistantSegments(m)"
-								:key="String(m.id) + '-speaker-' + speakerSegment.index"
-								class="ensemble-message-segment"
-								:class="{ 'ensemble-message-segment--narrator': speakerSegment.type === 'NARRATOR' }"
-							>
-								<image
-									v-if="speakerSegment.type === 'CHARACTER'"
-									class="chat-message-avatar chat-message-avatar--character"
-									:src="structuredSegmentAvatar(speakerSegment)"
-									mode="aspectFill"
-									lazy-load
-									@tap.stop="openStructuredSegmentAvatar(speakerSegment)"
-									@longpress.stop="applyCharacterNameToDraft(speakerSegment.speakerName)"
-								></image>
-								<view v-else class="ensemble-narrator-rail"><view class="ensemble-narrator-mark"></view></view>
-								<message-bubble
-									:bubble-style="structuredSegmentBubbleStyle(m, speakerSegment)"
-									:bubble-class="structuredSegmentBubbleClass(speakerSegment)"
-								>
-									<text class="chat-message-speaker" :class="{ 'chat-message-speaker--narrator': speakerSegment.type === 'NARRATOR' }">{{ speakerSegment.speakerName }}</text>
-									<message-content
-										:image-urls="speakerIndex === 0 ? m.imageUrls : []"
-										:local-kind="speakerIndex === 0 ? m.localKind : ''"
-										:local-prompt="speakerIndex === 0 ? m.localPrompt : ''"
-										:quote-meta="speakerIndex === 0 ? messageQuoteMeta(m) : null"
-										:is-user="false"
-										:has-text="true"
-										@preview-image="previewChatMessageImages(m, $event)"
-									>
-										<!-- #ifdef H5 -->
-										<view
-											class="chat-message-markdown"
-											:style="assistantMessageTextStyle(m)"
-						v-html="mdHtml(speakerSegment.content, semanticForStructuredSegment(m, speakerSegment, speakerIndex))"
-											@tap="onMarkdownTap"
-											@touchstart="startMessageActionPress(m, $event)"
-											@touchmove="moveMessageActionPress($event)"
-											@touchend="endMessageActionPress"
-											@touchcancel="endMessageActionPress"
-										></view>
-										<!-- #endif -->
-										<!-- #ifndef H5 -->
-										<view :class="nativeMessageContentClass()">
-											<view
-							v-for="(nativeSegment, nativeIndex) in mdSegments(speakerSegment.content, semanticForStructuredSegment(m, speakerSegment, speakerIndex))"
-												:key="nativeIndex"
-												:class="nativeSegmentClass(nativeSegment)"
-												:style="nativeSegmentWrapStyle(nativeSegment)"
-											>
-												<view :class="nativeSegmentLineClass()" :style="nativeSegmentLineStyle()">
-													<text :class="nativeSegmentTextClass(nativeSegment)" :style="nativeSegmentTextStyle(nativeSegment)">{{ nativeSegment.text }}</text>
-												</view>
-											</view>
-										</view>
-										<!-- #endif -->
-										<message-actions
-											v-if="isLastStructuredSegment(m, speakerIndex) && messageActionsVisible(m)"
-											:message-id="m.id"
-											:is-app-plus="isAppPlus"
-											:streaming="false"
-											:streaming-status-text="''"
-											:show-assistant-voice="shouldShowAssistantVoicePill(m)"
-											:assistant-voice-label="assistantVoiceLabel(m)"
-											:assistant-voice-pill-class="assistantVoicePillClass(m)"
-											:show-swipe-controls="!m.openingMessage && m.swipes && m.swipes.length > 1"
-											:swipe-label="swipeLabel(m)"
-											:recovery="recoveryForMessage(m)"
-											:recovery-primary-label="recoveryPrimaryLabel()"
-											:recovery-regen-label="tx('regen', '重新生成')"
-											:recovery-copy-label="tx('copy', '复制')"
-											:can-copy-recovery="!!String(m.text || '').trim()"
-											@assistant-voice-toggle="toggleAssistantVoice(m)"
-											@swipe-previous="swipeCharMessage(m, -1)"
-											@swipe-next="swipeCharMessage(m, 1)"
-											@recovery-primary="runGenerationRecoveryPrimary"
-											@recovery-regen="runGenerationRecoveryRegen"
-											@recovery-copy="copyGenerationRecoveryText(m)"
-											@recovery-close="clearGenerationRecovery"
-										></message-actions>
-									</message-content>
-								</message-bubble>
-							</view>
-						</view>
-					</template>
-					<template v-else>
-					<image
-						v-if="m.role !== 'user'"
-						class="chat-message-avatar chat-message-avatar--character"
-						:src="m.speakerAvatarUrl || charAvatar"
-						mode="aspectFill"
-						lazy-load
-						@tap.stop="openCharImagePreview"
-						@longpress.stop="applyCharacterNameToDraft"
-					></image>
-					<message-bubble
-						:bubble-style="messageBubbleInlineStyle(m)"
-						:bubble-class="messageBubbleClass(m)"
-					>
-						<text v-if="m.role !== 'user' && m.speakerName" class="chat-message-speaker">{{ m.speakerName }}</text>
-						<message-content
-							:image-urls="m.imageUrls"
-							:local-kind="m.localKind"
-							:local-prompt="m.localPrompt"
-							:quote-meta="messageQuoteMeta(m)"
-							:is-user="m.role === 'user'"
-							:has-text="!!String(m.text || '').trim()"
-							@preview-image="previewChatMessageImages(m, $event)"
-						>
-						<!-- #ifdef H5 -->
-						<view
-							v-if="shouldRenderSplitBubbles(m)"
-							class="chat-message-split-list"
-						>
-							<view
-								v-for="(chunk, chunkIndex) in assistantBubbleChunks(m)"
-								:key="String(m.id) + '-split-' + chunkIndex"
-								class="chat-message-split-part"
-								:style="assistantSplitBubbleStyle(m, chunkIndex)"
-							>
-								<view
-									class="chat-message-markdown"
-									:style="assistantMessageTextStyle(m)"
-					v-html="mdHtml(chunk, semanticForBubbleChunk(m, chunk, chunkIndex))"
-									@tap="onMarkdownTap"
-									@touchstart="startMessageActionPress(m, $event)"
-									@touchmove="moveMessageActionPress($event)"
-									@touchend="endMessageActionPress"
-									@touchcancel="endMessageActionPress"
-								></view>
-							</view>
-						</view>
-						<view
-							v-else-if="isAssistantMessage(m)"
-							class="chat-message-markdown"
-							:style="assistantMessageTextStyle(m)"
-				v-html="mdHtml(m.text, m.semantic)"
-							@tap="onMarkdownTap"
-							@touchstart="startMessageActionPress(m, $event)"
-							@touchmove="moveMessageActionPress($event)"
-							@touchend="endMessageActionPress"
-							@touchcancel="endMessageActionPress"
-						></view>
-						<template v-else>
-							<voice-message-card
-								v-if="shouldShowUserVoiceCard(m)"
-								:message-id="m.id"
-								:card-class="userVoiceCardClass(m)"
-								:duration-label="userVoiceDurationLabel(m)"
-								:transcript-text="userVoiceTranscriptText(m)"
-								:can-edit="canEditUserMessage(m)"
-								:edit-label="chatUi.edit"
-								@toggle="toggleUserVoice(m)"
-								@edit="openEditUserMessage(m)"
-								@press-start="startMessageActionPress(m, $event)"
-								@press-move="moveMessageActionPress($event)"
-								@press-end="endMessageActionPress"
-								@press-cancel="endMessageActionPress"
-							></voice-message-card>
-							<template v-else>
-								<text
-									class="chat-message-user-text"
-									:style="userMessageTextStyle(m)"
-									@touchstart="startMessageActionPress(m, $event)"
-									@touchmove="moveMessageActionPress($event)"
-									@touchend="endMessageActionPress"
-									@touchcancel="endMessageActionPress"
-								>{{ m.text }}</text>
-								<text v-if="canEditUserMessage(m)" class="user-edit-tag" @tap.stop="openEditUserMessage(m)">{{ chatUi.edit }}</text>
-							</template>
-						</template>
-						<!-- #endif -->
-						<!-- #ifndef H5 -->
-						<view
-							v-if="shouldRenderSplitBubbles(m)"
-							class="chat-message-split-list"
-						>
-							<view
-								v-for="(chunk, chunkIndex) in assistantBubbleChunks(m)"
-								:key="String(m.id) + '-split-' + chunkIndex"
-								class="chat-message-split-part"
-								:style="assistantSplitBubbleStyle(m, chunkIndex)"
-								@touchstart="startMessageActionPress(m, $event)"
-								@touchmove="moveMessageActionPress($event)"
-								@touchend="endMessageActionPress"
-								@touchcancel="endMessageActionPress"
-							>
-								<view :class="nativeMessageContentClass()">
-									<view
-						v-for="(seg, si) in mdSegments(chunk, semanticForBubbleChunk(m, chunk, chunkIndex))"
-										:key="si"
-										:class="nativeSegmentClass(seg)"
-										:style="nativeSegmentWrapStyle(seg)"
-									>
-										<view :class="nativeSegmentLineClass()" :style="nativeSegmentLineStyle()">
-											<view
-												v-if="chatAppearanceSegmentLabelsEnabled"
-												:class="nativeSegmentLabelClass(seg)"
-												:style="nativeSegmentLabelStyle(seg)"
-											>
-												<text :class="nativeSegmentLabelTextClass()" :style="nativeSegmentLabelTextStyle(seg)">{{ nativeSegmentLabelText(seg) }}</text>
-											</view>
-											<text :class="nativeSegmentTextClass(seg)" :style="nativeSegmentTextStyle(seg)">{{ seg.text }}</text>
-										</view>
-									</view>
-								</view>
-							</view>
-						</view>
-						<view
-							v-else-if="isAssistantMessage(m)"
-							:class="nativeMessageContentClass()"
-							@touchstart="startMessageActionPress(m, $event)"
-							@touchmove="moveMessageActionPress($event)"
-							@touchend="endMessageActionPress"
-							@touchcancel="endMessageActionPress"
-						>
-							<view
-				v-for="(seg, si) in mdSegments(m.text, m.semantic)"
-								:key="si"
-								:class="nativeSegmentClass(seg)"
-								:style="nativeSegmentWrapStyle(seg)"
-							>
-								<view :class="nativeSegmentLineClass()" :style="nativeSegmentLineStyle()">
-									<view
-										v-if="chatAppearanceSegmentLabelsEnabled"
-										:class="nativeSegmentLabelClass(seg)"
-										:style="nativeSegmentLabelStyle(seg)"
-									>
-										<text :class="nativeSegmentLabelTextClass()" :style="nativeSegmentLabelTextStyle(seg)">{{ nativeSegmentLabelText(seg) }}</text>
-									</view>
-									<text
-										v-if="seg.type === 'speech'"
-										:class="nativeSegmentTextClass(seg)"
-										:style="nativeSegmentTextStyle(seg)"
-									>{{ seg.text }}</text>
-									<text
-										v-else-if="seg.type === 'action'"
-										:class="nativeSegmentTextClass(seg)"
-										:style="nativeSegmentTextStyle(seg)"
-									>{{ seg.text }}</text>
-									<text
-										v-else-if="seg.type === 'thought'"
-										:class="nativeSegmentTextClass(seg)"
-										:style="nativeSegmentTextStyle(seg)"
-									>{{ seg.text }}</text>
-									<text
-										v-else
-										:class="nativeSegmentTextClass(seg)"
-										:style="nativeSegmentTextStyle(seg)"
-									>{{ seg.text }}</text>
-								</view>
-							</view>
-						</view>
-						<view v-else>
-							<voice-message-card
-								v-if="shouldShowUserVoiceCard(m)"
-								:message-id="m.id"
-								:card-class="userVoiceCardClass(m)"
-								:duration-label="userVoiceDurationLabel(m)"
-								:transcript-text="userVoiceTranscriptText(m)"
-								:can-edit="canEditUserMessage(m)"
-								:edit-label="chatUi.edit"
-								@toggle="toggleUserVoice(m)"
-								@edit="openEditUserMessage(m)"
-								@press-start="startMessageActionPress(m, $event)"
-								@press-move="moveMessageActionPress($event)"
-								@press-end="endMessageActionPress"
-								@press-cancel="endMessageActionPress"
-							></voice-message-card>
-							<template v-else>
-								<text
-									:class="nativeUserMessageTextClass()"
-									:style="userMessageTextStyle(m)"
-									@touchstart="startMessageActionPress(m, $event)"
-									@touchmove="moveMessageActionPress($event)"
-									@touchend="endMessageActionPress"
-									@touchcancel="endMessageActionPress"
-								>{{ m.text }}</text>
-								<text v-if="canEditUserMessage(m)" class="user-edit-tag" @tap.stop="openEditUserMessage(m)">{{ chatUi.edit }}</text>
-							</template>
-						</view>
-						<!-- #endif -->
-						<message-actions
-							v-if="messageActionsVisible(m)"
-							:message-id="m.id"
-							:is-app-plus="isAppPlus"
-							:streaming="isStreamingAssistantRow(m)"
-							:streaming-status-text="streamingAssistantStatusText(m)"
-							:show-assistant-voice="shouldShowAssistantVoicePill(m)"
-							:assistant-voice-label="assistantVoiceLabel(m)"
-							:assistant-voice-pill-class="assistantVoicePillClass(m)"
-							:show-swipe-controls="isAssistantMessage(m) && !m.openingMessage && m.swipes && m.swipes.length > 1"
-							:swipe-label="swipeLabel(m)"
-							:recovery="recoveryForMessage(m)"
-							:recovery-primary-label="recoveryPrimaryLabel()"
-							:recovery-regen-label="tx('regen', '重新生成')"
-							:recovery-copy-label="tx('copy', '复制')"
-							:can-copy-recovery="!!String(m.text || '').trim()"
-							@assistant-voice-toggle="toggleAssistantVoice(m)"
-							@swipe-previous="swipeCharMessage(m, -1)"
-							@swipe-next="swipeCharMessage(m, 1)"
-							@recovery-primary="runGenerationRecoveryPrimary"
-							@recovery-regen="runGenerationRecoveryRegen"
-							@recovery-copy="copyGenerationRecoveryText(m)"
-							@recovery-close="clearGenerationRecovery"
-						></message-actions>
-						</message-content>
-					</message-bubble>
-					<image
-						v-if="m.role === 'user'"
-						class="chat-message-avatar"
-						:src="resolvedUserAvatar"
-						mode="aspectFill"
-						lazy-load
-						@error="handleUserAvatarError"
-					></image>
-					</template>
-				</view>
-				<view id="bottom-anchor" class="chat-bottom-anchor"></view>
-			</view>
-		</scroll-view>
+		<chat-message-list :controller="chatMessageListController"></chat-message-list>
 		<view v-if="showTypingHintRow()" class="typing-row" :class="{ 'typing-row--app-plus': isAppPlus }">
 			<text class="typing-hint">{{ tx('ai_thinking', '思考中...') }}</text>
 			<text v-if="showStopStream" class="stop-stream" @tap="stopGeneration">{{ chatUi.stop }}</text>
@@ -518,96 +158,7 @@
 				</view>
 			</view>
 		</view>
-		<view v-if="branchPanel.visible" class="branch-mask" @tap="closeBranchPanel">
-			<view class="branch-sheet" @tap.stop>
-				<view class="branch-head">
-					<view class="branch-head-copy">
-						<text class="branch-title">故事管理</text>
-						<text class="branch-sub">{{ branchPanel.loading ? tx('loading', '加载中...') : (branchPanel.mode === 'sessions' ? '管理这个角色的独立故事' : (branchPanel.mode === 'openings' ? '选择故事的开场' : '切换当前剧情路线')) }}</text>
-					</view>
-					<view
-						class="branch-close"
-						:title="tx('close', '关闭')"
-						:aria-label="tx('close', '关闭')"
-						@tap="closeBranchPanel"
-					>
-						<u-icon name="close" color="#64748b" size="30"></u-icon>
-					</view>
-				</view>
-				<view class="branch-tabs">
-					<view class="branch-tab" :class="{ 'branch-tab--active': branchPanel.mode === 'sessions' }" @tap="branchPanel.mode = 'sessions'">会话</view>
-					<view class="branch-tab" :class="{ 'branch-tab--active': branchPanel.mode === 'openings' }" @tap="branchPanel.mode = 'openings'">开场</view>
-					<view class="branch-tab" :class="{ 'branch-tab--active': branchPanel.mode === 'branches' }" @tap="branchPanel.mode = 'branches'">剧情分支</view>
-				</view>
-				<view v-if="branchPanel.mode === 'sessions'" class="branch-create" @tap="createStorySession">
-					<u-icon name="plus" color="#245b73" size="28"></u-icon><text>新建故事</text>
-				</view>
-				<scroll-view class="branch-scroll" scroll-y :show-scrollbar="false">
-					<view v-if="branchPanel.loading" class="branch-empty">
-						<text class="branch-empty-title">{{ tx('loading', '加载中...') }}</text>
-					</view>
-					<view v-else-if="branchPanel.error" class="branch-empty">
-						<text class="branch-empty-title">{{ tx('branch_load_failed', '分支加载失败') }}</text>
-						<text class="branch-empty-sub" @tap.stop="loadBranchPanel">{{ branchPanel.error }}</text>
-					</view>
-					<view v-else-if="!branchPanelRows.length" class="branch-empty">
-						<text class="branch-empty-title">{{ branchPanel.mode === 'sessions' ? '暂无独立会话' : (branchPanel.mode === 'openings' ? '暂无开场场景' : '暂无剧情分支') }}</text>
-						<text class="branch-empty-sub">{{ branchPanel.mode === 'sessions' ? '点击上方新建故事' : (branchPanel.mode === 'openings' ? '可以在角色卡编辑器中添加开场' : '长按任意消息即可从那里创建新路线') }}</text>
-					</view>
-					<view
-						v-for="row in branchPanelRows"
-						:key="'branch_row_' + row.id"
-						class="branch-row"
-						:class="{
-							'branch-row--active': row.active,
-							'branch-row--switching': branchPanel.switchingBranchId === row.id || branchPanel.deletingBranchId === row.id
-						}"
-						:style="row.kind === 'branch' && row.depth ? { paddingLeft: (24 + row.depth * 24) + 'rpx' } : null"
-						@tap.stop="switchBranch(row)"
-					>
-						<view class="branch-row-head">
-							<view class="branch-row-title-wrap">
-								<view class="branch-row-title-line">
-									<u-icon v-if="row.kind === 'branch' && row.depth" name="arrow-right" color="#94a3b8" size="22"></u-icon>
-									<text class="branch-row-title">{{ row.title }}</text>
-								</view>
-								<text class="branch-row-preview">{{ row.preview || tx('branch_no_preview', '暂无消息') }}</text>
-							</view>
-							<view class="branch-row-side">
-								<text class="branch-row-current">{{ row.active ? tx('branch_current', '当前') : (row.created ? tx('branch_continue', '继续') : tx('branch_start', '开始')) }}</text>
-								<view v-if="row.kind === 'branch' || row.kind === 'session'" class="branch-row-actions">
-									<u-icon name="edit-pen" color="#64748b" size="28" @tap.stop="openBranchRename(row)"></u-icon>
-									<u-icon v-if="row.kind === 'branch' && !row.defaultBranch" name="trash" color="#b45353" size="28" @tap.stop="deleteManagedBranch(row)"></u-icon>
-									<u-icon v-if="row.kind === 'session' && !row.active" name="trash" color="#b45353" size="28" @tap.stop="deleteStorySession(row)"></u-icon>
-								</view>
-							</view>
-						</view>
-						<view class="branch-row-meta">
-							<text v-if="row.created" class="branch-row-meta-text">{{ tx('branch_message_count', '{n} 条消息').replace('{n}', String(row.messageCount || 0)) }}</text>
-							<text v-else class="branch-row-meta-text">{{ tx('branch_new_story', '新剧情') }}</text>
-						</view>
-					</view>
-				</scroll-view>
-			</view>
-			<view v-if="branchPanel.editorVisible" class="branch-editor-mask" @tap.stop="closeBranchRename">
-				<view class="branch-editor" @tap.stop>
-					<text class="branch-editor-title">重命名</text>
-					<input
-						class="branch-editor-input"
-						v-model="branchPanel.editorTitle"
-						maxlength="80"
-						:disabled="branchPanel.editing"
-						placeholder="输入名称"
-						confirm-type="done"
-						@confirm="saveBranchRename"
-					/>
-					<view class="branch-editor-actions">
-						<text class="branch-editor-button" @tap="closeBranchRename">取消</text>
-						<text class="branch-editor-button branch-editor-button--primary" @tap="saveBranchRename">保存</text>
-					</view>
-				</view>
-			</view>
-		</view>
+		<chat-branch-panel :controller="chatBranchPanelController"></chat-branch-panel>
 		<view v-if="memoryPanel.visible" class="memory-mask" @tap="closeMemoryPanel">
 			<view class="memory-sheet" @tap.stop>
 				<view class="memory-head">
@@ -1425,6 +976,7 @@
 				</view>
 			</view>
 		</view>
+		
 		<chat-composer
 			ref="chatComposer"
 			v-model="draft"
@@ -1482,11 +1034,9 @@
 
 <script>
 	import TavernNavBar from '@/components/tavern/tavern-nav-bar.vue';
-	import MessageBubble from '@/components/tavern/message-bubble.vue';
-	import MessageContent from '@/components/tavern/message-content.vue';
-	import MessageActions from '@/components/tavern/message-actions.vue';
-	import VoiceMessageCard from '@/components/tavern/voice-message-card.vue';
 	import ChatComposer from '@/components/tavern/chat-composer.vue';
+	import ChatMessageList from '@/components/tavern/chat-message-list.vue';
+	import ChatBranchPanel from '@/components/tavern/chat-branch-panel.vue';
 	import LiquidGlassCanvas from '@/components/LiquidGlassCanvas.vue';
 	const { getTavernUiText, formatLocaleText } = require('@/common/tavernUiI18n.js');
 	const companionStore = require('@/common/companionStore.js');
@@ -1911,7 +1461,7 @@
 	}
 
 	export default {
-		components: { TavernNavBar, MessageBubble, MessageContent, MessageActions, VoiceMessageCard, ChatComposer, LiquidGlassCanvas },
+		components: { TavernNavBar, ChatComposer, ChatMessageList, ChatBranchPanel, LiquidGlassCanvas },
 		data() {
 			return {
 				cid: '',
@@ -2117,6 +1667,12 @@
 			};
 		},
 		computed: {
+			chatMessageListController() {
+				return this;
+			},
+			chatBranchPanelController() {
+				return this;
+			},
 			chatUi() {
 				return getTavernUiText('chat');
 			},
@@ -3392,17 +2948,6 @@
 				if (!item) return '';
 				if (item.available === false) return '不可用';
 				return item._source === 'BYOK' ? '自己的额度' : String(item.priceText || '');
-			},
-			chatModelInitial(item) {
-				const name = String(item && (item.displayName || item.modelName) || '').trim();
-				const words = name.match(/[A-Za-z0-9]+/g) || [];
-				if (words.length > 1) {
-					return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
-				}
-				if (words.length === 1) {
-					return words[0].slice(0, 2).toUpperCase();
-				}
-				return Array.from(name).slice(0, 1).join('') || 'AI';
 			},
 			chatModelLevel(value) {
 				return Math.max(1, Math.min(5, Number(value || 3)));
@@ -13987,828 +13532,7 @@
 		box-sizing: content-box;
 	}
 
-	.chat-model-picker-mask {
-		position: fixed !important;
-		inset: 0;
-		z-index: 3100 !important;
-		display: flex;
-		align-items: flex-end;
-		justify-content: center;
-		background: rgba(13, 23, 29, 0.56);
-		backdrop-filter: blur(6rpx);
-		-webkit-backdrop-filter: blur(6rpx);
-	}
-
-	.chat-model-picker {
-		width: 100%;
-		max-width: 820rpx;
-		max-height: 86vh;
-		display: flex;
-		flex-direction: column;
-		box-sizing: border-box;
-		padding: 10rpx 22rpx calc(18rpx + env(safe-area-inset-bottom));
-		border-top: 1rpx solid rgba(135, 186, 196, 0.42);
-		border-radius: 28rpx 28rpx 0 0;
-		background: #f2f7f7;
-		box-shadow: 0 -24rpx 68rpx rgba(12, 34, 43, 0.24);
-		color: #20313a;
-	}
-
-	.chat-model-picker__handle {
-		width: 58rpx;
-		height: 6rpx;
-		margin: 2rpx auto 18rpx;
-		border-radius: 4rpx;
-		background: #aac0c4;
-	}
-
-	.chat-model-picker__head,
-	.chat-model-option__main,
-	.chat-model-option__title-row,
-	.chat-model-picker__wallet,
-	.chat-model-picker__byok-note {
-		display: flex;
-		align-items: center;
-	}
-
-	.chat-model-picker__head {
-		min-height: 62rpx;
-		justify-content: space-between;
-		gap: 16rpx;
-		padding: 0 4rpx;
-	}
-
-	.chat-model-picker__heading-copy {
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 2rpx;
-	}
-
-	.chat-model-picker__title {
-		color: #1d3944;
-		font-size: 34rpx;
-		font-weight: 760;
-		line-height: 1.25;
-	}
-
-	.chat-model-picker__subtitle {
-		color: #7a8e96;
-		font-size: 20rpx;
-		line-height: 1.4;
-	}
-
-	.chat-model-picker__close {
-		flex: 0 0 58rpx;
-		width: 58rpx;
-		height: 58rpx;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 50%;
-		background: #e5eeee;
-	}
-
-	.chat-model-picker__tabs {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		margin-top: 16rpx;
-		border-bottom: 1rpx solid #d3e0e1;
-	}
-
-	.chat-model-picker__tab {
-		position: relative;
-		height: 66rpx;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 8rpx;
-		color: #758990;
-		font-size: 23rpx;
-	}
-
-	.chat-model-picker__tab--active {
-		color: #245c69;
-		font-weight: 750;
-	}
-
-	.chat-model-picker__tab--active::after {
-		content: '';
-		position: absolute;
-		bottom: -1rpx;
-		left: 24%;
-		right: 24%;
-		height: 5rpx;
-		border-radius: 3rpx 3rpx 0 0;
-		background: #4f93a3;
-	}
-
-	.chat-model-picker__tab-count {
-		color: #8ca0a6;
-		font-size: 18rpx;
-		font-weight: 650;
-	}
-
-	.chat-model-picker__tab--active .chat-model-picker__tab-count {
-		color: #c4665d;
-	}
-
-	.chat-model-picker__search {
-		height: 70rpx;
-		display: flex;
-		align-items: center;
-		gap: 12rpx;
-		margin: 16rpx 0;
-		padding: 0 18rpx;
-		border: 1rpx solid transparent;
-		border-radius: 8rpx;
-		background: #e8f0f0;
-	}
-
-	.chat-model-picker__search:focus-within {
-		border-color: #83b4bd;
-		background: #ffffff;
-	}
-
-	.chat-model-picker__search input {
-		min-width: 0;
-		flex: 1;
-		color: #294752;
-		font-size: 24rpx;
-	}
-
-	.chat-model-picker__search > text {
-		color: #be655b;
-		font-size: 21rpx;
-	}
-
-	.chat-model-picker__list {
-		min-height: 280rpx;
-		flex: 1;
-		box-sizing: border-box;
-		border-top: 1rpx solid #dbe6e6;
-		border-bottom: 1rpx solid #dbe6e6;
-		background: rgba(255, 255, 255, 0.62);
-	}
-
-	.chat-model-option {
-		position: relative;
-		padding: 24rpx 8rpx 22rpx;
-		border-bottom: 1rpx solid #dfe8e8;
-		background: transparent;
-		transition: background-color 0.16s ease, opacity 0.16s ease;
-	}
-
-	.chat-model-option:last-child {
-		border-bottom: 0;
-	}
-
-	.chat-model-option--active {
-		background: #edf7f7;
-	}
-
-	.chat-model-option--active::before {
-		content: '';
-		position: absolute;
-		top: 18rpx;
-		bottom: 18rpx;
-		left: 0;
-		width: 5rpx;
-		border-radius: 3rpx;
-		background: #4f93a3;
-	}
-
-	.chat-model-option--disabled {
-		background: #eef2f2;
-		opacity: 0.58;
-	}
-
-	.chat-model-option--busy {
-		pointer-events: none;
-		opacity: 0.52;
-	}
-
-	.chat-model-option__main {
-		align-items: flex-start;
-		gap: 14rpx;
-	}
-
-	.chat-model-option__avatar {
-		flex: 0 0 54rpx;
-		width: 54rpx;
-		height: 54rpx;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 14rpx;
-		color: #ffffff;
-		background: #397887;
-		box-shadow: inset 0 0 0 1rpx rgba(255, 255, 255, 0.18);
-	}
-
-	.chat-model-option__avatar--byok {
-		background: #cb7167;
-	}
-
-	.chat-model-option__avatar text {
-		font-size: 18rpx;
-		font-weight: 800;
-		line-height: 1;
-	}
-
-	.chat-model-option__body {
-		min-width: 0;
-		flex: 1;
-	}
-
-	.chat-model-option__title-row {
-		min-width: 0;
-		gap: 8rpx;
-	}
-
-	.chat-model-option__name {
-		min-width: 0;
-		max-width: 100%;
-		overflow: hidden;
-		color: #203c47;
-		font-size: 26rpx;
-		font-weight: 740;
-		line-height: 1.35;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.chat-model-option__badge {
-		flex: 0 0 auto;
-		padding: 3rpx 7rpx;
-		border-radius: 4rpx;
-		color: #966158;
-		background: #f6e8e4;
-		font-size: 17rpx;
-		line-height: 1.25;
-	}
-
-	.chat-model-option__desc {
-		display: -webkit-box;
-		margin-top: 5rpx;
-		overflow: hidden;
-		color: #687d85;
-		font-size: 21rpx;
-		line-height: 1.45;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 2;
-	}
-
-	.chat-model-option__desc--mono {
-		word-break: break-all;
-	}
-
-	.chat-model-option__side {
-		flex: 0 0 126rpx;
-		width: 126rpx;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: 10rpx;
-	}
-
-	.chat-model-option__price {
-		max-width: 126rpx;
-		overflow: hidden;
-		color: #b85e55;
-		font-size: 21rpx;
-		font-weight: 740;
-		line-height: 1.35;
-		text-align: right;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.chat-model-option__selected {
-		display: flex;
-		align-items: center;
-		gap: 5rpx;
-		padding: 4rpx 8rpx;
-		border-radius: 5rpx;
-		color: #ffffff;
-		background: #4f93a3;
-		font-size: 17rpx;
-		line-height: 1;
-	}
-
-	.chat-model-option__signals {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 10rpx 16rpx;
-		margin: 14rpx 0 0 68rpx;
-	}
-
-	.chat-model-signal {
-		display: flex;
-		align-items: center;
-		gap: 7rpx;
-	}
-
-	.chat-model-signal__label {
-		color: #71858d;
-		font-size: 18rpx;
-	}
-
-	.chat-model-signal__bars {
-		display: flex;
-		align-items: flex-end;
-		gap: 3rpx;
-	}
-
-	.chat-model-signal__bar {
-		width: 8rpx;
-		height: 15rpx;
-		border-radius: 2rpx;
-		background: #d5e1e1;
-	}
-
-	.chat-model-signal__bar--active {
-		background: #5b9aa8;
-	}
-
-	.chat-model-option__context,
-	.chat-model-option__tag {
-		color: #778b92;
-		font-size: 18rpx;
-	}
-
-	.chat-model-option__tag::before {
-		content: '·';
-		margin-right: 8rpx;
-		color: #b2c0c4;
-	}
-
-	.chat-model-option__reason {
-		display: block;
-		margin: 10rpx 0 0 68rpx;
-		color: #a74b45;
-		font-size: 20rpx;
-	}
-
-	.chat-model-picker__empty {
-		min-height: 280rpx;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 18rpx;
-		color: #71848d;
-		font-size: 23rpx;
-	}
-
-	.chat-model-picker__settings {
-		color: #b95f55;
-		font-weight: 700;
-	}
-
-	.chat-model-picker__footer {
-		flex: 0 0 auto;
-		padding-top: 12rpx;
-	}
-
-	.chat-model-picker__wallet {
-		min-height: 58rpx;
-		gap: 20rpx;
-		padding: 0 4rpx;
-		color: #60747e;
-		font-size: 20rpx;
-	}
-
-	.chat-model-picker__wallet-label {
-		min-width: 0;
-		margin-right: auto;
-		display: flex;
-		flex-direction: column;
-		gap: 1rpx;
-	}
-
-	.chat-model-picker__wallet-label text:first-child {
-		color: #37535f;
-		font-size: 21rpx;
-		font-weight: 720;
-	}
-
-	.chat-model-picker__wallet-label text:last-child {
-		color: #8a9ba1;
-		font-size: 17rpx;
-	}
-
-	.chat-model-picker__byok-note {
-		min-height: 58rpx;
-		justify-content: center;
-		gap: 10rpx;
-		color: #687e87;
-		font-size: 20rpx;
-	}
-
-	/* Model selector v2: airy glass workspace. */
-	.chat-model-picker-mask {
-		align-items: center;
-		padding: unquote("max(36rpx, env(safe-area-inset-top)) 24rpx max(36rpx, env(safe-area-inset-bottom))");
-		background: rgba(25, 45, 58, 0.3);
-		backdrop-filter: blur(7rpx) saturate(0.92);
-		-webkit-backdrop-filter: blur(7rpx) saturate(0.92);
-		box-sizing: border-box;
-	}
-
-	.chat-model-picker {
-		width: 100%;
-		max-width: 820rpx;
-		height: unquote("min(72vh, 980rpx)");
-		min-height: 640rpx;
-		max-height: 82vh;
-		padding: 0 12rpx;
-		border: 0;
-		border-radius: 0;
-		background: transparent;
-		box-shadow: none;
-		backdrop-filter: none;
-		-webkit-backdrop-filter: none;
-		color: #203846;
-		overflow: visible;
-	}
-
-	.chat-model-picker__head {
-		min-height: 72rpx;
-		padding: 0 8rpx;
-	}
-
-	.chat-model-picker__heading {
-		min-width: 0;
-		display: flex;
-		align-items: center;
-	}
-
-	.chat-model-picker__heading-copy {
-		gap: 4rpx;
-	}
-
-	.chat-model-picker__title {
-		color: #f8fcfd;
-		font-size: 34rpx;
-		font-weight: 800;
-		text-shadow: 0 3rpx 12rpx rgba(20, 45, 58, 0.42);
-	}
-
-	.chat-model-picker__subtitle {
-		color: rgba(244, 251, 252, 0.84);
-		font-size: 21rpx;
-		text-shadow: 0 2rpx 8rpx rgba(20, 45, 58, 0.32);
-	}
-
-	.chat-model-picker__close {
-		flex-basis: 62rpx;
-		width: 62rpx;
-		height: 62rpx;
-		border: 1rpx solid rgba(255, 255, 255, 0.7);
-		background: rgba(245, 252, 253, 0.72);
-		box-shadow: 0 10rpx 24rpx rgba(22, 53, 68, 0.16);
-		backdrop-filter: blur(18rpx);
-		-webkit-backdrop-filter: blur(18rpx);
-	}
-
-	.chat-model-picker__tabs {
-		gap: 7rpx;
-		margin-top: 16rpx;
-		padding: 7rpx;
-		border: 1rpx solid rgba(255, 255, 255, 0.72);
-		border-radius: 28rpx;
-		background: rgba(231, 244, 247, 0.7);
-		box-shadow: 0 12rpx 30rpx rgba(22, 53, 68, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.78);
-		backdrop-filter: blur(22rpx) saturate(1.08);
-		-webkit-backdrop-filter: blur(22rpx) saturate(1.08);
-	}
-
-	.chat-model-picker__tab {
-		height: 68rpx;
-		border-radius: 21rpx;
-		color: #718994;
-		font-size: 23rpx;
-	}
-
-	.chat-model-picker__tab--active {
-		color: #315f72;
-		background: rgba(255, 255, 255, 0.9);
-		box-shadow: 0 9rpx 22rpx rgba(44, 83, 103, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.88);
-	}
-
-	.chat-model-picker__tab--active::after {
-		display: none;
-	}
-
-	.chat-model-picker__tab-count {
-		min-width: 32rpx;
-		height: 32rpx;
-		padding: 0 8rpx;
-		border-radius: 999rpx;
-		font-size: 17rpx;
-		line-height: 32rpx;
-		text-align: center;
-		color: #718994;
-		background: rgba(255, 255, 255, 0.64);
-		box-sizing: border-box;
-	}
-
-	.chat-model-picker__tab--active .chat-model-picker__tab-count {
-		color: #4f7f8e;
-		background: rgba(225, 244, 248, 0.78);
-	}
-
-	.chat-model-picker__list {
-		min-height: 250rpx;
-		padding: 16rpx 4rpx 4rpx;
-		border: 0;
-		background: transparent;
-		box-sizing: border-box;
-	}
-
-	.chat-model-option {
-		margin-bottom: 12rpx;
-		padding: 20rpx;
-		border: 1rpx solid rgba(255, 255, 255, 0.78);
-		border-radius: 28rpx;
-		background: rgba(248, 252, 253, 0.76);
-		box-shadow: 0 14rpx 34rpx rgba(22, 53, 68, 0.14), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
-		backdrop-filter: blur(24rpx) saturate(1.08);
-		-webkit-backdrop-filter: blur(24rpx) saturate(1.08);
-		transition: background-color 0.16s ease, opacity 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
-	}
-
-	.chat-model-option:last-child {
-		margin-bottom: 0;
-		border: 1rpx solid rgba(255, 255, 255, 0.78);
-	}
-
-	.chat-model-option--active {
-		border-color: rgba(117, 191, 204, 0.74);
-		background: linear-gradient(145deg, rgba(224, 246, 249, 0.9) 0%, rgba(255, 255, 255, 0.84) 100%);
-		box-shadow: 0 17rpx 38rpx rgba(42, 105, 119, 0.18), inset 0 1rpx 0 rgba(255, 255, 255, 0.92);
-	}
-
-	.chat-model-option--active::before {
-		display: none;
-	}
-
-	.chat-model-option--disabled {
-		background: rgba(235, 241, 243, 0.72);
-		opacity: 0.68;
-	}
-
-	.chat-model-option__main {
-		gap: 16rpx;
-	}
-
-	.chat-model-option__avatar {
-		flex-basis: 62rpx;
-		width: 62rpx;
-		height: 62rpx;
-		border-radius: 21rpx;
-		background: linear-gradient(145deg, #3e8090 0%, #69adba 100%);
-		box-shadow: 0 9rpx 20rpx rgba(62, 128, 144, 0.14), inset 0 1rpx 0 rgba(255, 255, 255, 0.24);
-	}
-
-	.chat-model-option__avatar--byok {
-		background: linear-gradient(145deg, #a85d7c 0%, #d38cab 100%);
-		box-shadow: 0 9rpx 20rpx rgba(168, 93, 124, 0.13), inset 0 1rpx 0 rgba(255, 255, 255, 0.24);
-	}
-
-	.chat-model-option__name {
-		color: #203846;
-		font-size: 27rpx;
-		font-weight: 800;
-	}
-
-	.chat-model-option__badge {
-		padding: 5rpx 10rpx;
-		border: 1rpx solid rgba(182, 95, 131, 0.14);
-		border-radius: 999rpx;
-		color: #a24f72;
-		background: rgba(255, 235, 244, 0.54);
-		font-size: 17rpx;
-		font-weight: 700;
-	}
-
-	.chat-model-option__desc {
-		margin-top: 7rpx;
-		color: #647b8b;
-		font-size: 21rpx;
-		line-height: 1.5;
-	}
-
-	.chat-model-option__side {
-		flex-basis: 132rpx;
-		width: 132rpx;
-		gap: 9rpx;
-	}
-
-	.chat-model-option__price {
-		max-width: 132rpx;
-		padding: 7rpx 11rpx;
-		border-radius: 999rpx;
-		color: #a85275;
-		background: rgba(255, 236, 245, 0.5);
-		font-size: 19rpx;
-		font-weight: 800;
-		box-sizing: border-box;
-	}
-
-	.chat-model-option__selected {
-		padding: 6rpx 10rpx;
-		border-radius: 999rpx;
-		background: #4f93a3;
-		font-size: 17rpx;
-		font-weight: 700;
-	}
-
-	.chat-model-option__signals {
-		gap: 10rpx 12rpx;
-		margin: 16rpx 0 0 78rpx;
-	}
-
-	.chat-model-signal {
-		gap: 8rpx;
-		padding: 6rpx 10rpx;
-		border-radius: 999rpx;
-		background: rgba(224, 239, 243, 0.68);
-	}
-
-	.chat-model-signal__label {
-		color: #647b8b;
-		font-size: 18rpx;
-	}
-
-	.chat-model-signal__bars {
-		align-items: center;
-		gap: 4rpx;
-	}
-
-	.chat-model-signal__bar {
-		width: 11rpx;
-		height: 7rpx;
-		border-radius: 999rpx;
-		background: rgba(126, 157, 169, 0.22);
-	}
-
-	.chat-model-signal__bar--active {
-		background: #5c9dac;
-	}
-
-	.chat-model-option__context,
-	.chat-model-option__tag {
-		padding: 6rpx 10rpx;
-		border-radius: 999rpx;
-		color: #607786;
-		background: rgba(255, 255, 255, 0.72);
-		font-size: 18rpx;
-	}
-
-	.chat-model-option__tag::before {
-		display: none;
-	}
-
-	.chat-model-option__reason {
-		margin: 12rpx 0 0 78rpx;
-		padding: 9rpx 12rpx;
-		border-radius: 14rpx;
-		color: #9c5363;
-		background: rgba(255, 235, 240, 0.42);
-		font-size: 19rpx;
-	}
-
-	.chat-model-picker__empty {
-		min-height: 250rpx;
-		gap: 16rpx;
-		color: #647b8b;
-		font-size: 23rpx;
-		text-align: center;
-	}
-
-	.chat-model-picker__empty-icon {
-		width: 78rpx;
-		height: 78rpx;
-		border-radius: 26rpx;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: rgba(226, 245, 249, 0.42);
-		border: 1rpx solid rgba(79, 147, 163, 0.13);
-	}
-
-	.chat-model-picker__settings {
-		padding: 10rpx 18rpx;
-		border-radius: 999rpx;
-		color: #4f7f8e;
-		background: rgba(226, 245, 249, 0.46);
-		font-weight: 700;
-	}
-
-	.chat-model-picker__footer {
-		padding-top: 14rpx;
-	}
-
-	.chat-model-picker__wallet,
-	.chat-model-picker__byok-note {
-		min-height: 72rpx;
-		padding: 10rpx 14rpx;
-		border: 1rpx solid rgba(255, 255, 255, 0.76);
-		border-radius: 24rpx;
-		background: rgba(248, 252, 253, 0.74);
-		box-shadow: 0 12rpx 30rpx rgba(22, 53, 68, 0.13), inset 0 1rpx 0 rgba(255, 255, 255, 0.84);
-		backdrop-filter: blur(22rpx) saturate(1.08);
-		-webkit-backdrop-filter: blur(22rpx) saturate(1.08);
-		box-sizing: border-box;
-	}
-
-	.chat-model-picker__wallet {
-		gap: 10rpx;
-	}
-
-	.chat-model-picker__wallet-label text:first-child {
-		color: #315f72;
-		font-size: 21rpx;
-		font-weight: 800;
-	}
-
-	.chat-model-picker__wallet-label text:last-child {
-		color: #7a909a;
-		font-size: 17rpx;
-	}
-
-	.chat-model-picker__wallet-balance {
-		display: inline-flex;
-		align-items: center;
-		gap: 6rpx;
-		padding: 8rpx 11rpx;
-		border-radius: 999rpx;
-		font-size: 19rpx;
-		font-weight: 700;
-		white-space: nowrap;
-	}
-
-	.chat-model-picker__wallet-balance--diamond {
-		color: #4f7f8e;
-		background: rgba(229, 247, 250, 0.46);
-	}
-
-	.chat-model-picker__wallet-balance--coin {
-		color: #8d6827;
-		background: rgba(255, 247, 223, 0.5);
-	}
-
-	.chat-model-picker__byok-note {
-		color: #607786;
-		font-size: 20rpx;
-	}
-
-	@media (max-width: 420px) {
-		.chat-model-picker {
-			min-height: 0;
-			padding-left: 18rpx;
-			padding-right: 18rpx;
-		}
-
-		.chat-model-option {
-			padding: 19rpx;
-		}
-
-		.chat-model-option__side {
-			flex-basis: 118rpx;
-			width: 118rpx;
-		}
-
-		.chat-model-option__price {
-			max-width: 118rpx;
-		}
-
-		.chat-model-picker__wallet-balance {
-			padding-left: 9rpx;
-			padding-right: 9rpx;
-			font-size: 18rpx;
-		}
-	}
-
-	@media (max-height: 720px) {
-		.chat-model-picker {
-			height: 82vh;
-			min-height: 0;
-		}
-	}
-
-	@media (hover: hover) and (pointer: fine) {
-		.chat-model-option:hover,
-		.chat-model-picker__close:hover,
-		.chat-model-picker__tab:hover {
-			transform: translateY(-2rpx);
-		}
-	}
-
-	.tool-bar {
+		.tool-bar {
 		flex-shrink: 0;
 		display: flex;
 		flex-wrap: wrap;
@@ -18068,6 +16792,831 @@
 		-webkit-line-clamp: 4;
 		line-height: 1.52;
 	}
+
+
+	/* Restored inline model picker styles. */
+
+.chat-model-picker-mask {
+		position: fixed !important;
+		inset: 0;
+		z-index: 3100 !important;
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		background: rgba(13, 23, 29, 0.56);
+		backdrop-filter: blur(6rpx);
+		-webkit-backdrop-filter: blur(6rpx);
+	}
+
+	.chat-model-picker {
+		width: 100%;
+		max-width: 820rpx;
+		max-height: 86vh;
+		display: flex;
+		flex-direction: column;
+		box-sizing: border-box;
+		padding: 10rpx 22rpx calc(18rpx + env(safe-area-inset-bottom));
+		border-top: 1rpx solid rgba(135, 186, 196, 0.42);
+		border-radius: 28rpx 28rpx 0 0;
+		background: #f2f7f7;
+		box-shadow: 0 -24rpx 68rpx rgba(12, 34, 43, 0.24);
+		color: #20313a;
+	}
+
+	.chat-model-picker__handle {
+		width: 58rpx;
+		height: 6rpx;
+		margin: 2rpx auto 18rpx;
+		border-radius: 4rpx;
+		background: #aac0c4;
+	}
+
+	.chat-model-picker__head,
+	.chat-model-option__main,
+	.chat-model-option__title-row,
+	.chat-model-picker__wallet,
+	.chat-model-picker__byok-note {
+		display: flex;
+		align-items: center;
+	}
+
+	.chat-model-picker__head {
+		min-height: 62rpx;
+		justify-content: space-between;
+		gap: 16rpx;
+		padding: 0 4rpx;
+	}
+
+	.chat-model-picker__heading-copy {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2rpx;
+	}
+
+	.chat-model-picker__title {
+		color: #1d3944;
+		font-size: 34rpx;
+		font-weight: 760;
+		line-height: 1.25;
+	}
+
+	.chat-model-picker__subtitle {
+		color: #7a8e96;
+		font-size: 20rpx;
+		line-height: 1.4;
+	}
+
+	.chat-model-picker__close {
+		flex: 0 0 58rpx;
+		width: 58rpx;
+		height: 58rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 50%;
+		background: #e5eeee;
+	}
+
+	.chat-model-picker__tabs {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		margin-top: 16rpx;
+		border-bottom: 1rpx solid #d3e0e1;
+	}
+
+	.chat-model-picker__tab {
+		position: relative;
+		height: 66rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8rpx;
+		color: #758990;
+		font-size: 23rpx;
+	}
+
+	.chat-model-picker__tab--active {
+		color: #245c69;
+		font-weight: 750;
+	}
+
+	.chat-model-picker__tab--active::after {
+		content: '';
+		position: absolute;
+		bottom: -1rpx;
+		left: 24%;
+		right: 24%;
+		height: 5rpx;
+		border-radius: 3rpx 3rpx 0 0;
+		background: #4f93a3;
+	}
+
+	.chat-model-picker__tab-count {
+		color: #8ca0a6;
+		font-size: 18rpx;
+		font-weight: 650;
+	}
+
+	.chat-model-picker__tab--active .chat-model-picker__tab-count {
+		color: #c4665d;
+	}
+
+	.chat-model-picker__search {
+		height: 70rpx;
+		display: flex;
+		align-items: center;
+		gap: 12rpx;
+		margin: 16rpx 0;
+		padding: 0 18rpx;
+		border: 1rpx solid transparent;
+		border-radius: 8rpx;
+		background: #e8f0f0;
+	}
+
+	.chat-model-picker__search:focus-within {
+		border-color: #83b4bd;
+		background: #ffffff;
+	}
+
+	.chat-model-picker__search input {
+		min-width: 0;
+		flex: 1;
+		color: #294752;
+		font-size: 24rpx;
+	}
+
+	.chat-model-picker__search > text {
+		color: #be655b;
+		font-size: 21rpx;
+	}
+
+	.chat-model-picker__list {
+		min-height: 280rpx;
+		flex: 1;
+		box-sizing: border-box;
+		border-top: 1rpx solid #dbe6e6;
+		border-bottom: 1rpx solid #dbe6e6;
+		background: rgba(255, 255, 255, 0.62);
+	}
+
+	.chat-model-option {
+		position: relative;
+		padding: 24rpx 8rpx 22rpx;
+		border-bottom: 1rpx solid #dfe8e8;
+		background: transparent;
+		transition: background-color 0.16s ease, opacity 0.16s ease;
+	}
+
+	.chat-model-option:last-child {
+		border-bottom: 0;
+	}
+
+	.chat-model-option--active {
+		background: #edf7f7;
+	}
+
+	.chat-model-option--active::before {
+		content: '';
+		position: absolute;
+		top: 18rpx;
+		bottom: 18rpx;
+		left: 0;
+		width: 5rpx;
+		border-radius: 3rpx;
+		background: #4f93a3;
+	}
+
+	.chat-model-option--disabled {
+		background: #eef2f2;
+		opacity: 0.58;
+	}
+
+	.chat-model-option--busy {
+		pointer-events: none;
+		opacity: 0.52;
+	}
+
+	.chat-model-option__main {
+		align-items: flex-start;
+		gap: 14rpx;
+	}
+
+	.chat-model-option__avatar {
+		flex: 0 0 54rpx;
+		width: 54rpx;
+		height: 54rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 14rpx;
+		color: #ffffff;
+		background: #397887;
+		box-shadow: inset 0 0 0 1rpx rgba(255, 255, 255, 0.18);
+	}
+
+	.chat-model-option__avatar--byok {
+		background: #cb7167;
+	}
+
+	.chat-model-option__avatar text {
+		font-size: 18rpx;
+		font-weight: 800;
+		line-height: 1;
+	}
+
+	.chat-model-option__body {
+		min-width: 0;
+		flex: 1;
+	}
+
+	.chat-model-option__title-row {
+		min-width: 0;
+		gap: 8rpx;
+	}
+
+	.chat-model-option__name {
+		min-width: 0;
+		max-width: 100%;
+		overflow: hidden;
+		color: #203c47;
+		font-size: 26rpx;
+		font-weight: 740;
+		line-height: 1.35;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chat-model-option__badge {
+		flex: 0 0 auto;
+		padding: 3rpx 7rpx;
+		border-radius: 4rpx;
+		color: #966158;
+		background: #f6e8e4;
+		font-size: 17rpx;
+		line-height: 1.25;
+	}
+
+	.chat-model-option__desc {
+		display: -webkit-box;
+		margin-top: 5rpx;
+		overflow: hidden;
+		color: #687d85;
+		font-size: 21rpx;
+		line-height: 1.45;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+	}
+
+	.chat-model-option__desc--mono {
+		word-break: break-all;
+	}
+
+	.chat-model-option__side {
+		flex: 0 0 126rpx;
+		width: 126rpx;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 10rpx;
+	}
+
+	.chat-model-option__price {
+		max-width: 126rpx;
+		overflow: hidden;
+		color: #b85e55;
+		font-size: 21rpx;
+		font-weight: 740;
+		line-height: 1.35;
+		text-align: right;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.chat-model-option__selected {
+		display: flex;
+		align-items: center;
+		gap: 5rpx;
+		padding: 4rpx 8rpx;
+		border-radius: 5rpx;
+		color: #ffffff;
+		background: #4f93a3;
+		font-size: 17rpx;
+		line-height: 1;
+	}
+
+	.chat-model-option__signals {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 10rpx 16rpx;
+		margin: 14rpx 0 0 68rpx;
+	}
+
+	.chat-model-signal {
+		display: flex;
+		align-items: center;
+		gap: 7rpx;
+	}
+
+	.chat-model-signal__label {
+		color: #71858d;
+		font-size: 18rpx;
+	}
+
+	.chat-model-signal__bars {
+		display: flex;
+		align-items: flex-end;
+		gap: 3rpx;
+	}
+
+	.chat-model-signal__bar {
+		width: 8rpx;
+		height: 15rpx;
+		border-radius: 2rpx;
+		background: #d5e1e1;
+	}
+
+	.chat-model-signal__bar--active {
+		background: #5b9aa8;
+	}
+
+	.chat-model-option__context,
+	.chat-model-option__tag {
+		color: #778b92;
+		font-size: 18rpx;
+	}
+
+	.chat-model-option__tag::before {
+		content: '·';
+		margin-right: 8rpx;
+		color: #b2c0c4;
+	}
+
+	.chat-model-option__reason {
+		display: block;
+		margin: 10rpx 0 0 68rpx;
+		color: #a74b45;
+		font-size: 20rpx;
+	}
+
+	.chat-model-picker__empty {
+		min-height: 280rpx;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 18rpx;
+		color: #71848d;
+		font-size: 23rpx;
+	}
+
+	.chat-model-picker__settings {
+		color: #b95f55;
+		font-weight: 700;
+	}
+
+	.chat-model-picker__footer {
+		flex: 0 0 auto;
+		padding-top: 12rpx;
+	}
+
+	.chat-model-picker__wallet {
+		min-height: 58rpx;
+		gap: 20rpx;
+		padding: 0 4rpx;
+		color: #60747e;
+		font-size: 20rpx;
+	}
+
+	.chat-model-picker__wallet-label {
+		min-width: 0;
+		margin-right: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 1rpx;
+	}
+
+	.chat-model-picker__wallet-label text:first-child {
+		color: #37535f;
+		font-size: 21rpx;
+		font-weight: 720;
+	}
+
+	.chat-model-picker__wallet-label text:last-child {
+		color: #8a9ba1;
+		font-size: 17rpx;
+	}
+
+	.chat-model-picker__byok-note {
+		min-height: 58rpx;
+		justify-content: center;
+		gap: 10rpx;
+		color: #687e87;
+		font-size: 20rpx;
+	}
+
+	/* Model selector v2: airy glass workspace. */
+	.chat-model-picker-mask {
+		align-items: center;
+		padding: unquote("max(36rpx, env(safe-area-inset-top)) 24rpx max(36rpx, env(safe-area-inset-bottom))");
+		background: rgba(25, 45, 58, 0.3);
+		backdrop-filter: blur(7rpx) saturate(0.92);
+		-webkit-backdrop-filter: blur(7rpx) saturate(0.92);
+		box-sizing: border-box;
+	}
+
+	.chat-model-picker {
+		width: 100%;
+		max-width: 820rpx;
+		height: unquote("min(72vh, 980rpx)");
+		min-height: 640rpx;
+		max-height: 82vh;
+		padding: 0 12rpx;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		box-shadow: none;
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+		color: #203846;
+		overflow: visible;
+	}
+
+	.chat-model-picker__head {
+		min-height: 72rpx;
+		padding: 0 8rpx;
+	}
+
+	.chat-model-picker__heading {
+		min-width: 0;
+		display: flex;
+		align-items: center;
+	}
+
+	.chat-model-picker__heading-copy {
+		gap: 4rpx;
+	}
+
+	.chat-model-picker__title {
+		color: #f8fcfd;
+		font-size: 34rpx;
+		font-weight: 800;
+		text-shadow: 0 3rpx 12rpx rgba(20, 45, 58, 0.42);
+	}
+
+	.chat-model-picker__subtitle {
+		color: rgba(244, 251, 252, 0.84);
+		font-size: 21rpx;
+		text-shadow: 0 2rpx 8rpx rgba(20, 45, 58, 0.32);
+	}
+
+	.chat-model-picker__close {
+		flex-basis: 62rpx;
+		width: 62rpx;
+		height: 62rpx;
+		border: 1rpx solid rgba(255, 255, 255, 0.7);
+		background: rgba(245, 252, 253, 0.72);
+		box-shadow: 0 10rpx 24rpx rgba(22, 53, 68, 0.16);
+		backdrop-filter: blur(18rpx);
+		-webkit-backdrop-filter: blur(18rpx);
+	}
+
+	.chat-model-picker__tabs {
+		gap: 7rpx;
+		margin-top: 16rpx;
+		padding: 7rpx;
+		border: 1rpx solid rgba(255, 255, 255, 0.72);
+		border-radius: 28rpx;
+		background: rgba(231, 244, 247, 0.7);
+		box-shadow: 0 12rpx 30rpx rgba(22, 53, 68, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.78);
+		backdrop-filter: blur(22rpx) saturate(1.08);
+		-webkit-backdrop-filter: blur(22rpx) saturate(1.08);
+	}
+
+	.chat-model-picker__tab {
+		height: 68rpx;
+		border-radius: 21rpx;
+		color: #718994;
+		font-size: 23rpx;
+	}
+
+	.chat-model-picker__tab--active {
+		color: #315f72;
+		background: rgba(255, 255, 255, 0.9);
+		box-shadow: 0 9rpx 22rpx rgba(44, 83, 103, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.88);
+	}
+
+	.chat-model-picker__tab--active::after {
+		display: none;
+	}
+
+	.chat-model-picker__tab-count {
+		min-width: 32rpx;
+		height: 32rpx;
+		padding: 0 8rpx;
+		border-radius: 999rpx;
+		font-size: 17rpx;
+		line-height: 32rpx;
+		text-align: center;
+		color: #718994;
+		background: rgba(255, 255, 255, 0.64);
+		box-sizing: border-box;
+	}
+
+	.chat-model-picker__tab--active .chat-model-picker__tab-count {
+		color: #4f7f8e;
+		background: rgba(225, 244, 248, 0.78);
+	}
+
+	.chat-model-picker__list {
+		min-height: 250rpx;
+		padding: 16rpx 4rpx 4rpx;
+		border: 0;
+		background: transparent;
+		box-sizing: border-box;
+	}
+
+	.chat-model-option {
+		margin-bottom: 12rpx;
+		padding: 20rpx;
+		border: 1rpx solid rgba(255, 255, 255, 0.78);
+		border-radius: 28rpx;
+		background: rgba(248, 252, 253, 0.76);
+		box-shadow: 0 14rpx 34rpx rgba(22, 53, 68, 0.14), inset 0 1rpx 0 rgba(255, 255, 255, 0.86);
+		backdrop-filter: blur(24rpx) saturate(1.08);
+		-webkit-backdrop-filter: blur(24rpx) saturate(1.08);
+		transition: background-color 0.16s ease, opacity 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+	}
+
+	.chat-model-option:last-child {
+		margin-bottom: 0;
+		border: 1rpx solid rgba(255, 255, 255, 0.78);
+	}
+
+	.chat-model-option--active {
+		border-color: rgba(117, 191, 204, 0.74);
+		background: linear-gradient(145deg, rgba(224, 246, 249, 0.9) 0%, rgba(255, 255, 255, 0.84) 100%);
+		box-shadow: 0 17rpx 38rpx rgba(42, 105, 119, 0.18), inset 0 1rpx 0 rgba(255, 255, 255, 0.92);
+	}
+
+	.chat-model-option--active::before {
+		display: none;
+	}
+
+	.chat-model-option--disabled {
+		background: rgba(235, 241, 243, 0.72);
+		opacity: 0.68;
+	}
+
+	.chat-model-option__main {
+		gap: 16rpx;
+	}
+
+	.chat-model-option__avatar {
+		flex-basis: 62rpx;
+		width: 62rpx;
+		height: 62rpx;
+		border-radius: 21rpx;
+		background: linear-gradient(145deg, #3e8090 0%, #69adba 100%);
+		box-shadow: 0 9rpx 20rpx rgba(62, 128, 144, 0.14), inset 0 1rpx 0 rgba(255, 255, 255, 0.24);
+	}
+
+	.chat-model-option__avatar--byok {
+		background: linear-gradient(145deg, #a85d7c 0%, #d38cab 100%);
+		box-shadow: 0 9rpx 20rpx rgba(168, 93, 124, 0.13), inset 0 1rpx 0 rgba(255, 255, 255, 0.24);
+	}
+
+	.chat-model-option__name {
+		color: #203846;
+		font-size: 27rpx;
+		font-weight: 800;
+	}
+
+	.chat-model-option__badge {
+		padding: 5rpx 10rpx;
+		border: 1rpx solid rgba(182, 95, 131, 0.14);
+		border-radius: 999rpx;
+		color: #a24f72;
+		background: rgba(255, 235, 244, 0.54);
+		font-size: 17rpx;
+		font-weight: 700;
+	}
+
+	.chat-model-option__desc {
+		margin-top: 7rpx;
+		color: #647b8b;
+		font-size: 21rpx;
+		line-height: 1.5;
+	}
+
+	.chat-model-option__side {
+		flex-basis: 132rpx;
+		width: 132rpx;
+		gap: 9rpx;
+	}
+
+	.chat-model-option__price {
+		max-width: 132rpx;
+		padding: 7rpx 11rpx;
+		border-radius: 999rpx;
+		color: #a85275;
+		background: rgba(255, 236, 245, 0.5);
+		font-size: 19rpx;
+		font-weight: 800;
+		box-sizing: border-box;
+	}
+
+	.chat-model-option__selected {
+		padding: 6rpx 10rpx;
+		border-radius: 999rpx;
+		background: #4f93a3;
+		font-size: 17rpx;
+		font-weight: 700;
+	}
+
+	.chat-model-option__signals {
+		gap: 10rpx 12rpx;
+		margin: 16rpx 0 0 78rpx;
+	}
+
+	.chat-model-signal {
+		gap: 8rpx;
+		padding: 6rpx 10rpx;
+		border-radius: 999rpx;
+		background: rgba(224, 239, 243, 0.68);
+	}
+
+	.chat-model-signal__label {
+		color: #647b8b;
+		font-size: 18rpx;
+	}
+
+	.chat-model-signal__bars {
+		align-items: center;
+		gap: 4rpx;
+	}
+
+	.chat-model-signal__bar {
+		width: 11rpx;
+		height: 7rpx;
+		border-radius: 999rpx;
+		background: rgba(126, 157, 169, 0.22);
+	}
+
+	.chat-model-signal__bar--active {
+		background: #5c9dac;
+	}
+
+	.chat-model-option__context,
+	.chat-model-option__tag {
+		padding: 6rpx 10rpx;
+		border-radius: 999rpx;
+		color: #607786;
+		background: rgba(255, 255, 255, 0.72);
+		font-size: 18rpx;
+	}
+
+	.chat-model-option__tag::before {
+		display: none;
+	}
+
+	.chat-model-option__reason {
+		margin: 12rpx 0 0 78rpx;
+		padding: 9rpx 12rpx;
+		border-radius: 14rpx;
+		color: #9c5363;
+		background: rgba(255, 235, 240, 0.42);
+		font-size: 19rpx;
+	}
+
+	.chat-model-picker__empty {
+		min-height: 250rpx;
+		gap: 16rpx;
+		color: #647b8b;
+		font-size: 23rpx;
+		text-align: center;
+	}
+
+	.chat-model-picker__empty-icon {
+		width: 78rpx;
+		height: 78rpx;
+		border-radius: 26rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(226, 245, 249, 0.42);
+		border: 1rpx solid rgba(79, 147, 163, 0.13);
+	}
+
+	.chat-model-picker__settings {
+		padding: 10rpx 18rpx;
+		border-radius: 999rpx;
+		color: #4f7f8e;
+		background: rgba(226, 245, 249, 0.46);
+		font-weight: 700;
+	}
+
+	.chat-model-picker__footer {
+		padding-top: 14rpx;
+	}
+
+	.chat-model-picker__wallet,
+	.chat-model-picker__byok-note {
+		min-height: 72rpx;
+		padding: 10rpx 14rpx;
+		border: 1rpx solid rgba(255, 255, 255, 0.76);
+		border-radius: 24rpx;
+		background: rgba(248, 252, 253, 0.74);
+		box-shadow: 0 12rpx 30rpx rgba(22, 53, 68, 0.13), inset 0 1rpx 0 rgba(255, 255, 255, 0.84);
+		backdrop-filter: blur(22rpx) saturate(1.08);
+		-webkit-backdrop-filter: blur(22rpx) saturate(1.08);
+		box-sizing: border-box;
+	}
+
+	.chat-model-picker__wallet {
+		gap: 10rpx;
+	}
+
+	.chat-model-picker__wallet-label text:first-child {
+		color: #315f72;
+		font-size: 21rpx;
+		font-weight: 800;
+	}
+
+	.chat-model-picker__wallet-label text:last-child {
+		color: #7a909a;
+		font-size: 17rpx;
+	}
+
+	.chat-model-picker__wallet-balance {
+		display: inline-flex;
+		align-items: center;
+		gap: 6rpx;
+		padding: 8rpx 11rpx;
+		border-radius: 999rpx;
+		font-size: 19rpx;
+		font-weight: 700;
+		white-space: nowrap;
+	}
+
+	.chat-model-picker__wallet-balance--diamond {
+		color: #4f7f8e;
+		background: rgba(229, 247, 250, 0.46);
+	}
+
+	.chat-model-picker__wallet-balance--coin {
+		color: #8d6827;
+		background: rgba(255, 247, 223, 0.5);
+	}
+
+	.chat-model-picker__byok-note {
+		color: #607786;
+		font-size: 20rpx;
+	}
+
+	@media (max-width: 420px) {
+		.chat-model-picker {
+			min-height: 0;
+			padding-left: 18rpx;
+			padding-right: 18rpx;
+		}
+
+		.chat-model-option {
+			padding: 19rpx;
+		}
+
+		.chat-model-option__side {
+			flex-basis: 118rpx;
+			width: 118rpx;
+		}
+
+		.chat-model-option__price {
+			max-width: 118rpx;
+		}
+
+		.chat-model-picker__wallet-balance {
+			padding-left: 9rpx;
+			padding-right: 9rpx;
+			font-size: 18rpx;
+		}
+	}
+
+	@media (max-height: 720px) {
+		.chat-model-picker {
+			height: 82vh;
+			min-height: 0;
+		}
+	}
+
+	@media (hover: hover) and (pointer: fine) {
+		.chat-model-option:hover,
+		.chat-model-picker__close:hover,
+		.chat-model-picker__tab:hover {
+			transform: translateY(-2rpx);
+		}
+	}
+
 </style>
 
 

@@ -123,14 +123,19 @@ public class H5TavernSessionService {
             if (conversationId == null) {
                 continue;
             }
-            try {
-                snapshotService.saveEmptySnapshot(conversationId);
-            } catch (Exception e) {
-                throw new BusinessException(ErrorCode.UPSTREAM_ERROR, "清空聊天快照失败，请稍后重试");
+            if (bindingMapper.findByConversationId(conversationId) != null) {
+                try {
+                    snapshotService.saveEmptySnapshot(conversationId);
+                } catch (Exception e) {
+                    log.warn("ST snapshot cleanup skipped during character deletion conversationId={}: {}",
+                            conversationId, e.toString());
+                }
+            } else {
+                log.info("ST snapshot cleanup skipped because binding is missing conversationId={}", conversationId);
             }
             taskMapper.softDeleteByConversationId(conversationId);
             incrementAllBranchSourceRevisions(conversationId);
-            memoryCleanupService.clearConversationMemory(conversationId);
+            memoryCleanupService.clearConversationMemoryForCharacterDeletion(conversationId, userId);
             messageMapper.softDeleteByConversationId(conversationId, "character_conversation_purge");
             archiveMapper.upsert(userId, conversationId);
             idempotencyMapper.deleteByConversationForUser(conversationId, userId);

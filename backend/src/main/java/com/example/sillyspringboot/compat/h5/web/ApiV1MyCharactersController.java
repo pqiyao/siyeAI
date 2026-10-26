@@ -282,7 +282,7 @@ public class ApiV1MyCharactersController {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Character not found.");
         }
         String stAvatarUrl = trimToEmpty(character.getStAvatarUrl());
-        boolean stDeleted = deleteStCharacterQuietly(stAvatarUrl, id, userId);
+        boolean cleanupStCharacter = canDeleteStCharacter(stAvatarUrl, id);
         tavernSessionService.purgeUserCharacterConversations(userId, id);
         embeddedLorebookSyncService.deleteAllForCharacter(id);
         characterStudioService.deleteVoiceBindings(userId, id);
@@ -290,13 +290,14 @@ public class ApiV1MyCharactersController {
         if (!stAvatarUrl.isBlank() && !stAvatarUrl.startsWith("__deleted_private__/")) {
             mineMapper.softDeletePublicSyncShadowByStAvatarUrl(stAvatarUrl);
         }
-        if (stDeleted) {
+        if (cleanupStCharacter) {
             mineMapper.archiveStAvatarUrlAfterStDelete(id, userId);
+            scheduleStCharacterCleanupAfterCommit(userId, stAvatarUrl);
         }
         return ApiV1Result.ok(true);
     }
 
-    private boolean deleteStCharacterQuietly(String stAvatarUrl, long characterId, long userId) {
+    private boolean canDeleteStCharacter(String stAvatarUrl, long characterId) {
         String safeAvatar = trimToEmpty(stAvatarUrl);
         if (safeAvatar.isBlank() || safeAvatar.startsWith("__deleted_private__/")) {
             return false;
@@ -304,18 +305,29 @@ public class ApiV1MyCharactersController {
         if (mineMapper.countActiveByStAvatarUrlExcludingId(safeAvatar, characterId) > 0) {
             return false;
         }
-        try {
-            return stAdapter.deleteCharacter(safeAvatar, true);
-        } catch (Exception e) {
-            log.warn(
-                    "Failed to delete ST private character file, keep avatar tombstone active. characterId={}, userId={}, stAvatarUrl={}: {}",
-                    characterId,
-                    userId,
-                    safeAvatar,
-                    e.toString()
-            );
-            return false;
+        return true;
+    }
+
+    private void scheduleStCharacterCleanupAfterCommit(long userId, String stAvatarUrl) {
+        Runnable cleanup = () -> {
+            try {
+                List<String> taskIds = cleanupTaskService.enqueueArtifactRollbackTasks(userId, stAvatarUrl, Set.of());
+                cleanupTaskService.processImmediately(taskIds);
+            } catch (Exception e) {
+                log.warn("ST private character cleanup remains queued after character deletion avatar={}: {}",
+                        stAvatarUrl, e.toString());
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            cleanup.run();
+            return;
         }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                cleanup.run();
+            }
+        });
     }
     @PostMapping(value = "/mine/upload-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiV1Result<Map<String, Object>> uploadImage(

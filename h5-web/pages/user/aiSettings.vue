@@ -3781,6 +3781,8 @@ export default {
 </script>
 
 <style scoped lang="scss">
+@import '@/common/glass-tokens.scss';
+
 .page {
 	min-height: 100vh;
 	background: transparent;
@@ -3791,10 +3793,8 @@ export default {
 
 .body {
 	flex: 1;
-	padding: 24rpx 24rpx calc(56rpx + env(safe-area-inset-bottom));
 }
 
-.hero-card,
 .sheet,
 .status-card {
 	background: rgba(255, 255, 255, 0.8);
@@ -3802,12 +3802,6 @@ export default {
 	box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.1);
 	backdrop-filter: blur(18rpx);
 	-webkit-backdrop-filter: blur(18rpx);
-}
-
-.hero-card {
-	padding: 28rpx;
-	border-radius: 26rpx;
-	margin-bottom: 24rpx;
 }
 
 .hero-top {
@@ -4012,10 +4006,6 @@ export default {
 	margin-top: 14rpx;
 }
 
-.field {
-	margin-bottom: 26rpx;
-}
-
 .field:last-child {
 	margin-bottom: 0;
 }
@@ -4025,7 +4015,6 @@ export default {
 	align-items: center;
 	justify-content: space-between;
 	gap: 16rpx;
-	margin-bottom: 12rpx;
 }
 
 .field-label {
@@ -4113,13 +4102,6 @@ export default {
 
 .field-tip--warning {
 	color: #b46a57;
-}
-
-.chat-model-library {
-	padding: 22rpx;
-	border: 1rpx solid rgba(72, 103, 119, 0.2);
-	border-radius: 8rpx;
-	background: rgba(244, 248, 247, 0.76);
 }
 
 .chat-model-library__heading {
@@ -4264,14 +4246,6 @@ export default {
 	color: #315d76;
 }
 
-.preset-box {
-	margin-top: 14rpx;
-	padding: 16rpx;
-	border-radius: 18rpx;
-	background: rgba(234, 249, 252, 0.68);
-	border: 1rpx solid rgba(91, 190, 209, 0.16);
-}
-
 .preset-box--tight {
 	margin-top: 12rpx;
 	padding: 14rpx;
@@ -4342,28 +4316,9 @@ export default {
 	margin-top: 16rpx;
 }
 
-.aux-card {
-	padding: 18rpx;
-	border-radius: 20rpx;
-	background: rgba(255, 255, 255, 0.72);
-	border: 1rpx solid rgba(79, 147, 163, 0.14);
-}
-
-.aux-card--tts-config {
-	background: rgba(255, 255, 255, 0.74);
-	border-color: rgba(79, 147, 163, 0.16);
-}
-
-.aux-card--voice-library {
-	background: rgba(255, 255, 255, 0.76);
-}
-
 .aux-card--image-consistency {
 	position: relative;
 	overflow: hidden;
-	background: rgba(255, 255, 255, 0.76);
-	border-color: rgba(79, 147, 163, 0.16);
-	box-shadow: 0 12rpx 26rpx rgba(36, 70, 88, 0.08);
 }
 
 .strategy-card-head {
@@ -4476,9 +4431,7 @@ export default {
 .aux-card__label {
 	display: block;
 	margin-bottom: 12rpx;
-	font-size: 24rpx;
 	font-weight: 800;
-	color: #2c5e78;
 }
 
 .tts-provider-fields {
@@ -4504,17 +4457,7 @@ export default {
 	gap: 16rpx;
 	min-height: 118rpx;
 	padding: 14rpx 16rpx;
-	border-radius: 18rpx;
-	background: rgba(255, 255, 255, 0.86);
-	border: 1rpx solid rgba(92, 171, 193, 0.16);
-	box-shadow: 0 8rpx 20rpx rgba(69, 120, 143, 0.08);
 	box-sizing: border-box;
-}
-
-.voice-template-card--active {
-	background: rgba(63, 143, 159, 0.12);
-	border-color: rgba(63, 143, 159, 0.36);
-	box-shadow: 0 12rpx 26rpx rgba(48, 103, 117, 0.12);
 }
 
 .voice-template-card__cover {
@@ -4707,12 +4650,6 @@ export default {
 	margin-bottom: 0;
 }
 
-.status-card {
-	margin-top: 22rpx;
-	padding: 24rpx;
-	border-radius: 22rpx;
-}
-
 .status-title {
 	display: block;
 	font-size: 26rpx;
@@ -4806,8 +4743,6 @@ export default {
 
 .action-row {
 	display: flex;
-	gap: 18rpx;
-	margin-top: 26rpx;
 }
 
 .action-row--single .action-button {
@@ -4817,25 +4752,9 @@ export default {
 
 .action-button {
 	flex: 1;
-	min-height: 88rpx;
-	border-radius: 999rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	font-size: 27rpx;
-	font-weight: 800;
-}
-
-.action-button--secondary {
-	background: rgba(255, 255, 255, 0.78);
-	border: 1rpx solid rgba(79, 147, 163, 0.18);
-	color: #236f82;
-}
-
-.action-button--primary {
-	background: #3f8f9f;
-	color: #ffffff;
-	box-shadow: 0 16rpx 32rpx rgba(48, 103, 117, 0.2);
 }
 
 .action-button--disabled {
@@ -4844,15 +4763,15 @@ export default {
 
 /* Refined settings layout: structure changes only, all form bindings stay intact. */
 .page {
-	--settings-ink: #203846;
-	--settings-muted: #647b8b;
-	--settings-line: rgba(103, 157, 178, 0.2);
-	--settings-paper: rgba(255, 255, 255, 0.42);
-	--settings-soft: rgba(232, 246, 251, 0.7);
-	--settings-accent: #4f93a3;
-	--settings-accent-strong: #3e8dab;
-	--settings-accent-soft: rgba(213, 239, 247, 0.72);
-	--settings-pink: #b65f83;
+	--settings-ink: #{$jg-glass-ink};
+	--settings-muted: #{$jg-glass-muted};
+	--settings-line: #{$jg-glass-line};
+	--settings-paper: #{$jg-glass-paper};
+	--settings-soft: #{$jg-glass-soft};
+	--settings-accent: #{$jg-glass-accent};
+	--settings-accent-strong: #{$jg-glass-accent-strong};
+	--settings-accent-soft: #{$jg-glass-accent-soft};
+	--settings-pink: #{$jg-glass-pink};
 	--settings-danger: #b85f72;
 	color: var(--settings-ink);
 }
@@ -4867,8 +4786,7 @@ export default {
 
 .hero-card,
 .status-card {
-	backdrop-filter: blur(18rpx);
-	-webkit-backdrop-filter: blur(18rpx);
+	@include jg-glass-blur;
 }
 
 .hero-card {
@@ -4882,8 +4800,6 @@ export default {
 	border-radius: 30rpx;
 	background: rgba(255, 255, 255, 0.42);
 	box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.72);
-	backdrop-filter: blur(18rpx);
-	-webkit-backdrop-filter: blur(18rpx);
 }
 
 .hero-mark {
@@ -4950,8 +4866,7 @@ export default {
 	border-radius: 24rpx;
 	background: rgba(255, 255, 255, 0.28);
 	box-shadow: 0 8rpx 20rpx rgba(36, 70, 88, 0.07), inset 0 1rpx 0 rgba(255, 255, 255, 0.7);
-	backdrop-filter: blur(18rpx);
-	-webkit-backdrop-filter: blur(18rpx);
+	@include jg-glass-blur;
 }
 
 .mode-row--primary .mode-chip {
@@ -4978,9 +4893,8 @@ export default {
 	border: 1rpx solid rgba(255, 255, 255, 0.5);
 	border-radius: 30rpx;
 	background: rgba(255, 255, 255, 0.42);
-	box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.12), inset 0 1rpx 0 rgba(255, 255, 255, 0.68);
-	backdrop-filter: blur(18rpx);
-	-webkit-backdrop-filter: blur(18rpx);
+	box-shadow: $jg-glass-shadow;
+	@include jg-glass-blur;
 }
 
 .official-card {

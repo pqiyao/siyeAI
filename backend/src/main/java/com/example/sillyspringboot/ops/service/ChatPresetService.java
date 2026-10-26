@@ -38,6 +38,7 @@ public class ChatPresetService {
     private static final int LEGACY_MIN_MAX_TOKENS = 64;
     private static final int MIN_EDITABLE_MAX_TOKENS = 800;
     private static final int MAX_MAX_TOKENS = 8192;
+    private static final int MAX_MAX_CONTEXT = 300000;
     private static final int DEFAULT_PRIVATE_MAX_CONTEXT = 8192;
 
     private final AppChatPresetMapper presetMapper;
@@ -334,8 +335,8 @@ public class ChatPresetService {
                     ObjectNode generation = generationNode.isObject()
                             ? (ObjectNode) generationNode
                             : objectMapper.createObjectNode();
-                    generation.put("openai_max_tokens", 1000);
-                    generation.put("openai_max_context", 65536);
+                    generation.put("openai_max_tokens", 2536);
+                    generation.put("openai_max_context", 300000);
                     root.set("generation", generation);
                     bundleJson = objectMapper.writeValueAsString(root);
                 }
@@ -480,7 +481,7 @@ public class ChatPresetService {
                     firstNumber(generation, 0.0d, "presence_penalty", "pres_pen_openai")));
             int maxTokens = Math.max(MIN_EDITABLE_MAX_TOKENS, Math.min(MAX_MAX_TOKENS,
                     firstInt(generation, MIN_EDITABLE_MAX_TOKENS, "openai_max_tokens", "max_tokens")));
-            int maxContext = Math.max(maxTokens + 512, Math.min(131072,
+            int maxContext = Math.max(maxTokens + 512, Math.min(MAX_MAX_CONTEXT,
                     firstInt(generation, 8192, "openai_max_context", "max_context")));
             return validateEditablePrivateGeneration(
                     temperature, topP, frequencyPenalty, presencePenalty, maxTokens, maxContext);
@@ -537,7 +538,7 @@ public class ChatPresetService {
                     "maxTokens must be between " + minMaxTokens + " and " + MAX_MAX_TOKENS
             );
         }
-        if (maxContext < 2048 || maxContext > 131072 || maxContext < maxTokens + 512) {
+        if (maxContext < 2048 || maxContext > MAX_MAX_CONTEXT || maxContext < maxTokens + 512) {
             throw new BusinessException(ErrorCode.VALIDATION_FAILED, "maxContext invalid");
         }
         return new PrivateGeneration(
@@ -545,7 +546,7 @@ public class ChatPresetService {
     }
 
     private static int normalizedInternalMaxContext(int currentMaxContext, int maxTokens) {
-        return Math.min(131072, Math.max(Math.max(2048, currentMaxContext), maxTokens + 512));
+        return Math.min(MAX_MAX_CONTEXT, Math.max(Math.max(2048, currentMaxContext), maxTokens + 512));
     }
 
     private String writePrivateBundle(PrivateGeneration generation, String sourceType) {
@@ -652,8 +653,8 @@ public class ChatPresetService {
         ObjectNode normalized = generation != null && generation.isObject()
                 ? ((ObjectNode) generation).deepCopy()
                 : objectMapper.createObjectNode();
-        normalized.put("openai_max_tokens", 1000);
-        normalized.put("openai_max_context", 65536);
+        normalized.put("openai_max_tokens", 2536);
+        normalized.put("openai_max_context", 300000);
         return normalized;
     }
 

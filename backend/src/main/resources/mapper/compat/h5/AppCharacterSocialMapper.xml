@@ -59,6 +59,38 @@
         WHERE character_id = #{characterId} AND vote = #{vote}
     </select>
 
+    <select id="listInteractionCounts" resultType="map">
+        SELECT character_id AS characterId,
+               COALESCE(SUM(CASE WHEN vote = 'like' THEN 1 ELSE 0 END), 0) AS likeCount,
+               COALESCE(SUM(CASE WHEN vote = 'dislike' THEN 1 ELSE 0 END), 0) AS dislikeCount
+        FROM app_character_vote
+        WHERE character_id IN
+        <foreach collection="characterIds" item="cid" open="(" close=")" separator=",">
+            #{cid}
+        </foreach>
+        GROUP BY character_id
+    </select>
+
+    <select id="listFavoriteCharacterIdsForUser" resultType="long">
+        SELECT character_id
+        FROM app_character_favorite
+        WHERE user_id = #{userId}
+          AND character_id IN
+        <foreach collection="characterIds" item="cid" open="(" close=")" separator=",">
+            #{cid}
+        </foreach>
+    </select>
+
+    <select id="listVotesForUser" resultType="map">
+        SELECT character_id AS characterId, vote
+        FROM app_character_vote
+        WHERE user_id = #{userId}
+          AND character_id IN
+        <foreach collection="characterIds" item="cid" open="(" close=")" separator=",">
+            #{cid}
+        </foreach>
+    </select>
+
     <select id="countVisibleFavoritesByUser" resultType="long">
         SELECT COUNT(*)
         FROM app_character_favorite f

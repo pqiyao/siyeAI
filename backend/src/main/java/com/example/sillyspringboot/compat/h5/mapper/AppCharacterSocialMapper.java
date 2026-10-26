@@ -4,6 +4,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
+import java.util.Map;
 
 @Mapper
 public interface AppCharacterSocialMapper {
@@ -24,6 +25,16 @@ public interface AppCharacterSocialMapper {
     long countFavoritesByCharacter(@Param("characterId") long characterId);
 
     long countVoteByCharacter(@Param("characterId") long characterId, @Param("vote") String vote);
+
+    List<Map<String, Object>> listInteractionCounts(@Param("characterIds") List<Long> characterIds);
+
+    List<Long> listFavoriteCharacterIdsForUser(
+            @Param("userId") long userId,
+            @Param("characterIds") List<Long> characterIds);
+
+    List<Map<String, Object>> listVotesForUser(
+            @Param("userId") long userId,
+            @Param("characterIds") List<Long> characterIds);
 
     long countVisibleFavoritesByUser(@Param("userId") long userId);
 

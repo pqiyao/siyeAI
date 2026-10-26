@@ -731,33 +731,11 @@ export default {
 }
 /* #endif */
 
-.hero-card,
-.wallet-card,
-.benefit-card,
-.section-card,
-.quota-card,
-.illustration-site-card {
-	position: relative;
-	overflow: hidden;
-	border: 1rpx solid rgba(255, 255, 255, 0.08);
-	box-shadow:
-		0 18rpx 44rpx rgba(4, 8, 18, 0.34),
-		inset 0 1rpx 0 rgba(255, 255, 255, 0.04);
-}
-
-.hero-card {
-	padding: 28rpx;
-	border-radius: 34rpx;
-	background: rgba(19, 23, 36, 0.92);
-}
-
 .hero-topline,
 .profile-row,
 .hero-metrics,
 .wallet-copy,
 .wallet-actions,
-.benefit-copy,
-.benefit-link,
 .section-head,
 .shortcut-grid,
 .service-list {
@@ -782,12 +760,7 @@ export default {
 	display: inline-flex;
 	align-items: center;
 	gap: 10rpx;
-	padding: 10rpx 18rpx;
 	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.14);
-	border: 1rpx solid rgba(255, 255, 255, 0.16);
-	backdrop-filter: blur(10px);
-	-webkit-backdrop-filter: blur(10px);
 }
 
 .member-chip-icon {
@@ -811,9 +784,7 @@ export default {
 	width: 144rpx;
 	height: 144rpx;
 	border-radius: 50%;
-	border: 4rpx solid rgba(255, 255, 255, 0.16);
 	flex-shrink: 0;
-	background: rgba(255, 255, 255, 0.08);
 	box-shadow:
 		0 16rpx 30rpx rgba(5, 8, 18, 0.26),
 		0 0 0 10rpx rgba(255, 255, 255, 0.04);
@@ -836,7 +807,6 @@ export default {
 .nickname {
 	display: block;
 	max-width: 100%;
-	font-size: 40rpx;
 	font-weight: 800;
 	color: #fff;
 	overflow: hidden;
@@ -875,9 +845,6 @@ export default {
 	font-size: 24rpx;
 	font-weight: 700;
 	color: #fff;
-	background: linear-gradient(135deg, rgba(124, 58, 237, 0.28) 0%, rgba(236, 72, 153, 0.2) 100%);
-	border: 1rpx solid rgba(255, 255, 255, 0.16);
-	box-shadow: 0 12rpx 24rpx rgba(76, 29, 149, 0.16);
 }
 
 .hero-metrics {
@@ -885,16 +852,6 @@ export default {
 	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 14rpx;
 	margin-top: 24rpx;
-}
-
-.metric-pill {
-	padding: 18rpx 16rpx;
-	border-radius: 22rpx;
-	background: rgba(9, 13, 21, 0.32);
-	border: 1rpx solid rgba(255, 255, 255, 0.08);
-	backdrop-filter: blur(8px);
-	-webkit-backdrop-filter: blur(8px);
-	box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.05);
 }
 
 .metric-value {
@@ -927,10 +884,6 @@ export default {
 	gap: 12rpx;
 	padding: 16rpx 18rpx;
 	border-radius: 22rpx;
-	background: rgba(255, 255, 255, 0.08);
-	border: 1rpx solid rgba(255, 255, 255, 0.08);
-	backdrop-filter: blur(10px);
-	-webkit-backdrop-filter: blur(10px);
 }
 
 .hero-status-chip--accent {
@@ -951,17 +904,6 @@ export default {
 	line-height: 1.45;
 }
 
-.wallet-card {
-	margin-top: 20rpx;
-	padding: 28rpx;
-	border-radius: 32rpx;
-	min-height: 260rpx;
-	background: rgba(24, 24, 30, 0.88);
-	box-shadow:
-		0 22rpx 48rpx rgba(6, 10, 20, 0.28),
-		inset 0 1rpx 0 rgba(255, 255, 255, 0.05);
-}
-
 .checkin-entry {
 	margin-top: 18rpx;
 	padding: 24rpx 26rpx;
@@ -970,8 +912,6 @@ export default {
 	align-items: center;
 	justify-content: space-between;
 	gap: 16rpx;
-	background: rgba(24, 24, 30, 0.82);
-	border: 1rpx solid rgba(255, 255, 255, 0.08);
 	box-shadow:
 		0 18rpx 40rpx rgba(6, 10, 20, 0.2),
 		inset 0 1rpx 0 rgba(255, 255, 255, 0.04);
@@ -1092,14 +1032,10 @@ export default {
 
 .wallet-soft-btn {
 	color: #f5d0fe;
-	background: rgba(124, 58, 237, 0.16);
-	border: 1rpx solid rgba(216, 180, 254, 0.26);
 }
 
 .wallet-main-btn {
 	color: #fff;
-	background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
-	box-shadow: 0 14rpx 28rpx rgba(219, 39, 119, 0.22);
 }
 
 .quota-grid {
@@ -1107,13 +1043,6 @@ export default {
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: 16rpx;
 	margin-top: 20rpx;
-}
-
-.quota-card {
-	padding: 24rpx;
-	border-radius: 30rpx;
-	background: rgba(23, 27, 38, 0.92);
-	min-height: 208rpx;
 }
 
 .quota-card-label,
@@ -1127,35 +1056,18 @@ export default {
 .quota-card-label {
 	font-size: 23rpx;
 	font-weight: 700;
-	color: rgba(255, 255, 255, 0.72);
 }
 
 .quota-card-value {
 	margin-top: 16rpx;
 	font-size: 42rpx;
 	font-weight: 800;
-	color: #fff;
 }
 
 .quota-card-note {
 	margin-top: 12rpx;
 	font-size: 22rpx;
 	line-height: 1.55;
-	color: rgba(226, 232, 240, 0.76);
-}
-
-.benefit-card {
-	margin-top: 20rpx;
-	padding: 28rpx;
-	border-radius: 32rpx;
-	min-height: 208rpx;
-	background: rgba(24, 28, 39, 0.92);
-}
-
-.benefit-copy {
-	position: relative;
-	z-index: 2;
-	max-width: 470rpx;
 }
 
 .benefit-title {
@@ -1173,24 +1085,6 @@ export default {
 	color: rgba(241, 245, 249, 0.84);
 }
 
-.benefit-link {
-	position: relative;
-	z-index: 2;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	margin-top: 22rpx;
-	min-width: 180rpx;
-	height: 76rpx;
-	padding: 0 24rpx;
-	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.14);
-	border: 1rpx solid rgba(255, 255, 255, 0.16);
-	font-size: 24rpx;
-	font-weight: 700;
-	color: #fff;
-}
-
 .illustration-site-card {
 	display: flex;
 	align-items: center;
@@ -1201,16 +1095,6 @@ export default {
 	background:
 		radial-gradient(circle at 12% 0, rgba(120, 214, 218, 0.28), transparent 36%),
 		linear-gradient(135deg, rgba(20, 29, 43, 0.94) 0%, rgba(30, 38, 55, 0.9) 54%, rgba(52, 42, 65, 0.92) 100%);
-}
-
-.illustration-site-glow {
-	position: absolute;
-	right: -52rpx;
-	top: -76rpx;
-	width: 230rpx;
-	height: 230rpx;
-	border-radius: 50%;
-	background: radial-gradient(circle, rgba(255, 152, 198, 0.3), transparent 68%);
 }
 
 .illustration-site-icon {
@@ -1225,12 +1109,6 @@ export default {
 	background: rgba(255, 255, 255, 0.12);
 	border: 1rpx solid rgba(255, 255, 255, 0.16);
 	flex-shrink: 0;
-}
-
-.illustration-site-mark {
-	font-size: 38rpx;
-	font-weight: 900;
-	color: #9deaf0;
 }
 
 .illustration-site-copy {
@@ -1284,15 +1162,6 @@ export default {
 	flex-shrink: 0;
 }
 
-.section-card {
-	margin-top: 20rpx;
-	padding: 28rpx;
-	border-radius: 32rpx;
-	background: rgba(18, 21, 32, 0.9);
-	backdrop-filter: blur(18px);
-	-webkit-backdrop-filter: blur(18px);
-}
-
 .section-head {
 	display: flex;
 	align-items: center;
@@ -1322,17 +1191,13 @@ export default {
 }
 
 .shortcut-item {
-	padding: 24rpx 22rpx;
 	border-radius: 24rpx;
 	background:
 		linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.03) 100%),
 		rgba(255, 255, 255, 0.04);
-	border: 1rpx solid rgba(255, 255, 255, 0.1);
 	box-shadow:
 		inset 0 1rpx 0 rgba(255, 255, 255, 0.07),
 		0 14rpx 28rpx rgba(6, 10, 20, 0.14);
-	backdrop-filter: blur(8px);
-	-webkit-backdrop-filter: blur(8px);
 }
 
 .shortcut-icon-shell {
@@ -1386,17 +1251,13 @@ export default {
 	align-items: center;
 	justify-content: space-between;
 	gap: 16rpx;
-	padding: 20rpx;
 	border-radius: 24rpx;
 	background:
 		linear-gradient(180deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.03) 100%),
 		rgba(255, 255, 255, 0.04);
-	border: 1rpx solid rgba(255, 255, 255, 0.1);
 	box-shadow:
 		inset 0 1rpx 0 rgba(255, 255, 255, 0.07),
 		0 14rpx 28rpx rgba(6, 10, 20, 0.14);
-	backdrop-filter: blur(8px);
-	-webkit-backdrop-filter: blur(8px);
 }
 
 .service-left {
@@ -1465,456 +1326,6 @@ export default {
 	color: #d8b4fe;
 	background: rgba(168, 85, 247, 0.14);
 	border: 1rpx solid rgba(192, 132, 252, 0.18);
-}
-
-/* Final user page skin: calm glass cards over the shared image background. */
-.page {
-	background: transparent;
-	color: #203846;
-	padding: 104rpx 24rpx calc(42rpx + #{$tavern-tabbar-spacer} + env(safe-area-inset-bottom));
-}
-
-.hero-card,
-.wallet-card,
-.checkin-entry,
-.section-card,
-.quota-card,
-.illustration-site-card {
-	position: relative;
-	overflow: visible;
-	border: 1rpx solid rgba(255, 255, 255, 0.38);
-	background: rgba(255, 255, 255, 0.36);
-	backdrop-filter: blur(18rpx);
-	-webkit-backdrop-filter: blur(18rpx);
-}
-
-.hero-card,
-.wallet-card {
-	padding: 30rpx;
-	border-radius: 30rpx;
-	background: rgba(255, 255, 255, 0.42);
-	border-color: rgba(255, 255, 255, 0.5);
-	box-shadow: 0 16rpx 36rpx rgba(36, 70, 88, 0.12);
-}
-
-.quota-card,
-.section-card,
-.illustration-site-card {
-	border-radius: 24rpx;
-	border-color: rgba(255, 255, 255, 0.32);
-	background: rgba(255, 255, 255, 0.28);
-	box-shadow: 0 6rpx 16rpx rgba(36, 70, 88, 0.05);
-}
-
-.hero-card::before,
-.wallet-card::before {
-	display: none;
-}
-
-.hero-topline,
-.profile-row,
-.hero-metrics,
-.hero-status-bar,
-.wallet-copy,
-.wallet-actions,
-.section-head,
-.shortcut-grid,
-.service-list {
-	position: relative;
-	z-index: 2;
-}
-
-.hero-kicker,
-.wallet-kicker,
-.quota-card-label {
-	color: #236f82;
-}
-
-.member-chip-text,
-.nickname,
-.metric-value,
-.hero-status-text,
-.wallet-value,
-.quota-card-value,
-.section-title,
-.shortcut-name,
-.service-name {
-	color: #203846;
-}
-
-.account-line,
-.account-id,
-.metric-label,
-.wallet-sub,
-.quota-card-note,
-.section-note,
-.shortcut-desc,
-.service-desc {
-	color: #5f7280;
-	font-weight: 500;
-}
-
-.hero-kicker {
-	letter-spacing: 0;
-}
-
-.member-chip,
-.hero-status-chip,
-.metric-pill {
-	background: rgba(255, 255, 255, 0.31);
-	border: 1rpx solid rgba(79, 147, 163, 0.13);
-	box-shadow: none;
-}
-
-.member-chip {
-	background: rgba(63, 143, 159, 0.1);
-}
-
-.member-chip-icon,
-.hero-status-icon {
-	opacity: 1;
-	filter: none;
-}
-
-.profile-row {
-	align-items: center;
-	gap: 18rpx;
-}
-
-.profile-copy {
-	margin-left: 0;
-}
-
-.nickname {
-	font-size: 38rpx;
-	line-height: 1.2;
-	letter-spacing: 0;
-}
-
-.sync-badge {
-	color: #236f82;
-	background: rgba(63, 143, 159, 0.11);
-	border-color: rgba(63, 143, 159, 0.16);
-}
-
-.avatar {
-	width: 140rpx;
-	height: 140rpx;
-	border: 5rpx solid rgba(255, 255, 255, 0.92);
-	background: rgba(255, 255, 255, 0.72);
-	box-shadow: 0 12rpx 24rpx rgba(36, 70, 88, 0.12);
-}
-
-.edit-btn,
-.wallet-main-btn {
-	color: #fff;
-	background: linear-gradient(135deg, #2f8796 0%, #54b5c0 100%);
-	border: 1rpx solid rgba(255, 255, 255, 0.55);
-	box-shadow:
-		0 12rpx 24rpx rgba(47, 135, 150, 0.18),
-		inset 0 1rpx 0 rgba(255, 255, 255, 0.28);
-}
-
-.edit-btn {
-	min-width: 132rpx;
-	height: 72rpx;
-}
-
-.hero-metrics {
-	gap: 14rpx;
-}
-
-.metric-pill {
-	min-height: 88rpx;
-	border-radius: 22rpx;
-}
-
-.hero-status-chip {
-	background: rgba(247, 252, 252, 0.34);
-}
-
-.hero-status-chip--accent {
-	background: rgba(63, 143, 159, 0.11);
-	border-color: rgba(63, 143, 159, 0.15);
-}
-
-.wallet-card {
-	min-height: auto;
-	overflow: hidden;
-	margin-top: 18rpx;
-}
-
-.wallet-bg-art,
-.wallet-right-art {
-	position: absolute;
-	z-index: 1;
-	pointer-events: none;
-}
-
-.wallet-bg-art {
-	right: -38rpx;
-	top: 14rpx;
-	width: 430rpx;
-	height: 140rpx;
-	opacity: 0.14;
-}
-
-.wallet-right-art {
-	right: 22rpx;
-	bottom: 20rpx;
-	width: 170rpx;
-	height: 86rpx;
-	opacity: 0.22;
-}
-
-.wallet-soft-btn {
-	color: #236f82;
-	background: rgba(63, 143, 159, 0.1);
-	border: 1rpx solid rgba(63, 143, 159, 0.16);
-	box-shadow: none;
-}
-
-.checkin-entry {
-	background: rgba(255, 255, 255, 0.34);
-	border-color: rgba(255, 255, 255, 0.42);
-	box-shadow: 0 8rpx 20rpx rgba(36, 70, 88, 0.07);
-	backdrop-filter: blur(18rpx);
-	-webkit-backdrop-filter: blur(18rpx);
-}
-
-.checkin-entry.is-claimable {
-	background: rgba(244, 253, 253, 0.86);
-	border-color: rgba(84, 181, 192, 0.5);
-	box-shadow: 0 12rpx 28rpx rgba(47, 135, 150, 0.14);
-}
-
-.checkin-entry.is-claimable .checkin-entry-icon {
-	background: rgba(84, 181, 192, 0.18);
-	border-color: rgba(47, 135, 150, 0.32);
-	box-shadow: 0 8rpx 20rpx rgba(47, 135, 150, 0.16);
-}
-
-.checkin-entry-title {
-	color: #203846;
-}
-
-.checkin-entry-sub {
-	color: #5f7280;
-	font-weight: 500;
-}
-
-.checkin-entry-action {
-	color: #236f82;
-	padding: 10rpx 16rpx;
-	border-radius: 999rpx;
-	background: rgba(84, 181, 192, 0.12);
-}
-
-.checkin-entry-arrow {
-	color: #7d93a4;
-}
-
-.checkin-dot {
-	background: #54b5c0;
-	box-shadow: 0 0 0 6rpx rgba(84, 181, 192, 0.12);
-}
-
-.quota-grid {
-	gap: 14rpx;
-	margin-top: 16rpx;
-}
-
-.quota-card {
-	padding: 22rpx;
-	min-height: 168rpx;
-}
-
-.quota-card--violet {
-	background: rgba(255, 255, 255, 0.28);
-	border-color: rgba(79, 147, 163, 0.12);
-}
-
-.illustration-site-card {
-	display: flex;
-	align-items: center;
-	gap: 16rpx;
-	overflow: hidden;
-	margin-top: 16rpx;
-	padding: 20rpx 22rpx;
-	background: rgba(255, 255, 255, 0.28);
-}
-
-.illustration-site-icon {
-	width: 72rpx;
-	height: 72rpx;
-	border-radius: 20rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	background: rgba(63, 143, 159, 0.1);
-	border: 1rpx solid rgba(63, 143, 159, 0.14);
-}
-
-.illustration-site-icon-img {
-	width: 40rpx;
-	height: 40rpx;
-}
-
-.illustration-site-copy {
-	flex: 1;
-	min-width: 0;
-}
-
-.illustration-site-kicker {
-	display: block;
-	font-size: 20rpx;
-	font-weight: 700;
-	color: #247494;
-}
-
-.illustration-site-title {
-	display: block;
-	margin-top: 4rpx;
-	font-size: 28rpx;
-	font-weight: 800;
-	color: #244b66;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.illustration-site-desc {
-	display: block;
-	margin-top: 4rpx;
-	font-size: 22rpx;
-	color: #64798b;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.illustration-site-action {
-	flex-shrink: 0;
-	min-width: 96rpx;
-	height: 60rpx;
-	padding: 0 18rpx;
-	border-radius: 999rpx;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 22rpx;
-	font-weight: 700;
-	background: rgba(63, 143, 159, 0.12);
-	border: 1rpx solid rgba(63, 143, 159, 0.16);
-	color: #236f82;
-	box-shadow: none;
-}
-
-.section-card {
-	margin-top: 16rpx;
-	padding: 22rpx 20rpx;
-}
-
-.section-card + .section-card {
-	margin-top: 14rpx;
-}
-
-.section-head {
-	align-items: flex-start;
-	margin-bottom: 16rpx;
-}
-
-.section-title {
-	font-size: 28rpx;
-}
-
-.section-note {
-	max-width: 330rpx;
-	text-align: right;
-	font-size: 20rpx;
-}
-
-.shortcut-grid {
-	gap: 12rpx;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.shortcut-item,
-.service-item {
-	border-radius: 20rpx;
-	background: rgba(255, 255, 255, 0.26);
-	border: 1rpx solid rgba(255, 255, 255, 0.3);
-	box-shadow: none;
-	backdrop-filter: none;
-	-webkit-backdrop-filter: none;
-}
-
-.shortcut-item {
-	min-height: 168rpx;
-	padding: 22rpx 16rpx;
-	box-sizing: border-box;
-}
-
-.shortcut-desc {
-	display: none;
-}
-
-.service-item {
-	padding: 18rpx 16rpx;
-}
-
-.shortcut-icon-shell,
-.service-icon-shell {
-	background: rgba(63, 143, 159, 0.1);
-	border-color: rgba(63, 143, 159, 0.12);
-	box-shadow: none;
-}
-
-.shortcut-icon,
-.service-icon {
-	opacity: 1;
-}
-
-.shortcut-name,
-.service-name {
-	font-weight: 700;
-}
-
-.shortcut-desc,
-.service-desc {
-	color: #6a7f90;
-}
-
-.service-arrow {
-	color: #7d93a4;
-}
-
-.wallet-copy {
-	max-width: none;
-	padding-right: 190rpx;
-	box-sizing: border-box;
-}
-
-.wallet-value {
-	font-size: 48rpx;
-	text-shadow: none;
-}
-
-.wallet-actions {
-	gap: 14rpx;
-	margin-top: 26rpx;
-	justify-content: flex-start;
-	padding-right: 190rpx;
-	box-sizing: border-box;
-}
-
-.wallet-soft-btn,
-.wallet-main-btn {
-	flex: 0 0 auto;
-	height: 78rpx;
-	padding: 0 28rpx;
-	box-sizing: border-box;
 }
 
 /* Liquid glass v2: background → glass → content. The blur is intentionally
@@ -2161,6 +1572,47 @@ export default {
 	color: #22506a;
 	}
 
+/* Template-specific assets and compact-layout exceptions retained from the prior skin. */
+.wallet-bg-art,
+.wallet-right-art {
+	position: absolute;
+	z-index: 1;
+	pointer-events: none;
+}
+
+.wallet-bg-art {
+	right: -38rpx;
+	top: 14rpx;
+	width: 430rpx;
+	height: 140rpx;
+	opacity: 0.14;
+}
+
+.wallet-right-art {
+	right: 22rpx;
+	bottom: 20rpx;
+	width: 170rpx;
+	height: 86rpx;
+	opacity: 0.22;
+}
+
+.illustration-site-icon-img {
+	width: 40rpx;
+	height: 40rpx;
+}
+
+.profile-row {
+	gap: 18rpx;
+}
+
+.quota-card {
+	padding: 22rpx;
+	min-height: 168rpx;
+}
+
+.shortcut-desc {
+	display: none;
+}
 @media (max-width: 350px) {
 	.page { padding-left: 18rpx; padding-right: 18rpx; }
 	.hero-card, .wallet-card { padding: 24rpx; }

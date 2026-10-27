@@ -57,4 +57,19 @@ class AdminJiugaiChatPresetControllerTest {
 
         verify(settings).save(Map.of("maxTokens", 2536, "maxContext", 300000));
     }
+
+    @Test
+    void presetConfigurationAndRestoreDelegateToThePresetService() {
+        ChatPresetService service = mock(ChatPresetService.class);
+        when(service.updateAdminConfiguration(12L, "{\"generation\":{}}" )).thenReturn(true);
+        when(service.restoreStConfiguration(12L)).thenReturn(true);
+        AdminJiugaiChatPresetController controller = new AdminJiugaiChatPresetController(
+                service, mock(ChatRuntimeDefaultSettingsService.class));
+
+        controller.config(12L, Map.of("bundleJson", "{\"generation\":{}}"));
+        controller.restoreConfig(12L);
+
+        verify(service).updateAdminConfiguration(12L, "{\"generation\":{}}" );
+        verify(service).restoreStConfiguration(12L);
+    }
 }

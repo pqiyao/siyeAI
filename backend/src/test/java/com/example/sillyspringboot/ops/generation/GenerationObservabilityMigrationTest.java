@@ -183,7 +183,7 @@ class GenerationObservabilityMigrationTest {
                         + "AND column_name IN ('session_id', 'admin_id', 'tenant_key', 'preset', 'status')",
                 Integer.class
         ));
-        assertEquals("190", jdbc.queryForObject(
+        assertEquals("191", jdbc.queryForObject(
                 "SELECT version FROM flyway_schema_history WHERE success = TRUE ORDER BY installed_rank DESC LIMIT 1",
                 String.class
         ));

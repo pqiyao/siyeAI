@@ -99,6 +99,25 @@ public class AdminJiugaiChatPresetController {
         return AdminAjaxResult.ok("\u4fdd\u5b58\u6210\u529f");
     }
 
+    @PutMapping("/{id}/config")
+    @AdminPermitted("content:chat-preset:edit")
+    public Map<String, Object> config(@PathVariable long id, @RequestBody(required = false) Map<String, Object> body) {
+        String bundleJson = body == null ? null : String.valueOf(body.getOrDefault("bundleJson", ""));
+        if (!chatPresetService.updateAdminConfiguration(id, bundleJson)) {
+            return AdminAjaxResult.error("\u9884\u8bbe\u4e0d\u5b58\u5728");
+        }
+        return AdminAjaxResult.ok("\u9884\u8bbe\u914d\u7f6e\u5df2\u4fdd\u5b58");
+    }
+
+    @DeleteMapping("/{id}/config")
+    @AdminPermitted("content:chat-preset:edit")
+    public Map<String, Object> restoreConfig(@PathVariable long id) {
+        if (!chatPresetService.restoreStConfiguration(id)) {
+            return AdminAjaxResult.error("\u9884\u8bbe\u4e0d\u5b58\u5728");
+        }
+        return AdminAjaxResult.ok("\u5df2\u6062\u590d ST \u540c\u6b65\u914d\u7f6e");
+    }
+
     @DeleteMapping("/{id}")
     @AdminPermitted("content:chat-preset:edit")
     public Map<String, Object> delete(@PathVariable long id) {

@@ -90,7 +90,10 @@
       <el-table-column label="ID" prop="id" width="76" align="center" />
       <el-table-column label="预设名称" min-width="190" show-overflow-tooltip>
         <template #default="{ row }">
-          <div class="preset-name">{{ row.name || '--' }}</div>
+          <div class="preset-name">
+            {{ row.name || '--' }}
+            <el-tag v-if="row.customized" class="customized-tag" type="warning" effect="plain" size="small">后台已配置</el-tag>
+          </div>
           <div class="preset-sub">{{ row.description || row.sourceName || '--' }}</div>
         </template>
       </el-table-column>
@@ -197,15 +200,38 @@
         <el-descriptions-item label="model">{{ detail.summary?.model || '--' }}</el-descriptions-item>
         <el-descriptions-item label="temperature">{{ detail.summary?.temperature || '--' }}</el-descriptions-item>
       </el-descriptions>
-      <el-input
-        class="json-box"
-        :model-value="detail.bundleJson || ''"
-        type="textarea"
-        :rows="18"
-        readonly
+      <el-alert
+        class="mb12"
+        type="warning"
+        :closable="false"
+        title="保存后仅覆盖该预设的运行配置；ST 原始同步快照仍会保留，聊天链路和会话绑定不变。"
       />
+      <el-form label-width="110px">
+        <el-form-item label="后台运行配置">
+          <el-input v-model="configDraft" class="json-box" type="textarea" :rows="18" />
+        </el-form-item>
+      </el-form>
+      <el-collapse class="mb12">
+        <el-collapse-item title="查看 ST 原始同步快照" name="st-snapshot">
+          <el-input class="json-box" :model-value="detail.bundleJson || ''" type="textarea" :rows="12" readonly />
+        </el-collapse-item>
+      </el-collapse>
       <template #footer>
-        <el-button type="primary" @click="detailOpen = false">关闭</el-button>
+        <el-button
+          v-if="detail.customized"
+          v-hasPermi="['content:chat-preset:edit']"
+          type="warning"
+          plain
+          :loading="restoringConfig"
+          @click="handleRestoreConfig"
+        >恢复 ST 配置</el-button>
+        <el-button
+          v-hasPermi="['content:chat-preset:edit']"
+          type="primary"
+          :loading="savingConfig"
+          @click="handleSaveConfig"
+        >保存预设配置</el-button>
+        <el-button @click="detailOpen = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -219,6 +245,8 @@ import {
   listChatPreset,
   syncStChatPresets,
   saveChatPresetGlobalDefault,
+  restoreChatPresetConfig,
+  updateChatPresetConfig,
   updateChatPresetSort,
   updateChatPresetStatus
 } from '@/api/jiugai/chatPreset'
@@ -234,6 +262,9 @@ const presetList = ref([])
 const total = ref(0)
 const detailOpen = ref(false)
 const detail = ref({})
+const configDraft = ref('')
+const savingConfig = ref(false)
+const restoringConfig = ref(false)
 const savingGlobalDefault = ref(false)
 const globalDefault = reactive({ maxTokens: 1000, maxContext: 65536, source: 'legacy-default' })
 
@@ -368,10 +399,62 @@ function handleDetail(row) {
   getChatPreset(row.id)
     .then((res) => {
       detail.value = res.data || {}
+      configDraft.value = detail.value.adminOverrideJson || detail.value.bundleJson || ''
       detailOpen.value = true
     })
     .catch((e) => {
       proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '加载详情失败'))
+    })
+}
+
+function handleSaveConfig() {
+  let parsed
+  try {
+    parsed = JSON.parse(configDraft.value)
+  } catch (e) {
+    proxy.$modal.msgError('预设配置必须是有效 JSON')
+    return
+  }
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object' || !parsed.generation || Array.isArray(parsed.generation) || typeof parsed.generation !== 'object') {
+    proxy.$modal.msgError('预设配置必须是包含 generation 对象的 JSON 对象')
+    return
+  }
+  savingConfig.value = true
+  updateChatPresetConfig(detail.value.id, JSON.stringify(parsed, null, 2))
+    .then(() => {
+      proxy.$modal.msgSuccess('预设配置已保存')
+      detail.value.customized = true
+      detail.value.adminOverrideJson = JSON.stringify(parsed, null, 2)
+      getList()
+    })
+    .catch((e) => {
+      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '保存预设配置失败'))
+    })
+    .finally(() => {
+      savingConfig.value = false
+    })
+}
+
+function handleRestoreConfig() {
+  proxy.$modal
+    .confirm('确认恢复此预设的 ST 原始配置吗？后台覆盖将被清除。')
+    .then(() => {
+      restoringConfig.value = true
+      return restoreChatPresetConfig(detail.value.id)
+    })
+    .then(() => getChatPreset(detail.value.id))
+    .then((res) => {
+      detail.value = res.data || {}
+      configDraft.value = detail.value.bundleJson || ''
+      proxy.$modal.msgSuccess('已恢复 ST 配置')
+      getList()
+    })
+    .catch((e) => {
+      if (isMessageBoxCancelled(e)) return
+      proxy.$modal.msgError(jiugaiRequestErrorMessage(e, '恢复 ST 配置失败'))
+    })
+    .finally(() => {
+      restoringConfig.value = false
     })
 }
 
@@ -429,6 +512,11 @@ loadGlobalDefault()
 .preset-name {
   font-weight: 600;
   color: #1f2d3d;
+}
+
+.customized-tag {
+  margin-left: 6px;
+  vertical-align: 1px;
 }
 
 .preset-sub,

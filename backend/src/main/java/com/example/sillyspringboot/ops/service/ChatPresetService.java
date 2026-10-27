@@ -39,6 +39,7 @@ public class ChatPresetService {
     private static final int MIN_EDITABLE_MAX_TOKENS = 800;
     private static final int MAX_MAX_TOKENS = 8192;
     private static final int MAX_MAX_CONTEXT = 300000;
+    private static final int MAX_ADMIN_OVERRIDE_CHARS = 1_000_000;
     private static final int DEFAULT_PRIVATE_MAX_CONTEXT = 8192;
 
     private final AppChatPresetMapper presetMapper;
@@ -174,7 +175,8 @@ public class ChatPresetService {
         preset.setSourceName("user:" + userId + ":" + UUID.randomUUID());
         preset.setName(normalizeName(requestedName, source.getName() + " 副本"));
         preset.setDescription(privateDescription(generation));
-        preset.setBundleJson(writePrivateBundle(generation, SOURCE_USER_COPY));
+        preset.setBundleJson(writePrivateBundle(generation, SOURCE_USER_COPY,
+                copyPromptConfiguration(parseBundle(source.getBundleJson()))));
         preset.setEnabled(true);
         preset.setSourceAvailable(true);
         presetMapper.insertPrivate(preset);
@@ -189,6 +191,8 @@ public class ChatPresetService {
         }
         PrivateGeneration generation = validateEditablePrivateGeneration(
                 1.0d, 1.0d, 0.0d, 0.0d, MIN_EDITABLE_MAX_TOKENS, DEFAULT_PRIVATE_MAX_CONTEXT);
+        AppChatPreset globalDefault = presetMapper.findEnabledGlobalDefault();
+        JsonNode template = globalDefault == null ? null : copyPromptConfiguration(parseBundle(globalDefault.getBundleJson()));
         AppChatPreset preset = new AppChatPreset();
         preset.setOwnerUserId(userId);
         preset.setScope(SCOPE_PRIVATE);
@@ -197,7 +201,7 @@ public class ChatPresetService {
         preset.setSourceName("user:" + userId + ":" + UUID.randomUUID());
         preset.setName(normalizeName(requestedName, "我的预设"));
         preset.setDescription(privateDescription(generation));
-        preset.setBundleJson(writePrivateBundle(generation, SOURCE_USER_CUSTOM));
+        preset.setBundleJson(writePrivateBundle(generation, SOURCE_USER_CUSTOM, template));
         preset.setEnabled(true);
         preset.setSourceAvailable(true);
         presetMapper.insertPrivate(preset);
@@ -243,7 +247,8 @@ public class ChatPresetService {
                 userId,
                 safeName,
                 privateDescription(generation),
-                writePrivateBundle(generation, privateSourceType(existing.getSourceType())),
+                writePrivateBundle(generation, privateSourceType(existing.getSourceType()),
+                        copyPromptConfiguration(parseBundle(existing.getBundleJson()))),
                 enabled
         ) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "private preset changed, please retry");
@@ -310,16 +315,19 @@ public class ChatPresetService {
         }
         if (SCOPE_PRIVATE.equalsIgnoreCase(preset.getScope())) {
             try {
-                return withRuntimeMetadata(preset, writePrivateBundle(
-                        readPrivateGeneration(preset.getBundleJson()),
-                        privateSourceType(preset.getSourceType())
-                ));
+                // Preserve the complete per-user prompt bundle. Legacy rows that only
+                // contain generation fields remain valid; new edits update generation
+                // in place without dropping prompts, prompt_order, or continue options.
+                PrivateGeneration generation = readPrivateGeneration(preset.getBundleJson());
+                String normalizedBundle = normalizePrivateBundle(preset.getBundleJson(), generation);
+                return withRuntimeMetadata(preset, normalizedBundle);
             } catch (Exception ignored) {
                 return null;
             }
         }
-        String bundleJson = preset.getBundleJson();
-        if (Boolean.TRUE.equals(preset.getGlobalDefault())) {
+        boolean hasAdminOverride = StringUtils.hasText(preset.getAdminOverrideJson());
+        String bundleJson = hasAdminOverride ? preset.getAdminOverrideJson() : preset.getBundleJson();
+        if (Boolean.TRUE.equals(preset.getGlobalDefault()) && !hasAdminOverride) {
             try {
                 JsonNode parsed = objectMapper.readTree(bundleJson);
                 if (parsed != null && parsed.isObject()) {
@@ -368,7 +376,28 @@ public class ChatPresetService {
         }
         Map<String, Object> data = toAdminRow(preset);
         data.put("bundleJson", prettyJson(preset.getBundleJson()));
+        data.put("adminOverrideJson", StringUtils.hasText(preset.getAdminOverrideJson())
+                ? prettyJson(preset.getAdminOverrideJson())
+                : null);
         return data;
+    }
+
+    @Transactional
+    public boolean updateAdminConfiguration(long id, String bundleJson) {
+        AppChatPreset preset = presetMapper.findPublicById(id);
+        if (preset == null) {
+            return false;
+        }
+        String normalized = validateAdminConfiguration(bundleJson, preset);
+        return presetMapper.updateAdminOverride(id, normalized) == 1;
+    }
+
+    @Transactional
+    public boolean restoreStConfiguration(long id) {
+        if (presetMapper.findPublicById(id) == null) {
+            return false;
+        }
+        return presetMapper.clearAdminOverride(id) == 1;
     }
 
     @Transactional
@@ -416,8 +445,94 @@ public class ChatPresetService {
         row.put("sourceAvailable", !Boolean.FALSE.equals(preset.getSourceAvailable()));
         row.put("globalDefault", Boolean.TRUE.equals(preset.getGlobalDefault()));
         row.put("editable", SCOPE_PRIVATE.equalsIgnoreCase(preset.getScope()));
-        row.put("summary", summarizeBundle(preset.getBundleJson()));
+        boolean customized = StringUtils.hasText(preset.getAdminOverrideJson());
+        row.put("customized", customized);
+        row.put("summary", summarizeBundle(customized ? preset.getAdminOverrideJson() : preset.getBundleJson()));
         return row;
+    }
+
+    private String validateAdminConfiguration(String bundleJson, AppChatPreset preset) {
+        if (!StringUtils.hasText(bundleJson) || bundleJson.length() > MAX_ADMIN_OVERRIDE_CHARS) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "preset configuration must be non-empty JSON no larger than 1 MB");
+        }
+        try {
+            JsonNode parsed = objectMapper.readTree(bundleJson);
+            if (!(parsed instanceof ObjectNode root)) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED, "preset configuration must be a JSON object");
+            }
+            JsonNode generation = root.path("generation");
+            if (!generation.isObject()) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        "preset configuration must contain a generation object");
+            }
+            validateOptionalNumber(generation, 0.0d, 2.0d, "temperature", "temp_openai");
+            validateOptionalNumber(generation, 0.01d, 1.0d, "top_p", "top_p_openai");
+            validateOptionalNumber(generation, -2.0d, 2.0d, "frequency_penalty", "freq_pen_openai");
+            validateOptionalNumber(generation, -2.0d, 2.0d, "presence_penalty", "pres_pen_openai");
+            validateOptionalNumber(generation, 0.0d, 10_000_000.0d, "openai_max_tokens", "max_tokens");
+            validateOptionalNumber(generation, 0.0d, 10_000_000.0d, "openai_max_context", "max_context");
+            validateAdminBudgetRelationship(generation);
+            validateOptionalText(generation, 160, "chat_completion_source");
+            for (java.util.Iterator<String> fields = root.fieldNames(); fields.hasNext();) {
+                if (fields.next().startsWith("_effective_")) {
+                    throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                            "runtime metadata fields cannot be configured");
+                }
+            }
+            root.put("api_type", preset.getApiType() == null ? API_OPENAI : preset.getApiType());
+            root.put("source_type", preset.getSourceType() == null ? SOURCE_ST_PLATFORM : preset.getSourceType());
+            return objectMapper.writeValueAsString(root);
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "preset configuration JSON is invalid");
+        }
+    }
+
+    private static void validateOptionalNumber(JsonNode object, double min, double max, String... fields) {
+        for (String field : fields) {
+            JsonNode value = object.get(field);
+            if (value == null || value.isNull()) continue;
+            if (!value.isNumber() || !Double.isFinite(value.asDouble())
+                    || value.asDouble() < min || value.asDouble() > max) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        field + " must be a number between " + min + " and " + max);
+            }
+        }
+    }
+
+    private static void validateOptionalText(JsonNode object, int maxLength, String... fields) {
+        for (String field : fields) {
+            JsonNode value = object.get(field);
+            if (value == null || value.isNull()) continue;
+            if (!value.isTextual() || value.asText().length() > maxLength) {
+                throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                        field + " must be text no longer than " + maxLength + " characters");
+            }
+        }
+    }
+
+    private static void validateAdminBudgetRelationship(JsonNode generation) {
+        JsonNode tokensNode = firstPresent(generation, "openai_max_tokens", "max_tokens");
+        JsonNode contextNode = firstPresent(generation, "openai_max_context", "max_context");
+        if (tokensNode == null || contextNode == null || !tokensNode.isNumber() || !contextNode.isNumber()) {
+            return;
+        }
+        if (contextNode.asDouble() < tokensNode.asDouble() + 512.0d) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+                    "openai_max_context must be at least openai_max_tokens + 512");
+        }
+    }
+
+    private static JsonNode firstPresent(JsonNode object, String... fields) {
+        for (String field : fields) {
+            JsonNode value = object.get(field);
+            if (value != null && !value.isNull()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private String withRuntimeMetadata(AppChatPreset preset, String bundleJson) {
@@ -543,22 +658,102 @@ public class ChatPresetService {
         return Math.min(MAX_MAX_CONTEXT, Math.max(Math.max(2048, currentMaxContext), maxTokens + 512));
     }
 
-    private String writePrivateBundle(PrivateGeneration generation, String sourceType) {
+    private String writePrivateBundle(PrivateGeneration generation, String sourceType, JsonNode template) {
         try {
-            ObjectNode root = objectMapper.createObjectNode();
+            ObjectNode root = template != null && template.isObject()
+                    ? ((ObjectNode) template).deepCopy()
+                    : objectMapper.createObjectNode();
             root.put("schemaVersion", 1);
             root.put("source_type", privateSourceType(sourceType));
-            ObjectNode values = root.putObject("generation");
+            JsonNode existingGeneration = root.path("generation");
+            ObjectNode values = existingGeneration.isObject()
+                    ? ((ObjectNode) existingGeneration).deepCopy()
+                    : objectMapper.createObjectNode();
             values.put("temperature", generation.temperature());
             values.put("top_p", generation.topP());
             values.put("frequency_penalty", generation.frequencyPenalty());
             values.put("presence_penalty", generation.presencePenalty());
             values.put("openai_max_tokens", generation.maxTokens());
             values.put("openai_max_context", generation.maxContext());
+            root.set("generation", values);
             return objectMapper.writeValueAsString(root);
         } catch (JsonProcessingException ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "preset serialization failed");
         }
+    }
+
+    private String normalizePrivateBundle(String bundleJson, PrivateGeneration generation) {
+        try {
+            JsonNode parsed = objectMapper.readTree(bundleJson);
+            ObjectNode root = parsed != null && parsed.isObject()
+                    ? ((ObjectNode) parsed).deepCopy()
+                    : objectMapper.createObjectNode();
+            JsonNode existingGeneration = root.path("generation");
+            ObjectNode values = existingGeneration.isObject()
+                    ? ((ObjectNode) existingGeneration).deepCopy()
+                    : objectMapper.createObjectNode();
+            values.put("temperature", generation.temperature());
+            values.put("top_p", generation.topP());
+            values.put("frequency_penalty", generation.frequencyPenalty());
+            values.put("presence_penalty", generation.presencePenalty());
+            values.put("openai_max_tokens", generation.maxTokens());
+            values.put("openai_max_context", generation.maxContext());
+            root.set("generation", values);
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_FAILED, "preset parameters invalid");
+        }
+    }
+
+    private JsonNode parseBundle(String bundleJson) {
+        if (!StringUtils.hasText(bundleJson)) {
+            return null;
+        }
+        try {
+            JsonNode parsed = objectMapper.readTree(bundleJson);
+            return parsed != null && parsed.isObject() ? parsed : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private JsonNode copyPromptConfiguration(JsonNode source) {
+        if (source == null || !source.isObject()) {
+            return null;
+        }
+        ObjectNode copied = objectMapper.createObjectNode();
+        for (String field : List.of(
+                "prompts", "prompt_order", "main_prompt", "jailbreak_prompt",
+                "continue_nudge_prompt", "continue_nudge_role", "continue_prefill",
+                "continue_postfix", "wi_format", "new_chat_prompt",
+                "new_example_chat_prompt", "new_group_chat_prompt", "context", "instruct",
+                "power_user", "squash_system_messages"
+        )) {
+            JsonNode value = source.get(field);
+            if (value != null) {
+                copied.set(field, value.deepCopy());
+            }
+        }
+        JsonNode generation = source.path("generation");
+        if (generation.isObject()) {
+            ObjectNode generationPrompts = objectMapper.createObjectNode();
+            for (String field : List.of(
+                    "prompts", "prompt_order", "main_prompt", "jailbreak_prompt",
+                    "continue_nudge_prompt", "continue_nudge_role", "continue_prefill",
+                    "continue_postfix", "wi_format", "new_chat_prompt",
+                    "new_example_chat_prompt", "new_group_chat_prompt", "context", "instruct",
+                    "power_user", "squash_system_messages"
+            )) {
+                JsonNode value = generation.get(field);
+                if (value != null) {
+                    generationPrompts.set(field, value.deepCopy());
+                }
+            }
+            if (!generationPrompts.isEmpty()) {
+                copied.set("generation", generationPrompts);
+            }
+        }
+        return copied;
     }
 
     private static String privateSourceType(String sourceType) {
@@ -631,7 +826,9 @@ public class ChatPresetService {
         row.put("lastSyncedAt", preset.getLastSyncedAt());
         row.put("createdAt", preset.getCreatedAt());
         row.put("updatedAt", preset.getUpdatedAt());
-        row.put("summary", summarizeBundle(preset.getBundleJson()));
+        boolean customized = StringUtils.hasText(preset.getAdminOverrideJson());
+        row.put("customized", customized);
+        row.put("summary", summarizeBundle(customized ? preset.getAdminOverrideJson() : preset.getBundleJson()));
         return row;
     }
 

@@ -598,7 +598,7 @@ public class AppChatService {
         ).withStudioLore(
                 studioPrompt.beforeCharacter(), studioPrompt.afterCharacter(), studioPrompt.beforeHistory());
 
-        if (tryFrontendBridge(
+        if (!nativeTextRuntime && tryFrontendBridge(
                 stReq,
                 compatibilityDecision,
                 userModelOverride,
@@ -681,7 +681,7 @@ public class AppChatService {
                 userPersona
         ).withStudioLore(
                 studioPrompt.beforeCharacter(), studioPrompt.afterCharacter(), studioPrompt.beforeHistory());
-        if (tryFrontendBridge(
+        if (!nativeTextRuntime && tryFrontendBridge(
                 stReq,
                 compatibilityDecision,
                 userModelOverride,
@@ -782,7 +782,7 @@ public class AppChatService {
                 userPersona
         ).withStudioLore(
                 studioPrompt.beforeCharacter(), studioPrompt.afterCharacter(), studioPrompt.beforeHistory());
-        if (tryFrontendBridge(
+        if (!nativeTextRuntime && tryFrontendBridge(
                 stReq,
                 compatibilityDecision,
                 userModelOverride,

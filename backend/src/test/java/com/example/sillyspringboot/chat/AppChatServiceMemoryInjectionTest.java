@@ -86,7 +86,7 @@ public class AppChatServiceMemoryInjectionTest {
     }
 
     @Test
-    void streamGenerate_shouldNeverFallBackToRuntimeAfterFrontendDispatch() {
+    void streamGenerate_shouldKeepNativeTextOnRuntimeEvenWhenCompatibilitySuggestsBridge() {
         long conversationId = 131L;
         AppChatService service = buildService(conversationId);
         when(serviceTestUserAiProviderService.resolveActiveOverrideForUser(77L)).thenReturn(null);
@@ -106,21 +106,15 @@ public class AppChatServiceMemoryInjectionTest {
         ));
         when(serviceTestFrontendBridgeService.enabled()).thenReturn(true);
         when(serviceTestFrontendBridgeService.hasOnlineWorker()).thenReturn(true);
-        AppChatFrontendBridgeService.FrontendBridgeGenerationException dispatchedFailure =
-                mock(AppChatFrontendBridgeService.FrontendBridgeGenerationException.class);
-        when(dispatchedFailure.wasDispatched()).thenReturn(true);
-        doThrow(dispatchedFailure).when(serviceTestFrontendBridgeService)
-                .streamGenerate(any(ChatGenerateRequest.class), any(), any(StStreamControl.class));
-
         AppChatStreamRequest request = new AppChatStreamRequest();
         request.setConversationId(conversationId);
         request.setUserMessage("hello");
         request.setClientMessageId("client-dispatched-failure");
 
-        assertThatThrownBy(() ->
-                service.streamGenerate(request, "token", chunk -> { }, new StStreamControl())
-        ).isSameAs(dispatchedFailure);
-        verify(serviceTestStAdapter, never())
+        service.streamGenerate(request, "token", chunk -> { }, new StStreamControl());
+        verify(serviceTestFrontendBridgeService, never())
+                .streamGenerate(any(ChatGenerateRequest.class), any(), any(StStreamControl.class));
+        verify(serviceTestStAdapter)
                 .streamGenerateAssistantReply(any(ChatGenerateRequest.class), any(), any(StStreamControl.class));
     }
 

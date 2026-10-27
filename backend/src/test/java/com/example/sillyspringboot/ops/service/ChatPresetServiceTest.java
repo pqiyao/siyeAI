@@ -30,15 +30,17 @@ class ChatPresetServiceTest {
     private static final long CONVERSATION_ID = 20L;
 
     @Test
-    void copyPlatformPresetPersistsOnlyWhitelistedGenerationParameters() throws Exception {
+    void copyPlatformPresetKeepsPromptStructureAndDropsConnectionConfiguration() throws Exception {
         Fixture fixture = fixture();
         AppChatPreset source = preset(1L, null, "PUBLIC", true);
         source.setName("官方平衡");
         source.setBundleJson("""
-                {"generation":{"temperature":0.8,"top_p":0.9,"frequency_penalty":0.2,
+                {"prompts":[{"identifier":"main","content":"private writing style"}],
+                 "prompt_order":[{"character_id":100001,"order":[{"identifier":"main","enabled":true}]}],
+                 "generation":{"temperature":0.8,"top_p":0.9,"frequency_penalty":0.2,
                 "presence_penalty":0.3,"openai_max_tokens":700,
                 "openai_max_context":16000,"chat_completion_source":"custom","reverse_proxy":"secret",
-                "prompts":[{"identifier":"main","content":"hidden"}]}}
+                "custom_url":"https://provider.invalid"}}
                 """);
         when(fixture.presetMapper.findEnabledPublicById(1L)).thenReturn(source);
 
@@ -58,9 +60,48 @@ class ChatPresetServiceTest {
         assertThat(generation.path("presence_penalty").asDouble()).isEqualTo(0.3d);
         assertThat(generation.path("openai_max_tokens").asInt()).isEqualTo(800);
         assertThat(generation.path("openai_max_context").asInt()).isEqualTo(16000);
-        assertThat(stored.getBundleJson()).doesNotContain("custom", "reverse_proxy", "hidden", "prompts");
+        assertThat(stored.getBundleJson()).contains("private writing style", "prompt_order")
+                .doesNotContain("custom\"", "reverse_proxy", "provider.invalid");
         verify(fixture.presetMapper).lockOwnerUser(USER_ID);
         verify(fixture.presetMapper).countPrivateByOwner(USER_ID);
+    }
+
+    @Test
+    void editingPrivatePresetPreservesPromptStructureInRuntimeBundle() throws Exception {
+        Fixture fixture = fixture();
+        AppChatPreset existing = preset(5L, USER_ID, "PRIVATE", true);
+        existing.setBundleJson("""
+                {"schemaVersion":1,"source_type":"USER_COPY",
+                 "prompts":[{"identifier":"main","content":"You write restrained literary Chinese."}],
+                 "prompt_order":[{"character_id":100001,"order":[{"identifier":"main","enabled":true}]}],
+                 "generation":{"temperature":1,"top_p":1,"openai_max_tokens":800,"openai_max_context":8192}}
+                """);
+        when(fixture.presetMapper.findPrivateByIdForOwner(5L, USER_ID)).thenReturn(existing, existing);
+        when(fixture.presetMapper.updatePrivate(
+                org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.eq(USER_ID),
+                org.mockito.ArgumentMatchers.eq("我的预设"),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq(true)
+        )).thenReturn(1);
+
+        fixture.service.updatePrivatePreset(USER_ID, 5L, "我的预设", 0.7d, 0.9d, 0.1d, 0.0d, 1000, true);
+
+        ArgumentCaptor<String> bundleCaptor = ArgumentCaptor.forClass(String.class);
+        verify(fixture.presetMapper).updatePrivate(
+                org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.eq(USER_ID),
+                org.mockito.ArgumentMatchers.eq("我的预设"),
+                org.mockito.ArgumentMatchers.anyString(),
+                bundleCaptor.capture(),
+                org.mockito.ArgumentMatchers.eq(true)
+        );
+        JsonNode updated = new ObjectMapper().readTree(bundleCaptor.getValue());
+        assertThat(updated.path("prompts").get(0).path("content").asText())
+                .isEqualTo("You write restrained literary Chinese.");
+        assertThat(updated.path("prompt_order").isArray()).isTrue();
+        assertThat(updated.path("generation").path("openai_max_tokens").asInt()).isEqualTo(1000);
     }
 
     @Test
@@ -201,6 +242,59 @@ class ChatPresetServiceTest {
         assertThat(resolved.path("_effective_preset_id").asLong()).isEqualTo(5L);
         verify(fixture.presetMapper, never()).findEnabledGlobalDefault();
         verify(fixture.runtimeDefaultSettingsService, never()).current();
+    }
+
+    @Test
+    void adminOverrideIsUsedForRuntimeWithoutChangingTheStSnapshot() throws Exception {
+        Fixture fixture = fixture();
+        AppConversationStBinding binding = new AppConversationStBinding();
+        binding.setUserId(USER_ID);
+        binding.setChatPresetId(7L);
+        AppChatPreset preset = preset(7L, null, "PUBLIC", true);
+        preset.setBundleJson("{\"generation\":{\"temperature\":0.7,\"openai_max_tokens\":1024,\"openai_max_context\":8192}}");
+        preset.setAdminOverrideJson("{\"generation\":{\"temperature\":0.4,\"openai_max_tokens\":2048,\"openai_max_context\":8192},\"api_type\":\"openai\",\"source_type\":\"ST_PLATFORM\"}");
+        when(fixture.presetMapper.findEnabledAvailableById(7L, USER_ID)).thenReturn(preset);
+
+        JsonNode resolved = new ObjectMapper().readTree(fixture.service.resolveRuntimePresetBundle(binding));
+
+        assertThat(resolved.path("generation").path("temperature").asDouble()).isEqualTo(0.4d);
+        assertThat(resolved.path("generation").path("openai_max_tokens").asInt()).isEqualTo(2048);
+        assertThat(preset.getBundleJson()).contains("0.7").doesNotContain("2048");
+        verify(fixture.runtimeDefaultSettingsService, never()).current();
+    }
+
+    @Test
+    void adminConfigurationPersistsSeparateOverrideAndCanRestoreStSnapshot() {
+        Fixture fixture = fixture();
+        AppChatPreset preset = preset(7L, null, "PUBLIC", true);
+        when(fixture.presetMapper.findPublicById(7L)).thenReturn(preset);
+        when(fixture.presetMapper.updateAdminOverride(org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(1);
+        when(fixture.presetMapper.clearAdminOverride(7L)).thenReturn(1);
+
+        assertThat(fixture.service.updateAdminConfiguration(7L,
+                "{\"generation\":{\"temperature\":0.5,\"openai_max_tokens\":2048,\"openai_max_context\":8192}}"))
+                .isTrue();
+        ArgumentCaptor<String> override = ArgumentCaptor.forClass(String.class);
+        verify(fixture.presetMapper).updateAdminOverride(org.mockito.ArgumentMatchers.eq(7L), override.capture());
+        assertThat(override.getValue()).contains("\"api_type\":\"openai\"")
+                .contains("\"source_type\":\"ST_PLATFORM\"");
+        assertThat(fixture.service.restoreStConfiguration(7L)).isTrue();
+        verify(fixture.presetMapper).clearAdminOverride(7L);
+    }
+
+    @Test
+    void adminConfigurationRejectsContextSmallerThanOutputBudget() {
+        Fixture fixture = fixture();
+        when(fixture.presetMapper.findPublicById(7L)).thenReturn(preset(7L, null, "PUBLIC", true));
+
+        assertThatThrownBy(() -> fixture.service.updateAdminConfiguration(7L,
+                "{\"generation\":{\"openai_max_tokens\":4096,\"openai_max_context\":4096}}"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("+ 512");
+
+        verify(fixture.presetMapper, never()).updateAdminOverride(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test

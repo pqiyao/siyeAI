@@ -33,6 +33,17 @@ test('系统默认参数从独立接口读取保存并沿用预设编辑权限',
   assert.match(presetApi, /method: 'put'/)
 })
 
+test('单个 ST 预设支持后台覆盖、恢复原始配置并显示覆盖状态', () => {
+  assert.match(preset, /row\.customized/)
+  assert.match(preset, /configDraft/)
+  assert.match(preset, /handleSaveConfig/)
+  assert.match(preset, /handleRestoreConfig/)
+  assert.match(preset, /恢复 ST 配置/)
+  assert.match(preset, /保存预设配置/)
+  assert.match(presetApi, /\/config/)
+  assert.match(presetApi, /method: 'delete'/)
+})
+
 test('站点规则提供系统预设和我的预设两个独立显示开关', () => {
   assert.match(entitlement, /显示系统预设选择/)
   assert.match(entitlement, /v-model="runtimeSettings\.systemChatPresetEntryVisible"/)

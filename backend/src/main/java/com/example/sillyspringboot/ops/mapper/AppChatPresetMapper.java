@@ -62,5 +62,9 @@ public interface AppChatPresetMapper {
 
     int updateSortOrder(@Param("id") long id, @Param("sortOrder") int sortOrder);
 
+    int updateAdminOverride(@Param("id") long id, @Param("overrideJson") String overrideJson);
+
+    int clearAdminOverride(@Param("id") long id);
+
     int deleteById(@Param("id") long id);
 }

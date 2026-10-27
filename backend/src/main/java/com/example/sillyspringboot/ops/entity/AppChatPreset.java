@@ -13,6 +13,7 @@ public class AppChatPreset {
     private String name;
     private String description;
     private String bundleJson;
+    private String adminOverrideJson;
     private Boolean enabled;
     private Boolean sourceAvailable;
     private Boolean globalDefault;
@@ -91,6 +92,14 @@ public class AppChatPreset {
 
     public void setBundleJson(String bundleJson) {
         this.bundleJson = bundleJson;
+    }
+
+    public String getAdminOverrideJson() {
+        return adminOverrideJson;
+    }
+
+    public void setAdminOverrideJson(String adminOverrideJson) {
+        this.adminOverrideJson = adminOverrideJson;
     }
 
     public Boolean getEnabled() {

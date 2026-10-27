@@ -63,6 +63,21 @@ export function updateChatPresetSort(id, sortOrder) {
   })
 }
 
+export function updateChatPresetConfig(id, bundleJson) {
+  return sillyRequest({
+    url: '/admin/jiugai/chat-preset/' + id + '/config',
+    method: 'put',
+    data: { bundleJson }
+  })
+}
+
+export function restoreChatPresetConfig(id) {
+  return sillyRequest({
+    url: '/admin/jiugai/chat-preset/' + id + '/config',
+    method: 'delete'
+  })
+}
+
 export function delChatPreset(id) {
   return sillyRequest({
     url: '/admin/jiugai/chat-preset/' + id,

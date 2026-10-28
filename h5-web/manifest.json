@@ -2,8 +2,8 @@
     "name" : "四叶AI",
     "appid" : "__UNI__200F612",
     "description" : "",
-    "versionName" : "1.4.5",
-    "versionCode" : 112,
+    "versionName" : "1.4.6",
+    "versionCode" : 113,
     "transformPx" : false,
     "sassImplementationName" : "node-sass",
     /* 5+App特有相关 */

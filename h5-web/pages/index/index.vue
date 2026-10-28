@@ -1,4 +1,4 @@
-﻿<template>
+<template>
 	<view class="root" :class="localeFontClass">
 		<image class="global-bg-image" src="/static/login.png" mode="aspectFill"></image>
 		<liquid-glass-canvas variant="detail" background-src="/static/login.png" />
@@ -94,6 +94,11 @@
 						</view>
 					</scroll-view>
 				</view>
+
+				<view v-if="isJgDiscover && discoverActiveFilterCount > 0" class="filter-notice" @tap="clearDiscoverFilters">
+					<text class="filter-notice-text">{{ discoverFilterNoticeText }}</text>
+					<text class="filter-notice-clear">{{ discoverUi.clear }}</text>
+				</view>
 			</view>
 
 			<view v-show="swiperCurrent === 0" class="page-box">
@@ -129,7 +134,12 @@
 				>
 					<text class="discover-status-txt">{{ discoverLoadError ? discoverLoadError : discoverUi.empty }}</text>
 					<view
-						v-if="discoverLoadError"
+						v-if="discoverActiveFilterCount > 0"
+						class="discover-retry"
+						@tap="clearDiscoverFilters"
+					>{{ discoverUi.clear }}</view>
+					<view
+						v-else-if="discoverLoadError"
 						class="discover-retry"
 						@tap="tryLoadCharsFromBackend"
 					>{{ discoverUi.retry }}</view>
@@ -281,6 +291,9 @@
 				</view>
 				<view v-if="hasMoreDiscoverCards" class="list-more">
 					<text class="list-more-text">{{ listProgressText(displayGridList.length, sortedDiscoverList.length, discoverServerHasMore, discoverLoading) }}</text>
+					<view class="list-more-btn" @tap="handleManualLoadMore">
+						<text class="list-more-btn-text">加载更多</text>
+					</view>
 				</view>
 				<view v-else-if="feedTab !== 4" class="empty-feed">
 					<text>{{ discoverUi.empty }}</text>
@@ -673,6 +686,14 @@ export default {
 				if (this.selectedGameplay) count += 1;
 				return count;
 			},
+			discoverFilterNoticeText() {
+				const parts = [];
+				if (this.selectedTag) parts.push('标签：' + this.selectedTag);
+				if (this.selectedGameplay) parts.push('玩法：' + this.selectedGameplay);
+				if (!parts.length) return '';
+				const total = this.sortedDiscoverList.length;
+				return '当前筛选 · ' + parts.join('　') + '　共 ' + total + ' 个角色';
+			},
 			discoverGridHeadline() {
 				if (this.selectedTag || this.selectedGameplay) {
 					return this.discoverUi.filteredTitle;
@@ -852,6 +873,16 @@ export default {
 					return;
 				}
 				this.loadMoreDiscoverCards();
+			},
+			handleManualLoadMore() {
+				if (this.discoverLoading || this.feedTab === 4) {
+					return;
+				}
+				// 手势兜底：某些机型/WebView 不触发 scrolltolower，这里给一个明确的按钮出口。
+				this.loadMoreDiscoverCards();
+				if (this.discoverServerHasMore) {
+					this.loadNextDiscoverPage();
+				}
 			},
 			listProgressText(visibleCount, totalCount, serverHasMore, loadingMore) {
 				const safeVisible = Math.max(0, Number(visibleCount) || 0);
@@ -1116,6 +1147,16 @@ export default {
 						if (!normalized.length) {
 							this.discoverTagHint = this.discoverUi.tagEmpty;
 						}
+						// 本地存储里的标签若已不在标签列表中（被下线/改名），直接清掉，避免首页永远空着。
+						if (
+							this.selectedTag &&
+							normalized.length &&
+							!normalized.some((item) => this.tagOptionValue(item) === this.selectedTag)
+						) {
+							this.selectedTag = '';
+							this.persistDiscoverTag('');
+							this.tryLoadCharsFromBackend({ force: true });
+						}
 					})
 					.catch(() => {
 						this.discoverTagOptions = [];
@@ -1131,10 +1172,12 @@ export default {
 					if (t != null && String(t).trim() !== '') {
 						this.selectedTag = String(t).trim();
 					}
-					const g = uni.getStorageSync('tavern_discover_gameplay');
-					if (g != null && String(g).trim() !== '') {
-						this.selectedGameplay = String(g).trim();
-					}
+				} catch (e) {}
+				// 玩法筛选只在本次会话内生效：历史版本会把玩法（如“角色扮演”）写进本地存储，
+				// 之后每次进入首页都静默套用，导致首页长期只显示少量角色（线上曾出现只剩 14 个）。
+				this.selectedGameplay = '';
+				try {
+					uni.removeStorageSync('tavern_discover_gameplay');
 				} catch (e) {}
 			},
 			persistDiscoverTag(tag) {
@@ -1147,12 +1190,9 @@ export default {
 				} catch (e) {}
 			},
 			persistDiscoverGameplay(g) {
+				// 玩法筛选不再跨会话保留，避免残留筛选让首页长期只剩少量角色。
 				try {
-					if (g) {
-						uni.setStorageSync('tavern_discover_gameplay', g);
-					} else {
-						uni.removeStorageSync('tavern_discover_gameplay');
-					}
+					uni.removeStorageSync('tavern_discover_gameplay');
 				} catch (e) {}
 			},
 			toggleDiscoverTag(t) {
@@ -3279,6 +3319,47 @@ export default {
 		font-size: 22rpx;
 		line-height: 1.6;
 		color: rgba(76, 147, 180, 0.84);
+	}
+
+	.filter-notice {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16rpx;
+		margin: 10rpx 32rpx 0;
+		padding: 14rpx 22rpx;
+		border-radius: 999rpx;
+		background: rgba(255, 238, 216, 0.92);
+		border: 1rpx solid rgba(255, 176, 96, 0.55);
+	}
+
+	.filter-notice-text {
+		flex: 1;
+		font-size: 22rpx;
+		line-height: 1.5;
+		color: #a4601a;
+	}
+
+	.filter-notice-clear {
+		font-size: 22rpx;
+		color: #d9534f;
+		padding-left: 12rpx;
+	}
+
+	.list-more-btn {
+		margin: 16rpx auto 0;
+		padding: 14rpx 44rpx;
+		border-radius: 999rpx;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(217, 242, 249, 0.92);
+		border: 1rpx solid rgba(140, 200, 226, 0.7);
+	}
+
+	.list-more-btn-text {
+		font-size: 24rpx;
+		color: #2f6f92;
 	}
 
 .empty-feed--block {
